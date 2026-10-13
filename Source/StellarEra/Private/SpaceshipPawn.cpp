@@ -2,12 +2,14 @@
 
 #include "SpaceshipPawn.h"
 
+#include "VoxelPlanetActor.h"
 #include "Camera/CameraComponent.h"
 #include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "GameFramework/FloatingPawnMovement.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "UObject/ConstructorHelpers.h"
+#include "EngineUtils.h"
 
 ASpaceshipPawn::ASpaceshipPawn()
 {
@@ -56,6 +58,45 @@ ASpaceshipPawn::ASpaceshipPawn()
 	}
 }
 
+void ASpaceshipPawn::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// 自动回正需要一个重力参考：贴着行星时对齐到球面法线，太空中对齐到世界 Z。
+	PlanetActor = FindNearestPlanet();
+}
+
+AVoxelPlanetActor* ASpaceshipPawn::FindNearestPlanet() const
+{
+	AVoxelPlanetActor* Nearest = nullptr;
+	float NearestDistSq = FMath::Square(PlanetSearchRadius);
+
+	for (TActorIterator<AVoxelPlanetActor> It(GetWorld()); It; ++It)
+	{
+		const float DistSq = FVector::DistSquared(It->GetActorLocation(), GetActorLocation());
+		if (DistSq < NearestDistSq)
+		{
+			NearestDistSq = DistSq;
+			Nearest = *It;
+		}
+	}
+	return Nearest;
+}
+
+FVector ASpaceshipPawn::GetAutoLevelUp() const
+{
+	if (PlanetActor)
+	{
+		const FVector Radial =
+			(GetActorLocation() - PlanetActor->GetActorLocation()).GetSafeNormal();
+		if (!Radial.IsNearlyZero())
+		{
+			return Radial;
+		}
+	}
+	return FVector::UpVector;
+}
+
 void ASpaceshipPawn::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
@@ -76,8 +117,10 @@ void ASpaceshipPawn::Tick(float DeltaSeconds)
 	{
 		const FQuat Current = GetActorQuat();
 		const FVector Forward = Current.GetForwardVector();
-		// 世界 Z 投影到垂直于机身前向的平面，就是机身“上”应该朝向的方向。
-		FVector DesiredUp = FVector::VectorPlaneProject(FVector::UpVector, Forward);
+		// 参考“上”投影到垂直于机身前向的平面，就是机身“上”应该朝向的方向。
+		// 参考方向贴着行星时是球面法线，太空中才是世界 Z —— 若一律用世界 Z，
+		// 飞船在赤道附近会直接滚转 90°，落地射线随之指偏，IsLanded() 永远为假。
+		FVector DesiredUp = FVector::VectorPlaneProject(GetAutoLevelUp(), Forward);
 		if (DesiredUp.Normalize())
 		{
 			const FQuat Correction = FQuat::FindBetweenNormals(Current.GetUpVector(), DesiredUp);

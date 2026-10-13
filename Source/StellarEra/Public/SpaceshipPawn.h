@@ -7,6 +7,7 @@
 #include "GameFramework/Pawn.h"
 #include "SpaceshipPawn.generated.h"
 
+class AVoxelPlanetActor;
 class UCameraComponent;
 class UFloatingPawnMovement;
 class USphereComponent;
@@ -28,6 +29,7 @@ class ASpaceshipPawn : public APawn
 public:
 	ASpaceshipPawn();
 
+	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
 
 	/** 主推力输入（-1 = 反推，+1 = 前进）。 */
@@ -88,6 +90,17 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Handling")
 	float AutoLevelSpeed = 45.f;
 
+	/**
+	 * 自动回正的重力参考行星。BeginPlay 时自动查找最近的一颗；找不到（纯太空关卡）
+	 * 时自动回正退回世界 Z。软依赖：缺了它飞船照常飞。
+	 */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Spaceship")
+	TObjectPtr<AVoxelPlanetActor> PlanetActor;
+
+	/** 查找行星时的最大距离（厘米）。默认 1000 公里，够覆盖任意单颗行星。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spaceship")
+	float PlanetSearchRadius = 1.0e8f;
+
 	/** 判定“已落地”的速度阈值（厘米/秒）。 */
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Landing")
 	float LandingSpeedThreshold = 200.f;
@@ -102,4 +115,13 @@ private:
 	float VerticalInput = 0.f;
 	float YawRate = 0.f;
 	float PitchRate = 0.f;
+
+	/** 在关卡里找离飞船最近的一颗行星；找不到返回 nullptr。 */
+	AVoxelPlanetActor* FindNearestPlanet() const;
+
+	/**
+	 * 自动回正的目标“上”：有行星时取该行星的径向外侧（飞船停在球面任何位置都
+	 * 贴合当地水平面），太空中退回世界 Z。
+	 */
+	FVector GetAutoLevelUp() const;
 };
