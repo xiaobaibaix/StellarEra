@@ -3,6 +3,7 @@
 #include "SpaceshipPawn.h"
 
 #include "VoxelPlanetActor.h"
+#include "PlanetCharacter.h"
 #include "Camera/CameraComponent.h"
 #include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -177,4 +178,14 @@ bool ASpaceshipPawn::IsLanded() const
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(SpaceshipLanding), /*bTraceComplex=*/false, this);
 	FHitResult Hit;
 	return GetWorld()->LineTraceSingleByChannel(Hit, Start, End, ECC_WorldStatic, Params);
+}
+
+bool ASpaceshipPawn::CanBoardFrom(const FVector& CharacterLocation) const
+{
+	return FVector::DistSquared(CharacterLocation, GetActorLocation()) <= FMath::Square(BoardingRadius);
+}
+
+void ASpaceshipPawn::SetBoardedCharacter(APlanetCharacter* Character)
+{
+	BoardedCharacter = Character;
 }

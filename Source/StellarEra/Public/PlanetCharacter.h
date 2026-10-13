@@ -7,6 +7,7 @@
 #include "GameFramework/Character.h"
 #include "PlanetCharacter.generated.h"
 
+class ASpaceshipPawn;
 class AVoxelPlanetActor;
 class UCameraComponent;
 class USpringArmComponent;
@@ -38,6 +39,15 @@ public:
 
 	/** 切换冲刺。 */
 	void SetSprinting(bool bSprinting);
+
+	/**
+	 * 登船 / 离船。登船时隐藏并关掉碰撞——附着的 Actor 仍然参与碰撞，
+	 * 不关的话角色的胶囊会卡在飞船的碰撞球里。
+	 */
+	void SetBoarded(bool bBoarded);
+
+	/** 找离角色最近的飞船；找不到返回 nullptr。 */
+	ASpaceshipPawn* FindNearestShip() const;
 
 	/** 当前所在的行星。BeginPlay 时自动查找最近的一颗。 */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Planet")

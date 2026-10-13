@@ -7,6 +7,7 @@
 #include "GameFramework/PlayerController.h"
 #include "StellarEraPlayerController.generated.h"
 
+class ASpaceshipPawn;
 class UInputAction;
 class UInputMappingContext;
 struct FInputActionValue;
@@ -55,6 +56,20 @@ protected:
 	 */
 	UFUNCTION(Exec)
 	void DebugPossessShip();
+
+	virtual void PlayerTick(float DeltaTime) override;
+
+	/** 按 E 时的分派：没在船上就尝试登船，在船上就尝试离船。 */
+	void OnInteract(const FInputActionValue& Value);
+
+	/** 尝试让角色登上指定飞船。 */
+	void BoardShip(ASpaceshipPawn* Ship);
+
+	/** 尝试从当前飞船下船。 */
+	void LeaveShip(ASpaceshipPawn* Ship);
+
+	/** 在屏幕上显示一行提示（每帧刷新，duration 0）。 */
+	void ShowPrompt(const FString& Text);
 
 	/** 鼠标灵敏度（度/像素）。 */
 	UPROPERTY(EditAnywhere, Category = "Input")

@@ -3,6 +3,7 @@
 #include "PlanetCharacter.h"
 
 #include "VoxelPlanetActor.h"
+#include "SpaceshipPawn.h"
 #include "VoxelComponents/VoxelInvokerComponent.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -84,6 +85,10 @@ APlanetCharacter::APlanetCharacter()
 void APlanetCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// WalkSpeed 是 EditAnywhere：在蓝图/实例上改过之后这里应用一次，否则要等到
+	// 按一次冲刺（SetSprinting）才会生效。
+	GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
 
 	PlanetActor = FindNearestPlanet();
 	if (!PlanetActor)
@@ -242,4 +247,37 @@ void APlanetCharacter::Look(float DeltaYaw, float DeltaPitch)
 void APlanetCharacter::SetSprinting(bool bSprinting)
 {
 	GetCharacterMovement()->MaxWalkSpeed = bSprinting ? SprintSpeed : WalkSpeed;
+}
+
+void APlanetCharacter::SetBoarded(bool bBoarded)
+{
+	SetActorHiddenInGame(bBoarded);
+	SetActorEnableCollision(!bBoarded);
+
+	// 关掉移动，避免登船期间残留输入继续推动角色（它已经附着在飞船上了）。
+	GetCharacterMovement()->StopMovementImmediately();
+	GetCharacterMovement()->SetMovementMode(bBoarded ? MOVE_None : MOVE_Walking);
+
+	if (!bBoarded)
+	{
+		// 离船后重新踩上球面：碰撞体可能已经因为距离太远被回收了。
+		bHasLanded = false;
+	}
+}
+
+ASpaceshipPawn* APlanetCharacter::FindNearestShip() const
+{
+	ASpaceshipPawn* Nearest = nullptr;
+	float NearestDistSq = TNumericLimits<float>::Max();
+
+	for (TActorIterator<ASpaceshipPawn> It(GetWorld()); It; ++It)
+	{
+		const float DistSq = FVector::DistSquared(It->GetActorLocation(), GetActorLocation());
+		if (DistSq < NearestDistSq)
+		{
+			NearestDistSq = DistSq;
+			Nearest = *It;
+		}
+	}
+	return Nearest;
 }

@@ -7,6 +7,7 @@
 #include "GameFramework/Pawn.h"
 #include "SpaceshipPawn.generated.h"
 
+class APlanetCharacter;
 class AVoxelPlanetActor;
 class UCameraComponent;
 class UFloatingPawnMovement;
@@ -47,6 +48,16 @@ public:
 	/** 速度低于阈值且机身下方命中地面时为真。 */
 	UFUNCTION(BlueprintPure, Category = "Spaceship")
 	bool IsLanded() const;
+
+	/** 角色是否近到可以登船。 */
+	UFUNCTION(BlueprintPure, Category = "Spaceship")
+	bool CanBoardFrom(const FVector& CharacterLocation) const;
+
+	/** 记录登船的角色；传 nullptr 表示离船。 */
+	void SetBoardedCharacter(APlanetCharacter* Character);
+
+	/** 当前在船上的角色；没有则为 nullptr。 */
+	APlanetCharacter* GetBoardedCharacter() const { return BoardedCharacter; }
 
 protected:
 	/** 碰撞球：既是根组件也是 UFloatingPawnMovement 扫掠用的形状。 */
@@ -109,6 +120,10 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Landing")
 	float LandingProbeDistance = 600.f;
 
+	/** 登船触发半径（厘米）。 */
+	UPROPERTY(EditAnywhere, Category = "Spaceship|Boarding")
+	float BoardingRadius = 600.f;
+
 private:
 	float ThrustInput = 0.f;
 	float RollInput = 0.f;
@@ -124,4 +139,8 @@ private:
 	 * 贴合当地水平面），太空中退回世界 Z。
 	 */
 	FVector GetAutoLevelUp() const;
+
+	/** 当前在船上的角色。 */
+	UPROPERTY(Transient)
+	TObjectPtr<APlanetCharacter> BoardedCharacter;
 };

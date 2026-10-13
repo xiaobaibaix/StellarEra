@@ -9,6 +9,7 @@
 #include "InputAction.h"
 #include "InputMappingContext.h"
 #include "InputModifiers.h"
+#include "Engine/Engine.h"
 #include "Engine/LocalPlayer.h"
 #include "EngineUtils.h"
 
@@ -83,6 +84,8 @@ void AStellarEraPlayerController::SetupInputComponent()
 	EnhancedInput->BindAction(IA_Roll, ETriggerEvent::Completed, this, &AStellarEraPlayerController::OnRoll);
 	EnhancedInput->BindAction(IA_Vertical, ETriggerEvent::Triggered, this, &AStellarEraPlayerController::OnVertical);
 	EnhancedInput->BindAction(IA_Vertical, ETriggerEvent::Completed, this, &AStellarEraPlayerController::OnVertical);
+
+	EnhancedInput->BindAction(IA_Interact, ETriggerEvent::Started, this, &AStellarEraPlayerController::OnInteract);
 }
 
 void AStellarEraPlayerController::BeginPlay()
@@ -252,4 +255,96 @@ void AStellarEraPlayerController::DebugPossessShip()
 	{
 		Possess(NearestShip);
 	}
+}
+
+void AStellarEraPlayerController::PlayerTick(float DeltaTime)
+{
+	Super::PlayerTick(DeltaTime);
+
+	// 提示只在“站在飞船旁”时出现，所以每帧重算一次距离。
+	if (APlanetCharacter* PawnCharacter = Cast<APlanetCharacter>(GetPawn()))
+	{
+		ASpaceshipPawn* Ship = PawnCharacter->FindNearestShip();
+		if (Ship && Ship->CanBoardFrom(PawnCharacter->GetActorLocation()))
+		{
+			ShowPrompt(TEXT("按 E 登船"));
+		}
+	}
+	else if (ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(GetPawn()))
+	{
+		if (Ship->IsLanded())
+		{
+			ShowPrompt(TEXT("按 E 离船"));
+		}
+	}
+}
+
+void AStellarEraPlayerController::OnInteract(const FInputActionValue& Value)
+{
+	if (APlanetCharacter* PawnCharacter = Cast<APlanetCharacter>(GetPawn()))
+	{
+		ASpaceshipPawn* Ship = PawnCharacter->FindNearestShip();
+		if (Ship && Ship->CanBoardFrom(PawnCharacter->GetActorLocation()))
+		{
+			BoardShip(Ship);
+		}
+		return;
+	}
+
+	if (ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(GetPawn()))
+	{
+		// 空中不能下船：速度没降到阈值以下、或下方没有地面时 IsLanded 为假。
+		if (Ship->IsLanded())
+		{
+			LeaveShip(Ship);
+		}
+	}
+}
+
+void AStellarEraPlayerController::BoardShip(ASpaceshipPawn* Ship)
+{
+	APlanetCharacter* PawnCharacter = Cast<APlanetCharacter>(GetPawn());
+	if (!Ship || !PawnCharacter)
+	{
+		return;
+	}
+
+	// 先附着再隐藏：隐藏与关碰撞由角色自己负责，顺序反了会在附着那一刻
+	// 因为碰撞被关掉而丢掉相对变换。
+	PawnCharacter->AttachToActor(Ship, FAttachmentTransformRules::KeepWorldTransform);
+	PawnCharacter->SetBoarded(true);
+	Ship->SetBoardedCharacter(PawnCharacter);
+
+	Possess(Ship);
+}
+
+void AStellarEraPlayerController::LeaveShip(ASpaceshipPawn* Ship)
+{
+	APlanetCharacter* PawnCharacter = Ship ? Ship->GetBoardedCharacter() : nullptr;
+	if (!Ship || !PawnCharacter)
+	{
+		return;
+	}
+
+	PawnCharacter->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	PawnCharacter->SetBoarded(false);
+	Ship->SetBoardedCharacter(nullptr);
+
+	// 摆到飞船旁边而不是原地：原地正好在飞船的碰撞球里，会立刻被挤开。
+	const FVector ExitLocation = Ship->GetActorLocation() + Ship->GetActorRightVector() * 400.f;
+	PawnCharacter->SetActorLocation(ExitLocation, /*bSweep=*/false);
+
+	Possess(PawnCharacter);
+}
+
+void AStellarEraPlayerController::ShowPrompt(const FString& Text)
+{
+	if (!GEngine)
+	{
+		return;
+	}
+
+	// duration 0 = 只显示这一帧。固定 key 让屏幕上永远只有一行，不会堆积。
+	static const uint64 PromptMessageKey = 0x5745'4C43'4F4D'4521ULL;
+	GEngine->AddOnScreenDebugMessage(PromptMessageKey, 0.f, FColor::Yellow, Text);
 }
