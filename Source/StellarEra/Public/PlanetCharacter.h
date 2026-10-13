@@ -49,6 +49,9 @@ public:
 	/** 找离角色最近的飞船；找不到返回 nullptr。 */
 	ASpaceshipPawn* FindNearestShip() const;
 
+	/** 把角色摆到球面正上方，胶囊底贴住表面，并把朝向摆正。 */
+	void SnapToPlanetSurface();
+
 	/** 当前所在的行星。BeginPlay 时自动查找最近的一颗。 */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Planet")
 	TObjectPtr<AVoxelPlanetActor> PlanetActor;
@@ -58,9 +61,6 @@ public:
 	float PlanetSearchRadius = 1.0e8f;
 
 protected:
-	/** 把角色摆到球面正上方，胶囊底贴住表面，并把朝向摆正。 */
-	void SnapToPlanetSurface();
-
 	/** 在关卡里找离角色最近的一颗行星；找不到返回 nullptr。 */
 	AVoxelPlanetActor* FindNearestPlanet() const;
 

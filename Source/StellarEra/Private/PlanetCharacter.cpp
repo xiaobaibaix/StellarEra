@@ -69,8 +69,10 @@ APlanetCharacter::APlanetCharacter()
 	VoxelInvoker->bUseForEvents = false;
 	VoxelInvoker->bUseForPriorities = false;
 
-	// Pomni 模型。Sketchfab 导出的朝向与缩放通常都不对，校正量走
-	// MeshRelativeRotation / MeshScale 两个属性，在细节面板里调，不必重编译。
+	// Pomni 模型。Sketchfab 导出的朝向与缩放通常都不对，校正量由
+	// MeshRelativeRotation / MeshScale 两个属性给出——但这两个值在这里读一次就定死了，
+	// 在细节面板里改不会生效（角色是 GameMode 用原生类运行时生成的，属性只反映 CDO）。
+	// 调参路径：改这两个属性的默认值 → 重编译（约 20 秒）→ 再 PIE。
 	// 注意：目录名里的竖线是全角 U+FF5C（｜），不是 ASCII 的 |，别"顺手改正"。
 	static ConstructorHelpers::FObjectFinder<USkeletalMesh> CharacterMesh(
 		TEXT("/Game/Fab/Blender_3D｜Pomni_3D_Model/pomni_3d_model/SkeletalMeshes/Object_14.Object_14"));

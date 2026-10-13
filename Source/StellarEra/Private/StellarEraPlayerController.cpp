@@ -223,8 +223,19 @@ void AStellarEraPlayerController::OnVertical(const FInputActionValue& Value)
 void AStellarEraPlayerController::DebugPossessShip()
 {
 	// 已经在飞船里就换回角色，否则找一艘最近的飞船坐进去。
-	if (Cast<ASpaceshipPawn>(GetPawn()))
+	if (ASpaceshipPawn* CurrentShip = Cast<ASpaceshipPawn>(GetPawn()))
 	{
+		// 真登船（走 E 流程）时不接管：角色此时是隐藏、附着在飞船上、MOVE_None 的，
+		// 直接 possess 回来会让飞船的 BoardedCharacter 仍然指着它，状态不一致。
+		// 这种情况请按 E 走正常的离船流程。
+		if (CurrentShip->GetBoardedCharacter())
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("AStellarEraPlayerController: 角色已正常登船，请按 E 离船，"
+					 "不要用 DebugPossessShip 切回。"));
+			return;
+		}
+
 		for (TActorIterator<APlanetCharacter> It(GetWorld()); It; ++It)
 		{
 			Possess(*It);
@@ -311,8 +322,8 @@ void AStellarEraPlayerController::BoardShip(ASpaceshipPawn* Ship)
 		return;
 	}
 
-	// 先附着再隐藏：隐藏与关碰撞由角色自己负责，顺序反了会在附着那一刻
-	// 因为碰撞被关掉而丢掉相对变换。
+	// 附着用 KeepWorldTransform：相对变换是从当前世界变换推导出来的，与 SetBoarded
+	// 的先后无关——后者只切可见性、碰撞和移动模式，不碰变换。顺序只是为了读起来顺。
 	PawnCharacter->AttachToActor(Ship, FAttachmentTransformRules::KeepWorldTransform);
 	PawnCharacter->SetBoarded(true);
 	Ship->SetBoardedCharacter(PawnCharacter);
@@ -335,6 +346,12 @@ void AStellarEraPlayerController::LeaveShip(ASpaceshipPawn* Ship)
 	// 摆到飞船旁边而不是原地：原地正好在飞船的碰撞球里，会立刻被挤开。
 	const FVector ExitLocation = Ship->GetActorLocation() + Ship->GetActorRightVector() * 400.f;
 	PawnCharacter->SetActorLocation(ExitLocation, /*bSweep=*/false);
+
+	// 再按当地球面法线摆正。登船期间角色的朝向是冻结的（bOrientRotationToMovement
+	// 只在有加速度时旋转，而附着时没有加速度），不重新对齐的话，在行星另一侧下船
+	// 会看到角色侧躺在地上。这一步同时把角色按到球面上，并重置相机基座，
+	// 避免下船瞬间镜头甩一下。
+	PawnCharacter->SnapToPlanetSurface();
 
 	Possess(PawnCharacter);
 }

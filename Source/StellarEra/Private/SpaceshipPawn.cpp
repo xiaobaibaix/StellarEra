@@ -193,6 +193,12 @@ bool ASpaceshipPawn::IsLanded() const
 	const FVector End = Start - GetActorUpVector() * LandingProbeDistance;
 
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(SpaceshipLanding), /*bTraceComplex=*/false, this);
+	// 登船角色附着在飞船附近。它现在关着碰撞，但将来一旦因为交互、布娃娃之类重新打开，
+	// 这条射线会一直打到它，IsLanded() 就永远为真、飞到空中也提示离船。先排除掉。
+	if (BoardedCharacter)
+	{
+		Params.AddIgnoredActor(BoardedCharacter);
+	}
 	FHitResult Hit;
 	return GetWorld()->LineTraceSingleByChannel(Hit, Start, End, ECC_WorldStatic, Params);
 }

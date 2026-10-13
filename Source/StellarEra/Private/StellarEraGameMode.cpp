@@ -53,6 +53,8 @@ void AStellarEraGameMode::EnsureSpaceshipExists()
 	const FVector Direction = ShipSpawnDirection.GetSafeNormal();
 	if (Direction.IsNearlyZero())
 	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("StellarEraGameMode: ShipSpawnDirection 是零向量，跳过飞船生成。"));
 		return;
 	}
 
@@ -64,5 +66,9 @@ void AStellarEraGameMode::EnsureSpaceshipExists()
 
 	FActorSpawnParameters Params;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-	GetWorld()->SpawnActor<ASpaceshipPawn>(Location, AlignToSurface.Rotator(), Params);
+	if (!GetWorld()->SpawnActor<ASpaceshipPawn>(Location, AlignToSurface.Rotator(), Params))
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("StellarEraGameMode: 飞船生成失败（SpawnActor 返回空）。"));
+	}
 }
