@@ -272,7 +272,9 @@ void AStellarEraPlayerController::PlayerTick(float DeltaTime)
 	}
 	else if (ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(GetPawn()))
 	{
-		if (Ship->IsLanded())
+		// 只有真的载着角色时才提示离船。DebugPossessShip 直接 possess 飞船时
+		// GetBoardedCharacter() 为空，否则会出现「显示了提示但按 E 什么都不发生」。
+		if (Ship->GetBoardedCharacter() && Ship->IsLanded())
 		{
 			ShowPrompt(TEXT("按 E 离船"));
 		}
