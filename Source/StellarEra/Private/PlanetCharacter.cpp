@@ -31,7 +31,7 @@ APlanetCharacter::APlanetCharacter()
 	Movement->RotationRate = FRotator(0.f, 540.f, 0.f);
 	Movement->JumpZVelocity = 600.f;
 	Movement->AirControl = 0.35f;
-	Movement->MaxWalkSpeed = 600.f;
+	Movement->MaxWalkSpeed = WalkSpeed;
 	Movement->MaxStepHeight = 60.f;
 	// 球面是连续曲面，落地判定要给一点容差，否则下坡时会被判成“悬空”而抖。
 	Movement->PerchRadiusThreshold = 0.f;
@@ -207,4 +207,39 @@ void APlanetCharacter::SnapToPlanetSurface()
 
 	// 这次瞬移会让基座被平移过一个大跨度，下一帧重新初始化而不是硬搬。
 	LastSurfaceUp = FVector::ZeroVector;
+}
+
+void APlanetCharacter::Move(const FVector2D& Value)
+{
+	if (!CameraPivot || Value.IsNearlyZero())
+	{
+		return;
+	}
+
+	// 以相机朝向为基准：W 永远是“往画面里走”。相机枢轴已经被摆成“以球面
+	// 法线为上”，所以它的前向天然切于球面。
+	const FVector Desired =
+		CameraPivot->GetForwardVector() * Value.X + CameraPivot->GetRightVector() * Value.Y;
+
+	// 相机俯仰会让前向偏出切平面，投影回重力平面，否则输入会把角色往天上推。
+	const FVector GravityDir = GetCharacterMovement()->GetGravityDirection();
+	const FVector OnFloor = FVector::VectorPlaneProject(Desired, GravityDir);
+	if (OnFloor.IsNearlyZero())
+	{
+		return;
+	}
+
+	AddMovementInput(OnFloor.GetSafeNormal(), FMath::Min(1.f, OnFloor.Size()));
+}
+
+void APlanetCharacter::Look(float DeltaYaw, float DeltaPitch)
+{
+	// 偏航绕球面法线累积；俯仰钳制在一个不会翻过去的范围内。
+	CameraYaw = FRotator::NormalizeAxis(CameraYaw + DeltaYaw);
+	CameraPitch = FMath::Clamp(CameraPitch + DeltaPitch, MinCameraPitch, MaxCameraPitch);
+}
+
+void APlanetCharacter::SetSprinting(bool bSprinting)
+{
+	GetCharacterMovement()->MaxWalkSpeed = bSprinting ? SprintSpeed : WalkSpeed;
 }

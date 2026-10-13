@@ -30,6 +30,15 @@ public:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
 
+	/** 球面行走输入：X = 前后，Y = 左右，取值 [-1, 1]。 */
+	void Move(const FVector2D& Value);
+
+	/** 相机输入，单位是度。由 PlayerController 乘完灵敏度后传进来。 */
+	void Look(float DeltaYaw, float DeltaPitch);
+
+	/** 切换冲刺。 */
+	void SetSprinting(bool bSprinting);
+
 	/** 当前所在的行星。BeginPlay 时自动查找最近的一颗。 */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Planet")
 	TObjectPtr<AVoxelPlanetActor> PlanetActor;
@@ -84,6 +93,14 @@ protected:
 	/** 俯仰角上限（度）。 */
 	UPROPERTY(EditAnywhere, Category = "Camera")
 	float MaxCameraPitch = 75.f;
+
+	/** 行走速度（厘米/秒）。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet")
+	float WalkSpeed = 600.f;
+
+	/** 冲刺速度（厘米/秒）。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet")
+	float SprintSpeed = 1200.f;
 
 private:
 	/** 是否已经第一次踩到地面。在此之前每帧把角色按回球面，等碰撞体流送出来。 */
