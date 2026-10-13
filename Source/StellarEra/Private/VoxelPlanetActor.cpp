@@ -183,6 +183,12 @@ void AVoxelPlanetActor::RebuildPlanet()
 	VoxelWorld->CreateWorld(FVoxelWorldCreateInfo());
 }
 
+float AVoxelPlanetActor::GetSurfaceRadiusCm() const
+{
+	// 半径以体素计，乘以单个体素的厘米尺寸才是世界单位。
+	return GetScaledRadiusVoxels() * VoxelSize;
+}
+
 uint64 AVoxelPlanetActor::ComputeParamsHash() const
 {
 	// 对 RebuildPlanet 推入生成器或 Voxel World 的每项设置的原始字节做

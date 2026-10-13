@@ -41,6 +41,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Planet")
 	void RebuildPlanet();
 
+	/** 行星表面半径（厘米，含 Actor 等比缩放）。角色据此贴合球面。 */
+	UFUNCTION(BlueprintPure, Category = "Planet")
+	float GetSurfaceRadiusCm() const;
+
 	//////////////////////////////////////////////////////////////////////////
 	// 基础
 
