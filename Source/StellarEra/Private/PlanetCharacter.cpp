@@ -44,9 +44,9 @@ APlanetCharacter::APlanetCharacter()
 	SpringArm->SetupAttachment(CameraPivot);
 	// 相机由 CameraPivot 驱动，绝不走 ControlRotation：那是世界空间的。
 	SpringArm->bUsePawnControlRotation = false;
-	SpringArm->bInheritPitch = false;
-	SpringArm->bInheritYaw = false;
-	SpringArm->bInheritRoll = false;
+	// bInheritPitch/Yaw/Roll 必须保持引擎默认的 true。置 false 并不是“忽略父级”，
+	// 而是拿弹簧臂自己的局部相对旋转覆盖该轴——那是单位阵，DesiredRot 会被清零成
+	// 世界单位旋转，CameraPivot 每帧算出的朝向被完全抹掉，相机永远盯着世界 +X。
 	SpringArm->TargetArmLength = CameraArmLength;
 	SpringArm->SocketOffset = FVector(0.f, 0.f, 120.f);
 	SpringArm->bDoCollisionTest = true;
@@ -118,10 +118,33 @@ void APlanetCharacter::Tick(float DeltaSeconds)
 	// 与跳跃都在重力空间里自动成立，不需要手写球面物理。
 	GetCharacterMovement()->SetGravityDirection(ToCenter);
 
-	// 相机枢轴：以球面法线为“上”，再按玩家偏航绕这根轴上转。
-	const FQuat AlignToSurface = FQuat::FindBetweenNormals(FVector::UpVector, -ToCenter);
+	// 基座沿球面连续平移：求出把上一帧法线转到本帧法线的旋转，作用在基座上。
+	// 这样朝向在任何位置都连续，极点处也不会退化。
+	const FVector Up = -ToCenter;
+	if (LastSurfaceUp.IsNearlyZero())
+	{
+		// 第一帧：任取一个切向参考建基，保证“上”就是球面法线。
+		FVector Reference = FVector::VectorPlaneProject(GetActorForwardVector(), Up).GetSafeNormal();
+		if (Reference.IsNearlyZero())
+		{
+			Reference = FVector::VectorPlaneProject(FVector::ForwardVector, Up).GetSafeNormal();
+		}
+		if (Reference.IsNearlyZero())
+		{
+			Reference = FVector::VectorPlaneProject(FVector::RightVector, Up).GetSafeNormal();
+		}
+		CameraBaseRotation = FRotationMatrix::MakeFromXZ(Reference, Up).ToQuat();
+	}
+	else
+	{
+		CameraBaseRotation = FQuat::FindBetweenNormals(LastSurfaceUp, Up) * CameraBaseRotation;
+	}
+	LastSurfaceUp = Up;
+
+	// 玩家视角是相对基座的局部旋转：偏航绕法线水平环绕，俯仰绕切向倾斜。
+	// 基座连续 ⟹ 画面不会翻滚。
 	CameraPivot->SetWorldRotation(
-		AlignToSurface * FRotator(CameraPitch, CameraYaw, 0.f).Quaternion());
+		CameraBaseRotation * FRotator(CameraPitch, CameraYaw, 0.f).Quaternion());
 
 	// 碰撞体是异步流送出来的：第一次踩到地面之前，每帧把角色按回球面，
 	// 否则它会在碰撞体生成之前落进球体内部，然后卡在实心里。
@@ -181,4 +204,7 @@ void APlanetCharacter::SnapToPlanetSurface()
 
 	// 摆位之后残留的向下速度会让角色立刻穿进球体，必须清掉。
 	GetCharacterMovement()->Velocity = FVector::ZeroVector;
+
+	// 这次瞬移会让基座被平移过一个大跨度，下一帧重新初始化而不是硬搬。
+	LastSurfaceUp = FVector::ZeroVector;
 }

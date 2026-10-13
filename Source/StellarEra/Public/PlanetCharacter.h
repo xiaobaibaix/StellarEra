@@ -88,4 +88,16 @@ protected:
 private:
 	/** 是否已经第一次踩到地面。在此之前每帧把角色按回球面，等碰撞体流送出来。 */
 	bool bHasLanded = false;
+
+	/**
+	 * 相机枢轴的“球面对齐基座”，不含玩家视角。
+	 *
+	 * 每帧沿球面平行移动（parallel transport）上一帧的基座，而不是用
+	 * FQuat::FindBetweenNormals 重新构造：后者的扭转参考是任意选的，走到世界 Z 轴
+	 * 的正对面时旋转轴退化成 0/0，画面会瞬间翻转。
+	 */
+	FQuat CameraBaseRotation = FQuat::Identity;
+
+	/** 上一帧的球面法线，用于把基座平移到本帧。 */
+	FVector LastSurfaceUp = FVector::ZeroVector;
 };
