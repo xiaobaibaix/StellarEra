@@ -48,14 +48,31 @@ ASpaceshipPawn::ASpaceshipPawn()
 	Hull->SetupAttachment(Collision);
 	// 外壳只负责好看，碰撞交给根部的球体。
 	Hull->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	Hull->SetRelativeScale3D(FVector(6.f, 2.f, 1.f));
 
-	// 占位外壳：随引擎发布的立方体。导入真实模型后替换这里的路径（见 Task 5）。
-	static ConstructorHelpers::FObjectFinder<UStaticMesh> PlaceholderHull(
-		TEXT("/Engine/BasicShapes/Cube.Cube"));
-	if (PlaceholderHull.Succeeded())
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> ShipMesh(
+		TEXT("/Game/Vehicles/12b5_atmospherhuttle002.12b5_atmospherhuttle002"));
+	if (ShipMesh.Succeeded())
 	{
-		Hull->SetStaticMesh(PlaceholderHull.Object);
+		Hull->SetStaticMesh(ShipMesh.Object);
+		Hull->SetRelativeRotation(MeshRelativeRotation);
+		Hull->SetRelativeScale3D(FVector(MeshScale));
+	}
+	else
+	{
+		// 资源缺失时退回引擎立方体，保证飞船仍然可见、不静默消失。
+		static ConstructorHelpers::FObjectFinder<UStaticMesh> FallbackHull(
+			TEXT("/Engine/BasicShapes/Cube.Cube"));
+		if (FallbackHull.Succeeded())
+		{
+			Hull->SetStaticMesh(FallbackHull.Object);
+		}
+		// 占位立方体保留船形比例：MeshScale 默认 1 会把 600×200×100 缩成
+		// 100×100×100，缩进 300cm 的碰撞球里几乎看不见。
+		Hull->SetRelativeRotation(FRotator::ZeroRotator);
+		Hull->SetRelativeScale3D(FVector(6.f, 2.f, 1.f));
+		UE_LOG(LogTemp, Warning,
+			TEXT("ASpaceshipPawn: 找不到飞船模型 %s，退回占位网格。"),
+			TEXT("/Game/Vehicles/12b5_atmospherhuttle002.12b5_atmospherhuttle002"));
 	}
 }
 

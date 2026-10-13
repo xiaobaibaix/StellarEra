@@ -124,6 +124,14 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Boarding")
 	float BoardingRadius = 600.f;
 
+	/** 模型相对碰撞球的额外旋转。用于校正模型朝向。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spaceship|Mesh")
+	FRotator MeshRelativeRotation = FRotator::ZeroRotator;
+
+	/** 模型相对碰撞球的额外缩放。用于把模型缩放到 6 米左右。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spaceship|Mesh")
+	float MeshScale = 1.f;
+
 private:
 	float ThrustInput = 0.f;
 	float RollInput = 0.f;

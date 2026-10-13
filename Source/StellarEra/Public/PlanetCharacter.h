@@ -112,6 +112,14 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet")
 	float SprintSpeed = 1200.f;
 
+	/** 模型相对胶囊的额外旋转。用于校正 Sketchfab 模型的朝向。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Character|Mesh")
+	FRotator MeshRelativeRotation = FRotator(0.f, -90.f, 0.f);
+
+	/** 模型相对胶囊的额外缩放。用于校正 Sketchfab 模型的 100 倍缩放。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Character|Mesh")
+	float MeshScale = 0.7f;
+
 private:
 	/** 是否已经第一次踩到地面。在此之前每帧把角色按回球面，等碰撞体流送出来。 */
 	bool bHasLanded = false;

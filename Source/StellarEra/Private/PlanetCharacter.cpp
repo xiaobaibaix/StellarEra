@@ -69,17 +69,32 @@ APlanetCharacter::APlanetCharacter()
 	VoxelInvoker->bUseForEvents = false;
 	VoxelInvoker->bUseForPriorities = false;
 
-	// 占位网格：随引擎发布的立方体，保证没有美术资源时角色也看得见。
-	// 导入真实模型后替换这里的路径（见 Task 5）。
-	static ConstructorHelpers::FObjectFinder<USkeletalMesh> PlaceholderMesh(
-		TEXT("/Engine/EngineMeshes/SkeletalCube.SkeletalCube"));
-	if (PlaceholderMesh.Succeeded())
+	// Pomni 模型。Sketchfab 导出的朝向与缩放通常都不对，校正量走
+	// MeshRelativeRotation / MeshScale 两个属性，在细节面板里调，不必重编译。
+	static ConstructorHelpers::FObjectFinder<USkeletalMesh> CharacterMesh(
+		TEXT("/Game/Characters/pomni_3d_model.pomni_3d_model"));
+	if (CharacterMesh.Succeeded())
 	{
-		GetMesh()->SetSkeletalMesh(PlaceholderMesh.Object);
+		GetMesh()->SetSkeletalMesh(CharacterMesh.Object);
 	}
-	// 胶囊半高 88：把网格下移到胶囊底，让立方体站在地面上而不是穿进地里。
+	else
+	{
+		// 资源缺失时退回引擎自带立方体，保证角色仍然可见、不静默消失。
+		static ConstructorHelpers::FObjectFinder<USkeletalMesh> FallbackMesh(
+			TEXT("/Engine/EngineMeshes/SkeletalCube.SkeletalCube"));
+		if (FallbackMesh.Succeeded())
+		{
+			GetMesh()->SetSkeletalMesh(FallbackMesh.Object);
+		}
+		UE_LOG(LogTemp, Warning,
+			TEXT("APlanetCharacter: 找不到角色模型 %s，退回占位网格。"),
+			TEXT("/Game/Characters/pomni_3d_model.pomni_3d_model"));
+	}
+
+	// 胶囊半高 88：把网格下移到胶囊底，让模型站在地面上而不是穿进地里。
 	GetMesh()->SetRelativeLocation(FVector(0.f, 0.f, -88.f));
-	GetMesh()->SetRelativeScale3D(FVector(0.7f));
+	GetMesh()->SetRelativeRotation(MeshRelativeRotation);
+	GetMesh()->SetRelativeScale3D(FVector(MeshScale));
 }
 
 void APlanetCharacter::BeginPlay()
