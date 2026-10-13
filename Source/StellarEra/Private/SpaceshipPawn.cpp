@@ -50,7 +50,7 @@ ASpaceshipPawn::ASpaceshipPawn()
 	Hull->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> ShipMesh(
-		TEXT("/Game/Vehicles/12b5_atmospherhuttle002.12b5_atmospherhuttle002"));
+		TEXT("/Game/Fab/B5_Atmospher___huttle002/12b5_atmospherhuttle002/StaticMeshes/12b5_atmospherhuttle002.12b5_atmospherhuttle002"));
 	if (ShipMesh.Succeeded())
 	{
 		Hull->SetStaticMesh(ShipMesh.Object);
@@ -72,7 +72,7 @@ ASpaceshipPawn::ASpaceshipPawn()
 		Hull->SetRelativeScale3D(FVector(6.f, 2.f, 1.f));
 		UE_LOG(LogTemp, Warning,
 			TEXT("ASpaceshipPawn: 找不到飞船模型 %s，退回占位网格。"),
-			TEXT("/Game/Vehicles/12b5_atmospherhuttle002.12b5_atmospherhuttle002"));
+			TEXT("/Game/Fab/B5_Atmospher___huttle002/12b5_atmospherhuttle002/StaticMeshes/12b5_atmospherhuttle002.12b5_atmospherhuttle002"));
 	}
 }
 

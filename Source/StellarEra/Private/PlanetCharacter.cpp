@@ -71,8 +71,9 @@ APlanetCharacter::APlanetCharacter()
 
 	// Pomni 模型。Sketchfab 导出的朝向与缩放通常都不对，校正量走
 	// MeshRelativeRotation / MeshScale 两个属性，在细节面板里调，不必重编译。
+	// 注意：目录名里的竖线是全角 U+FF5C（｜），不是 ASCII 的 |，别"顺手改正"。
 	static ConstructorHelpers::FObjectFinder<USkeletalMesh> CharacterMesh(
-		TEXT("/Game/Characters/pomni_3d_model.pomni_3d_model"));
+		TEXT("/Game/Fab/Blender_3D｜Pomni_3D_Model/pomni_3d_model/SkeletalMeshes/Object_14.Object_14"));
 	if (CharacterMesh.Succeeded())
 	{
 		GetMesh()->SetSkeletalMesh(CharacterMesh.Object);
@@ -88,7 +89,7 @@ APlanetCharacter::APlanetCharacter()
 		}
 		UE_LOG(LogTemp, Warning,
 			TEXT("APlanetCharacter: 找不到角色模型 %s，退回占位网格。"),
-			TEXT("/Game/Characters/pomni_3d_model.pomni_3d_model"));
+			TEXT("/Game/Fab/Blender_3D｜Pomni_3D_Model/pomni_3d_model/SkeletalMeshes/Object_14.Object_14"));
 	}
 
 	// 胶囊半高 88：把网格下移到胶囊底，让模型站在地面上而不是穿进地里。
