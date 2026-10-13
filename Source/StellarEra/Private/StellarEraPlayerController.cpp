@@ -3,12 +3,14 @@
 #include "StellarEraPlayerController.h"
 
 #include "PlanetCharacter.h"
+#include "SpaceshipPawn.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputAction.h"
 #include "InputMappingContext.h"
 #include "InputModifiers.h"
 #include "Engine/LocalPlayer.h"
+#include "EngineUtils.h"
 
 namespace
 {
@@ -74,6 +76,13 @@ void AStellarEraPlayerController::SetupInputComponent()
 	EnhancedInput->BindAction(IA_Jump, ETriggerEvent::Started, this, &AStellarEraPlayerController::OnJump);
 	EnhancedInput->BindAction(IA_Sprint, ETriggerEvent::Started, this, &AStellarEraPlayerController::OnSprintStarted);
 	EnhancedInput->BindAction(IA_Sprint, ETriggerEvent::Completed, this, &AStellarEraPlayerController::OnSprintCompleted);
+
+	EnhancedInput->BindAction(IA_Thrust, ETriggerEvent::Triggered, this, &AStellarEraPlayerController::OnThrust);
+	EnhancedInput->BindAction(IA_Thrust, ETriggerEvent::Completed, this, &AStellarEraPlayerController::OnThrust);
+	EnhancedInput->BindAction(IA_Roll, ETriggerEvent::Triggered, this, &AStellarEraPlayerController::OnRoll);
+	EnhancedInput->BindAction(IA_Roll, ETriggerEvent::Completed, this, &AStellarEraPlayerController::OnRoll);
+	EnhancedInput->BindAction(IA_Vertical, ETriggerEvent::Triggered, this, &AStellarEraPlayerController::OnVertical);
+	EnhancedInput->BindAction(IA_Vertical, ETriggerEvent::Completed, this, &AStellarEraPlayerController::OnVertical);
 }
 
 void AStellarEraPlayerController::BeginPlay()
@@ -104,6 +113,11 @@ void AStellarEraPlayerController::BuildInputAssets()
 	IA_Jump = MakeAction(this, TEXT("IA_Jump"), EInputActionValueType::Boolean);
 	IA_Sprint = MakeAction(this, TEXT("IA_Sprint"), EInputActionValueType::Boolean);
 
+	IA_Thrust = MakeAction(this, TEXT("IA_Thrust"), EInputActionValueType::Axis1D);
+	IA_Roll = MakeAction(this, TEXT("IA_Roll"), EInputActionValueType::Axis1D);
+	IA_Vertical = MakeAction(this, TEXT("IA_Vertical"), EInputActionValueType::Axis1D);
+	IA_Interact = MakeAction(this, TEXT("IA_Interact"), EInputActionValueType::Boolean);
+
 	// WASD 合成一个二维向量：W/S 走 X 轴，A/D 先用 Swizzle 搬到 Y 轴再取反。
 	// 修饰器按数组顺序依次作用，所以 A 是“先 Swizzle 再 Negate”。
 	MapKey(MappingContext, IA_Move, EKeys::W);
@@ -115,6 +129,17 @@ void AStellarEraPlayerController::BuildInputAssets()
 
 	MapKey(MappingContext, IA_Jump, EKeys::SpaceBar);
 	MapKey(MappingContext, IA_Sprint, EKeys::LeftShift);
+
+	// 飞船：W/S 主推力，D/A 横滚，Space/LeftControl 升降。与角色的 WASD
+	// 共用按键没问题——同一个 IMC 里的动作互不吞输入，分派由 Pawn 类型决定。
+	MapKey(MappingContext, IA_Thrust, EKeys::W);
+	MapKey(MappingContext, IA_Thrust, EKeys::S, { MakeNegate(this) });
+	MapKey(MappingContext, IA_Roll, EKeys::D);
+	MapKey(MappingContext, IA_Roll, EKeys::A, { MakeNegate(this) });
+	MapKey(MappingContext, IA_Vertical, EKeys::SpaceBar);
+	MapKey(MappingContext, IA_Vertical, EKeys::LeftControl, { MakeNegate(this) });
+
+	MapKey(MappingContext, IA_Interact, EKeys::E);
 }
 
 void AStellarEraPlayerController::OnMove(const FInputActionValue& Value)
@@ -130,11 +155,16 @@ void AStellarEraPlayerController::OnMove(const FInputActionValue& Value)
 void AStellarEraPlayerController::OnLook(const FInputActionValue& Value)
 {
 	const FVector2D Axis = Value.Get<FVector2D>();
-	const float DeltaPitch = bInvertLookY ? -Axis.Y : Axis.Y;
+	const float DeltaYaw = Axis.X * LookSensitivity;
+	const float DeltaPitch = (bInvertLookY ? -Axis.Y : Axis.Y) * LookSensitivity;
 
 	if (APlanetCharacter* PawnCharacter = Cast<APlanetCharacter>(GetPawn()))
 	{
-		PawnCharacter->Look(Axis.X * LookSensitivity, DeltaPitch * LookSensitivity);
+		PawnCharacter->Look(DeltaYaw, DeltaPitch);
+	}
+	else if (ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(GetPawn()))
+	{
+		Ship->Look(DeltaYaw, DeltaPitch);
 	}
 }
 
@@ -159,5 +189,67 @@ void AStellarEraPlayerController::OnSprintCompleted(const FInputActionValue& Val
 	if (APlanetCharacter* PawnCharacter = Cast<APlanetCharacter>(GetPawn()))
 	{
 		PawnCharacter->SetSprinting(false);
+	}
+}
+
+void AStellarEraPlayerController::OnThrust(const FInputActionValue& Value)
+{
+	// Completed 事件里 Value 是 0，正好用来在松手时归零。
+	if (ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(GetPawn()))
+	{
+		Ship->SetThrust(Value.Get<float>());
+	}
+}
+
+void AStellarEraPlayerController::OnRoll(const FInputActionValue& Value)
+{
+	if (ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(GetPawn()))
+	{
+		Ship->SetRoll(Value.Get<float>());
+	}
+}
+
+void AStellarEraPlayerController::OnVertical(const FInputActionValue& Value)
+{
+	if (ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(GetPawn()))
+	{
+		Ship->SetVertical(Value.Get<float>());
+	}
+}
+
+void AStellarEraPlayerController::DebugPossessShip()
+{
+	// 已经在飞船里就换回角色，否则找一艘最近的飞船坐进去。
+	if (Cast<ASpaceshipPawn>(GetPawn()))
+	{
+		for (TActorIterator<APlanetCharacter> It(GetWorld()); It; ++It)
+		{
+			Possess(*It);
+			return;
+		}
+		return;
+	}
+
+	APawn* CurrentPawn = GetPawn();
+	if (!CurrentPawn)
+	{
+		return;
+	}
+
+	ASpaceshipPawn* NearestShip = nullptr;
+	float NearestDistSq = TNumericLimits<float>::Max();
+	for (TActorIterator<ASpaceshipPawn> It(GetWorld()); It; ++It)
+	{
+		const float DistSq = FVector::DistSquared(It->GetActorLocation(), CurrentPawn->GetActorLocation());
+		if (DistSq < NearestDistSq)
+		{
+			NearestDistSq = DistSq;
+			NearestShip = *It;
+		}
+	}
+
+	if (NearestShip)
+	{
+		Possess(NearestShip);
 	}
 }

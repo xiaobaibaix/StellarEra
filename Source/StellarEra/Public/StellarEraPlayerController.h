@@ -43,6 +43,19 @@ protected:
 	void OnSprintStarted(const FInputActionValue& Value);
 	void OnSprintCompleted(const FInputActionValue& Value);
 
+	// --- 飞船输入回调 ---
+	void OnThrust(const FInputActionValue& Value);
+	void OnRoll(const FInputActionValue& Value);
+	void OnVertical(const FInputActionValue& Value);
+
+	/**
+	 * 调试用：直接在角色与飞船之间切换 Possess，跳过登船流程。
+	 * 在 PIE 控制台输入 `DebugPossessShip` 调用。Task 4 做好登船后，
+	 * 这个命令仍保留作为开发工具。
+	 */
+	UFUNCTION(Exec)
+	void DebugPossessShip();
+
 	/** 鼠标灵敏度（度/像素）。 */
 	UPROPERTY(EditAnywhere, Category = "Input")
 	float LookSensitivity = 1.2f;
@@ -65,4 +78,16 @@ protected:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> IA_Sprint;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> IA_Thrust;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> IA_Roll;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> IA_Vertical;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> IA_Interact;
 };
