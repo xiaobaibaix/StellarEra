@@ -33,6 +33,18 @@ public:
 	virtual void SetupInputComponent() override;
 	virtual void BeginPlay() override;
 
+	/**
+	 * 开局直接坐进最近的飞船。由 AStellarEraGameMode 在 BeginPlay 之后延迟一帧调用。
+	 *
+	 * 复用 BoardShip，所以角色会被登记为已登船：隐藏、附着在船上、MOVE_None。
+	 * 飞船停稳时按 E 就能正常离船 —— 这是与 DebugPossessShip 的关键差别，后者
+	 * 直接 Possess，不登记登船角色，因此永远不会出现离船提示。
+	 *
+	 * @return 找到飞船并完成登船为 true；当前 Pawn 不是角色、或关卡里没有
+	 *         飞船时为 false。
+	 */
+	bool EnterNearestShip();
+
 protected:
 	/** 构造 IMC 与全部 IA。幂等：重复调用会直接返回。 */
 	void BuildInputAssets();

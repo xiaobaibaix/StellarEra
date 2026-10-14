@@ -268,6 +268,25 @@ void AStellarEraPlayerController::DebugPossessShip()
 	}
 }
 
+bool AStellarEraPlayerController::EnterNearestShip()
+{
+	// 开局这一刻玩家还应该是角色。不是的话（比如已经手动切进飞船）就不重复登船。
+	APlanetCharacter* PawnCharacter = Cast<APlanetCharacter>(GetPawn());
+	if (!PawnCharacter)
+	{
+		return false;
+	}
+
+	ASpaceshipPawn* Ship = PawnCharacter->FindNearestShip();
+	if (!Ship)
+	{
+		return false;
+	}
+
+	BoardShip(Ship);
+	return true;
+}
+
 void AStellarEraPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);

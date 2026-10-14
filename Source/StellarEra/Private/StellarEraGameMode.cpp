@@ -8,6 +8,7 @@
 #include "VoxelPlanetActor.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "TimerManager.h"
 
 AStellarEraGameMode::AStellarEraGameMode()
 {
@@ -21,6 +22,34 @@ void AStellarEraGameMode::BeginPlay()
 {
 	Super::BeginPlay();
 	EnsureSpaceshipExists();
+
+	if (!bStartInSpaceship)
+	{
+		return;
+	}
+
+	// 推迟一帧再登船：本函数与「本地玩家登录并拿到 DefaultPawn」的先后由引擎
+	// 决定，早一帧 GetFirstPlayerController()->GetPawn() 可能还是空的，登船会
+	// 静默失败。下一帧两者都已就绪。
+	GetWorldTimerManager().SetTimerForNextTick(this, &AStellarEraGameMode::PossessStartupShip);
+}
+
+void AStellarEraGameMode::PossessStartupShip()
+{
+	AStellarEraPlayerController* StellarPlayerController =
+		Cast<AStellarEraPlayerController>(GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr);
+	if (!StellarPlayerController)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("StellarEraGameMode: 找不到 AStellarEraPlayerController，跳过开局登船。"));
+		return;
+	}
+
+	if (!StellarPlayerController->EnterNearestShip())
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("StellarEraGameMode: 关卡里没有可登的飞船，跳过开局登船。"));
+	}
 }
 
 void AStellarEraGameMode::EnsureSpaceshipExists()
