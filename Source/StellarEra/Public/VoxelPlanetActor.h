@@ -119,7 +119,7 @@ private:
 	/** OrbitLOD 的解析结果：-1 时按半径自动推导，否则钳到 [0, 26]。 */
 	int32 ComputeOrbitLOD() const;
 
-	/** 行星球心（体素坐标），由 Actor 位置换算而来。 */
+	/** 行星球心（VoxelWorld 局部空间的体素坐标），由 Actor 位置换算而来。 */
 	FVector GetCenterInVoxels() const;
 
 	/** 对所有会传入生成器或 Voxel World 的设置做 FNV-1a 哈希。 */

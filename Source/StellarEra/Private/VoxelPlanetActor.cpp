@@ -77,7 +77,16 @@ int32 AVoxelPlanetActor::ComputeOrbitLOD() const
 FVector AVoxelPlanetActor::GetCenterInVoxels() const
 {
 	// 生成器以体素为单位工作，而 Actor 变换的单位是厘米。
-	return GetActorLocation() / FMath::Max(VoxelSize, 0.0001f);
+	//
+	// 取的是 Actor 原点在 VoxelWorld 局部空间里的位置，而不是直接
+	// GetActorLocation() / VoxelSize：渲染时 LocalToGlobal 还会再乘一次
+	// VoxelWorld 的变换，只有先做逆变换，球心的世界位置才恰好落在 Actor 原点上。
+	// 少了这一步，VoxelWorld 的变换会被重复计入，整颗星就偏离 Actor。
+	const FVector ActorLocation = GetActorLocation();
+	const FVector LocalLocation = VoxelWorld
+		? VoxelWorld->GetActorTransform().InverseTransformPosition(ActorLocation)
+		: ActorLocation;
+	return LocalLocation / FMath::Max(VoxelSize, 0.0001f);
 }
 
 void AVoxelPlanetActor::OnConstruction(const FTransform& Transform)
@@ -137,6 +146,19 @@ void AVoxelPlanetActor::RebuildPlanet()
 		Generator = NewObject<UVoxelPlanetGenerator>(this, TEXT("VoxelPlanetGenerator"));
 	}
 
+	// --- 0. 让体素世界的原点与 Actor 的原点重合 ---
+	// AVoxelWorld 是 Actor 子对象：构造函数里的 CreateDefaultSubobject 只建出一个
+	// 实例，它的变换不会跟着 PlanetRoot 走。而它自己的变换是会被序列化下来的 ——
+	// 世界原点重定基（AVoxelWorld::ApplyWorldOffset）留下的陈旧位移会一直留在关卡
+	// 里，把整颗星顶到离 Actor 几公里外。这里每次重建都把它拨回来。先比较再赋值，
+	// 免得每次 OnConstruction 都把组件标脏。必须排在取球心之前：球心按该变换的
+	// 逆变换算出来。
+	const FTransform ActorTransform = GetActorTransform();
+	if (!VoxelWorld->GetActorTransform().Equals(ActorTransform, 0.001f))
+	{
+		VoxelWorld->SetActorTransform(ActorTransform);
+	}
+
 	// --- 1. 把参数推入生成器 ---
 	Generator->Radius = GetScaledRadiusVoxels();
 	Generator->Center = GetCenterInVoxels();
@@ -192,7 +214,7 @@ float AVoxelPlanetActor::GetSurfaceRadiusCm() const
 uint64 AVoxelPlanetActor::ComputeParamsHash() const
 {
 	// 对 RebuildPlanet 推入生成器或 Voxel World 的每项设置的原始字节做
-	// FNV-1a，外加 Actor 变换（经由派生的半径与球心）。每个字段单独混合，
+	// FNV-1a，外加 Actor 变换（原始位置与派生的半径）。每个字段单独混合，
 	// 结构体填充字节就不会把未初始化的数据漏进哈希。
 	uint64 Hash = 1469598103934665603ULL;
 	const auto Mix = [&Hash](const void* Data, int64 Size)
@@ -204,10 +226,12 @@ uint64 AVoxelPlanetActor::ComputeParamsHash() const
 		}
 	};
 
+	// 混原始位置而不是换算后的球心：球心会与 VoxelWorld 的变换相消、退化成常量，
+	// 拿它当哈希的话移动 Actor 不会触发重建，体素世界就跟不上了。
 	const float ScaledRadius = GetScaledRadiusVoxels();
-	const FVector Center = GetCenterInVoxels();
+	const FVector ActorLocation = GetActorLocation();
 	Mix(&ScaledRadius, sizeof(ScaledRadius));
-	Mix(&Center, sizeof(Center));
+	Mix(&ActorLocation, sizeof(ActorLocation));
 
 	Mix(&SurfaceColor, sizeof(SurfaceColor));
 
