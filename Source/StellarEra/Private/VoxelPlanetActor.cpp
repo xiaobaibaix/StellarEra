@@ -153,6 +153,13 @@ void AVoxelPlanetActor::RebuildPlanet()
 		return;
 	}
 
+	// --- 0. 让体素世界的原点与 Actor 的原点重合 ---
+	// AVoxelWorld 是 Actor 子对象，它的变换不跟着 PlanetRoot 走（详见
+	// SyncVoxelWorldTransform）。必须排在哈希守卫**之前**：编辑器里拖动星球时
+	// 哈希不变、会走早退分支，只有放在守卫前面渲染网格才会跟着 Actor 走。
+	// 也必须排在取球心之前 —— 球心按该变换的逆变换算出来。
+	SyncVoxelWorldTransform();
+
 	// 细节面板的一次编辑会同时触发 PostEditChangeProperty 和重新执行
 	// OnConstruction：没有这道守卫，改一个参数就会把世界重建两次，生成时间
 	// 翻倍，流送重置还会再次打开背面的空洞。这里复查 IsCreated()，保证全新
@@ -173,10 +180,6 @@ void AVoxelPlanetActor::RebuildPlanet()
 	{
 		Generator = NewObject<UVoxelPlanetGenerator>(this, TEXT("VoxelPlanetGenerator"));
 	}
-
-	// --- 0. 让体素世界的原点与 Actor 的原点重合 ---
-	// 必须排在取球心之前：球心按该变换的逆变换算出来。
-	SyncVoxelWorldTransform();
 
 	// --- 1. 把参数推入生成器 ---
 	Generator->Radius = GetScaledRadiusVoxels();
@@ -310,6 +313,7 @@ uint64 AVoxelPlanetActor::ComputeParamsHash() const
 
 	// 混原始位置而不是换算后的球心：球心会与 VoxelWorld 的变换相消、退化成常量，
 	// 拿它当哈希的话移动 Actor 不会触发重建，体素世界就跟不上了。
+	// （局部坐标模式下这正是我们想要的，见下面的守卫：移动本就无需重建。）
 	const float ScaledRadius = GetScaledRadiusVoxels();
 	Mix(&ScaledRadius, sizeof(ScaledRadius));
 
