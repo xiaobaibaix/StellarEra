@@ -120,15 +120,35 @@ public:
 	/** 按 Actor 反查索引，找不到返回 INDEX_NONE。 */
 	int32 FindBodyByActor(const AActor* Actor) const;
 
-	/** 清空所有天体。 */
-	void Clear() { Bodies.Empty(); Accelerations.SetNumZeroed(0); }
+	/**
+	 * 清空所有天体，并把模拟时间、时间余量与能量基线一并复位。
+	 *
+	 * 三者都要清：只清 Bodies 的话，GetSimulatedTime() 会带着旧值继续累加，
+	 * GetEnergyDriftRatio() 会拿清空前的基线去比，两个读数都会失去意义。
+	 */
+	void Clear()
+	{
+		Bodies.Empty();
+		Accelerations.SetNumZeroed(0);
+		Accumulator = 0.0;
+		SimulatedTime = 0.0;
+		MarkEnergyBaseline();
+	}
 
 	//////////////////////////////////////////////////////////////////////
 	// 轨道求解
 
 	/**
 	 * 推进一个时间步。
-	 * 内部自动处理累加器，跳过不足一步的余量。
+	 *
+	 * **本函数是变步长积分器，会破坏辛性质。**
+	 * 实现是 Accumulator += Dt; StepExact(Accumulator); Accumulator = 0.0;——
+	 * 累加器加完立刻被清零，所以它实际上等价于 StepExact(Dt)，
+	 * GetPendingTime() 恒为 0。每帧传入的 Dt 一旦不同，就等同于变步长积分，
+	 * Velocity Verlet「误差有界不累积」的前提不再成立。
+	 *
+	 * 需要真正的辛积分（误差有界、轨道可长期稳定）时，请**直接调 StepExact**
+	 * 并自行保证步长固定；本函数只适合不在乎长期精度的场合。
 	 */
 	void Step(float Dt);
 

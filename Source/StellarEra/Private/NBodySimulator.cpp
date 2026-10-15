@@ -340,7 +340,7 @@ void FNBodySimulator::ApplyOrbitInit(int32 BodyIndex, const FCosmosOrbitInit& Or
 	// 初始相位均匀分布时，直接用偏近点角当相位即可，
 	// 这样「PhaseDegrees = 0」对应近日点，视觉上最直观。
 	//
-	// 注意：三角函数靠 <Math/Utils.h> 提供 double 重载，
+	// 注意：三角函数靠 CoreMinimal.h 经 GenericPlatformMath.h 提供的 FMath double 重载，
 	// 且角度转弧度用显式的 (PI/180) 而非 FMath::DegreesToRadians
 	//（后者返回 float，会截断 double）。
 	const double PhaseRad = Orbit.PhaseDegrees * (PI / 180.0);

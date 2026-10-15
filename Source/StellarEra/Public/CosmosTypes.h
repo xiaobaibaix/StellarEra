@@ -161,7 +161,7 @@ struct FCosmosOrbitInit
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Orbit")
 	double AscendingNodeDegrees = 0.0;
 
-	/** 初始相位角，度。0 表示位于轨道最近点（Apoapsis 前）。 */
+	/** 初始相位角，度。0 表示位于轨道最近点（Periapsis）。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Orbit")
 	double PhaseDegrees = 0.0;
 
