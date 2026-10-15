@@ -1,5 +1,5 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
-// 程序化球状行星生成器（纯球体）。
+// 把行星的「在哪、多大」翻译成地形模块认识的上下文。
 
 #pragma once
 
@@ -9,14 +9,21 @@
 #include "VoxelPlanetGenerator.generated.h"
 
 class UVoxelPlanetGenerator;
+class UVoxelPlanetSphereTerrain;
+class UVoxelPlanetTerrainModule;
 
 /**
- * 程序化球状行星生成器。
+ * 行星生成器适配器。
  *
- * 世界是一个有向距离场：value = |P - Center| - Radius。
- * 负值为实体，正值为空，等值面因此是一个严格的球面。
+ * 它自己**不产生任何密度**：地形长什么样全部由 Terrain 指向的地形模块决定
+ * （见 UVoxelPlanetTerrainModule）。这个类只做一件事 —— 把行星的半径、球心和
+ * 基准色打包成 FVoxelPlanetTerrainContext 递给模块，再把模块产出的实例原样交给
+ * VoxelWorld。
  *
- * 这是纯 C++ 生成器：不使用 Voxel Graph，因此在插件的免费版中也能工作。
+ * 为什么非要有这一层：插件的 FVoxelGeneratorPicker 只接受 UVoxelGenerator，
+ * 而地形模块是 UDataAsset（这样它才能作为内容浏览器里的共享预设存在）。适配器
+ * 是唯一同时满足这两边的类型。它同时也是**每颗行星一份**的：模块是可共享的资产，
+ * 上下文是每颗行星私有的，两者必须分开存放。
  */
 UCLASS(Blueprintable)
 class UVoxelPlanetGenerator : public UVoxelGenerator
@@ -28,6 +35,13 @@ public:
 	virtual TVoxelSharedRef<FVoxelGeneratorInstance> GetInstance() override;
 	//~ End UVoxelGenerator Interface
 
+	/**
+	 * 要用的地形模块。为空时退化成一颗光滑球（内部临时造一个纯球模块），
+	 * 因此「没挂地形」不是错误状态，只是最朴素的那种地形。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet")
+	TObjectPtr<UVoxelPlanetTerrainModule> Terrain;
+
 	/** 行星半径（体素数）。世界空间原点位于 Center 处。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet", meta = (ClampMin = "16"))
 	float Radius = 1000.f;
@@ -36,29 +50,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet")
 	FVector Center = FVector::ZeroVector;
 
-	/** 整颗球的表面颜色，以顶点色传给材质。 */
+	/** 交给模块的基准色。模块可以拿它当兜底色，也可以完全忽略（自带配色）。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet")
 	FLinearColor SurfaceColor = FLinearColor(0.18f, 0.42f, 0.16f);
-};
-
-class FVoxelPlanetGeneratorInstance : public TVoxelGeneratorInstanceHelper<FVoxelPlanetGeneratorInstance, UVoxelPlanetGenerator>
-{
-public:
-	using Super = TVoxelGeneratorInstanceHelper<FVoxelPlanetGeneratorInstance, UVoxelPlanetGenerator>;
-
-	explicit FVoxelPlanetGeneratorInstance(UVoxelPlanetGenerator& MyGenerator);
-
-	//~ Begin FVoxelGeneratorInstance Interface
-	v_flt GetValueImpl(v_flt X, v_flt Y, v_flt Z, int32 LOD, const FVoxelItemStack& Items) const;
-	FVoxelMaterial GetMaterialImpl(v_flt X, v_flt Y, v_flt Z, int32 LOD, const FVoxelItemStack& Items) const;
-
-	TVoxelRange<v_flt> GetValueRangeImpl(const FVoxelIntBox& Bounds, int32 LOD, const FVoxelItemStack& Items) const;
-
-	virtual FVector GetUpVector(v_flt X, v_flt Y, v_flt Z) const override final;
-	//~ End FVoxelGeneratorInstance Interface
 
 private:
-	const float Radius;
-	const FVector Center;
-	const FLinearColor SurfaceColor;
+	/**
+	 * Terrain 为空时代理的那个纯球模块。
+	 *
+	 * 做成子对象而不是「另一条分支」：这样无论有没有挂模块，走的都是同一条
+	 * 代码路径，不存在一份只在缺模块时才被执行的、平时没人测的逻辑。
+	 */
+	UPROPERTY(Transient)
+	TObjectPtr<UVoxelPlanetSphereTerrain> FallbackTerrain;
 };
