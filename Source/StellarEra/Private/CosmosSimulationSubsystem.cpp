@@ -339,7 +339,54 @@ void UCosmosSimulationSubsystem::CarryRiders(AActor* BodyActor, const FVector& D
 			continue;
 		}
 
-		if (FVector::DistSquared(Rider->GetActorLocation(), PlanetLocation) > RideRadiusSq)
+		const FVector RiderLocation = Rider->GetActorLocation();
+
+		if (FVector::DistSquared(RiderLocation, PlanetLocation) > RideRadiusSq)
+		{
+			continue;
+		}
+
+		// 最近者独占。两颗星的判定球可能重叠：本关卡行星一 7.181 km、行星二
+		// 9.833 km，相隔 2.652 km，而每颗星的判定半径各 2 km（半径 1 km ×
+		// RideRadiusScale 2.0），地表之间只隔 0.652 km —— 远小于判定半径。
+		// 重叠区里的 Pawn 会被两颗星各推一次，位移叠加成两倍：行星一相对行星二
+		// 的参考系速度是 246 m/s，远超飞船的 MaxSpeed 8000 cm/s，飞船会被卡在
+		// 行星二判定球边界上横向扫走，根本飞不到行星二上。
+		//
+		// 所以只由「离 Pawn 最近的携带者」推它，其余天体的调用跳过。恒星不是
+		// 携带者，它的远近与本规则无关，不能参与比较、更不能否决行星。
+		//
+		// 距离相等时按 (距离平方, UniqueID) 取最小，保证同帧恰好一颗星携带：
+		// 只比距离的话，正好落在两个等半径判定球中点的 Pawn 会被推两次。
+		const double SelfDistanceSq = FVector::DistSquared(RiderLocation, PlanetLocation);
+		const uint32 SelfUniqueId = BodyActor->GetUniqueID();
+		bool bIsNearestCarrier = true;
+
+		for (UCosmosOrbitComponent* OtherComponent : Bodies)
+		{
+			AActor* OtherBody = OtherComponent ? OtherComponent->GetOwner() : nullptr;
+			if (!OtherBody || OtherBody == BodyActor)
+			{
+				continue;
+			}
+
+			// 恒星不是携带者，不参与比较。
+			if (!Cast<AVoxelPlanetActor>(OtherBody))
+			{
+				continue;
+			}
+
+			const double OtherDistanceSq =
+				FVector::DistSquared(RiderLocation, OtherBody->GetActorLocation());
+			if (OtherDistanceSq < SelfDistanceSq
+				|| (OtherDistanceSq == SelfDistanceSq && OtherBody->GetUniqueID() < SelfUniqueId))
+			{
+				bIsNearestCarrier = false;
+				break;
+			}
+		}
+
+		if (!bIsNearestCarrier)
 		{
 			continue;
 		}
