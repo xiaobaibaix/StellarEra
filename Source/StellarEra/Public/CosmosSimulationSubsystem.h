@@ -111,6 +111,14 @@ private:
 	/** 把一颗天体注册进求解器。 */
 	void AddBodyToSimulator(UCosmosOrbitComponent* Component);
 
+	/**
+	 * 把 BodyActor 本帧的位移施加给骑在它上面的 Pawn。
+	 *
+	 * 只在星球附近生效（判定半径 = 地表半径 × RideRadiusScale），不是全局平移：
+	 * 在 50 公里外自由飞行的飞船不该被行星拖着走。
+	 */
+	void CarryRiders(AActor* BodyActor, const FVector& Delta);
+
 	TArray<TObjectPtr<UCosmosOrbitComponent>> Bodies;
 
 	FNBodySimulator Simulator;

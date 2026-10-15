@@ -5,6 +5,8 @@
 #include "CosmosOrbitComponent.h"
 #include "VoxelPlanetActor.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
+#include "GameFramework/Pawn.h"
 #include "Stats/Stats.h"
 
 void UCosmosSimulationSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -265,6 +267,9 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 			// 星球移动后必须同步，否则渲染网格留在原地、星球跑掉。
 			Planet->SyncVoxelWorldTransform();
 		}
+
+		// 顺序要紧：先把星球自己搬到新位置，再把人按同样的位移带过去。
+		CarryRiders(BodyActor, Delta);
 	}
 
 	// ── 3. 诊断 ──
@@ -292,4 +297,55 @@ void UCosmosSimulationSubsystem::LogDiagnostics() const
 	UE_LOG(LogTemp, Log, TEXT("角动量    : %.6e"), Simulator.GetTotalAngularMomentum().Size());
 	UE_LOG(LogTemp, Log, TEXT("1 AU      : %.0f 厘米"), CentimetersPerAu);
 	UE_LOG(LogTemp, Log, TEXT("=================================="));
+}
+
+void UCosmosSimulationSubsystem::CarryRiders(AActor* BodyActor, const FVector& Delta)
+{
+	// 只有体素星球携带人。恒星是网格、没有「地表」这个概念，
+	// 站在上面的东西靠自身重力待着就行。
+	const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(BodyActor);
+	if (!Planet)
+	{
+		return;
+	}
+
+	UWorld* OwningWorld = GetWorld();
+	if (!OwningWorld)
+	{
+		return;
+	}
+
+	const double RideRadius = double(Planet->GetSurfaceRadiusCm()) * RideRadiusScale;
+	const double RideRadiusSq = RideRadius * RideRadius;
+	const FVector PlanetLocation = Planet->GetActorLocation();
+
+	for (TActorIterator<APawn> It(OwningWorld); It; ++It)
+	{
+		APawn* Rider = *It;
+		if (!Rider)
+		{
+			continue;
+		}
+
+		// 已经挂在别的 Actor 上的 Pawn 一律跳过，两个理由：
+		//   1. 挂在**这颗星球**上的：星球移动时附着关系本来就把它带走了，
+		//      再加一次位移就是走两步；
+		//   2. 挂在**别的 Pawn** 上的（登船后的角色挂在飞船下）：那个 Pawn
+		//      如果也被本函数推着走，附着关系已经带走了它，同样会走两步。
+		// TActorIterator 的遍历顺序不保证，靠顺序去重是不可靠的，所以按附着
+		// 关系去重。（本项目当前只有一处 AttachToActor：登船时角色挂到飞船下。）
+		if (Rider->GetAttachParentActor())
+		{
+			continue;
+		}
+
+		if (FVector::DistSquared(Rider->GetActorLocation(), PlanetLocation) > RideRadiusSq)
+		{
+			continue;
+		}
+
+		// 不用 Sweep：Pawn 本来就在地面上，硬扫会把它从地形里挤出去。
+		// 这一帧星球平移多少，Pawn 就跟着平移多少，相对关系原样保留。
+		Rider->AddActorWorldOffset(Delta, /*bSweep=*/false);
+	}
 }
