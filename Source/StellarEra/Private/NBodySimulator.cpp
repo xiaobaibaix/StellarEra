@@ -298,6 +298,10 @@ FVector3d FNBodySimulator::ToGameUnitPosition(const FVector& WorldLocation) cons
 // 本项目只用到位置换算（ToWorldLocation / ToGameUnitPosition）。速度、秒、距离
 // 三个换算在参考项目里也是死代码。保留是为了让搬运保持完整、将来要加拖尾或
 // 速度显示时直接用；改动此处时不要以为有调用方在依赖它。
+//
+// 用之前先看清它们是**实时**换算：1 AU/年 → 1e6 厘米 / 3.15576e7 秒 ≈ 0.032 厘米/秒，
+// 而游戏里 1 模拟年只花 1/TimeScale ≈ 300 真实秒。要在屏幕上显示速度，还得再乘
+// 1/TimeScale（约 300 倍），否则地球的 209 米/秒会被显示成 0.2 厘米/秒。
 FVector FNBodySimulator::ToWorldVelocity(const FVector3d& GameUnitVelocity) const
 {
 	if (UnitSystem == ECosmosUnitSystem::Game)
@@ -357,15 +361,23 @@ void FNBodySimulator::ApplyOrbitInit(int32 BodyIndex, const FCosmosOrbitInit& Or
 	const double PX = R * FMath::Cos(TrueAnomaly);
 	const double PY = R * FMath::Sin(TrueAnomaly);
 
-	// 圆轨道速度 √(GM/r)；椭圆轨道需乘以 √(1+e)/(1+e·cosE)
-	const double BaseSpeed = FMath::Sqrt(G * M / FMath::Max(R, 1e-9));
-	const double SpeedFactor = (e < 1e-6)
-		? 1.0
-		: FMath::Sqrt((1.0 + e) / FMath::Max(1.0 + e * FMath::Cos(EccentricAnomaly), 1e-9));
+	// 近焦点坐标系下的速度分量。p = a(1−e²) 是半通径：
+	//     横向 Vt = √(GM/p)·(1 + e·cos ν)
+	//     径向 Vr = √(GM/p)·e·sin ν
+	//
+	// 只有近日点（ν = 0）才退化成纯切向；其余相位必须带上径向分量，否则速度
+	// 方向与椭圆切线不符，轨道会立刻跑偏。
+	//
+	// 别改回「圆轨道速度 √(GM/r) 乘一个修正因子」的写法：那种写法在 E = 0 时
+	// 修正因子恰好等于 1，四颗行星会全部被发射到半径 a(1−e) 的**圆**轨道上 ——
+	// 偏心率全丢，而能量漂移照样合格，光看诊断看不出来。
+	const double SemiLatusRectum = a * (1.0 - e * e);
+	const double SqrtMuOverP = FMath::Sqrt(G * M / FMath::Max(SemiLatusRectum, 1e-9));
+	const double TransverseSpeed = SqrtMuOverP * (1.0 + e * FMath::Cos(TrueAnomaly));
+	const double RadialSpeed = SqrtMuOverP * e * FMath::Sin(TrueAnomaly);
 
-	// 速度方向垂直于半径（在椭圆上具体是切向）
-	const double VX = -BaseSpeed * SpeedFactor * FMath::Sin(TrueAnomaly);
-	const double VY = BaseSpeed * SpeedFactor * FMath::Cos(TrueAnomaly);
+	const double VX = RadialSpeed * FMath::Cos(TrueAnomaly) - TransverseSpeed * FMath::Sin(TrueAnomaly);
+	const double VY = RadialSpeed * FMath::Sin(TrueAnomaly) + TransverseSpeed * FMath::Cos(TrueAnomaly);
 
 	// ── 3. 应用轨道倾角与升交点经度 ──
 	const double Inc = Orbit.InclinationDegrees * (PI / 180.0);

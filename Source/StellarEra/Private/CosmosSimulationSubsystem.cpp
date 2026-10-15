@@ -225,7 +225,14 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 			Simulator.StepExact(BaseTimeStep);
 		}
 
-		// 持续超限说明 TimeScale 相对步长太大。降一点，而不是让帧率崩掉。
+		// 兜底，正常配置下不会触发：AdvanceAccumulator 每帧最多只加
+		// (MaxStepsPerFrame − 1) 步的量，而它每次又只扣掉整数步，余量恒小于一个
+		// 步长，所以 floor 之后最多就是 MaxStepsPerFrame − 1 步。真正约束单帧
+		// 开销的是上面那道推进上限，不是这里。
+		//
+		// 只有 MaxStepsPerFrame 被直接改 ini 成 0 或负数时才会持续超限 ——
+		// 属性上的 ClampMin = 1 挡的是编辑器那条路，这段留着兜 ini 那条路：
+		// 宁可让 TimeScale 掉下去，也不要让帧率崩掉。
 		if (NumSteps > MaxStepsPerFrame)
 		{
 			TimeScale *= 0.9;
@@ -352,6 +359,11 @@ void UCosmosSimulationSubsystem::CarryRiders(AActor* BodyActor, const FVector& D
 		// 重叠区里的 Pawn 会被两颗星各推一次，位移叠加成两倍：行星一相对行星二
 		// 的参考系速度是 246 m/s，远超飞船的 MaxSpeed 8000 cm/s，飞船会被卡在
 		// 行星二判定球边界上横向扫走，根本飞不到行星二上。
+		//
+		// 这条规则依赖「所有体素星球的判定半径相同」（RideRadiusScale 是子系统级
+		// 配置，本关卡四颗行星半径都是 1 km）。将来若加入半径更小的星球，「更近」就
+		// 不再蕴含「够得着」：站在大星判定球内、却离小星更近的 Pawn 会被两颗星同时
+		// 放弃。届时要把比较条件改成「更近**且**够得着」。
 		//
 		// 所以只由「离 Pawn 最近的携带者」推它，其余天体的调用跳过。恒星不是
 		// 携带者，它的远近与本规则无关，不能参与比较、更不能否决行星。

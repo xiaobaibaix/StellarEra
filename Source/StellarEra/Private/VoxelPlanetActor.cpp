@@ -57,6 +57,14 @@ float AVoxelPlanetActor::GetScaledRadiusVoxels() const
 {
 	// 只采用等比缩放。非等比缩放会剪切体素网格，而密度场定义在体素空间中，
 	// 得到的将是扭曲的畸形而非缩放后的行星。
+	//
+	// ⚠ 已知不一致，本次不修（只有缩放 S ≠ 1 时才显形；本关卡所有星球 S = 1）：
+	// 渲染时 AVoxelWorld::LocalToGlobalFloat 是 TransformPosition(VoxelSize · p)，
+	// 那个变换里**已经含** S，所以网格的世界半径是 Radius · S² · VoxelSize，而
+	// GetSurfaceRadiusCm() 返回 Radius · S · VoxelSize。S = 2 时网格 4 km、角色与
+	// 飞船却按 2 km 摆，埋进星体 2 km。要修得先定下「体素空间半径含不含 S」以及
+	// 随之而来的哈希 / 重建 / 变换同步契约（见 SDD 台账最终复审小节），不能只改
+	// 这里一行。
 	const float UniformScale = GetActorScale3D().GetAbsMax();
 	return Radius * UniformScale;
 }

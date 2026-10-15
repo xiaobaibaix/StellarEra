@@ -370,6 +370,12 @@ void AStellarEraPlayerController::LeaveShip(ASpaceshipPawn* Ship)
 	// 只在有加速度时旋转，而附着时没有加速度），不重新对齐的话，在行星另一侧下船
 	// 会看到角色侧躺在地上。这一步同时把角色按到球面上，并重置相机基座，
 	// 避免下船瞬间镜头甩一下。
+	// 下船前先重评一次最近行星。登船期间 Tick 里的重评是关着的（附着关系就是
+	// 「在船上」），此刻 PlanetActor 很可能还是上船时那颗 —— 直接按球面摆正会把
+	// 角色按到几公里外的旧星地表上，下一帧重评再把他拉回来。那一次瞬移通常来不及
+	// 渲染（相机在所有 tick 组之后才更新），但它确实是两次位移，只是被 tick 顺序
+	// 掩盖了。
+	PawnCharacter->ReevaluatePlanet();
 	PawnCharacter->SnapToPlanetSurface();
 
 	Possess(PawnCharacter);

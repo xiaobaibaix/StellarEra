@@ -80,8 +80,14 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Cosmos|Time")
 	int32 StepsPerOrbit = 20000;
 
-	/** 单帧积分步数上限。超了会自动降 TimeScale，而不是让帧率崩掉。 */
-	UPROPERTY(Config, EditAnywhere, Category = "Cosmos|Time")
+	/**
+	 * 单帧积分步数上限。**这才是真正约束单帧开销的那一项** ——
+	 * Tick 里单帧最多推进的模拟年数就是 (该值 − 1) × 步长。
+	 *
+	 * 下限取 1：填 0 会让推进上限退化成「至少一步」，于是每帧都超限、
+	 * TimeScale 每帧乘 0.9 掉下去，几帧内就把模拟冻住。
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Cosmos|Time", meta = (ClampMin = "1"))
 	int32 MaxStepsPerFrame = 200;
 
 	/**

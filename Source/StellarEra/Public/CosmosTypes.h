@@ -28,7 +28,8 @@ namespace CosmosUnits
 
 	/**
 	 * 1 AU = 1.495978707e13 厘米。**这是真实物理值，不是本项目的世界尺度。**
-	 * 本项目的世界按「1 AU = 10 公里」标定，见 FNBodySimulator::CentimetersPerAu。
+	 * 本项目的世界按「1 AU = 10 公里」标定，见 UCosmosSimulationSubsystem::CentimetersPerAu
+	 * （配置项，默认 1e6；求解器侧对应公开的 FNBodySimulator::GetCentimetersPerAu()）。
 	 * 直接用这个常量会把星球甩出 float32 的精度范围（该处 ULP ≈ 18 公里）。
 	 */
 	inline constexpr double AuToCentimeter = 1.495978707e13;

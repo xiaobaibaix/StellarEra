@@ -54,6 +54,9 @@ public:
 	/** 把角色摆到球面正上方，胶囊底贴住表面，并把朝向摆正。 */
 	void SnapToPlanetSurface();
 
+	/** 重找最近的行星；换了就切过去并重新落到新星的地表上。 */
+	void ReevaluatePlanet();
+
 	/** 当前所在的行星。BeginPlay 时自动查找最近的一颗。 */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Planet")
 	TObjectPtr<AVoxelPlanetActor> PlanetActor;
@@ -171,9 +174,6 @@ private:
 
 	/** 距离下次重新评估最近行星还剩多少秒。 */
 	float PlanetReevaluateTimer = 0.f;
-
-	/** 重找最近的行星；换了就切过去并重新落到新星的地表上。 */
-	void ReevaluatePlanet();
 
 	/**
 	 * 相机枢轴的“球面对齐基座”，不含玩家视角。

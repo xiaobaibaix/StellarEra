@@ -139,9 +139,12 @@ void AStellarEraGameMode::EnsureSpaceshipExists()
 	}
 
 	// 取离世界原点最近的那颗 —— 必须与 APlanetCharacter::FindNearestPlanet
-	// 用同一条规则。角色没有 PlayerStart，生成在世界原点后按同一条规则落到
-	// 最近的行星上；两处规则若不一致，飞船会生成在另一颗星球上，开局登船的
-	// 距离判据（BoardingRadius = 600 cm）差着好几公里，必然失败。
+	// 用同一条「取最近」规则。两者的搜索半径上限其实不同：角色封顶在
+	// PlanetSearchRadius = 1e8 cm = 1000 公里，这里不设限；本关卡四颗行星都在
+	// 原点 52 公里以内，这个差别不影响结果。角色没有 PlayerStart，生成在世界
+	// 原点后按同一条规则落到最近的行星上；两处规则若不一致，飞船会生成在另一颗
+	// 星球上，开局登船的距离判据（BoardingRadius = 600 cm）差着好几公里，
+	// 必然失败。
 	//
 	// 不能再用「取第一颗」：TActorIterator 的顺序不保证，关卡里有 4 颗行星时
 	// 它命中的是哪一颗纯看运气。
