@@ -12,6 +12,13 @@
 #include "UObject/ConstructorHelpers.h"
 #include "EngineUtils.h"
 
+namespace
+{
+	// 占位网格的资产路径。构造函数和 ApplyCharacterMesh 都要用，写在一处，
+	// 免得两边的字符串对不上。
+	const TCHAR* FallbackMeshPath = TEXT("/Engine/EngineMeshes/SkeletalCube.SkeletalCube");
+}
+
 APlanetCharacter::APlanetCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
@@ -69,35 +76,58 @@ APlanetCharacter::APlanetCharacter()
 	VoxelInvoker->bUseForEvents = false;
 	VoxelInvoker->bUseForPriorities = false;
 
-	// Pomni 模型。Sketchfab 导出的朝向与缩放通常都不对，校正量由
-	// MeshRelativeRotation / MeshScale 两个属性给出——但这两个值在这里读一次就定死了，
-	// 在细节面板里改不会生效（角色是 GameMode 用原生类运行时生成的，属性只反映 CDO）。
-	// 调参路径：改这两个属性的默认值 → 重编译（约 20 秒）→ 再 PIE。
-	// 注意：目录名里的竖线是全角 U+FF5C（｜），不是 ASCII 的 |，别"顺手改正"。
-	static ConstructorHelpers::FObjectFinder<USkeletalMesh> CharacterMesh(
-		TEXT("/Game/Fab/Blender_3D｜Pomni_3D_Model/pomni_3d_model/SkeletalMeshes/Object_14.Object_14"));
-	if (CharacterMesh.Succeeded())
+	// C++ 只给一个引擎骷髅方块兜底，让裸放的 APlanetCharacter 不至于隐形。
+	//
+	// 真实模型不在这里。它属于「具体表现」，由子蓝图 BP_PlanetCharacter 在
+	// Class Defaults 里填 CharacterMesh / MeshRelativeLocation /
+	// MeshRelativeRotation / MeshScale 提供，换模型、调朝向都不必重新编译。
+	//
+	// 也正因为如此，这里不能写项目资产路径：蓝图 CDO 构造时会先跑一遍这个
+	// 构造函数，之后才加载蓝图里存的值，构造期读到的永远是 C++ 默认值。
+	// 真正套用那四个属性的地方是 ApplyCharacterMesh。
+	static ConstructorHelpers::FObjectFinder<USkeletalMesh> FallbackMesh(FallbackMeshPath);
+	if (FallbackMesh.Succeeded())
 	{
-		GetMesh()->SetSkeletalMesh(CharacterMesh.Object);
+		GetMesh()->SetSkeletalMesh(FallbackMesh.Object);
 	}
 	else
 	{
-		// 资源缺失时退回引擎自带立方体，保证角色仍然可见、不静默消失。
-		static ConstructorHelpers::FObjectFinder<USkeletalMesh> FallbackMesh(
-			TEXT("/Engine/EngineMeshes/SkeletalCube.SkeletalCube"));
-		if (FallbackMesh.Succeeded())
-		{
-			GetMesh()->SetSkeletalMesh(FallbackMesh.Object);
-		}
+		// 连引擎骷髅方块都拿不到时会得到一个没有网格、完全不可见的角色。
+		// 宁可吵一句，也不要静默失败。
 		UE_LOG(LogTemp, Warning,
-			TEXT("APlanetCharacter: 找不到角色模型 %s，退回占位网格。"),
-			TEXT("/Game/Fab/Blender_3D｜Pomni_3D_Model/pomni_3d_model/SkeletalMeshes/Object_14.Object_14"));
+			TEXT("APlanetCharacter: 找不到占位网格 %s，Mesh 将没有模型。"), FallbackMeshPath);
+	}
+}
+
+void APlanetCharacter::ApplyCharacterMesh()
+{
+	USkeletalMeshComponent* MeshComponent = GetMesh();
+	if (!MeshComponent)
+	{
+		return;
 	}
 
-	// 胶囊半高 88：把网格下移到胶囊底，让模型站在地面上而不是穿进地里。
-	GetMesh()->SetRelativeLocation(FVector(0.f, 0.f, -88.f));
-	GetMesh()->SetRelativeRotation(MeshRelativeRotation);
-	GetMesh()->SetRelativeScale3D(FVector(MeshScale));
+	// 有就用蓝图给的，没有就退回占位网格。
+	//
+	// 这里不能直接 return —— 在编辑器里把 CharacterMesh 清空后，上一次套用的模型
+	// 会留在 Mesh 上，看起来像"属性没生效"。显式放回占位网格才是所见即所得。
+	USkeletalMesh* MeshToUse = CharacterMesh
+		? CharacterMesh.Get()
+		: LoadObject<USkeletalMesh>(nullptr, FallbackMeshPath);
+
+	MeshComponent->SetSkeletalMesh(MeshToUse);
+	MeshComponent->SetRelativeLocation(MeshRelativeLocation);
+	MeshComponent->SetRelativeRotation(MeshRelativeRotation);
+	MeshComponent->SetRelativeScale3D(FVector(MeshScale));
+}
+
+void APlanetCharacter::OnConstruction(const FTransform& Transform)
+{
+	Super::OnConstruction(Transform);
+
+	// 外观在这里套用，而不是构造函数里：OnConstruction 是编辑器里能读到蓝图
+	// 覆盖值的第一个时机，在蓝图 Class Defaults 里改 CharacterMesh 立刻能在视口看到。
+	ApplyCharacterMesh();
 }
 
 void APlanetCharacter::BeginPlay()
@@ -107,6 +137,10 @@ void APlanetCharacter::BeginPlay()
 	// WalkSpeed 是 EditAnywhere：在蓝图/实例上改过之后这里应用一次，否则要等到
 	// 按一次冲刺（SetSprinting）才会生效。
 	GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+
+	// 再套一次：角色由 GameMode 按 DefaultPawnClass 运行时生成，实例的
+	// OnConstruction 未必在蓝图属性就位之后跑过。重复调用是幂等的。
+	ApplyCharacterMesh();
 
 	PlanetActor = FindNearestPlanet();
 	if (!PlanetActor)
@@ -218,9 +252,11 @@ void APlanetCharacter::SnapToPlanetSurface()
 	}
 
 	const float CapsuleHalfHeight = GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	// 按方向取地表：有地形时地表在基准球面上下浮动，用基准半径会把角色塞进
+	// 山体里（振幅 8 体素 = 800cm，山峰比基准面高 1600cm）。
 	// 多抬 1 厘米，避免刚好贴面时被判定为“已经在实体内部”。
 	const FVector Location =
-		PlanetCenter + Up * (PlanetActor->GetSurfaceRadiusCm() + CapsuleHalfHeight + 1.f);
+		PlanetCenter + Up * (PlanetActor->GetSurfaceRadiusCmAtDirection(Up) + CapsuleHalfHeight + 1.f);
 
 	SetActorLocation(Location, /*bSweep=*/false);
 	SetActorRotation((FQuat::FindBetweenNormals(FVector::UpVector, Up) * GetActorQuat()).Rotator());

@@ -13,7 +13,9 @@ class UCameraComponent;
 class UFloatingPawnMovement;
 class USphereComponent;
 class USpringArmComponent;
+class UStaticMesh;
 class UStaticMeshComponent;
+class UVoxelInvokerWithPredictionComponent;
 
 /**
  * 街机式太空飞船。
@@ -30,6 +32,7 @@ class ASpaceshipPawn : public APawn
 public:
 	ASpaceshipPawn();
 
+	virtual void OnConstruction(const FTransform& Transform) override;
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
 
@@ -64,7 +67,40 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spaceship")
 	TObjectPtr<USphereComponent> Collision;
 
-	/** 外壳网格。占位用引擎立方体，导入真实模型后替换。 */
+	/**
+	 * 体素调用器：行星的 LOD 与碰撞都靠它驱动，没有它飞船就是瞎的。
+	 *
+	 * 插件的调用器用一个位置服务三件事（见 VoxelInvokerComponent.h）：
+	 *   - LOD：ShouldSubdivideByDistance 把与 LODBounds 相交的节点一路细分到
+	 *     LODToSet（VoxelRenderOctree.cpp:626）。
+	 *   - 碰撞：ShouldSubdivideByOthers 把 CollisionsBounds 内的节点细分到
+	 *     Height 0，只有 Height 0 的区块才带碰撞体（同文件 :479）。
+	 *   - 导航：本项目不用。
+	 *
+	 * 为什么挂在飞船根节点而不是相机上：IsLocalInvoker
+	 * （VoxelInvokerComponent.cpp:21）只认 Pawn 的 IsLocallyControlled()，
+	 * UVoxelInvokerAutoCameraComponent 那条路是 bUseCameraIfNoInvokersFound 的
+	 * 兜底，且写死玩家索引 0（同文件 :177），多人下不可用。
+	 *
+	 * 为什么登船后必须换人扛：Possess(Ship) 会把 Controller 从角色转到飞船，
+	 * 角色的调用器随即不再是 local invoker，VoxelDefaultLODManager.cpp:218 会把它
+	 * 的 bUseForLOD 强制置假。没有这一份，整个行星就一直停在行星调用器给的最粗
+	 * LOD 上 —— 这正是「开飞船时星球不更新 LOD、也不碰撞」的成因。
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spaceship")
+	TObjectPtr<UVoxelInvokerWithPredictionComponent> VoxelInvoker;
+
+	/**
+	 * 外壳网格。**网格与变换都归蓝图管**：
+	 *
+	 *   - 换模型：用 HullMesh 属性（推荐），或直接在子蓝图里覆盖本组件的静态网格体；
+	 *   - 摆位置/朝向/缩放：在子蓝图（BP_SpaceshipPawn）的视口里选中 Hull 拖 Gizmo，
+	 *     值存在蓝图资产里，重编译不会被清掉；关卡实例上也能单独调。
+	 *
+	 * C++ 只在构造期塞一个引擎立方体兜底，让裸放的 ASpaceshipPawn 不至于隐形，
+	 * 之后不再写这里的任何变换 —— 一旦在这里写，蓝图里拖出来的值每次重编译都会
+	 * 被冲掉，"模型在蓝图里调不动"就是这么来的。
+	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spaceship")
 	TObjectPtr<UStaticMeshComponent> Hull;
 
@@ -124,15 +160,35 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Boarding")
 	float BoardingRadius = 600.f;
 
-	/** 模型相对碰撞球的额外旋转。用于校正模型朝向。 */
+	/**
+	 * 船体模型。留空 = C++ 不介入网格体：蓝图里覆盖的模型、或构造期塞进去的
+	 * 引擎立方体都保持原样。
+	 *
+	 * 这是「具体表现」，默认留给子蓝图 BP_SpaceshipPawn 在 Class Defaults 里指定，
+	 * C++ 不硬编码任何项目资产路径 —— 换模型不必重新编译。推荐走这个属性而不是
+	 * 直接覆盖 Hull 组件的静态网格体：组件覆盖记在 UInheritableComponentHandler 里，
+	 * 原生类一重编译有被重新生成掉、模型无声退回占位立方体的风险。
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spaceship|Mesh")
-	FRotator MeshRelativeRotation = FRotator::ZeroRotator;
-
-	/** 模型相对碰撞球的额外缩放。用于把模型缩放到 6 米左右。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spaceship|Mesh")
-	float MeshScale = 1.f;
+	TObjectPtr<UStaticMesh> HullMesh;
 
 private:
+	/**
+	 * 把 HullMesh 套用到 Hull 的**网格体**上，不碰任何变换。
+	 *
+	 * 位置/朝向/缩放故意留给蓝图：在蓝图视口里选中 Hull 拖 Gizmo 即可，值存在
+	 * 蓝图资产里。如果这里写 RelativeLocation / Rotation / Scale，每次重编译
+	 * （OnConstruction 会重跑）都会把手拖出来的值冲回去 —— 表现就是"模型在蓝图
+	 * 里怎么都调不动"。
+	 *
+	 * 必须在 OnConstruction 与 BeginPlay 里调用，不能只在构造函数里做：
+	 * 蓝图 CDO 构造时会先跑一遍 C++ 构造函数，之后才加载蓝图里存的值，
+	 * 构造期读到的永远是 C++ 默认值 —— 在蓝图 Class Defaults 里改 HullMesh
+	 * 就会静默失效。APlanetCharacter 的 WalkSpeed 出于同样的原因在 BeginPlay
+	 * 里再套用一次（见 PlanetCharacter.cpp）。
+	 */
+	void ApplyHullMesh();
+
 	float ThrustInput = 0.f;
 	float RollInput = 0.f;
 	float VerticalInput = 0.f;

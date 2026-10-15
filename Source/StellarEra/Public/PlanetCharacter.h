@@ -10,6 +10,7 @@
 class ASpaceshipPawn;
 class AVoxelPlanetActor;
 class UCameraComponent;
+class USkeletalMesh;
 class USpringArmComponent;
 class UVoxelSimpleInvokerComponent;
 
@@ -28,6 +29,7 @@ class APlanetCharacter : public ACharacter
 public:
 	APlanetCharacter();
 
+	virtual void OnConstruction(const FTransform& Transform) override;
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
 
@@ -112,6 +114,23 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet")
 	float SprintSpeed = 1200.f;
 
+	/**
+	 * 角色模型。留空则退回引擎自带的骷髅方块占位。
+	 *
+	 * 这是「具体表现」，默认留给子蓝图 BP_PlanetCharacter 在 Class Defaults 里指定，
+	 * C++ 不硬编码任何项目资产路径 —— 换模型不必重新编译。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Character|Mesh")
+	TObjectPtr<USkeletalMesh> CharacterMesh;
+
+	/**
+	 * 模型相对胶囊的额外位移。默认 -88 = 胶囊半高（见构造函数里的
+	 * InitCapsuleSize），把网格下移到胶囊底，让模型站在地面上而不是穿进地里。
+	 * 改胶囊尺寸的话这个值要跟着改。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Character|Mesh")
+	FVector MeshRelativeLocation = FVector(0.f, 0.f, -88.f);
+
 	/** 模型相对胶囊的额外旋转。用于校正 Sketchfab 模型的朝向。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Character|Mesh")
 	FRotator MeshRelativeRotation = FRotator(0.f, -90.f, 0.f);
@@ -121,6 +140,22 @@ protected:
 	float MeshScale = 0.7f;
 
 private:
+	/**
+	 * 把 CharacterMesh / MeshRelativeLocation / MeshRelativeRotation / MeshScale
+	 * 套用到 GetMesh() 上。四个属性是一组，换模型只改这一组，不必重新编译。
+	 *
+	 * 必须在 OnConstruction 与 BeginPlay 里调用，不能只在构造函数里做：
+	 * 蓝图 CDO 构造时会先跑一遍 C++ 构造函数，之后才加载蓝图里存的值，
+	 * 构造期读到的永远是 C++ 默认值 —— 在蓝图 Class Defaults 里改这四个属性
+	 * 就会静默失效。本类的 WalkSpeed 出于同样的原因在 BeginPlay 里再套用一次。
+	 *
+	 * 顺带一个坑：不要在子蓝图里靠「覆盖 Mesh 组件的 SkeletalMesh」来换模型。
+	 * 那种覆盖记在 UInheritableComponentHandler 里，父类一旦重编译就会被
+	 * 重新生成掉，模型会无声地退回占位网格。Mesh 还是 ACharacter 自带的继承
+	 * 组件，比自建组件更容易踩这一脚。
+	 */
+	void ApplyCharacterMesh();
+
 	/** 是否已经第一次踩到地面。在此之前每帧把角色按回球面，等碰撞体流送出来。 */
 	bool bHasLanded = false;
 
