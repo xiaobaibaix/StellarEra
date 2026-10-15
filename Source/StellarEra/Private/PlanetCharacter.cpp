@@ -159,6 +159,24 @@ void APlanetCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
+	// 行星在动，最近的一颗会换人。放在 PlanetActor 判空之前：开局若一颗都没
+	// 找到（PlanetActor 为空），这里才有机会在后续帧找回来。
+	//
+	// 登船期间不重评：角色此刻挂在飞船下跟着飞船跨星球移动，重评会把角色从
+	// 船里瞬移到新星的地表上。本项目只有一处 AttachToActor（登船，见
+	// StellarEraPlayerController.cpp），所以附着关系就是「在船上」。
+	const bool bBoarded = GetAttachParentActor() != nullptr;
+
+	if (!bBoarded && PlanetReevaluateInterval > 0.f)
+	{
+		PlanetReevaluateTimer -= DeltaSeconds;
+		if (PlanetReevaluateTimer <= 0.f)
+		{
+			PlanetReevaluateTimer = PlanetReevaluateInterval;
+			ReevaluatePlanet();
+		}
+	}
+
 	if (!PlanetActor)
 	{
 		return;
@@ -268,6 +286,26 @@ void APlanetCharacter::SnapToPlanetSurface()
 	LastSurfaceUp = FVector::ZeroVector;
 }
 
+void APlanetCharacter::ReevaluatePlanet()
+{
+	AVoxelPlanetActor* Nearest = FindNearestPlanet();
+	if (Nearest == PlanetActor)
+	{
+		return;
+	}
+
+	// 换星：旧星已经不在脚下了（或者本来就没找到）。把「已落地」清掉 ——
+	// 新星的地表还没流送出来，得让 Tick 末尾的兜底逻辑重新把角色按到球面上。
+	PlanetActor = Nearest;
+	bHasLanded = false;
+
+	if (PlanetActor)
+	{
+		// 内部会把 LastSurfaceUp 清零，相机基座下一帧重建。
+		SnapToPlanetSurface();
+	}
+}
+
 void APlanetCharacter::Move(const FVector2D& Value)
 {
 	if (!CameraPivot || Value.IsNearlyZero())
@@ -316,6 +354,10 @@ void APlanetCharacter::SetBoarded(bool bBoarded)
 	{
 		// 离船后重新踩上球面：碰撞体可能已经因为距离太远被回收了。
 		bHasLanded = false;
+
+		// 离船时可能已经在另一颗星球旁边了（开船过来、下船）。把计时器清零，
+		// 让下一帧立刻重找最近的行星，而不是拿着旧星的重力方向等半秒。
+		PlanetReevaluateTimer = 0.f;
 	}
 }
 

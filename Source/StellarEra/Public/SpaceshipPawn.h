@@ -148,6 +148,15 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spaceship")
 	float PlanetSearchRadius = 1.0e8f;
 
+	/**
+	 * 重新评估「最近的行星」的间隔（秒）。默认 0.5。设 0 关闭。
+	 *
+	 * 行星在动，最近的一颗会换人。不重评的话，飞离母星之后自动回正会一直
+	 * 对齐到已经远去的旧星，横滚再也拉不回来。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spaceship")
+	float PlanetReevaluateInterval = 0.5f;
+
 	/** 判定“已落地”的速度阈值（厘米/秒）。 */
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Landing")
 	float LandingSpeedThreshold = 200.f;
@@ -194,6 +203,9 @@ private:
 	float VerticalInput = 0.f;
 	float YawRate = 0.f;
 	float PitchRate = 0.f;
+
+	/** 距离下次重新评估最近行星还剩多少秒。 */
+	float PlanetReevaluateTimer = 0.f;
 
 	/** 在关卡里找离飞船最近的一颗行星；找不到返回 nullptr。 */
 	AVoxelPlanetActor* FindNearestPlanet() const;

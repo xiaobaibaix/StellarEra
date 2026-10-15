@@ -209,6 +209,18 @@ void ASpaceshipPawn::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
+	// 行星在动，最近的一颗会换人。飞船不需要像角色那样重新摆位 ——
+	// PlanetActor 只喂给 GetAutoLevelUp()，换个参考方向就行。
+	if (PlanetReevaluateInterval > 0.f)
+	{
+		PlanetReevaluateTimer -= DeltaSeconds;
+		if (PlanetReevaluateTimer <= 0.f)
+		{
+			PlanetReevaluateTimer = PlanetReevaluateInterval;
+			PlanetActor = FindNearestPlanet();
+		}
+	}
+
 	// --- 1. 角速度衰减 ---
 	// 鼠标给的是冲量（见 Look），这里让角速度平滑地衰减回 0。两者的平衡
 	// 就是“甩一下鼠标，飞船转一会儿再停下”的手感。

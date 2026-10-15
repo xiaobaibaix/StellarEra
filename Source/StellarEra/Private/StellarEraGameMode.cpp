@@ -138,11 +138,23 @@ void AStellarEraGameMode::EnsureSpaceshipExists()
 		return;
 	}
 
+	// 取离世界原点最近的那颗 —— 必须与 APlanetCharacter::FindNearestPlanet
+	// 用同一条规则。角色没有 PlayerStart，生成在世界原点后按同一条规则落到
+	// 最近的行星上；两处规则若不一致，飞船会生成在另一颗星球上，开局登船的
+	// 距离判据（BoardingRadius = 600 cm）差着好几公里，必然失败。
+	//
+	// 不能再用「取第一颗」：TActorIterator 的顺序不保证，关卡里有 4 颗行星时
+	// 它命中的是哪一颗纯看运气。
 	AVoxelPlanetActor* Planet = nullptr;
+	float NearestDistSq = TNumericLimits<float>::Max();
 	for (TActorIterator<AVoxelPlanetActor> It(GetWorld()); It; ++It)
 	{
-		Planet = *It;
-		break;
+		const float DistSq = FVector::DistSquared(It->GetActorLocation(), FVector::ZeroVector);
+		if (DistSq < NearestDistSq)
+		{
+			NearestDistSq = DistSq;
+			Planet = *It;
+		}
 	}
 	if (!Planet)
 	{

@@ -62,6 +62,16 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet")
 	float PlanetSearchRadius = 1.0e8f;
 
+	/**
+	 * 重新评估「最近的行星」的间隔（秒）。默认 0.5。设 0 关闭。
+	 *
+	 * 行星在动，最近的一颗会换人。最典型的场景：开着飞船去另一颗星球、落地、
+	 * 下船 —— 角色的 BeginPlay 早在母星上就跑完了，不重评的话它会一直拿旧星
+	 * 当重力源，一脚踩空直接被推向十几公里外的旧星（表现为「向上掉进太空」）。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet")
+	float PlanetReevaluateInterval = 0.5f;
+
 protected:
 	/** 在关卡里找离角色最近的一颗行星；找不到返回 nullptr。 */
 	AVoxelPlanetActor* FindNearestPlanet() const;
@@ -158,6 +168,12 @@ private:
 
 	/** 是否已经第一次踩到地面。在此之前每帧把角色按回球面，等碰撞体流送出来。 */
 	bool bHasLanded = false;
+
+	/** 距离下次重新评估最近行星还剩多少秒。 */
+	float PlanetReevaluateTimer = 0.f;
+
+	/** 重找最近的行星；换了就切过去并重新落到新星的地表上。 */
+	void ReevaluatePlanet();
 
 	/**
 	 * 相机枢轴的“球面对齐基座”，不含玩家视角。
