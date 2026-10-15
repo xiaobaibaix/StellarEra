@@ -82,4 +82,9 @@ public:
 	/** 求解器里的索引。运行时由子系统填写，不要手改。 */
 	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "Cosmos")
 	int32 SimulatorIndex = INDEX_NONE;
+
+	//~ Begin UActorComponent Interface
+	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	//~ End UActorComponent Interface
 };
