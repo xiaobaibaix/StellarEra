@@ -300,8 +300,10 @@ FVector3d FNBodySimulator::ToGameUnitPosition(const FVector& WorldLocation) cons
 // 速度显示时直接用；改动此处时不要以为有调用方在依赖它。
 //
 // 用之前先看清它们是**实时**换算：1 AU/年 → 1e6 厘米 / 3.15576e7 秒 ≈ 0.032 厘米/秒，
-// 而游戏里 1 模拟年只花 1/TimeScale ≈ 300 真实秒。要在屏幕上显示速度，还得再乘
-// 1/TimeScale（约 300 倍），否则地球的 209 米/秒会被显示成 0.2 厘米/秒。
+// 而游戏里 1 模拟年只花 1/TimeScale 真实秒（当前 TimeScale ≈ 0.00333，约 300 秒），
+// 同一个速度按游戏时钟算是 ≈ 3330 厘米/秒。要在屏幕上显示速度，得把这里的实时值再乘
+// YearToSecond · TimeScale ≈ 1.05e5，而不是乘 1/TimeScale —— 后者是模拟时间的压缩比，
+// 换算成「每真实秒」还要再过一道 YearToSecond。否则地球的 209 米/秒会显示成 0.2 厘米/秒。
 FVector FNBodySimulator::ToWorldVelocity(const FVector3d& GameUnitVelocity) const
 {
 	if (UnitSystem == ECosmosUnitSystem::Game)
