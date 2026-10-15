@@ -8,14 +8,14 @@
 #include "VoxelGenerators/VoxelGeneratorPicker.h"
 #include "VoxelComponents/VoxelInvokerComponent.h"
 #include "VoxelPlanetGenerator.h"
+#include "VoxelPlanetTerrainModule.h"
 #include "Materials/MaterialInterface.h"
 #include "Components/SceneComponent.h"
+#include "Engine/World.h"
 #include "UObject/ConstructorHelpers.h"
 
 AVoxelPlanetActor::AVoxelPlanetActor()
 {
-	PrimaryActorTick.bCanEverTick = false;
-
 #if WITH_EDITOR
 	// 每颗行星默认使用项目的顶点色材质。仅编辑器有效：打包后的游戏里
 	// 实例自带序列化值。早于此属性存在的已摆放 Actor 没有对应标签，
@@ -123,6 +123,29 @@ void AVoxelPlanetActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyCh
 }
 #endif
 
+void AVoxelPlanetActor::SyncVoxelWorldTransform()
+{
+	if (!VoxelWorld)
+	{
+		return;
+	}
+
+	// AVoxelWorld 是 Actor 子对象：构造函数里的 CreateDefaultSubobject 只建出一个
+	// 实例，它的变换不会跟着 PlanetRoot 走。而它自己的变换是会被序列化下来的 ——
+	// 世界原点重定基（AVoxelWorld::ApplyWorldOffset）留下的陈旧位移会一直留在关卡
+	// 里，把整颗星顶到离 Actor 几公里外。
+	//
+	// 先比较再赋值，免得每次都把组件标脏。
+	//
+	// 局部坐标模式下本函数还会被 N 体子系统**每帧**调用：星球每帧移动，这个变换
+	// 不跟上的话渲染网格会留在原地、星球跑掉。
+	const FTransform ActorTransform = GetActorTransform();
+	if (!VoxelWorld->GetActorTransform().Equals(ActorTransform, 0.001f))
+	{
+		VoxelWorld->SetActorTransform(ActorTransform);
+	}
+}
+
 void AVoxelPlanetActor::RebuildPlanet()
 {
 	if (!VoxelWorld)
@@ -141,28 +164,27 @@ void AVoxelPlanetActor::RebuildPlanet()
 	}
 	LastParamsHash = ParamsHash;
 
+	// 重建一次打一行：这是「移动星球到底有没有触发重建」的唯一可观测证据。
+	// 正常情况下拖动星球不应该产生新行（局部坐标模式），
+	// 若每帧刷屏就说明哈希守卫失效了。
+	UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor: 重建 %s（参数哈希 %llu）"), *GetName(), ParamsHash);
+
 	if (!Generator)
 	{
 		Generator = NewObject<UVoxelPlanetGenerator>(this, TEXT("VoxelPlanetGenerator"));
 	}
 
 	// --- 0. 让体素世界的原点与 Actor 的原点重合 ---
-	// AVoxelWorld 是 Actor 子对象：构造函数里的 CreateDefaultSubobject 只建出一个
-	// 实例，它的变换不会跟着 PlanetRoot 走。而它自己的变换是会被序列化下来的 ——
-	// 世界原点重定基（AVoxelWorld::ApplyWorldOffset）留下的陈旧位移会一直留在关卡
-	// 里，把整颗星顶到离 Actor 几公里外。这里每次重建都把它拨回来。先比较再赋值，
-	// 免得每次 OnConstruction 都把组件标脏。必须排在取球心之前：球心按该变换的
-	// 逆变换算出来。
-	const FTransform ActorTransform = GetActorTransform();
-	if (!VoxelWorld->GetActorTransform().Equals(ActorTransform, 0.001f))
-	{
-		VoxelWorld->SetActorTransform(ActorTransform);
-	}
+	// 必须排在取球心之前：球心按该变换的逆变换算出来。
+	SyncVoxelWorldTransform();
 
 	// --- 1. 把参数推入生成器 ---
 	Generator->Radius = GetScaledRadiusVoxels();
 	Generator->Center = GetCenterInVoxels();
 	Generator->SurfaceColor = SurfaceColor;
+	// 地形模块也推给生成器：生成器是「这颗行星」的，模块是「这种地形」的。
+	// 模块本身不带位置和尺寸，同一份资产可以喂给任意多颗行星。
+	Generator->Terrain = Terrain;
 
 	// --- 2. 配置 Voxel World ---
 	// VoxelSize 必须一致，否则碰撞将与网格对不上。
@@ -202,13 +224,73 @@ void AVoxelPlanetActor::RebuildPlanet()
 	{
 		VoxelWorld->DestroyWorld();
 	}
+
+#if WITH_EDITOR
+	// 编辑器世界里必须走插件自己的「预览开关」Toggle()，不能直接调 CreateWorld()。
+	//
+	// AVoxelWorld::OnPreBeginPIE（VoxelWorld.cpp:1585）在 PlayType == Preview 时
+	// 无条件拆掉体素世界并打 "Unloading world"，而 OnEndPIE（:1593）只在
+	// bIsToggled 为真时才把它建回来。bIsToggled（VoxelWorld.h:767）默认 false，
+	// 且只有 Toggle()（:1338）会置真 —— 我们直接调 CreateWorld() 从没按过那个
+	// 开关，于是 PIE 一结束整颗星就从视口里消失，直到有人手动改一次属性触发
+	// PostEditChangeProperty 才回来。
+	//
+	// 不能改用 Tick 兜底：编辑器世界的 Actor 默认不 Tick
+	// （FTickFunction::bTickInEditor 默认为 false），那种代码在编辑器里从不执行。
+	//
+	// 只在编辑器世界这么做：PIE 与打包世界要的是 PlayType == Game，
+	// 而 Toggle() 会把 PlayType 设成 Preview。
+	if (GetWorld() && GetWorld()->WorldType == EWorldType::Editor)
+	{
+		VoxelWorld->Toggle();
+		return;
+	}
+#endif
+
 	VoxelWorld->CreateWorld(FVoxelWorldCreateInfo());
+}
+
+void AVoxelPlanetActor::InvalidateAndRebuild()
+{
+	// 把上次的哈希抹掉再重建。
+	//
+	// RebuildPlanet 顶部有一道「哈希没变且世界已建好就跳过」的守卫，而触发这次
+	// 重建的是**地形资产**里的参数，不是本 Actor 的属性 —— 它根本不参与那个
+	// 哈希。不抹掉的话守卫会把这次重建整个吞掉。
+	LastParamsHash = 0;
+	RebuildPlanet();
 }
 
 float AVoxelPlanetActor::GetSurfaceRadiusCm() const
 {
 	// 半径以体素计，乘以单个体素的厘米尺寸才是世界单位。
 	return GetScaledRadiusVoxels() * VoxelSize;
+}
+
+float AVoxelPlanetActor::GetSurfaceRadiusCmAtDirection(const FVector& WorldDirection) const
+{
+	// 没挂模块（或生成器还没建）时地表就是基准球面 —— 光滑球正是「没有地形」
+	// 的样子，所以这里退回 GetSurfaceRadiusCm 是对的，不是权宜之计。
+	if (!Generator || !Generator->Terrain)
+	{
+		return GetSurfaceRadiusCm();
+	}
+
+	const FVector Direction = WorldDirection.GetSafeNormal();
+	if (Direction.IsNearlyZero())
+	{
+		return GetSurfaceRadiusCm();
+	}
+
+	// 上下文与生成器里那份保持一致：模块在两条路径（密度场、地表查询）上必须
+	// 拿到同一个半径和球心，否则角色脚下的地面和眼睛看到的地面会不是同一个面。
+	FVoxelPlanetTerrainContext Context;
+	Context.Radius = GetScaledRadiusVoxels();
+	Context.Center = GetCenterInVoxels();
+	Context.BaseColor = SurfaceColor;
+
+	// 体素空间与世界空间之间只差一个等比缩放，没有旋转，方向可以原样传递。
+	return Generator->Terrain->GetSurfaceRadiusVoxels(Context, Direction) * VoxelSize;
 }
 
 uint64 AVoxelPlanetActor::ComputeParamsHash() const
@@ -229,9 +311,16 @@ uint64 AVoxelPlanetActor::ComputeParamsHash() const
 	// 混原始位置而不是换算后的球心：球心会与 VoxelWorld 的变换相消、退化成常量，
 	// 拿它当哈希的话移动 Actor 不会触发重建，体素世界就跟不上了。
 	const float ScaledRadius = GetScaledRadiusVoxels();
-	const FVector ActorLocation = GetActorLocation();
 	Mix(&ScaledRadius, sizeof(ScaledRadius));
-	Mix(&ActorLocation, sizeof(ActorLocation));
+
+	// 局部坐标模式下**不能**混 ActorLocation：N 体子系统每帧都在移动这颗星球，
+	// 混进去等于每帧销毁并重建整个体素世界。球心锚在局部原点、世界位置由 Actor
+	// 变换承担，与生成器的参数无关，所以移动本来就不需要重建。
+	if (!bUseLocalCoordinates)
+	{
+		const FVector ActorLocation = GetActorLocation();
+		Mix(&ActorLocation, sizeof(ActorLocation));
+	}
 
 	Mix(&SurfaceColor, sizeof(SurfaceColor));
 
@@ -244,6 +333,12 @@ uint64 AVoxelPlanetActor::ComputeParamsHash() const
 	// 哈希就会被破坏。
 	const FString PlanetMaterialPath = PlanetMaterial ? PlanetMaterial->GetPathName() : FString();
 	Mix(*PlanetMaterialPath, PlanetMaterialPath.Len() * sizeof(TCHAR));
+
+	// 地形模块同理，也是按路径混。注意这里只覆盖「换了一个模块」；「改了模块
+	// 自己的参数」不在本函数职责内 —— 那由模块的 PostEditChangeProperty 调
+	// InvalidateAndRebuild 处理（它连哈希都不看）。
+	const FString TerrainPath = Terrain ? Terrain->GetPathName() : FString();
+	Mix(*TerrainPath, TerrainPath.Len() * sizeof(TCHAR));
 
 	return Hash;
 }

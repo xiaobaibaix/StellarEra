@@ -10,6 +10,7 @@
 class AVoxelWorld;
 class UMaterialInterface;
 class UVoxelPlanetGenerator;
+class UVoxelPlanetTerrainModule;
 class USceneComponent;
 class UVoxelSimpleInvokerComponent;
 
@@ -41,9 +42,46 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Planet")
 	void RebuildPlanet();
 
-	/** 行星表面半径（厘米，含 Actor 等比缩放）。角色据此贴合球面。 */
+	/**
+	 * 无条件重建，绕过「参数没变就跳过」的守卫。
+	 *
+	 * 给地形模块用：在资产面板里改模块参数时，变的是资产而不是本 Actor 的属性，
+	 * RebuildPlanet 的参数哈希察觉不到，那道守卫会把重建整个吞掉，看起来就像
+	 * 「参数没生效」。
+	 */
+	void InvalidateAndRebuild();
+
+	/**
+	 * 把 Actor 变换同步给代理体素世界。
+	 *
+	 * AVoxelWorld 是 Actor 子对象，它的变换不跟着 PlanetRoot 走（见 RebuildPlanet
+	 * 里的说明）。RebuildPlanet 会调一次；局部坐标模式下 N 体子系统还会**每帧**
+	 * 调一次 —— 星球每帧移动，不同步的话渲染网格会留在原地、星球跑掉。
+	 *
+	 * 幂等：变换已经一致时什么都不做。
+	 */
+	void SyncVoxelWorldTransform();
+
+	/**
+	 * 行星表面半径（厘米，含 Actor 等比缩放），**不含地形起伏**。
+	 *
+	 * 这是基准球面的半径。有地形时地表在它上下浮动，想知道「某个方向上的地面
+	 * 有多高」要用 GetSurfaceRadiusCmAtDirection。
+	 */
 	UFUNCTION(BlueprintPure, Category = "Planet")
 	float GetSurfaceRadiusCm() const;
+
+	/**
+	 * 指定方向上的地表半径（厘米，含起伏与 Actor 等比缩放）。
+	 *
+	 * 角色出生和飞船生成用它。原先它们假设地表是完美球面，有地形之后那个假设
+	 * 会把角色直接塞进山体里（振幅 8 体素 = 800cm，山峰高出基准面 1600cm）。
+	 *
+	 * WorldDirection 是世界空间方向，不必归一化。体素空间与世界空间之间只有
+	 * 等比缩放、没有旋转，方向因此可以原样传递。
+	 */
+	UFUNCTION(BlueprintPure, Category = "Planet")
+	float GetSurfaceRadiusCmAtDirection(const FVector& WorldDirection) const;
 
 	//////////////////////////////////////////////////////////////////////////
 	// 基础
@@ -55,6 +93,38 @@ public:
 	/** 球体表面颜色，以顶点色传给材质。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Surface")
 	FLinearColor SurfaceColor = FLinearColor(0.18f, 0.42f, 0.16f);
+
+	//////////////////////////////////////////////////////////////////////////
+	// 地形
+
+	/**
+	 * 决定这颗行星地形长什么样的模块。
+	 *
+	 * 空 = 光滑球。模块是**可共享的资产**：在内容浏览器里建一份预设，多颗行星
+	 * 可以同时引用它，改一次参数所有引用它的行星一起变。行星自身的「在哪、多大」
+	 * 则由本 Actor 上的 Radius / VoxelSize / 变换决定，两者互不干扰。
+	 *
+	 * 模块自带的配色会盖过上面的 SurfaceColor；纯球模块没有配色，用 SurfaceColor。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Terrain")
+	TObjectPtr<UVoxelPlanetTerrainModule> Terrain;
+
+	//////////////////////////////////////////////////////////////////////////
+	// 坐标模式
+
+	/**
+	 * 局部坐标模式。**N 体星系下必须为真。**
+	 *
+	 * 为真时生成器的球心锚在 Actor 的局部原点，世界位置完全由 Actor 变换承担。
+	 * 这正是「移动 Actor 不重建体素世界」的前提：ComputeParamsHash 不再把每帧
+	 * 变化的 Actor 位置混进去，重建守卫于是能正常生效。
+	 *
+	 * 为假时保留旧行为 —— 把 Actor 位置混进哈希，移动 Actor 即触发整颗星重建。
+	 * 单颗静止的行星两种模式结果完全相同（球心都在原点），所以默认 true 不影响
+	 * 已经摆好的星球。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Coordinates")
+	bool bUseLocalCoordinates = true;
 
 	//////////////////////////////////////////////////////////////////////////
 	// 缩放与性能
