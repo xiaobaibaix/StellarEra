@@ -281,7 +281,17 @@ double FNBodySimulator::ToWorldCentimeter(double GameUnitAu) const
 }
 ```
 
-其余部分（`ComputeAccelerations` / `StepVelocityVerlet` / `StepEuler` / `StepExact` / `Step` / 四个诊断函数 / `ApplyOrbitInit`）**一字不改**。
+其余部分（`ComputeAccelerations` / `StepVelocityVerlet` / `StepEuler` / `StepExact` / `Step` / 四个诊断函数）**一字不改**。
+
+> **更正（最终复审）：`ApplyOrbitInit` 已不在「一字不改」之列 —— 它的初速公式是错的。**
+> 原文照搬的写法是「圆轨道速度 `√(GM/r)`，椭圆轨道再乘修正因子 `√((1+e)/(1+e·cosE))`」。
+> `PhaseDegrees = 0` 时 `E = 0`，修正因子恰好等于 1，于是发射速度就是半径
+> `r = a(1−e)` 处的**圆**轨道速度 —— 四颗行星全被发射到半径 `a(1−e)` 的圆轨道上，
+> 配置的偏心率全部丢失；速度方向还被写成纯切向，非近日点相位时与椭圆切线不符。
+> 启动日志只打印位置与周期，能量漂移诊断也只衡量守恒性 —— 而圆轨道同样是能量守恒的
+> 合法轨道，漂移指标照样合格，所以两个诊断都看不出这个问题。
+> 现已按近焦点坐标系的分量改写：半通径 `p = a(1−e²)`，横向 `Vt = √(GM/p)·(1+e·cos ν)`，
+> 径向 `Vr = √(GM/p)·e·sin ν`，再按真近点角 `ν` 旋回笛卡尔分量。
 
 - [ ] **Step 7: 补 BOM**
 
@@ -1506,7 +1516,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 
 **母星为什么必然是行星一：** 角色与飞船都按「离世界原点最近」选星球（见 Task 7）。圆轨道上 |r| = a，所以「最近」等价于「轨道最小」。即使算上偏心率，近日点距离 行星一 = 0.723 × (1 − 0.0068) = 0.718 AU = 7.18 km，行星二 = 1.000 × (1 − 0.0167) = 0.983 AU = 9.83 km —— 行星一在任何相位上都更近，这个选择是稳的，不会因为时间推移翻车。
 
-**相位为什么全填 0：** `FNBodySimulator::ApplyOrbitInit`（`NBodySimulator.cpp:316`）把 `PhaseDegrees` 当偏近点角用，`PhaseDegrees = 0` 对应**近日点**，位置落在世界 **+X** 方向。四颗都填 0 时开局沿 +X 排成一条线（7.2 / 10.0 / 15.2 / 52.0 km），一眼就能看出摆对没有；之后周期不同（0.61 / 1.00 / 1.88 / 11.87 年）会自然散开。
+**相位为什么全填 0：** `FNBodySimulator::ApplyOrbitInit`（`NBodySimulator.cpp:316`）把 `PhaseDegrees` 当偏近点角用，`PhaseDegrees = 0` 对应**近日点**，位置落在世界 **+X** 方向。四颗都填 0 时开局沿 +X 排成一条线（7.18 / 9.83 / 13.82 / 49.51 km，均为近日点距离 `a(1−e)`），一眼就能看出摆对没有；之后周期不同（0.61 / 1.00 / 1.88 / 11.87 年）会自然散开。
 **注意 `Preset` 字段是被 `ApplyOrbitInit` 完全忽略的** —— 真正参与计算的是 `SemiMajorAxis` / `Eccentricity` / `PhaseDegrees` / `InclinationDegrees` / `AscendingNodeDegrees`。填 `Circular` 只是给编辑器看，别指望它把 `Eccentricity` 清零。
 
 **Amplitude 为什么填 80 而不是默认的 8：** 模块头部注释（`VoxelPlanetNoiseTerrain.h:91-98`）写明坡度 ≈ `Amplitude × VoxelSize / 半波长`，而半波长 ≈ `π × 半径(体素) / Frequency`。默认值 8 是按**半径 100 体素**调的；本关卡半径 1000 体素，半波长放大 10 倍，同样的 Amplitude 8 只剩 0.36° 坡度 —— 一颗几乎看不出来有地形的光滑球。按半径等比放大到 **80** 才与模块默认配置的起伏比例一致（起伏 80 体素 × 100 cm = 80 m，占半径 1 km 的 8%，与默认配置的 8/100 相同）。
