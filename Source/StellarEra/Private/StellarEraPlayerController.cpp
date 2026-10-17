@@ -626,15 +626,13 @@ void AStellarEraPlayerController::ToggleStarMap()
 		//
 		// **这条路径是可达的** —— 别因为 Source/ 里没有 Destroy 就以为安全：引擎自己会
 		// 销毁 Pawn。AActor::CheckStillInWorld 在 GetActorLocation().Z < WorldSettings->KillZ
-		// 时调 AActor::FellOutOfWorld，后者的函数体里调 Destroy()；AKillZVolume 走同一条路。
+		// （且 WorldBoundsChecks 开着）时调 AActor::FellOutOfWorld，后者的函数体里调
+		// Destroy()；AKillZVolume 走同一条路。
 		//
 		// **这一整条链有授权门控**：CheckStillInWorld 与 FellOutOfWorld 两处都要求
 		// `HasAuthority() || GetLocalRole() == ROLE_None`，不满足就直接跳过、不销毁。
 		// PIE / 单机下本地玩家就是授权方（或 actor 是 ROLE_None 的非网络 actor），成立；
 		// **纯客户端上不成立**。结论不变 —— 路径仍可达，只是它发生在有授权的一侧。
-		//
-		// 这里**刻意不写行号**：引擎行号随小版本漂移，本项目已因抄错行号翻车三次
-		// （每次都是 ±1）。要核就用函数名去引擎源码里搜。
 		//
 		// 蓝图子类、关卡蓝图、PIE 里手动删 Actor 也都不在 Source/ 里。另外进入分支
 		// 那句 PreviousPawn = GetPawn() 没有空指针保护，GetPawn() 为空时进入就会落到
