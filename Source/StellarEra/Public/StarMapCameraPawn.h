@@ -80,6 +80,20 @@ public:
 		const FVector2D& ScreenPoint,
 		float PixelRadius);
 
+	/**
+	 * 球体「屏幕轮廓半径」相对于「投影(中心 + 右向 × 半径)」的放大系数。
+	 *
+	 * 把「中心 + 右向 × R」投到屏幕，量到的是 `f·R/d`（d = 相机到球心距离）。但球体的
+	 * 可见轮廓由**切线**决定，角半径是 `asin(R/d)`，屏幕半径是
+	 * `f·tan(asin(R/d)) = f·R/√(d²−R²)`。两者之比 = `1/√(1−(R/d)²)` = `1/cos α`，
+	 * 其中 `sin α = R/d`。最近距离（d = 2R）处 α = 30°，系数 = 1.1547 —— 不乘它，
+	 * 容差只有真实盘面的 86.6%，盘面外圈一圈点不中。
+	 *
+	 * `CameraDistanceCm <= BodyRadiusCm`（相机在球内或贴着球面）返回 **0** —— 调用方按
+	 * 「算不出来」处理、退回固定像素容差。**不返回无穷大。**
+	 */
+	static double SilhouetteRadiusScale(double CameraDistanceCm, double BodyRadiusCm);
+
 	//~ Begin AActor Interface
 	virtual void CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult) override;
 	//~ End AActor Interface

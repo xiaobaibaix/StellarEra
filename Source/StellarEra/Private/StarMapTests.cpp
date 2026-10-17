@@ -299,4 +299,39 @@ bool FStellarEraStarMapPickingScreenRadiusTest::RunTest(const FString& Parameter
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapSilhouetteScaleTest,
+	"StellarEra.StarMap.SilhouetteRadiusScale",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraStarMapSilhouetteScaleTest::RunTest(const FString& Parameters)
+{
+	// 球体轮廓放大系数 1/cos α（sin α = R/d）。这是 double 不是指针，
+	// 所以可以用 TestEqual 的浮点容差重载（指针才必须用 TestTrue）。
+	constexpr double Tolerance = 1e-9;
+
+	// ── d = 2R（本项目的最近距离就是 2 个行星半径）：α = 30°，系数 = 2/√3 ──
+	TestEqual(TEXT("d=2R：1/cos30° = 2/√3"),
+		AStarMapCameraPawn::SilhouetteRadiusScale(2.0, 1.0),
+		2.0 / FMath::Sqrt(3.0), Tolerance);
+
+	// ── d = 10R：几乎不用放大（0.5% 量级）──
+	TestEqual(TEXT("d=10R：10/√99"),
+		AStarMapCameraPawn::SilhouetteRadiusScale(10.0, 1.0),
+		10.0 / FMath::Sqrt(99.0), Tolerance);
+
+	// ── 相机贴着球面（d == R）：算不出来，返回 0 而不是无穷大 ──
+	TestEqual(TEXT("d=R 返回 0"),
+		AStarMapCameraPawn::SilhouetteRadiusScale(1.0, 1.0), 0.0, Tolerance);
+
+	// ── 相机在球内：同样返回 0 ──
+	TestEqual(TEXT("相机在球内返回 0"),
+		AStarMapCameraPawn::SilhouetteRadiusScale(0.5, 1.0), 0.0, Tolerance);
+
+	// ── 半径非正：返回 0 ──
+	TestEqual(TEXT("半径非正返回 0"),
+		AStarMapCameraPawn::SilhouetteRadiusScale(2.0, 0.0), 0.0, Tolerance);
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

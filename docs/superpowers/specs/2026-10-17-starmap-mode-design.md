@@ -77,7 +77,9 @@
 
 拾取容差 = `max(固定像素容差, 该天体的屏幕投影半径)`。固定容差管远处只有几像素的天体；
 投影半径管近处盘面有几百像素的情况 —— 否则「点在星球盘面上」会选不中。
-投影半径取「中心」与「中心 + 视线右向 × 天体世界半径」两点的屏幕像素距离
+投影半径取「中心」与「中心 + 视线右向 × 天体世界半径」两点的屏幕像素距离，**再乘以球体轮廓放大系数 `1/cos α`（`sin α = R/d`，见 `AStarMapCameraPawn::SilhouetteRadiusScale`）**
+—— 切线决定的轮廓半径是 `f·R/√(d²−R²)`，直接投影「中心 + 右向 × R」量到的是 `f·R/d`，差一个 `cos α`；
+最近距离（`d = 2R`）处差 13.4%，不乘就有一圈盘面点不中。
 （体素星球用 `GetSurfaceRadiusCm()`，其它天体退回碰撞半径）。
 **已知缺口**：拾取没有深度测试（见 §4.2 原设计），所以当近处天体的盘面覆盖了远处天体的
 投影中心时，点那里会选中**中心更近**的那颗 —— 可能是被挡住的那颗。本次不修。
@@ -162,7 +164,7 @@
 
 星图同样**夹目标距离本身**（`OrbitDistanceCm`），不是最终算出来的相机位置。
 
-### 5.2 选中 / 取消选中：相机不跳变
+### 5.2 选中 / 取消选中：相机位置不跳变，朝向重算
 
 **点击选中一颗天体时，相机位置不变，但朝向会重算。** 实现：`OrbitRotation` 取
 「当前相机位置 → 该天体」的方向，`OrbitDistanceCm` 取当前的实际距离。于是
@@ -326,7 +328,7 @@ ViewportClient->SetMouseCaptureMode(EMouseCaptureMode::CaptureDuringMouseDown);
 |---|---|
 | 进入 | 记 `PreviousPawn = GetPawn()`；`Possess(StarMapPawn)`；`SetStarMapActive(true)` |
 | 退出 | `Possess(PreviousPawn)`；清 `SelectedBody`；`SetStarMapActive(false)` |
-| `PreviousPawn` 已失效 | **不 Possess**（留在相机上，不崩）。**但不是「M 还能再进」** —— `GetPawn()` 仍是星图 Pawn，下次按 M 会再次命中退出分支（星图已关，等于空转），进不去；脱身只能靠 `DebugPossessShip`。**这条路径可达**：引擎自己会销毁 Pawn（`AActor::CheckStillInWorld` → `Actor.cpp:3373 FellOutOfWorld` 直接 `Destroy()`；`AKillZVolume` 同理），蓝图/关卡/PIE 手动删 Actor 也都在 `Source/` 之外；进入分支那句 `PreviousPawn = GetPawn()` 又没做空指针保护。**修法三条缺一不可**：①进入时只记非星图 Pawn；②判据换 `IsStarMapActive()`；③**退出分支兜底**（前两条只让状态可检出、不可恢复，`PreviousPawn` 失效时仍无对象可 Possess，需重新拿默认 Pawn） |
+| `PreviousPawn` 已失效 | **不 Possess**（留在相机上，不崩）。**但不是「M 还能再进」** —— `GetPawn()` 仍是星图 Pawn，下次按 M 会再次命中退出分支（星图已关，等于空转），进不去；脱身只能靠 `DebugPossessShip`。**这条路径可达**：引擎自己会销毁 Pawn（`AActor::CheckStillInWorld` 在 Z < `KillZ` 时调 `FellOutOfWorld`，后者函数体调 `Destroy()`；`AKillZVolume` 同理）—— 但**整条链有授权门控**，两处都要求 `HasAuthority() \|\| GetLocalRole() == ROLE_None`，PIE/单机成立、**纯客户端不成立**（结论不变，只是发生在有授权的一侧）。蓝图/关卡/PIE 手动删 Actor 也都在 `Source/` 之外；进入分支那句 `PreviousPawn = GetPawn()` 又没做空指针保护。**修法三条缺一不可**：①进入时只记非星图 Pawn；②判据换 `IsStarMapActive()`；③**退出分支兜底**（前两条只让状态可检出、不可恢复，`PreviousPawn` 失效时仍无对象可 Possess，需重新拿默认 Pawn） |
 | 角色在星图模式下 | 站着不动（没输入）。它在星球表面的话，子系统照常携带它 —— `CarryRiders` 与 Possess 无关 |
 | `NewMap` 没有天体 | 拾取遍历空列表 → 点不中 → 相机原地。不崩 |
 | 进入前 Possess 的是飞船 | 退出后 `ApplyMouseModeForPawn` 恢复飞船的永久捕获 + 隐藏光标 |
@@ -365,6 +367,8 @@ ViewportClient->SetMouseCaptureMode(EMouseCaptureMode::CaptureDuringMouseDown);
    把输入顺序换过来结果跟着换，以证明它认的是顺序而不是某个特定对象。
    另有 `StellarEra.StarMap.PickingScreenRadius` 专测「容差取 max(固定容差, 投影半径)」：
    投影半径放大容差、半径为 0 时退回固定容差、边界含、中心更近者赢、负半径不放大容差。
+   `StellarEra.StarMap.SilhouetteRadiusScale` 测球体轮廓系数这个纯函数：`d=2R` 得 `2/√3`、
+   `d=10R` 得 `10/√99`（都用 1e-9 浮点容差），以及 `d=R`、相机在球内、半径非正三种情形返回 0。
 
 2. **子系统的新增查询** —— 用 `NewObject` 出来的裸实例即可，**不需要世界**：
    `SetSelectedBody` / `GetSelectedBody` 往返；`GetRegisteredBodies` 过滤掉没有 Owner 的组件。

@@ -335,7 +335,8 @@ performant for runtime use.」我们每帧重画、每次不到 4 千条线、�
 
 - **受 `bAutoPlaceSpaceshipAtStart`（默认 `true`）门控**。关掉它 = 飞船完全由
   关卡里的手摆位置决定，GameMode 不插手 —— `EnsureSpaceshipExists()` 会直接早退
-  （`StellarEraGameMode.cpp:143`）。
+  （`StellarEraGameMode.cpp:143`）。关掉它**且关卡里没有手摆船** = 根本没有飞船
+  （GameMode 不生成，开局登船会失败）。
 - 打开时：出生点只有 `PlayerStart` 一个来源（`FindSpawnPlayerStart()`；关卡里没有
   PlayerStart 就只记 Warning 并跳过摆放）。关卡里手摆的飞船被摆到那里，只提供
   **模型与参数**；关卡里没有飞船就在那里生成一艘。

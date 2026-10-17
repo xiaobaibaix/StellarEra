@@ -625,11 +625,19 @@ void AStellarEraPlayerController::ToggleStarMap()
 		// 办法是 PIE 控制台里的 DebugPossessShip。
 		//
 		// **这条路径是可达的** —— 别因为 Source/ 里没有 Destroy 就以为安全：引擎自己会
-		// 销毁 Pawn。AActor::CheckStillInWorld（Actor.cpp:2326）在 Z < WorldSettings->KillZ
-		// 时调 FellOutOfWorld，而 FellOutOfWorld（Actor.cpp:3373）的函数体直接 Destroy()；
-		// AKillZVolume 走同一条路。蓝图子类、关卡蓝图、PIE 里手动删 Actor 也都不在
-		// Source/ 里。另外进入分支那句 PreviousPawn = GetPawn() 没有空指针保护，
-		// GetPawn() 为空时进入就会落到同一状态，连销毁都不需要。
+		// 销毁 Pawn。AActor::CheckStillInWorld（Actor.cpp:2300）在 Z < WorldSettings->KillZ
+		// （:2326）时调 FellOutOfWorld（:2329），后者的函数体在 :3382 调 Destroy()；
+		// AKillZVolume 走同一条路。
+		//
+		// **这一整条链有授权门控**：CheckStillInWorld 与 FellOutOfWorld 两处都要求
+		// `HasAuthority() || GetLocalRole() == ROLE_None`（:2312 与 :3377），不满足就
+		// 直接跳过、不销毁。PIE / 单机下本地玩家就是授权方（或 actor 是 ROLE_None 的
+		// 非网络 actor），成立；**纯客户端上不成立**。结论不变 —— 路径仍可达，只是
+		// 它发生在有授权的一侧。
+		//
+		// 蓝图子类、关卡蓝图、PIE 里手动删 Actor 也都不在 Source/ 里。另外进入分支
+		// 那句 PreviousPawn = GetPawn() 没有空指针保护，GetPawn() 为空时进入就会落到
+		// 同一状态，连销毁都不需要。
 		//
 		// 真要修，**三条缺一不可**：
 		//   1. 进入时只在 GetPawn() 非空、且**不是**星图 Pawn 时才写 PreviousPawn
@@ -802,7 +810,13 @@ AActor* AStellarEraPlayerController::PickBodyUnderCursor() const
 			FVector2D EdgePosition;
 			if (ProjectWorldLocationToScreen(Center + ViewRight * WorldRadiusCm, EdgePosition))
 			{
-				ScreenRadiusPx = float(FVector2D::Distance(ScreenPosition, EdgePosition));
+				// 直接投影「中心 + 右向 × R」量到的是 f·R/d，比切线决定的真实轮廓半径
+				// 小一个 cos α（见 SilhouetteRadiusScale）。系数为 0 表示相机在球内，
+				// 此时留 0、退回固定像素容差。
+				const double CameraDistanceCm = FVector::Dist(ViewLocation, Center);
+				ScreenRadiusPx = float(
+					FVector2D::Distance(ScreenPosition, EdgePosition)
+					* AStarMapCameraPawn::SilhouetteRadiusScale(CameraDistanceCm, WorldRadiusCm));
 			}
 		}
 

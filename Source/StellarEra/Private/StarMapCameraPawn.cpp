@@ -133,3 +133,15 @@ AActor* AStarMapCameraPawn::PickBodyAtScreenPosition(
 
 	return Best;
 }
+
+double AStarMapCameraPawn::SilhouetteRadiusScale(double CameraDistanceCm, double BodyRadiusCm)
+{
+	if (BodyRadiusCm <= 0.0 || CameraDistanceCm <= BodyRadiusCm)
+	{
+		return 0.0;
+	}
+
+	// 1/cos α，其中 sin α = R/d ⇒ cos α = √(1 − (R/d)²)。
+	const double Ratio = BodyRadiusCm / CameraDistanceCm;
+	return 1.0 / FMath::Sqrt(1.0 - Ratio * Ratio);
+}
