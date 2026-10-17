@@ -617,7 +617,13 @@ void AStellarEraPlayerController::ToggleStarMap()
 		Subsystem->SetStarMapActive(false);
 
 		// PreviousPawn 可能已经没了（比如角色在星图里被销毁）。那时**不 Possess** ——
-		// 留在相机上，再按 M 还能进，且不会崩。
+		// 留在相机上，不会崩。
+		//
+		// **但这不是「还能再进」**：此刻 GetPawn() 仍是星图 Pawn，所以下次按 M 会
+		// 再次命中这个退出分支（星图已经关了，等于空转），**进不去**；唯一的脱身
+		// 办法是 PIE 控制台里的 DebugPossessShip。当前没有任何代码会销毁角色，
+		// 所以这条路径不可达。真要修，判据得从「GetPawn() 是不是星图 Pawn」换成
+		// Subsystem->IsStarMapActive()。
 		if (APawn* ReturnPawn = PreviousPawn.Get())
 		{
 			Possess(ReturnPawn);
@@ -663,8 +669,10 @@ void AStellarEraPlayerController::OnStarMapSelectStarted(const FInputActionValue
 		return;
 	}
 
-	// 用 double 重载：引擎两个重载都提供了（PlayerController.h:1623 float /
-	// :1624 double），屏幕坐标没有理由退到 float。
+	// 用 double 重载，是为了后面直接喂给 FVector2D（UE5 里是双精度）时少一次转换。
+	// **但精度上并不占便宜**：引擎那个重载（PlayerController.cpp:6186）内部就是
+	// `float X, Y; GetMousePosition(X, Y);` —— 先过 float 再展宽，真正决定精度的
+	// 是底层的 UGameViewportClient::GetMousePosition，两个重载拿到的是同一个值。
 	double MouseX = 0.0;
 	double MouseY = 0.0;
 	if (GetMousePosition(MouseX, MouseY))
