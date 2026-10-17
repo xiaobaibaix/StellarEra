@@ -6,6 +6,7 @@
 #include "CosmosOrbitComponent.h"
 #include "CosmosSimulationSubsystem.h"
 #include "CosmosTrajectoryComponent.h"
+#include "StarMapCameraPawn.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -143,6 +144,91 @@ bool FStellarEraStarMapHighlightTest::RunTest(const FString& Parameters)
 		const FColor Over = UCosmosTrajectoryComponent::BrightenTowardWhite(Trail, 7.f);
 		TestTrue(TEXT("-3 等同于 0"), Neg.R == Trail.R && Neg.G == Trail.G && Neg.B == Trail.B);
 		TestTrue(TEXT("7 等同于 1"), Over.R == 255 && Over.G == 255 && Over.B == 255);
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapPickingTest,
+	"StellarEra.StarMap.Picking",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraStarMapPickingTest::RunTest(const FString& Parameters)
+{
+	// 拾取是纯数学，不碰世界、不碰碰撞 —— 所以能无头测。投影留在调用方。
+	AActor* A = NewObject<AActor>();
+	AActor* B = NewObject<AActor>();
+	AActor* C = NewObject<AActor>();
+
+	// ── 空列表 ──
+	{
+		TArray<FStarMapScreenCandidate> Empty;
+		TestTrue(TEXT("空列表返回 nullptr"),
+			AStarMapCameraPawn::PickBodyAtScreenPosition(
+				Empty, FVector2D(100.0, 100.0), 20.f) == nullptr);
+	}
+
+	// ── 命中最近者 ──
+	{
+		TArray<FStarMapScreenCandidate> Candidates;
+		Candidates.Add({ A, FVector2D(100.0, 100.0) });   // 距点 10
+		Candidates.Add({ B, FVector2D(130.0, 100.0) });   // 距点 20（正好在边界上）
+		Candidates.Add({ C, FVector2D(200.0, 100.0) });   // 距点 90，超出容差
+
+		TestTrue(TEXT("取最近的（C 被容差挡掉，A 比 B 近）"),
+			AStarMapCameraPawn::PickBodyAtScreenPosition(
+				Candidates, FVector2D(110.0, 100.0), 20.f) == A);
+	}
+
+	// ── 边界含：恰好等于半径算命中，小一点点就不算 ──
+	{
+		TArray<FStarMapScreenCandidate> Candidates;
+		Candidates.Add({ B, FVector2D(130.0, 100.0) });   // 与 (110,100) 的距离正好 20
+
+		TestTrue(TEXT("距离恰好等于半径 → 命中（边界含）"),
+			AStarMapCameraPawn::PickBodyAtScreenPosition(
+				Candidates, FVector2D(110.0, 100.0), 20.f) == B);
+		TestTrue(TEXT("半径小一点点 → 不命中"),
+			AStarMapCameraPawn::PickBodyAtScreenPosition(
+				Candidates, FVector2D(110.0, 100.0), 19.9f) == nullptr);
+	}
+
+	// ── 等距：取**先出现**的那个（换个顺序结果跟着换）──
+	{
+		TArray<FStarMapScreenCandidate> First;
+		First.Add({ A, FVector2D(90.0, 100.0) });         // 距点 10
+		First.Add({ B, FVector2D(110.0, 100.0) });        // 距点 10
+
+		TArray<FStarMapScreenCandidate> Reversed;
+		Reversed.Add({ B, FVector2D(110.0, 100.0) });
+		Reversed.Add({ A, FVector2D(90.0, 100.0) });
+
+		TestTrue(TEXT("等距取先出现的"),
+			AStarMapCameraPawn::PickBodyAtScreenPosition(
+				First, FVector2D(100.0, 100.0), 20.f) == A);
+		TestTrue(TEXT("换序后取新的先出现者（证明它认的是顺序，不是 A）"),
+			AStarMapCameraPawn::PickBodyAtScreenPosition(
+				Reversed, FVector2D(100.0, 100.0), 20.f) == B);
+	}
+
+	// ── Actor 为空的候选被跳过，哪怕它更近 ──
+	{
+		TArray<FStarMapScreenCandidate> Candidates;
+		Candidates.Add({ nullptr, FVector2D(100.0, 100.0) });   // 距点 0，但 Actor 为空
+		Candidates.Add({ C, FVector2D(105.0, 100.0) });         // 距点 5
+
+		TestTrue(TEXT("跳过 Actor 为空的候选"),
+			AStarMapCameraPawn::PickBodyAtScreenPosition(
+				Candidates, FVector2D(100.0, 100.0), 20.f) == C);
+	}
+
+	// ── 全都不在容差内 ──
+	{
+		TArray<FStarMapScreenCandidate> Candidates;
+		Candidates.Add({ A, FVector2D(500.0, 500.0) });
+		TestTrue(TEXT("都不在容差内返回 nullptr"),
+			AStarMapCameraPawn::PickBodyAtScreenPosition(
+				Candidates, FVector2D(0.0, 0.0), 20.f) == nullptr);
 	}
 
 	return true;
