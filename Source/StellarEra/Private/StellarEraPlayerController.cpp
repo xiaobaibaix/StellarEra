@@ -621,9 +621,16 @@ void AStellarEraPlayerController::ToggleStarMap()
 		//
 		// **但这不是「还能再进」**：此刻 GetPawn() 仍是星图 Pawn，所以下次按 M 会
 		// 再次命中这个退出分支（星图已经关了，等于空转），**进不去**；唯一的脱身
-		// 办法是 PIE 控制台里的 DebugPossessShip。当前没有任何代码会销毁角色，
-		// 所以这条路径不可达。真要修，判据得从「GetPawn() 是不是星图 Pawn」换成
-		// Subsystem->IsStarMapActive()。
+		// 办法是 PIE 控制台里的 DebugPossessShip。
+		//
+		// 这条路径当前不可达：Source/ 里没有任何代码会销毁角色或 UnPossess。（上面的
+		// PreviousPawn = GetPawn() 也没做空指针保护，理论上 GetPawn() 为空时进入就会
+		// 落到同一状态 —— PIE 下不会，加 IMC 的 BeginPlay 跑在 Possess 之后。）
+		//
+		// 真要修，**光换判据不够**：把「GetPawn() 是不是星图 Pawn」换成
+		// Subsystem->IsStarMapActive() 只能让 M 不再空转，但下一次进入会把 PreviousPawn
+		// 记成星图 Pawn 自己，此后 Possess(PreviousPawn) 换不了 Pawn，照样回不去。
+		// 得让 PreviousPawn 不被覆盖 —— 进入时只记非星图 Pawn。
 		if (APawn* ReturnPawn = PreviousPawn.Get())
 		{
 			Possess(ReturnPawn);
