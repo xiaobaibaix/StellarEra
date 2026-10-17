@@ -148,8 +148,15 @@ protected:
 	/** 左键按下的屏幕位置（像素）。用 double 存 —— 与 GetMousePosition 的 double 重载对齐。 */
 	FVector2D StarMapPressPosition = FVector2D::ZeroVector;
 
-	/** 拾取的像素容差。20 像素保证远处的星球也点得中。 */
-	UPROPERTY(EditAnywhere, Category = "StarMap")
+	/**
+	 * 拾取的像素容差。20 像素保证远处的星球也点得中。
+	 *
+	 * 夹到 ≥ 0：负值在拾取里没有意义，而且**新旧行为不同** —— 旧代码把
+	 * `PixelRadius * PixelRadius` 当半径平方用，`-5` 会被当成 `5`；现在逐候选取
+	 * `max(PixelRadius, ScreenRadiusPx)`，`-5` 被当成 `0`。这个字段是 EditAnywhere，
+	 * 编辑器里能被改成负数，所以在这里挡住。
+	 */
+	UPROPERTY(EditAnywhere, Category = "StarMap", meta = (ClampMin = "0.0"))
 	float SelectionPixelRadius = 20.f;
 
 	/** 星图相机 Pawn。懒创建并复用，不每次进出都 Spawn/Destroy。 */
