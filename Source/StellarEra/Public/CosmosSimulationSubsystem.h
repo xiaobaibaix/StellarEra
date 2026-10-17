@@ -97,7 +97,7 @@ public:
 	bool IsStarMapActive() const { return bStarMapActive; }
 
 	/**
-	 * 应由 AStellarEraPlayerController::ToggleStarMap 的进入/退出分支调用（T4 接线）。
+	 * 应由 AStellarEraPlayerController::ToggleStarMap 的进入/退出分支调用。
 	 *
 	 * **不放星图 Pawn 的 BeginPlay/EndPlay** —— 那个 Pawn 是懒创建并复用的，
 	 * BeginPlay 一辈子只跑一次，第二次进入时标志不会被重新设上。

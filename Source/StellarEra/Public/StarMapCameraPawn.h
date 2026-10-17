@@ -22,7 +22,7 @@ struct FStarMapScreenCandidate
 };
 
 /**
- * 星图模式的相机。进入星图时由 AStellarEraPlayerController 创建并 Possess —— 该接线由 T4 完成。
+ * 星图模式的相机。进入星图时由 AStellarEraPlayerController 创建并 Possess。
  *
  * **相机不 tick，位置在 CalcCamera 里现算。** 这是必需的，不是风格选择：
  * UWorld::Tick 里的顺序是「各 Actor tick 组 → FTickableGameObject::TickObjects
