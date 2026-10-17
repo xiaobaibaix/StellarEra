@@ -50,6 +50,9 @@ namespace
 
 	/** 自动拖尾时长 = 该系数 × 预测窗口。论证见 spec §6。 */
 	constexpr double AutoTrailHorizonFraction = 0.25;
+
+	/** 星图里选中天体时，颜色朝白插值的比例。 */
+	constexpr float HighlightWhiteLerp = 0.45f;
 }
 
 UCosmosTrajectoryComponent::UCosmosTrajectoryComponent()
@@ -88,14 +91,11 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 		return;
 	}
 
-	// 关掉时把已画的线清一次就够，不必每帧 MarkRenderStateDirty。
-	if (!Orbit || !Orbit->bDrawTrajectory)
+	// Initialize 先赋 Orbit 再建 LineBatch，所以 !Orbit 蕴含 !LineBatch。
+	// 这条实际上已被上面那条覆盖，留着只为把「Orbit 可能为空」写明白。
+	if (!Orbit)
 	{
-		if (bDrewLastFrame)
-		{
-			LineBatch->Flush();
-			bDrewLastFrame = false;
-		}
+		ClearDrawnLines();
 		return;
 	}
 
@@ -106,21 +106,8 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 		return;
 	}
 
-	// ── 预测：每帧重算 ──
-	// 不做节流。理由有两条：拖尾本来就要每帧重画（见 Task 6），而预测一旦节流，
-	// 画出的椭圆会比星球的真实位置落后「节流时长 / 一圈时长」那么多圈 ——
-	// 凑近星球看时那条线明显接不上。每帧重算把滞后压到 1 帧。
-	//
-	// 滞后一律用**角度**说，不要用米：本关卡一圈约 7.5 秒，节流 0.2 秒 ≈ 10°，
-	// 1 帧（60fps）≈ 0.8°。换关卡时按「时长 ÷ 一圈时长 × 360°」自己算。
+	// 预测窗口拖尾和绘制都要用，先算。
 	const double Horizon = ResolvePredictionHorizonYears(*Subsystem);
-
-	PredictedWorld.Reset();
-	if (Orbit->SimulatorIndex != INDEX_NONE)
-	{
-		Subsystem->PredictTrajectoryWorld(Orbit->SimulatorIndex, Horizon,
-			PredictionSamples, PredictedWorld);
-	}
 
 	// ── 拖尾：采样和裁剪**都**按模拟时间，都不按帧 ──
 	// 只「按时间采样」是不够的。采样间隔可能比每帧推进还短（本关卡 1.28e-5 年
@@ -167,22 +154,57 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 		if (DropCount > 0)
 		{
 			// EAllowShrinking::No = 保留容量，别每次裁剪都把分配器折腾一遍。
-			// （这是新式的枚举形式，替换了老版的 bool 参数。）
 			Trail.RemoveAt(0, DropCount, EAllowShrinking::No);
 			TrailTimes.RemoveAt(0, DropCount, EAllowShrinking::No);
 		}
 	}
 
+	// ── 门控：只门控「画」 ──
+	// 采样在上面**无条件**跑完了 —— 拖尾是真实历史。星图模式之外看不见它，
+	// 但历史一直在攒，所以一进星图就是完整的，不是从零开始长。
+	const bool bVisible = Orbit->bDrawTrajectory
+		&& (Subsystem->IsStarMapActive() || Orbit->bShowOutsideStarMap);
+	if (!bVisible)
+	{
+		ClearDrawnLines();
+		return;
+	}
+
+	// ── 预测：每帧重算 ──
+	// 不做节流。理由有两条：拖尾本来就要每帧重画（见 Task 6），而预测一旦节流，
+	// 画出的椭圆会比星球的真实位置落后「节流时长 / 一圈时长」那么多圈 ——
+	// 凑近星球看时那条线明显接不上。每帧重算把滞后压到 1 帧。
+	//
+	// 滞后一律用**角度**说，不要用米：本关卡一圈约 7.5 秒，节流 0.2 秒 ≈ 10°，
+	// 1 帧（60fps）≈ 0.8°。换关卡时按「时长 ÷ 一圈时长 × 360°」自己算。
+	PredictedWorld.Reset();
+	if (Orbit->SimulatorIndex != INDEX_NONE)
+	{
+		Subsystem->PredictTrajectoryWorld(Orbit->SimulatorIndex, Horizon,
+			PredictionSamples, PredictedWorld);
+	}
+
+	// ── 高亮：选中的天体两种颜色都向白提 ──
+	// 只改颜色不改线宽 —— 理由见 BrightenTowardWhite 的声明处。
+	const bool bSelected = (OwnerActor != nullptr)
+		&& (Subsystem->GetSelectedBody() == OwnerActor);
+	const FLinearColor TrailColor = bSelected
+		? FLinearColor(BrightenTowardWhite(Orbit->TrailColor, HighlightWhiteLerp))
+		: FLinearColor(Orbit->TrailColor);
+	const FLinearColor PredictionColor = bSelected
+		? FLinearColor(BrightenTowardWhite(Orbit->PredictionColor, HighlightWhiteLerp))
+		: FLinearColor(Orbit->PredictionColor);
+
 	Lines.Reset();
 
 	if (Trail.Num() >= 2)
 	{
-		AppendPolyline(Trail, FLinearColor(Orbit->TrailColor));
+		AppendPolyline(Trail, TrailColor);
 	}
 
 	if (PredictedWorld.Num() >= 2)
 	{
-		AppendPolyline(PredictedWorld, FLinearColor(Orbit->PredictionColor));
+		AppendPolyline(PredictedWorld, PredictionColor);
 	}
 
 	if (Orbit->bDrawInitialVelocity)
@@ -198,6 +220,16 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 		LineBatch->DrawLines(Lines);
 	}
 	bDrewLastFrame = Lines.Num() > 0;
+}
+
+void UCosmosTrajectoryComponent::ClearDrawnLines()
+{
+	// 关掉时把已画的线清一次就够，不必每帧 MarkRenderStateDirty。
+	if (bDrewLastFrame)
+	{
+		LineBatch->Flush();
+		bDrewLastFrame = false;
+	}
 }
 
 double UCosmosTrajectoryComponent::ResolvePredictionHorizonYears(
@@ -289,4 +321,17 @@ void UCosmosTrajectoryComponent::AppendVelocityArrow(const FLinearColor& Color)
 		Color, 0.0f, LineThickness, LineDepthPriority);
 	Lines.Emplace(Tip, Tip + (Direction * HeadCos - Perp * HeadSin) * HeadLength,
 		Color, 0.0f, LineThickness, LineDepthPriority);
+}
+
+FColor UCosmosTrajectoryComponent::BrightenTowardWhite(const FColor& In, float Amount)
+{
+	// 全部按 float 算：FMath::RoundToInt32 的 float 重载和 double 重载结果一致，
+	// 但混着写容易让人以为这里在做双精度插值。
+	const float T = FMath::Clamp(Amount, 0.f, 1.f);
+
+	return FColor(
+		uint8(FMath::RoundToInt32(In.R + T * (255.f - In.R))),
+		uint8(FMath::RoundToInt32(In.G + T * (255.f - In.G))),
+		uint8(FMath::RoundToInt32(In.B + T * (255.f - In.B))),
+		In.A);
 }

@@ -41,6 +41,16 @@ public:
 	/** 由 UCosmosOrbitComponent::BeginPlay 调用。InOrbit 必须非空。 */
 	void Initialize(UCosmosOrbitComponent* InOrbit);
 
+	/**
+	 * 把颜色朝白色插值 Amount（0 = 原色，1 = 纯白）。alpha 不动。
+	 *
+	 * 星图里选中天体的高亮就是它 —— **只改颜色，不加粗**。加粗要传非零线宽，
+	 * 而行批把「线宽 == 0」走成真正的 1 像素 GPU 线、非零走成世界单位的四边形
+	 * （见 .cpp 里 LineThickness 的注释），等于把选中的那条线切到另一条渲染路径。
+	 * 那条路径只能人眼验，不值得为一个高亮引入一个只能靠肉眼发现的失败面。
+	 */
+	static FColor BrightenTowardWhite(const FColor& In, float Amount);
+
 	//~ Begin UActorComponent Interface
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType,
 		FActorComponentTickFunction* ThisTickFunction) override;
@@ -55,6 +65,14 @@ private:
 
 	/** 把速度箭头（杆 + 两段箭头）追加进 Lines。 */
 	void AppendVelocityArrow(const FLinearColor& Color);
+
+	/**
+	 * 把已经画上去的线清一次（bDrewLastFrame 为真时才真清）。
+	 *
+	 * 线用 LifeTime = 0 画上去就永不过期，所以「这一帧不画了」必须显式清，
+	 * 否则最后一帧的线会永远留在屏幕上。两个显示门控都要用它，抽出来避免重复。
+	 */
+	void ClearDrawnLines();
 
 	/** 参数来源。每帧重读，所以运行期改属性立刻生效。 */
 	UPROPERTY(Transient)

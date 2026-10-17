@@ -87,9 +87,34 @@ public:
 	// 出来的，编辑器里调不到它的属性。Orbit 组件每个天体上都已经有了，参数放
 	// 这儿才能逐天体在详情面板里调（颜色有取色器），且零编辑器侧手工操作。
 
-	/** 是否画这个天体的轨迹（预测 + 拖尾）。关掉可省下它的全部开销。 */
+	/**
+	 * 是否画这个天体的轨迹（预测 + 拖尾）。
+	 *
+	 * 它只门控「画」—— 拖尾采样**不**受它影响，一直在跑（拖尾是真实历史，
+	 * 采样无条件进行，成本有界：保留点数 ≤ TrailSamples + 1 = 513）。
+	 * 关掉省下的是预测重算与画线，那是开销的大头。
+	 *
+	 * 注意默认它开着，但轨迹**默认仍然看不见** —— 可见性还要过
+	 * bShowOutsideStarMap 或星图模式那一关。见下面那条属性。
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
 	bool bDrawTrajectory = true;
+
+	/**
+	 * 是否在**星图模式之外**也画这个天体的轨迹。默认关。
+	 *
+	 * 默认关 = 轨迹只在星图模式里显示（按 M 进入）。想在普通游戏画面里也看到
+	 * 就把它勾上 —— 这是逐天体开关，与 bDrawTrajectory 是「与」的关系。
+	 *
+	 * 放在 Orbit 组件上而不是轨迹组件上：轨迹组件是**哑渲染器**，它自己的头注释
+	 * 写着「不存任何面向用户的参数，参数全从兄弟 UCosmosOrbitComponent 上读」。
+	 * 这条是面向用户的，同理。
+	 *
+	 * ⚠ 它同样只门控「画」。拖尾采样在两种模式下都一直跑 —— 这正是「一进星图
+	 * 就是完整拖尾、不用等它从零长起来」的前提。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
+	bool bShowOutsideStarMap = false;
 
 	/** 预测轨迹的颜色。浅色 —— 与深色的拖尾形成对比。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
