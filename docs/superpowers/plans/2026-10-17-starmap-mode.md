@@ -947,7 +947,7 @@ protected:
 	 * 上一帧看到的选中天体，用来检出「选中状态变了」。
 	 *
 	 * 检出变化时从**当前** CameraLocation 反推 OrbitRotation / OrbitDistanceCm，
-	 * 于是相机只是「开始跟着」新焦点，位置和朝向都不跳（spec §5.2）。
+	 * 于是相机只是「开始跟着」新焦点，位置不变、朝向重算（spec §5.2）。
 	 */
 	UPROPERTY(Transient)
 	TWeakObjectPtr<AActor> LastSeenSelected;
