@@ -86,8 +86,10 @@ public:
 	 * 把所有已注册天体的 Actor 写进 Out（先 Reset）。
 	 *
 	 * 跳过两种：组件本身失效的，和拿不到 Owner 的（组件的 Outer 不是 Actor）。
-	 * 拾取遍历用它，所以顺序就是 Bodies 的注册顺序 —— 拾取在等距时取先出现的，
-	 * 依赖这个顺序是确定的。
+	 * 拾取遍历用它，所以**顺序必须是确定的** —— 拾取在等距时取先出现的。
+	 * 实际顺序是 `Bodies` 的当前顺序：`FinalizeRegistration`（第一次 `Tick` 时跑）
+	 * 会按质量降序排一次，质量大的在前；此后注册的追加到末尾。
+	 * **不是注册顺序**，但确定。
 	 */
 	void GetRegisteredBodies(TArray<AActor*>& Out) const;
 
@@ -95,7 +97,7 @@ public:
 	bool IsStarMapActive() const { return bStarMapActive; }
 
 	/**
-	 * 由 AStellarEraPlayerController::ToggleStarMap 的进入/退出分支调用。
+	 * 应由 AStellarEraPlayerController::ToggleStarMap 的进入/退出分支调用（T4 接线）。
 	 *
 	 * **不放星图 Pawn 的 BeginPlay/EndPlay** —— 那个 Pawn 是懒创建并复用的，
 	 * BeginPlay 一辈子只跑一次，第二次进入时标志不会被重新设上。
