@@ -234,4 +234,69 @@ bool FStellarEraStarMapPickingTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapPickingScreenRadiusTest,
+	"StellarEra.StarMap.PickingScreenRadius",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraStarMapPickingScreenRadiusTest::RunTest(const FString& Parameters)
+{
+	// 容差 = max(固定像素容差, 该候选的屏幕投影半径)。这一组专门盯住
+	// 「近处大盘面点得中」与「远处小目标的行为不变」两件事。
+	AActor* A = NewObject<AActor>();
+	AActor* B = NewObject<AActor>();
+
+	// ── 投影半径放大容差：距中心 80 px，固定容差 20 够不着，半径 100 够得着 ──
+	{
+		TArray<FStarMapScreenCandidate> Candidates;
+		Candidates.Add({ A, FVector2D(500.0, 300.0), 100.f });
+
+		TestTrue(TEXT("距中心 80 px、盘面半径 100 → 命中（点在盘面上）"),
+			AStarMapCameraPawn::PickBodyAtScreenPosition(
+				Candidates, FVector2D(580.0, 300.0), 20.f) == A);
+	}
+
+	// ── 回归：半径为 0 时退回固定容差，旧行为不变 ──
+	{
+		TArray<FStarMapScreenCandidate> Candidates;
+		Candidates.Add({ A, FVector2D(500.0, 300.0), 0.f });
+
+		TestTrue(TEXT("半径为 0 时距中心 80 px 超出固定容差 → 不命中"),
+			AStarMapCameraPawn::PickBodyAtScreenPosition(
+				Candidates, FVector2D(580.0, 300.0), 20.f) == nullptr);
+	}
+
+	// ── 边界含：恰好等于投影半径算命中 ──
+	{
+		TArray<FStarMapScreenCandidate> Candidates;
+		Candidates.Add({ A, FVector2D(500.0, 300.0), 100.f });
+
+		TestTrue(TEXT("距离恰好等于投影半径 → 命中（边界含）"),
+			AStarMapCameraPawn::PickBodyAtScreenPosition(
+				Candidates, FVector2D(600.0, 300.0), 20.f) == A);
+	}
+
+	// ── 两个都在容差内：离点击**中心**最近的那个赢（不是盘面半径最大的） ──
+	{
+		TArray<FStarMapScreenCandidate> Candidates;
+		Candidates.Add({ A, FVector2D(800.0, 300.0), 400.f });   // 中心距 300，但 300 < 400 在容差内
+		Candidates.Add({ B, FVector2D(510.0, 300.0), 0.f });     // 中心距 10
+
+		TestTrue(TEXT("中心更近的赢，哪怕另一颗盘面更大"),
+			AStarMapCameraPawn::PickBodyAtScreenPosition(
+				Candidates, FVector2D(500.0, 300.0), 20.f) == B);
+	}
+
+	// ── 负半径不放大容差、也不炸 ──
+	{
+		TArray<FStarMapScreenCandidate> Candidates;
+		Candidates.Add({ A, FVector2D(500.0, 300.0), -5.f });
+
+		TestTrue(TEXT("半径 -5 不放大容差：距中心 30 px → 不命中"),
+			AStarMapCameraPawn::PickBodyAtScreenPosition(
+				Candidates, FVector2D(530.0, 300.0), 20.f) == nullptr);
+	}
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

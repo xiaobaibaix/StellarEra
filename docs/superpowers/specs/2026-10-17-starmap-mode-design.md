@@ -69,13 +69,20 @@
 未必够准，还会被别的东西挡住。
 
 改成：遍历子系统里的天体，`ProjectWorldLocationToScreen` 把各自的世界坐标投到屏幕，
-取离光标最近、且在像素容差内的那个。
+取离光标最近、且在容差内的那个。
 
 - 零碰撞依赖
 - N 是个位数（本关卡天体数量），O(N) 无所谓
 - **纯数学，所以能无头测**（§9）
 
-像素容差 `SelectionPixelRadius` 默认 `20.f` —— 保证远处的星球也点得中。
+拾取容差 = `max(固定像素容差, 该天体的屏幕投影半径)`。固定容差管远处只有几像素的天体；
+投影半径管近处盘面有几百像素的情况 —— 否则「点在星球盘面上」会选不中。
+投影半径取「中心」与「中心 + 视线右向 × 天体世界半径」两点的屏幕像素距离
+（体素星球用 `GetSurfaceRadiusCm()`，其它天体退回碰撞半径）。
+**已知缺口**：拾取没有深度测试（见 §4.2 原设计），所以当近处天体的盘面覆盖了远处天体的
+投影中心时，点那里会选中**中心更近**的那颗 —— 可能是被挡住的那颗。本次不修。
+
+固定像素容差 `SelectionPixelRadius` 默认 `20.f`。
 
 ### 4.3 选中状态 = 放子系统
 
@@ -157,12 +164,14 @@
 
 ### 5.2 选中 / 取消选中：相机不跳变
 
-**点击选中一颗天体时，相机纹丝不动。** 实现：把 `OrbitRotation` 初始化为
-「当前相机位置 → 该天体」的方向，把 `OrbitDistanceCm` 初始化为当前的实际距离。
-于是从选中那一刻起，相机只是**开始跟着它**，没有任何位置或朝向的跳变。
+**点击选中一颗天体时，相机位置不变，但朝向会重算。** 实现：`OrbitRotation` 取
+「当前相机位置 → 该天体」的方向，`OrbitDistanceCm` 取当前的实际距离。于是
+`焦点 − 方向 × 距离` 恒等于原来的相机位置 —— **位置代数上严格不变**。
+但**朝向是被整个替换掉的**：只有原本就正对着该天体时才不变，最明显的是进星图后的
+第一次选中（从「进星图时的飞船视角」直接摆到对准被选天体）。
 之后再拖拽才改变视角。
 
-点另一颗天体时同样处理 —— 距离和方向都从当前相机位置重新推导，仍然不跳变。
+点另一颗天体时同样处理 —— 距离和方向都从当前相机位置重新推导，位置不变、朝向重算。
 
 **取消选中**：点**已选中**的那颗天体。
 
@@ -317,7 +326,7 @@ ViewportClient->SetMouseCaptureMode(EMouseCaptureMode::CaptureDuringMouseDown);
 |---|---|
 | 进入 | 记 `PreviousPawn = GetPawn()`；`Possess(StarMapPawn)`；`SetStarMapActive(true)` |
 | 退出 | `Possess(PreviousPawn)`；清 `SelectedBody`；`SetStarMapActive(false)` |
-| `PreviousPawn` 已失效 | **不 Possess**（留在相机上，不崩）。**但不是「M 还能再进」** —— `GetPawn()` 仍是星图 Pawn，下次按 M 会再次命中退出分支（星图已关，等于空转），进不去；脱身只能靠 `DebugPossessShip`。当前 `Source/` 无代码销毁角色或 UnPossess，故不可达。**修法不是「换个判据」**：换成 `IsStarMapActive()` 只能让 M 不空转，下一次进入会把 `PreviousPawn` 记成星图 Pawn 自己，`Possess(PreviousPawn)` 此后换不了 Pawn；得同时保证 `PreviousPawn` 不被覆盖 |
+| `PreviousPawn` 已失效 | **不 Possess**（留在相机上，不崩）。**但不是「M 还能再进」** —— `GetPawn()` 仍是星图 Pawn，下次按 M 会再次命中退出分支（星图已关，等于空转），进不去；脱身只能靠 `DebugPossessShip`。**这条路径可达**：引擎自己会销毁 Pawn（`AActor::CheckStillInWorld` → `Actor.cpp:3373 FellOutOfWorld` 直接 `Destroy()`；`AKillZVolume` 同理），蓝图/关卡/PIE 手动删 Actor 也都在 `Source/` 之外；进入分支那句 `PreviousPawn = GetPawn()` 又没做空指针保护。**修法三条缺一不可**：①进入时只记非星图 Pawn；②判据换 `IsStarMapActive()`；③**退出分支兜底**（前两条只让状态可检出、不可恢复，`PreviousPawn` 失效时仍无对象可 Possess，需重新拿默认 Pawn） |
 | 角色在星图模式下 | 站着不动（没输入）。它在星球表面的话，子系统照常携带它 —— `CarryRiders` 与 Possess 无关 |
 | `NewMap` 没有天体 | 拾取遍历空列表 → 点不中 → 相机原地。不崩 |
 | 进入前 Possess 的是飞船 | 退出后 `ApplyMouseModeForPawn` 恢复飞船的永久捕获 + 隐藏光标 |
@@ -343,6 +352,7 @@ ViewportClient->SetMouseCaptureMode(EMouseCaptureMode::CaptureDuringMouseDown);
    {
        AActor* Actor = nullptr;
        FVector2D ScreenPosition = FVector2D::ZeroVector;
+       float ScreenRadiusPx = 0.f;   // 该天体的屏幕投影半径，见 §4.2
    };
 
    static AActor* PickBodyAtScreenPosition(
@@ -353,6 +363,8 @@ ViewportClient->SetMouseCaptureMode(EMouseCaptureMode::CaptureDuringMouseDown);
    测：命中最近者；超出容差返回 `nullptr`；空列表返回 `nullptr`；`Actor` 为空的候选
    被跳过；**恰好等于半径时算命中**（边界含）；两个候选等距时取**先出现**的那个 ——
    把输入顺序换过来结果跟着换，以证明它认的是顺序而不是某个特定对象。
+   另有 `StellarEra.StarMap.PickingScreenRadius` 专测「容差取 max(固定容差, 投影半径)」：
+   投影半径放大容差、半径为 0 时退回固定容差、边界含、中心更近者赢、负半径不放大容差。
 
 2. **子系统的新增查询** —— 用 `NewObject` 出来的裸实例即可，**不需要世界**：
    `SetSelectedBody` / `GetSelectedBody` 往返；`GetRegisteredBodies` 过滤掉没有 Owner 的组件。

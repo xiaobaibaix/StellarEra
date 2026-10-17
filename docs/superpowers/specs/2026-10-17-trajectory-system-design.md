@@ -325,3 +325,30 @@ performant for runtime use.」我们每帧重画、每次不到 4 千条线、�
    这与 `bSimulated` 的既有语义一致（见 `CosmosOrbitComponent.h` 里那段
    「两边会分叉」的说明），不是本次引入的新问题。视觉上是「一个不动的点 +
    一条椭圆」，真觉得别扭就把那种天体的 `bDrawTrajectory` 关掉。
+
+## 附录：随轨迹提交一并落地的三处改动（无独立 spec，补记于此）
+
+这三处改动随轨迹系统的提交一并落地，当时没有独立 spec。经用户确认是有意要求的，
+补记于此，以免将来有人改 PlayerStart 语义或换关卡时不知道要守住哪些不变量。
+
+### 1. `AStellarEraGameMode`：飞船位置改由 PlayerStart 决定
+
+- **受 `bAutoPlaceSpaceshipAtStart`（默认 `true`）门控**。关掉它 = 飞船完全由
+  关卡里的手摆位置决定，GameMode 不插手 —— `EnsureSpaceshipExists()` 会直接早退
+  （`StellarEraGameMode.cpp:143`）。
+- 打开时：出生点只有 `PlayerStart` 一个来源（`FindSpawnPlayerStart()`；关卡里没有
+  PlayerStart 就只记 Warning 并跳过摆放）。关卡里手摆的飞船被摆到那里，只提供
+  **模型与参数**；关卡里没有飞船就在那里生成一艘。
+- **要守住的不变量**：开关打开时，飞船的位置来源只有一个 —— PlayerStart。改
+  PlayerStart 语义或换关卡时，飞船位置会跟着变，这是设计意图，不是 bug。
+
+### 2. `AStellarEraHUD`：新增 HUD 类
+
+- 用途：常驻的飞船状态条（当前 Possess 的是飞船时才画）+ 按 Tab 等操作弹出的短暂提示
+  （`ShowNotice`）。用 `AHUD` + Canvas 直接画，不建 UMG 资产 —— 与「输入资产也在
+  C++ 里造」的做法一致。绘制内容见 `StellarEraHUD.h` 类注释。
+
+### 3. `AStellarEraPlayerController`：走路模式与鼠标模式
+
+- 控制器新增了走路/飞船/星图三种鼠标模式的切换。星图模式的那部分已在
+  `2026-10-17-starmap-mode-design.md` 里，此处只记它早于星图存在。

@@ -7,6 +7,7 @@
 #include "StellarEraHUD.h"
 #include "CosmosSimulationSubsystem.h"
 #include "StarMapCameraPawn.h"
+#include "VoxelPlanetActor.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputAction.h"
@@ -623,14 +624,22 @@ void AStellarEraPlayerController::ToggleStarMap()
 		// 再次命中这个退出分支（星图已经关了，等于空转），**进不去**；唯一的脱身
 		// 办法是 PIE 控制台里的 DebugPossessShip。
 		//
-		// 这条路径当前不可达：Source/ 里没有任何代码会销毁角色或 UnPossess。（上面的
-		// PreviousPawn = GetPawn() 也没做空指针保护，理论上 GetPawn() 为空时进入就会
-		// 落到同一状态 —— PIE 下不会，加 IMC 的 BeginPlay 跑在 Possess 之后。）
+		// **这条路径是可达的** —— 别因为 Source/ 里没有 Destroy 就以为安全：引擎自己会
+		// 销毁 Pawn。AActor::CheckStillInWorld（Actor.cpp:2326）在 Z < WorldSettings->KillZ
+		// 时调 FellOutOfWorld，而 FellOutOfWorld（Actor.cpp:3373）的函数体直接 Destroy()；
+		// AKillZVolume 走同一条路。蓝图子类、关卡蓝图、PIE 里手动删 Actor 也都不在
+		// Source/ 里。另外进入分支那句 PreviousPawn = GetPawn() 没有空指针保护，
+		// GetPawn() 为空时进入就会落到同一状态，连销毁都不需要。
 		//
-		// 真要修，**光换判据不够**：把「GetPawn() 是不是星图 Pawn」换成
-		// Subsystem->IsStarMapActive() 只能让 M 不再空转，但下一次进入会把 PreviousPawn
-		// 记成星图 Pawn 自己，此后 Possess(PreviousPawn) 换不了 Pawn，照样回不去。
-		// 得让 PreviousPawn 不被覆盖 —— 进入时只记非星图 Pawn。
+		// 真要修，**三条缺一不可**：
+		//   1. 进入时只在 GetPawn() 非空、且**不是**星图 Pawn 时才写 PreviousPawn
+		//      —— 否则第二次进入会把星图 Pawn 自己记成 PreviousPawn，此后
+		//      Possess(PreviousPawn) 换不了 Pawn；
+		//   2. 进出判据从「GetPawn() 是不是星图 Pawn」换成 Subsystem->IsStarMapActive()；
+		//   3. **退出分支必须兜底** —— 只做前两条只能让这个状态**可检出**、不能**可恢复**：
+		//      PreviousPawn 已经失效时，退出分支照样没有可 Possess 的对象，玩家还是卡在
+		//      相机上。得重新拿一个默认 Pawn（如走 AGameModeBase::RestartPlayer，
+		//      或按 DefaultPawnClass 生成）。
 		if (APawn* ReturnPawn = PreviousPawn.Get())
 		{
 			Possess(ReturnPawn);
@@ -736,6 +745,19 @@ void AStellarEraPlayerController::OnStarMapSelectCompleted(const FInputActionVal
 		Subsystem->GetSelectedBody() == Picked ? nullptr : Picked);
 }
 
+/**
+ * 天体的世界半径（厘米）。体素星球用它的地表半径；其它天体退回碰撞半径。
+ * 取不到（非正）返回 0 —— 调用方按「没算出来」处理。
+ */
+static double ResolveBodyRadiusCm(const AActor* Body)
+{
+	if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(Body))
+	{
+		return Planet->GetSurfaceRadiusCm();
+	}
+	return Body ? double(Body->GetSimpleCollisionRadius()) : 0.0;
+}
+
 AActor* AStellarEraPlayerController::PickBodyUnderCursor() const
 {
 	UCosmosSimulationSubsystem* Subsystem =
@@ -748,16 +770,43 @@ AActor* AStellarEraPlayerController::PickBodyUnderCursor() const
 	TArray<AActor*> Bodies;
 	Subsystem->GetRegisteredBodies(Bodies);
 
+	// 视线右向：算「与视线垂直」的半径必须用它，不能用固定世界轴。
+	FVector ViewLocation;
+	FRotator ViewRotation;
+	GetPlayerViewPoint(ViewLocation, ViewRotation);
+	const FVector ViewRight = FRotationMatrix(ViewRotation).GetUnitAxis(EAxis::Y);
+
 	// 投影留在调用方，拾取函数才能是纯函数、才能无头测。
 	TArray<FStarMapScreenCandidate> Candidates;
 	Candidates.Reserve(Bodies.Num());
 	for (AActor* Body : Bodies)
 	{
-		FVector2D ScreenPosition;
-		if (Body && ProjectWorldLocationToScreen(Body->GetActorLocation(), ScreenPosition))
+		if (!Body)
 		{
-			Candidates.Add({ Body, ScreenPosition });
+			continue;
 		}
+
+		const FVector Center = Body->GetActorLocation();
+		FVector2D ScreenPosition;
+		if (!ProjectWorldLocationToScreen(Center, ScreenPosition))
+		{
+			continue;
+		}
+
+		// 盘面半径 = |投影(中心) − 投影(中心 + 右向 × 世界半径)|。
+		// 边缘点投不出来（越过后平面等）就留 0，退回固定像素容差。
+		float ScreenRadiusPx = 0.f;
+		const double WorldRadiusCm = ResolveBodyRadiusCm(Body);
+		if (WorldRadiusCm > 0.0)
+		{
+			FVector2D EdgePosition;
+			if (ProjectWorldLocationToScreen(Center + ViewRight * WorldRadiusCm, EdgePosition))
+			{
+				ScreenRadiusPx = float(FVector2D::Distance(ScreenPosition, EdgePosition));
+			}
+		}
+
+		Candidates.Add({ Body, ScreenPosition, ScreenRadiusPx });
 	}
 
 	double MouseX = 0.0;

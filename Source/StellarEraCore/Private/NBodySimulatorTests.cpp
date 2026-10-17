@@ -5,7 +5,7 @@
 // 这几组断言挡的是同一类错误：预测看起来像那么回事、其实是错的。
 // 全是纯数学 —— 不依赖世界、不依赖编辑器，这是本项目唯一能自动验证的地方。
 //
-// 跑法见 plan 的 Task 1 Step 4。
+// 跑法：用 UnrealEditor-Cmd 跑自动化测试 StellarEra.Core.NBodyPrediction。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"

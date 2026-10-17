@@ -105,7 +105,7 @@ protected:
 
 	/**
 	 * 调试用：直接在角色与飞船之间切换 Possess，跳过登船流程。
-	 * 在 PIE 控制台输入 `DebugPossessShip` 调用。Task 4 做好登船后，
+	 * 在 PIE 控制台输入 `DebugPossessShip` 调用。登船流程做好之后，
 	 * 这个命令仍保留作为开发工具。
 	 */
 	UFUNCTION(Exec)

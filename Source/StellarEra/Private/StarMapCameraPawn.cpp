@@ -102,7 +102,6 @@ AActor* AStarMapCameraPawn::PickBodyAtScreenPosition(
 	const FVector2D& ScreenPoint,
 	float PixelRadius)
 {
-	const double RadiusSq = double(PixelRadius) * double(PixelRadius);
 	double BestDistSq = TNumericLimits<double>::Max();
 	AActor* Best = nullptr;
 
@@ -113,8 +112,12 @@ AActor* AStarMapCameraPawn::PickBodyAtScreenPosition(
 			continue;
 		}
 
+		// 容差逐候选算：固定像素容差管远处的小天体，投影半径管近处的大盘面。
+		const double Radius = FMath::Max(
+			double(PixelRadius), double(Candidate.ScreenRadiusPx));
+
 		const double DistSq = FVector2D::DistSquared(Candidate.ScreenPosition, ScreenPoint);
-		if (DistSq > RadiusSq)
+		if (DistSq > Radius * Radius)
 		{
 			// 超出容差。边界含：恰好等于半径不算「超出」。
 			continue;

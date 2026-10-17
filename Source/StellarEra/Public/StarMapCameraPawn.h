@@ -19,6 +19,17 @@ struct FStarMapScreenCandidate
 {
 	AActor* Actor = nullptr;
 	FVector2D ScreenPosition = FVector2D::ZeroVector;
+
+	/**
+	 * 该天体在屏幕上的**盘面半径**（像素）。0 表示「没算 / 算不出来」。
+	 *
+	 * 拾取容差取 max(固定像素容差, 这个值)：远处的天体只有几个像素，靠固定容差才好点；
+	 * 近处的盘面有好几百像素，只按固定容差就点不中盘面（点到盘面上却选不中）。
+	 *
+	 * **必须是「与视线垂直」的半径**：调用方把「中心」与「中心 + 视线右向 × 世界半径」
+	 * 都投到屏幕，取两点的像素距离。用固定的世界轴会算出被投影压扁的假半径。
+	 */
+	float ScreenRadiusPx = 0.f;
 };
 
 /**
@@ -57,8 +68,8 @@ public:
 	/**
 	 * 从屏幕坐标里挑一颗天体。纯函数：不碰世界、不碰碰撞，所以能无头测。
 	 *
-	 * 返回离 ScreenPoint 最近、且距离 ≤ PixelRadius 的候选。都不在容差内、
-	 * 或候选全为空时返回 nullptr。**边界含**：距离恰好等于 PixelRadius 算命中。
+	 * 返回离 ScreenPoint 最近、且距离 ≤ max(PixelRadius, 该候选的 ScreenRadiusPx) 的候选。
+	 * 都不在容差内、或候选全为空时返回 nullptr。**边界含**：距离恰好等于容差算命中。
 	 *
 	 * 等距时取**先出现**的那个，所以结果依赖 Candidates 的顺序 —— 调用方给的
 	 * 顺序必须是确定的（本项目里就是 `GetRegisteredBodies` 的返回顺序，

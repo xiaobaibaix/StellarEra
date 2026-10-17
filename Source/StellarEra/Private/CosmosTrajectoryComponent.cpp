@@ -103,6 +103,9 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 		GetWorld() ? GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>() : nullptr;
 	if (!Subsystem)
 	{
+		// 与上面 !Orbit 分支对齐：线是 LifeTime = 0 画的、永不过期，
+		// 早退不擦的话上一帧的轨迹会冻在画布上。
+		ClearDrawnLines();
 		return;
 	}
 
@@ -287,7 +290,7 @@ void UCosmosTrajectoryComponent::AppendVelocityArrow(const FLinearColor& Color)
 	// 方向就是 InitialVelocity 的方向：ToWorldVelocity 只是把它按一个**正常数**
 	// 缩放（AU/年 → 厘米/秒），归一化之后完全相同，所以直接用游戏单位向量。
 	//
-	// 长度**不是**物理速度的世界长度 —— 真实换算下 7.4 AU/年 只有 0.24 厘米/秒，
+	// 长度**不是**物理速度的世界长度 —— 按本项目世界尺度换算，7.4 AU/年 只有 0.24 厘米/秒，
 	// 画出来看不见。长度是「速度大小 × VelocityArrowScaleCm」的示意图。
 	const FVector Direction = Orbit->InitialVelocity.GetSafeNormal();
 	if (Direction.IsNearlyZero())
