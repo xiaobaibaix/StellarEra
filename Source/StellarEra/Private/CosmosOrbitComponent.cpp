@@ -44,8 +44,10 @@ void UCosmosOrbitComponent::CreateTrajectoryComponent()
 		return;
 	}
 
-	// 无条件创建，即使 bDrawTrajectory 为假 —— 这样运行期把它打开能立刻生效，
-	// 代价只是关掉时多一次空 Tick。
+	// 无条件创建，即使 bDrawTrajectory 为假 —— 这样运行期把它打开能立刻生效。
+	// 代价是关掉时那一帧仍要走完采样：子系统查询、预测窗口解析、模拟时间读取，
+	// 以及拖尾的采样与裁剪（拖尾是真实历史，两种模式下都一直在攒）。省下的是
+	// 预测重算与画线 —— 那是开销的大头，见 UCosmosTrajectoryComponent::TickComponent。
 	UCosmosTrajectoryComponent* Component = NewObject<UCosmosTrajectoryComponent>(OwnerActor);
 	if (!Component)
 	{
