@@ -52,6 +52,57 @@ public:
 	void LogDiagnostics() const;
 
 	//////////////////////////////////////////////////////////////////////////
+	// 只读查询 —— 供轨迹渲染层用，渲染层因此不必碰求解器
+
+	/**
+	 * 预测某个天体未来 HorizonYears 年的轨迹，输出**世界坐标（厘米）**。
+	 * AU → 厘米 的换算在这里做。
+	 *
+	 * 返回 false（并清空 OutWorldPositions）当：索引无效、窗口非正、采样点少于 2。
+	 */
+	bool PredictTrajectoryWorld(int32 SimulatorIndex, double HorizonYears, int32 NumSamples,
+	                            TArray<FVector>& OutWorldPositions) const;
+
+	/** 已模拟的天文时间（年）。拖尾按模拟时间采样，不按帧 —— 否则覆盖时长会随帧率漂移。 */
+	double GetSimulatedTimeYears() const;
+
+	/** 天体 i 参与的最短动力学时标（年）。算不出（单天体 / 退化配对）返回 0。 */
+	double GetOrbitalPeriodYears(int32 SimulatorIndex) const;
+
+	//////////////////////////////////////////////////////////////////////////
+	// 星图模式
+	//
+	// 选中状态放这里而不是放星图 Pawn 上：本子系统已经是天体的全局注册表
+	// （Bodies），而且是**唯一**知道全部天体的地方。轨迹组件每帧单向读它决定
+	// 高亮，没有回写、没有生命周期问题。
+
+	/** 选中一颗天体。传 nullptr 取消选中。存弱引用，天体被销毁后自动失效。 */
+	void SetSelectedBody(AActor* Body);
+
+	/** 当前选中的天体。未选中、或它已被销毁时返回 nullptr。 */
+	AActor* GetSelectedBody() const;
+
+	/**
+	 * 把所有已注册天体的 Actor 写进 Out（先 Reset）。
+	 *
+	 * 跳过两种：组件本身失效的，和拿不到 Owner 的（组件的 Outer 不是 Actor）。
+	 * 拾取遍历用它，所以顺序就是 Bodies 的注册顺序 —— 拾取在等距时取先出现的，
+	 * 依赖这个顺序是确定的。
+	 */
+	void GetRegisteredBodies(TArray<AActor*>& Out) const;
+
+	/** 星图模式是否激活。轨迹组件的显示门控读它。 */
+	bool IsStarMapActive() const { return bStarMapActive; }
+
+	/**
+	 * 由 AStellarEraPlayerController::ToggleStarMap 的进入/退出分支调用。
+	 *
+	 * **不放星图 Pawn 的 BeginPlay/EndPlay** —— 那个 Pawn 是懒创建并复用的，
+	 * BeginPlay 一辈子只跑一次，第二次进入时标志不会被重新设上。
+	 */
+	void SetStarMapActive(bool bActive) { bStarMapActive = bActive; }
+
+	//////////////////////////////////////////////////////////////////////////
 	// 标定
 	//
 	// 这些都是 UPROPERTY(Config)：可以在 Config/DefaultGame.ini 里覆盖，改完重启
@@ -72,7 +123,10 @@ public:
 	double TimeScale = 0.00333;
 
 	/**
-	 * 最短轨道每圈积分多少步，用来推自动步长（开普勒第三定律：T = 2π√(a³/GM)）。
+	 * 最短的一条「天体间周期」每圈积分多少步，用来推自动步长。
+	 *
+	 * 周期不是手填的，而是由关卡里的实际间距反推：对每一对天体 (i, j)，
+	 * T = 2π√(r³ / (G·(m_i + m_j)))，取其中最短的一条。见 FinalizeRegistration。
 	 *
 	 * 参考项目写死「最短周期 / 1000」，在本尺度下要 18 帧才算一步，肉眼可见卡顿。
 	 * 20000 步/圈给出约每帧一步。
@@ -132,6 +186,12 @@ private:
 	void CarryRiders(AActor* BodyActor, const FVector& Delta);
 
 	TArray<TObjectPtr<UCosmosOrbitComponent>> Bodies;
+
+	/** 星图模式下选中的天体。弱引用 —— 天体被销毁后自动变 nullptr。 */
+	TWeakObjectPtr<AActor> SelectedBody;
+
+	/** 星图模式是否激活。 */
+	bool bStarMapActive = false;
 
 	FNBodySimulator Simulator;
 

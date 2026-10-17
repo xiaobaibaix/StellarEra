@@ -92,10 +92,12 @@ void UCosmosSimulationSubsystem::AddBodyToSimulator(UCosmosOrbitComponent* Compo
 		return;
 	}
 
+	// ── 初态 = 关卡里的摆放 + 组件上的 InitialVelocity ──
+	// 这一段只**读**，不写：位置取 Actor 当前所在，速度取 InitialVelocity，
+	// 组件不搬运任何东西。关卡里怎么摆，运行后就从什么样开始跑。
 	FCosmosBodyState State;
-
-	// 起始位置用 Actor 当前摆放的位置；bApplyOrbitInit 为真时随后会被轨道根数覆盖。
 	State.Position = Simulator.ToGameUnitPosition(BodyActor->GetActorLocation());
+	State.Velocity = FVector3d(Component->InitialVelocity);
 	State.Mass = Component->MassSolar;
 	State.OwnerActor = BodyActor;
 
@@ -107,11 +109,6 @@ void UCosmosSimulationSubsystem::AddBodyToSimulator(UCosmosOrbitComponent* Compo
 	}
 
 	Component->SimulatorIndex = Simulator.AddBody(State);
-
-	if (Component->bApplyOrbitInit)
-	{
-		Simulator.ApplyOrbitInit(Component->SimulatorIndex, Component->Orbit, Component->CentralMassSolar);
-	}
 }
 
 void UCosmosSimulationSubsystem::FinalizeRegistration()
@@ -132,43 +129,46 @@ void UCosmosSimulationSubsystem::FinalizeRegistration()
 		return A.MassSolar > B.MassSolar;
 	});
 
+	// 注册完就完事：位置取自关卡摆放、速度取自 InitialVelocity，**不需要（也不该）
+	// 在开局写回一次位置**。
+	//
+	// 早先这里有一次「立即同步」，那是为了掩盖轨道根数算出的位置与摆放位置对不上
+	// 造成的跳变。轨道根数已经删了，那次同步就只剩副作用：厘米 → AU → 厘米的往返
+	// 会把摆放位置按 float 精度挪动一点 —— 正是要消灭的「组件改变初始状态」。
+	//
+	// 删掉它之后，第一次 Tick 的写回仍会做同一趟往返（求解器只认 AU），但那是
+	// 亚厘米级的取整，且方向是「Actor 向求解器对齐」而不是反过来。
 	for (UCosmosOrbitComponent* Component : Bodies)
 	{
 		AddBodyToSimulator(Component);
-
-		AActor* BodyActor = Component ? Component->GetOwner() : nullptr;
-		if (!BodyActor || !Component->bSimulated || Component->SimulatorIndex == INDEX_NONE)
-		{
-			continue;
-		}
-
-		// 立即同步一次：让开局第一帧就在轨道根数算出的位置上，
-		// 而不是关卡里手摆的位置（手摆的位置跟轨道对不上，会先弹一下）。
-		const FCosmosBodyState& State = Simulator.GetBody(Component->SimulatorIndex);
-		BodyActor->SetActorLocation(Simulator.ToWorldLocation(State.Position), /*bSweep=*/false);
-
-		if (AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(BodyActor))
-		{
-			Planet->SyncVoxelWorldTransform();
-		}
 	}
 
 	// ── 自动步长 ──
-	// 取最短的一条轨道周期，除以 StepsPerOrbit。开普勒第三定律：T = 2π√(a³/GM)。
+	// 轨道周期不再来自手填的半长轴，而是由**实际几何**反推：对每一对天体 (i, j)，
+	// 把它们的间距 r 当成圆轨道半径，算出这对天体相互绕转的周期
+	//     T = 2π√(r³ / (G·(m_i + m_j)))
+	// 再取其中最短的一条除以 StepsPerOrbit。
+	//
+	// 为什么取最短的那条：它就是这个系统里最快的动力学时标，积分步长必须跟着它走。
+	// 本关卡里它是「母星 ↔ 恒星」那一对，算出来与删掉轨道根数之前基本一致 ——
+	// 那时用半长轴 0.723 AU，现在用实际摆出来的 0.718 AU 近日点距离。
 	double ShortestPeriod = TNumericLimits<double>::Max();
 
-	for (const UCosmosOrbitComponent* Component : Bodies)
+	for (int32 I = 0; I < Simulator.GetNumBodies(); ++I)
 	{
-		if (!Component || !Component->bApplyOrbitInit || Component->Orbit.SemiMajorAxis <= 0.0)
+		for (int32 J = I + 1; J < Simulator.GetNumBodies(); ++J)
 		{
-			continue;
+			// 与求解器里 EstimateOrbitalPeriod 用的是同一个函数 —— 两处曾经各写
+			// 一遍同样的公式，抽出来之后就只有一个定义。
+			const double PairPeriod = FNBodySimulator::PairOrbitalPeriod(
+				Simulator.GetBody(I), Simulator.GetBody(J),
+				CosmosUnits::GravitationalConstant_Game);
+
+			if (PairPeriod > 0.0)
+			{
+				ShortestPeriod = FMath::Min(ShortestPeriod, PairPeriod);
+			}
 		}
-
-		const double SemiMajorAxis = Component->Orbit.SemiMajorAxis;
-		const double Mu = CosmosUnits::GravitationalConstant_Game * FMath::Max(Component->CentralMassSolar, 1e-6);
-		const double Period = 2.0 * PI * FMath::Sqrt(SemiMajorAxis * SemiMajorAxis * SemiMajorAxis / Mu);
-
-		ShortestPeriod = FMath::Min(ShortestPeriod, Period);
 	}
 
 	if (FMath::IsFinite(ShortestPeriod) && ShortestPeriod > 0.0 && StepsPerOrbit > 0)
@@ -268,12 +268,8 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 			continue;
 		}
 
-		if (AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(BodyActor))
-		{
-			// 体素世界是 Actor 子对象，变换不会跟着 PlanetRoot 走。
-			// 星球移动后必须同步，否则渲染网格留在原地、星球跑掉。
-			Planet->SyncVoxelWorldTransform();
-		}
+		// 体素世界就是星球 Actor 自己（AVoxelPlanetActor 直接继承 AVoxelWorld），
+		// 移动 Actor 即移动世界 —— 没有第二个变换要同步。
 
 		// 顺序要紧：先把星球自己搬到新位置，再把人按同样的位移带过去。
 		CarryRiders(BodyActor, Delta);
@@ -304,6 +300,66 @@ void UCosmosSimulationSubsystem::LogDiagnostics() const
 	UE_LOG(LogTemp, Log, TEXT("角动量    : %.6e"), Simulator.GetTotalAngularMomentum().Size());
 	UE_LOG(LogTemp, Log, TEXT("1 AU      : %.0f 厘米"), CentimetersPerAu);
 	UE_LOG(LogTemp, Log, TEXT("=================================="));
+}
+
+bool UCosmosSimulationSubsystem::PredictTrajectoryWorld(int32 SimulatorIndex, double HorizonYears,
+                                                        int32 NumSamples, TArray<FVector>& OutWorldPositions) const
+{
+	OutWorldPositions.Reset();
+
+	// 输出走调用方给的数组；AU → 厘米 的中间结果用一个局部数组接一下。
+	// 每帧每个天体多两次分配，N ≤ 10 时无关紧要。
+	TArray<FVector3d> GameUnitPositions;
+	if (!Simulator.PredictTrajectory(SimulatorIndex, HorizonYears, NumSamples, GameUnitPositions))
+	{
+		return false;
+	}
+
+	OutWorldPositions.Reserve(GameUnitPositions.Num());
+	for (const FVector3d& Position : GameUnitPositions)
+	{
+		OutWorldPositions.Add(Simulator.ToWorldLocation(Position));
+	}
+	return true;
+}
+
+double UCosmosSimulationSubsystem::GetSimulatedTimeYears() const
+{
+	return Simulator.GetSimulatedTime();
+}
+
+double UCosmosSimulationSubsystem::GetOrbitalPeriodYears(int32 SimulatorIndex) const
+{
+	return Simulator.EstimateOrbitalPeriod(SimulatorIndex);
+}
+
+void UCosmosSimulationSubsystem::SetSelectedBody(AActor* Body)
+{
+	SelectedBody = Body;
+}
+
+AActor* UCosmosSimulationSubsystem::GetSelectedBody() const
+{
+	return SelectedBody.Get();
+}
+
+void UCosmosSimulationSubsystem::GetRegisteredBodies(TArray<AActor*>& Out) const
+{
+	Out.Reset();
+
+	for (const TObjectPtr<UCosmosOrbitComponent>& Component : Bodies)
+	{
+		// 组件可能在关卡卸载的间隙里失效；Outer 不是 Actor 的组件也拿不到 Actor。
+		if (!Component)
+		{
+			continue;
+		}
+
+		if (AActor* OwnerActor = Component->GetOwner())
+		{
+			Out.Add(OwnerActor);
+		}
+	}
 }
 
 void UCosmosSimulationSubsystem::CarryRiders(AActor* BodyActor, const FVector& Delta)
