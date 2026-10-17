@@ -4,10 +4,11 @@
 
 #include "PlanetCharacter.h"
 #include "SpaceshipPawn.h"
+#include "StellarEraHUD.h"
 #include "StellarEraPlayerController.h"
-#include "VoxelPlanetActor.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "GameFramework/PlayerStart.h"
 #include "TimerManager.h"
 #include "UObject/ConstructorHelpers.h"
 
@@ -37,6 +38,10 @@ AStellarEraGameMode::AStellarEraGameMode()
 	}
 
 	PlayerControllerClass = AStellarEraPlayerController::StaticClass();
+
+	// 纯 C++ 的调试 HUD（状态条 + 短暂提示），不依赖任何蓝图资产。
+	// 换成 UMG 时在这里改 HUDClass 即可，其余代码不用动。
+	HUDClass = AStellarEraHUD::StaticClass();
 
 	// 先落到原生类，再尝试用蓝图子类覆盖。
 	//
@@ -117,83 +122,79 @@ void AStellarEraGameMode::PossessStartupShip()
 		CurrentPawn ? *CurrentPawn->GetClass()->GetName() : TEXT("null"));
 }
 
+APlayerStart* AStellarEraGameMode::FindSpawnPlayerStart()
+{
+	// 借引擎自己的选点逻辑：它优先取 PIE 的 APlayerStartPIE（「Play From Here」），
+	// 否则在关卡里的 PlayerStart 中挑一个。作者把出生点摆在哪，飞船就出现在哪，
+	// 代码里不写死方向或高度。
+	//
+	// 不能靠「FindPlayerStart 返回空」判断关卡里没有 PlayerStart —— 找不到时它
+	// 返回的是 WorldSettings，不是空指针（见 GameModeBase.cpp 里
+	// FindPlayerStart_Implementation 末尾的 BestStart = World->GetWorldSettings()）。
+	// 所以这里必须判类型。
+	//
+	// 传空的 Controller 是安全的：ShouldSpawnAtStartSpot 会判空返回 false，
+	// GetDefaultPawnClassForController 也不碰 Controller。
+	return Cast<APlayerStart>(FindPlayerStart(nullptr));
+}
+
 void AStellarEraGameMode::EnsureSpaceshipExists()
 {
-	if (!bSpawnSpaceshipIfMissing)
+	if (!bAutoPlaceSpaceshipAtStart)
 	{
 		return;
 	}
 
-	// 关卡里已经手摆了一艘就不再生成，让美术摆位优先于自动布置。
-	TActorIterator<ASpaceshipPawn> ExistingShip(GetWorld());
-	if (ExistingShip)
+	// 出生点只有 PlayerStart 一个来源，位置和朝向都取自它。玩家（角色）由引擎
+	// 按 DefaultPawnClass 生成在同一个 PlayerStart 上，飞船摆在同一处，开局登船
+	// 的距离判据（BoardingRadius = 600 cm）才成立 —— 早先这里按「球心 + 固定方向
+	// ×（地表半径 + 固定高度）」自己算，和 PlayerStart 毫无关系，摆好的出生点
+	// 看起来完全没生效。
+	APlayerStart* PlayerStart = FindSpawnPlayerStart();
+	if (!PlayerStart)
 	{
-		// 打出找到的这艘船，好区分「关卡里真有」和「它随后被 World Partition
-		// 流送卸载了」——后者正是开局登船失败的现场：这一刻看得见，等 5 秒重试
-		// 窗口跑起来时已经不在世界里了。
-		UE_LOG(LogTemp, Log,
-			TEXT("StellarEraGameMode: 关卡里已有飞船 %s @ %s，跳过生成。"),
-			*ExistingShip->GetName(),
-			*ExistingShip->GetActorLocation().ToString());
+		UE_LOG(LogTemp, Warning,
+			TEXT("StellarEraGameMode: 关卡里没有 PlayerStart，无法确定飞船出生点，跳过摆放。"
+				"在关卡里摆一个 PlayerStart 即可。"));
 		return;
 	}
 
-	// 取离世界原点最近的那颗 —— 必须与 APlanetCharacter::FindNearestPlanet
-	// 用同一条「取最近」规则。两者的搜索半径上限其实不同：角色封顶在
-	// PlanetSearchRadius = 1e8 cm = 1000 公里，这里不设限；本关卡四颗行星都在
-	// 原点 52 公里以内，这个差别不影响结果。角色没有 PlayerStart，生成在世界
-	// 原点后按同一条规则落到最近的行星上；两处规则若不一致，飞船会生成在另一颗
-	// 星球上，开局登船的距离判据（BoardingRadius = 600 cm）差着好几公里，
-	// 必然失败。
+	const FVector SpawnLocation = PlayerStart->GetActorLocation();
+	const FRotator SpawnRotation = PlayerStart->GetActorRotation();
+
+	// 关卡里已经手摆了一艘：把它摆到出生点，而不是再生成一艘。
 	//
-	// 不能再用「取第一颗」：TActorIterator 的顺序不保证，关卡里有 4 颗行星时
-	// 它命中的是哪一颗纯看运气。
-	AVoxelPlanetActor* Planet = nullptr;
-	float NearestDistSq = TNumericLimits<float>::Max();
-	for (TActorIterator<AVoxelPlanetActor> It(GetWorld()); It; ++It)
+	// 早先这里是「手摆的优先，直接跳过生成」，那条规则会让 PlayerStart 形同虚设 ——
+	// 飞船一直待在美术当初摆的地方。现在位置由 PlayerStart 决定，手摆的那艘只
+	// 提供模型与参数。也不能改成「另生成一艘」：关卡里会多出一艘不知从哪来的船。
+	TActorIterator<ASpaceshipPawn> ExistingShip(GetWorld());
+	if (ASpaceshipPawn* Ship = ExistingShip ? *ExistingShip : nullptr)
 	{
-		const float DistSq = FVector::DistSquared(It->GetActorLocation(), FVector::ZeroVector);
-		if (DistSq < NearestDistSq)
-		{
-			NearestDistSq = DistSq;
-			Planet = *It;
-		}
-	}
-	if (!Planet)
-	{
-		UE_LOG(LogTemp, Warning,
-			TEXT("StellarEraGameMode: 关卡里没有 AVoxelPlanetActor，跳过飞船生成。"));
+		UE_LOG(LogTemp, Log,
+			TEXT("StellarEraGameMode: 关卡里已有飞船 %s，摆到 PlayerStart %s（%s → %s）。"),
+			*Ship->GetName(),
+			*PlayerStart->GetName(),
+			*Ship->GetActorLocation().ToString(),
+			*SpawnLocation.ToString());
+
+		// TeleportPhysics：飞船带物理体，普通 SetActorLocation 会被还没跟上的物理
+		// 状态拉回原处，表现就是「摆了但没动」。
+		Ship->SetActorLocationAndRotation(SpawnLocation, SpawnRotation,
+			/*bSweep=*/false, nullptr, ETeleportType::TeleportPhysics);
 		return;
 	}
-
-	const FVector Direction = ShipSpawnDirection.GetSafeNormal();
-	if (Direction.IsNearlyZero())
-	{
-		UE_LOG(LogTemp, Warning,
-			TEXT("StellarEraGameMode: ShipSpawnDirection 是零向量，跳过飞船生成。"));
-		return;
-	}
-
-	// 按方向取地表：有地形时地表在基准球面上下浮动，用基准半径会把飞船埋进
-	// 山体里或悬在半空。
-	const FVector Location =
-		Planet->GetActorLocation() +
-		Direction * (Planet->GetSurfaceRadiusCmAtDirection(Direction) + ShipSpawnHeight);
-
-	// 让飞船的“上”与球面法线一致：否则在极地附近它会横躺着。
-	const FQuat AlignToSurface = FQuat::FindBetweenNormals(FVector::UpVector, Direction);
 
 	FActorSpawnParameters Params;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 	UClass* ClassToSpawn = ShipClass ? ShipClass.Get() : ASpaceshipPawn::StaticClass();
-	if (!GetWorld()->SpawnActor<ASpaceshipPawn>(ClassToSpawn, Location, AlignToSurface.Rotator(), Params))
+	if (!GetWorld()->SpawnActor<ASpaceshipPawn>(ClassToSpawn, SpawnLocation, SpawnRotation, Params))
 	{
 		UE_LOG(LogTemp, Warning,
 			TEXT("StellarEraGameMode: 飞船生成失败（SpawnActor 返回空）。"));
 		return;
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("StellarEraGameMode: 关卡里没有飞船，已在 %s 生成一艘 %s。"),
-		*Location.ToString(),
+	UE_LOG(LogTemp, Log, TEXT("StellarEraGameMode: 关卡里没有飞船，已在 PlayerStart %s 处生成一艘 %s。"),
+		*SpawnLocation.ToString(),
 		*ClassToSpawn->GetName());
 }

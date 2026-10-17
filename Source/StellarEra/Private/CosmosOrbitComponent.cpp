@@ -3,6 +3,7 @@
 #include "CosmosOrbitComponent.h"
 
 #include "CosmosSimulationSubsystem.h"
+#include "CosmosTrajectoryComponent.h"
 #include "Engine/World.h"
 
 UCosmosOrbitComponent::UCosmosOrbitComponent()
@@ -15,6 +16,15 @@ void UCosmosOrbitComponent::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// 开局位置 = 速度矢量的锚点。缓存下来，因为「初始位置」指的是天体**出发**
+	// 的地方：星球飞走之后箭头要留在原地标出起点。
+	if (const AActor* OwnerActor = GetOwner())
+	{
+		InitialWorldLocation = OwnerActor->GetActorLocation();
+	}
+
+	CreateTrajectoryComponent();
+
 	// 组件自己找上门注册，而不是让子系统去遍历全关卡的 Actor：
 	// 遍历全世界既慢，又会漏掉运行期生成的 Actor。
 	if (const UWorld* OwningWorld = GetWorld())
@@ -24,6 +34,32 @@ void UCosmosOrbitComponent::BeginPlay()
 			CosmosSubsystem->RegisterBody(this);
 		}
 	}
+}
+
+void UCosmosOrbitComponent::CreateTrajectoryComponent()
+{
+	AActor* OwnerActor = GetOwner();
+	if (!OwnerActor)
+	{
+		return;
+	}
+
+	// 无条件创建，即使 bDrawTrajectory 为假 —— 这样运行期把它打开能立刻生效，
+	// 代价只是关掉时多一次空 Tick。
+	UCosmosTrajectoryComponent* Component = NewObject<UCosmosTrajectoryComponent>(OwnerActor);
+	if (!Component)
+	{
+		return;
+	}
+
+	// 先 Initialize 再 RegisterComponent，顺序不能反。RegisterComponent 会**立刻**
+	// 触发这个组件的 BeginPlay：AActor::HandleRegisterComponentWithWorld 里算的是
+	// bOwnerBeginPlayStarted = HasActorBegunPlay() || IsActorBeginningPlay()，
+	// 而 owner 的 BeginPlay 正在跑，IsActorBeginningPlay() 为真。
+	// 反过来的话，引擎那次 BeginPlay 会跑在 Orbit / LineBatch 还是 nullptr 的时候 ——
+	// 现在不疼（本类没 override BeginPlay），但谁要在 BeginPlay 里用它们就是空指针。
+	Component->Initialize(this);
+	Component->RegisterComponent();
 }
 
 void UCosmosOrbitComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)

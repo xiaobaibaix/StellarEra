@@ -5,7 +5,6 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
-#include "CosmosTypes.h"
 #include "CosmosOrbitComponent.generated.h"
 
 /**
@@ -20,6 +19,14 @@
  * 组件本身不做任何事：它只存参数。注册、推进、写回位置全在
  * UCosmosSimulationSubsystem 里 —— N 体是耦合系统（A 受 B 的力，B 也受 A 的力），
  * 必须有唯一的编排者，各天体分别 tick 会读到彼此的中间状态。
+ *
+ * ── 初始状态从哪来 ────────────────────────────────────────────
+ * **组件不生成初始状态，只读取它。** 一个天体的初态就两项：
+ *     位置 = Actor 在关卡里摆的位置（GetActorLocation，组件不碰它）
+ *     速度 = InitialVelocity
+ * 想在哪儿放星球就在视口里拖到哪儿，想让它飞多快就填 InitialVelocity。
+ * 没有轨道根数那种中间层，也没有任何「开局把 Actor 搬到别处」的步骤 ——
+ * 关卡里摆成什么样，运行后就从什么样开始跑。
  */
 UCLASS(ClassGroup = (Cosmos), meta = (BlueprintSpawnableComponent))
 class UCosmosOrbitComponent : public UActorComponent
@@ -39,42 +46,32 @@ public:
 	double MassSolar = 3.0034893e-6;
 
 	/**
-	 * 轨道初始条件。
+	 * 初速度，游戏单位 AU/年。**天体初速度的唯一来源。**
 	 *
-	 * 用「半长轴 + 偏心率」而不是直接填位置速度：这样天体保证落在正确的轨道上。
-	 * 直接填位置和速度，一旦两者不匹配就会飞向恒星或者逃逸。
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Orbit")
-	FCosmosOrbitInit Orbit;
-
-	/**
-	 * 中心天体的质量，单位 M☉。**只用于推导初始速度**，不参与积分。
+	 * 留零即静止，天体只受引力作用。方向与大小都照填，没有任何推导或修正。
 	 *
-	 * 积分用的是各天体自己的 MassSolar；这个值只在开局算「给定半长轴该飞多快」
-	 * 时用一次。填错只会让开局速度不对，不会改变后续的引力。
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Orbit")
-	double CentralMassSolar = 1.0;
-
-	/**
-	 * 是否用上面的轨道根数覆盖 Actor 摆放的位置与速度。
+	 * 单位换算：1 AU/年 = 1e6 厘米 / 1 模拟年；TimeScale = 0.00333 时约 3330
+	 * 厘米/秒（33 米/秒）。所以地球的 2π ≈ 6.283 AU/年 在世界里是 209 米/秒。
+	 * 这个换算同时受 CentimetersPerAu 与 TimeScale 影响 —— 改标定值会改观感速度，
+	 * 但不会改变轨道形状（求解器内部全程是 AU / AU每年 / M☉ 的双精度）。
 	 *
-	 * 为真：开局位置由轨道根数算出，Actor 摆在关卡哪里都无所谓。
-	 * 为假：位置保持关卡里摆的样子，速度为零 —— 中心恒星用这个。
+	 * 圆轨道速度由开普勒第三定律给：v = √(GM/r) = 2π√(M/r)，M 是中心天体质量
+	 * （M☉）、r 是到中心天体的距离（AU）。例如距 1 M☉ 0.718 AU 的圆轨道是
+	 * 2π/√0.718 ≈ 7.41 AU/年，方向与「天体 → 中心天体」的连线垂直。
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Orbit")
-	bool bApplyOrbitInit = true;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Body")
+	FVector InitialVelocity = FVector::ZeroVector;
 
 	/**
 	 * 是否每帧把求解器算出的位置写回所属 Actor。
 	 *
-	 * **与 bApplyOrbitInit 是两件事，不要合并。** 参考项目只有一个 bSimulated
-	 * 同时管这两件事，结果是中心恒星的位置在求解器里漂、在 Actor 上不动，两边
-	 * 分叉。这里拆开：
-	 *   - 恒星：bApplyOrbitInit = false、bSimulated = true —— 位置保持摆放的样子，
-	 *     但仍由求解器写回，两边永远一致；
-	 *   - 行星：两个都 true；
-	 *   - 纯装饰的远处天体：两个都 false。
+	 * 为真：求解器是位置的主人，Actor 每帧被搬到求解器算出的位置上，两边永远一致。
+	 *       想让星球看起来真的在动就用它。
+	 * 为假：Actor 待在原地，但求解器里那个天体照样受引力、照样漂 —— 两边会分叉，
+	 *       只适合纯装饰的远处天体（不需要看起来在动，也不想付 SetActorLocation
+	 *       的代价）。
+	 *
+	 * 注意这个开关**不决定初始状态**：不论真假，初态都是「摆放位置 + InitialVelocity」。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Body")
 	bool bSimulated = true;
@@ -83,8 +80,76 @@ public:
 	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "Cosmos")
 	int32 SimulatorIndex = INDEX_NONE;
 
+	//////////////////////////////////////////////////////////////////////////
+	// 轨迹显示
+	//
+	// 这些参数放在 Orbit 组件上而不是轨迹组件上：轨迹组件是运行时 NewObject
+	// 出来的，编辑器里调不到它的属性。Orbit 组件每个天体上都已经有了，参数放
+	// 这儿才能逐天体在详情面板里调（颜色有取色器），且零编辑器侧手工操作。
+
+	/** 是否画这个天体的轨迹（预测 + 拖尾）。关掉可省下它的全部开销。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
+	bool bDrawTrajectory = true;
+
+	/** 预测轨迹的颜色。浅色 —— 与深色的拖尾形成对比。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
+	FColor PredictionColor = FColor(90, 170, 255);
+
+	/** 已走过的拖尾颜色。深色。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
+	FColor TrailColor = FColor(20, 50, 110);
+
+	/** 初始速度矢量的颜色。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
+	FColor InitialVelocityColor = FColor(255, 210, 80);
+
+	/**
+	 * 预测多长，单位模拟年。0 = 自动。
+	 *
+	 * 自动值 = 1.05 × 该天体参与的最短轨道周期 —— 比一圈多一点，于是画出来的
+	 * 椭圆首尾相接、看起来是闭合的。算不出周期时回退到 1.0 年。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory", meta = (ClampMin = "0.0"))
+	double PredictionYears = 0.0;
+
+	/**
+	 * 拖尾回溯多长，单位模拟年。0 = 自动（= 预测窗口的 1/4）。
+	 *
+	 * 拖尾按**模拟时间**采样并裁剪，不按帧 —— 按帧的话覆盖时长会随帧率漂移。
+	 * 这个窗口决定**覆盖时长**，点的密度另由标称采样间隔决定（论证见 spec §6）。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory", meta = (ClampMin = "0.0"))
+	double TrailYears = 0.0;
+
+	/** 是否画初始速度矢量。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
+	bool bDrawInitialVelocity = true;
+
+	/**
+	 * 初始速度矢量的长度系数：每 1 AU/年 画多少厘米。
+	 *
+	 * 这**不是**物理速度的世界长度。把 AU/年 直接当 AU 长度按世界尺度画，
+	 * 箭头会比轨道半径还长一个数量级；而按真实物理换算，1 AU/年 ≈ 0.032 厘米/秒，
+	 * 即一秒钟才走 0.032 厘米 —— 又小到看不见。两个极端都不能用，所以箭头长度
+	 * 是「速度大小 × 这个系数」的示意图，只保证相对长短正确。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
+	double VelocityArrowScaleCm = 10000.0;
+
+	/**
+	 * 开局时的世界位置。速度矢量的锚点。
+	 *
+	 * 运行时在 BeginPlay 里缓存，不要手改 —— 它记的是天体**出发**的地方，
+	 * 星球飞走之后箭头要留在原地标出起点。
+	 */
+	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "Cosmos|Trajectory")
+	FVector InitialWorldLocation = FVector::ZeroVector;
+
 	//~ Begin UActorComponent Interface
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	//~ End UActorComponent Interface
+
+	/** 创建并注册轨迹渲染组件。只调一次。 */
+	void CreateTrajectoryComponent();
 };

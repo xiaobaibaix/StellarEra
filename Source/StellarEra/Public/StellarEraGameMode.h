@@ -7,6 +7,7 @@
 #include "GameFramework/GameModeBase.h"
 #include "StellarEraGameMode.generated.h"
 
+class APlayerStart;
 class ASpaceshipPawn;
 
 /**
@@ -14,6 +15,9 @@ class ASpaceshipPawn;
  *
  * 没有它，PIE 会生成引擎默认的 ADefaultPawn（一个旁观球），角色类永远不会
  * 被实例化。DefaultEngine.ini 里的 GlobalDefaultGameMode 指向本类。
+ *
+ * 出生点只有一个来源：关卡里的 PlayerStart。飞船摆到那里，角色也出生在那里，
+ * 代码里不写死任何坐标 —— 想换起点就在关卡里拖 PlayerStart。
  */
 UCLASS()
 class AStellarEraGameMode : public AGameModeBase
@@ -23,17 +27,13 @@ class AStellarEraGameMode : public AGameModeBase
 public:
 	AStellarEraGameMode();
 
-	/** 飞船相对行星球心的生成方向（会归一化）。默认放在赤道一侧。 */
+	/**
+	 * 是否自动把飞船摆到出生点。关卡里已经有一艘就把它摆过去，没有就在那里生成一艘。
+	 *
+	 * 关掉它 = 飞船完全由关卡里的手摆位置决定，GameMode 不插手。
+	 */
 	UPROPERTY(EditDefaultsOnly, Category = "StellarEra")
-	FVector ShipSpawnDirection = FVector(0.f, 1.f, 0.f);
-
-	/** 飞船生成点离行星表面的高度（厘米）。 */
-	UPROPERTY(EditDefaultsOnly, Category = "StellarEra")
-	float ShipSpawnHeight = 400.f;
-
-	/** 关卡里没有飞船时是否自动生成一艘，方便开箱即测。 */
-	UPROPERTY(EditDefaultsOnly, Category = "StellarEra")
-	bool bSpawnSpaceshipIfMissing = true;
+	bool bAutoPlaceSpaceshipAtStart = true;
 
 	/**
 	 * 关卡里没有飞船时生成哪个类。
@@ -72,7 +72,10 @@ public:
 protected:
 	virtual void BeginPlay() override;
 
-	/** 在球面上找一处空地生成飞船；关卡里已存在则跳过。 */
+	/** 关卡里的 PlayerStart；没有则返回 nullptr。飞船的出生点由它决定。 */
+	APlayerStart* FindSpawnPlayerStart();
+
+	/** 把飞船摆到出生点；关卡里没有飞船就在那里生成一艘。 */
 	void EnsureSpaceshipExists();
 
 	/**
