@@ -2,22 +2,35 @@
 
 using UnrealBuildTool;
 
+// 框架层：N 体编排（组件 + 世界子系统）与游戏框架（GameMode / PlayerController）。
+//
+// 本模块**保留原名 StellarEra**，因此它仍是 primary game module ——
+// StellarEra.cpp 里的 IMPLEMENT_PRIMARY_GAME_MODULE 不动。
+// 保留原名还有个副作用：AStellarEraGameMode / AStellarEraPlayerController /
+// UCosmosOrbitComponent / UCosmosSimulationSubsystem 的 /Script/ 路径全都不变，
+// DefaultEngine.ini 与 UniverseMap.umap 里指向它们的引用无需任何改动。
+//
+// 依赖方向（严格分层，无环）：
+//     StellarEra ─→ StellarEraVehicle ─→ StellarEraPlanet
+//          └──────→ StellarEraCore
+//
+// Core 必须是 **Public**：CosmosSimulationSubsystem.h 按值持有 FNBodySimulator，
+// 而 NBodySimulator.h 在 StellarEraCore 里，该头是本模块公开头的一部分。
 public class StellarEra : ModuleRules
 {
 	public StellarEra(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "Voxel" });
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine" });
 
-		PrivateDependencyModuleNames.AddRange(new string[] {  });
-
-		// 如需使用 Slate UI，请取消下一行注释
-		// PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });
-
-		// 如需使用在线功能，请取消下一行注释
-		// PrivateDependencyModuleNames.Add("OnlineSubsystem");
-
-		// 若要引入 OnlineSubsystemSteam，需在 uproject 文件的 plugins 小节中添加该项，并把 Enabled 属性设为 true
+		PrivateDependencyModuleNames.AddRange(new string[]
+		{
+			"StellarEraCore",
+			"StellarEraPlanet",
+			"StellarEraVehicle",
+			"InputCore",
+			"EnhancedInput",   // 只有 StellarEraPlayerController.cpp 用到
+		});
 	}
 }

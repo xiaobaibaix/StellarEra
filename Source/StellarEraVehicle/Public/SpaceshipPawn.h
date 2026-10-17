@@ -1,0 +1,450 @@
+﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
+// 街机式太空飞船。
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameFramework/Pawn.h"
+#include "SpaceshipPawn.generated.h"
+
+class APlanetCharacter;
+class AVoxelPlanetActor;
+class UCameraComponent;
+class UFloatingPawnMovement;
+class USphereComponent;
+class USpringArmComponent;
+class UStaticMesh;
+class UStaticMeshComponent;
+class UVoxelInvokerWithPredictionComponent;
+
+/**
+ * 飞船的对外状态快照，供 HUD 之类的显示层读取。
+ *
+ * 用「一次取全」的快照而不是散落一堆 getter：显示层一次调用就能拿到全部字段，
+ * 飞船内部怎么改都不用跟着改接口。
+ *
+ * 故意不做成 USTRUCT：只有 C++ 显示层用，不需要反射，省掉一次 UHT 处理。
+ */
+struct FSpaceshipStatus
+{
+	/** 速度大小（厘米/秒）。 */
+	float Speed = 0.f;
+
+	/** 移动组件的速度上限（厘米/秒）。 */
+	float MaxSpeed = 0.f;
+
+	/** 主推力输入，-1 ~ +1。 */
+	float ThrustInput = 0.f;
+
+	/** Shift 是否按下。 */
+	bool bBoosting = false;
+
+	/** W 是否已达到保底速度、不再继续加速。 */
+	bool bThrustLocked = false;
+
+	/** 巡航（速度保持）是否开启。 */
+	bool bPreserveVelocity = false;
+
+	/** 是否判定为已落地。 */
+	bool bLanded = false;
+};
+
+/**
+ * 街机式太空飞船。
+ *
+ * 位移交给 UFloatingPawnMovement（自带扫掠、加速度、阻尼），手感写在 Tick 里：
+ * 鼠标给的是角速度冲量而不是直接设朝向，松手后指数衰减——这是“开飞机”的
+ * 惯性感来源，也是《戴森球计划》伊卡洛斯的做法。
+ */
+UCLASS()
+class STELLARERAVEHICLE_API ASpaceshipPawn : public APawn
+{
+	GENERATED_BODY()
+
+public:
+	ASpaceshipPawn();
+
+	virtual void OnConstruction(const FTransform& Transform) override;
+	virtual void BeginPlay() override;
+	virtual void Tick(float DeltaSeconds) override;
+
+	/** 主推力输入（-1 = 反推，+1 = 前进）。 */
+	void SetThrust(float Value);
+
+	/** 横滚输入（-1 / +1）。 */
+	void SetRoll(float Value);
+
+	/** 升降输入（-1 = 降，+1 = 升）。 */
+	void SetVertical(float Value);
+
+	/** 鼠标输入（度）。以冲量形式累加进角速度，松手后衰减。 */
+	void Look(float DeltaYaw, float DeltaPitch);
+
+	/** 加速键（Shift）。按下时在基准加速度上叠加 BoostAcceleration。 */
+	void SetBoost(bool bValue);
+
+	/**
+	 * 滚轮缩放相机：拉近 / 拉远。
+	 *
+	 * Value 每格滚轮为 ±1，正（滚轮上滚）= 拉近 = 摇臂变短。调用方直接把
+	 * MouseWheelAxis 的值传进来即可，不需要取反。
+	 *
+	 * 累加的是**偏移**而不是直接改臂长：摇臂长度每帧由 Tick 第 5 段重算
+	 * （基准臂长 + 缩放 + 后缩），直接写 TargetArmLength 会在下一帧被冲掉。
+	 */
+	void AddZoom(float Value);
+
+	/**
+	 * 巡航开关（Tab）。翻转 bPreserveVelocity。
+	 *
+	 * 开：松手不减速，速率一直保持 —— 按 W 加到稳、按一下 Tab 就能松开 W 继续飞。
+	 * 关：恢复正常，W 没按着就按基准 Deceleration 减速停下。
+	 *
+	 * 锁的是**速率**（速度大小），不是速度矢量：巡航中转弯，速度方向会跟着机头转，
+	 * 船不会横着往原方向飘。机制见 Tick 第 4 段的 bCruiseCoasting。
+	 *
+	 * 只翻转、不接收目标值：状态归飞船自己管，输入侧不需要知道当前是开是关。
+	 */
+	void TogglePreserveVelocity();
+
+	/** 巡航（速度保持）是否开启。 */
+	bool IsPreserveVelocity() const { return bPreserveVelocity; }
+
+	/** 取一份状态快照，供 HUD 之类的显示层读取。 */
+	FSpaceshipStatus GetStatus() const;
+
+	/** 速度低于阈值且机身下方命中地面时为真。 */
+	UFUNCTION(BlueprintPure, Category = "Spaceship")
+	bool IsLanded() const;
+
+	/** 角色是否近到可以登船。 */
+	UFUNCTION(BlueprintPure, Category = "Spaceship")
+	bool CanBoardFrom(const FVector& CharacterLocation) const;
+
+	/** 记录登船的角色；传 nullptr 表示离船。 */
+	void SetBoardedCharacter(APlanetCharacter* Character);
+
+	/** 当前在船上的角色；没有则为 nullptr。 */
+	APlanetCharacter* GetBoardedCharacter() const { return BoardedCharacter; }
+
+protected:
+	/** 碰撞球：既是根组件也是 UFloatingPawnMovement 扫掠用的形状。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spaceship")
+	TObjectPtr<USphereComponent> Collision;
+
+	/**
+	 * 体素调用器：行星的 LOD 与碰撞都靠它驱动，没有它飞船就是瞎的。
+	 *
+	 * 插件的调用器用一个位置服务三件事（见 VoxelInvokerComponent.h）：
+	 *   - LOD：ShouldSubdivideByDistance 把与 LODBounds 相交的节点一路细分到
+	 *     LODToSet（VoxelRenderOctree.cpp:626）。
+	 *   - 碰撞：ShouldSubdivideByOthers 把 CollisionsBounds 内的节点细分到
+	 *     Height 0，只有 Height 0 的区块才带碰撞体（同文件 :479）。
+	 *   - 导航：本项目不用。
+	 *
+	 * 为什么挂在飞船根节点而不是相机上：IsLocalInvoker
+	 * （VoxelInvokerComponent.cpp:21）只认 Pawn 的 IsLocallyControlled()，
+	 * UVoxelInvokerAutoCameraComponent 那条路是 bUseCameraIfNoInvokersFound 的
+	 * 兜底，且写死玩家索引 0（同文件 :177），多人下不可用。
+	 *
+	 * 为什么登船后必须换人扛：Possess(Ship) 会把 Controller 从角色转到飞船，
+	 * 角色的调用器随即不再是 local invoker，VoxelDefaultLODManager.cpp:218 会把它
+	 * 的 bUseForLOD 强制置假。没有这一份，整个行星就一直停在行星调用器给的最粗
+	 * LOD 上 —— 这正是「开飞船时星球不更新 LOD、也不碰撞」的成因。
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spaceship")
+	TObjectPtr<UVoxelInvokerWithPredictionComponent> VoxelInvoker;
+
+	/**
+	 * 外壳网格。**网格与变换都归蓝图管**：
+	 *
+	 *   - 换模型：用 HullMesh 属性（推荐），或直接在子蓝图里覆盖本组件的静态网格体；
+	 *   - 摆位置/朝向/缩放：在子蓝图（BP_SpaceshipPawn）的视口里选中 Hull 拖 Gizmo，
+	 *     值存在蓝图资产里，重编译不会被清掉；关卡实例上也能单独调。
+	 *
+	 * C++ 只在构造期塞一个引擎立方体兜底，让裸放的 ASpaceshipPawn 不至于隐形，
+	 * 之后不再写这里的任何变换 —— 一旦在这里写，蓝图里拖出来的值每次重编译都会
+	 * 被冲掉，"模型在蓝图里调不动"就是这么来的。
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spaceship")
+	TObjectPtr<UStaticMeshComponent> Hull;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spaceship")
+	TObjectPtr<UFloatingPawnMovement> FloatingMovement;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
+	TObjectPtr<USpringArmComponent> SpringArm;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
+	TObjectPtr<UCameraComponent> Camera;
+
+	/**
+	 * 按住 W（不按 Shift）时相机沿机身后方后缩的距离（厘米）。
+	 *
+	 * 由推力输入驱动（见 Tick 第 5 段）：按住 W 就缩到这个距离，松开平滑收回，与
+	 * 当前速度无关。按 S 反推不后缩。0 = 关闭。
+	 *
+	 * 名字里的 AtFullThrust 是历史遗留（当时由加速度驱动），改 UPROPERTY 名有让关卡
+	 * 实例里已设的值丢失的风险，故保留。
+	 */
+	UPROPERTY(EditAnywhere, Category = "Camera")
+	float CameraPullbackAtFullThrust = 350.f;
+
+	/**
+	 * 按住 Shift 时后缩距离的**倍数**（在 CameraPullbackAtFullThrust 基础上乘）。
+	 * 用倍数而不是绝对增量，"Shift 缩得更远" 这个关系就不会因为改基准值而失效。
+	 */
+	UPROPERTY(EditAnywhere, Category = "Camera")
+	float BoostPullbackMultiplier = 2.f;
+
+	/** 相机后缩/回位的平滑速率（FInterpTo 速率）。越小越拖沓。 */
+	UPROPERTY(EditAnywhere, Category = "Camera")
+	float CameraPullbackInterpSpeed = 4.f;
+
+	/** 滚轮每格的缩放距离（厘米）。越大每格拉得越远。 */
+	UPROPERTY(EditAnywhere, Category = "Camera")
+	float ZoomStep = 300.f;
+
+	/**
+	 * 相机最近距离（厘米）。滚轮拉到头的下限。
+	 *
+	 * 是**绝对臂长**而不是相对基准的偏移：这样改基准臂长（蓝图或关卡实例覆盖
+	 * TargetArmLength）时，"最近能拉到多近"不会跟着漂。
+	 */
+	UPROPERTY(EditAnywhere, Category = "Camera")
+	float MinArmLength = 500.f;
+
+	/** 相机最远距离（厘米）。滚轮推到底的上限。 */
+	UPROPERTY(EditAnywhere, Category = "Camera")
+	float MaxArmLength = 6000.f;
+
+	/** 缩放平滑速率（FInterpTo 速率）。越小越拖沓。 */
+	UPROPERTY(EditAnywhere, Category = "Camera")
+	float ZoomInterpSpeed = 8.f;
+
+	/**
+	 * 相机横滚的跟随速率（FInterpTo 速率）。越小，按 A/D 时相机越"迟钝"。
+	 *
+	 * 持续压杆时相机落后机身的稳态角度 = MaxRollRate / 本值（默认 120 / 8 = 15°）。
+	 * 点一下 A/D 则几乎不跟（机身冲得快，lag 还没衰减完）。松手后按 1/本值 秒的
+	 * 时间常数补齐，最终与机身**完全一致** —— 不像死区那样会留下永久偏差。
+	 *
+	 * 设 0 = 关闭滞后，相机与机身刚性绑定（改动前的行为）。
+	 */
+	UPROPERTY(EditAnywhere, Category = "Camera")
+	float CameraRollFollowSpeed = 8.f;
+
+	/** 偏航角速度上限（度/秒）。 */
+	UPROPERTY(EditAnywhere, Category = "Spaceship|Handling")
+	float MaxYawRate = 90.f;
+
+	/** 俯仰角速度上限（度/秒）。 */
+	UPROPERTY(EditAnywhere, Category = "Spaceship|Handling")
+	float MaxPitchRate = 70.f;
+
+	/** 横滚角速度（度/秒），由 A/D 直接驱动，不带惯性。 */
+	UPROPERTY(EditAnywhere, Category = "Spaceship|Handling")
+	float MaxRollRate = 120.f;
+
+	/** 鼠标位移到角速度的换算系数（度/秒 每度）。越大越灵敏。 */
+	UPROPERTY(EditAnywhere, Category = "Spaceship|Handling")
+	float MouseImpulseScale = 6.f;
+
+	/** 角速度衰减速率（FInterpTo 速率）。越小惯性越久。 */
+	UPROPERTY(EditAnywhere, Category = "Spaceship|Handling")
+	float AngularDamping = 3.5f;
+
+	/**
+	 * 只按 W（不按 Shift）时的保底速度（厘米/秒）。
+	 *
+	 * W 的语义是「保证速度不低于这个值」：低于它就加速，到了就不再提速 ——
+	 * 想更快只能按 Shift。达到之后 W 会**锁住**速度（既不加速也不减速），
+	 * 所以松 W 之后是保持还是减速，完全由 bPreserveVelocity 决定。
+	 */
+	UPROPERTY(EditAnywhere, Category = "Spaceship|Thrust")
+	float MinThrustSpeed = 2000.f;
+
+	/**
+	 * 按 Shift 时**叠加**到基准加速度上的额外加速度（厘米/秒²）。
+	 *
+	 * 最终加速度 = FloatingMovement->Acceleration + 本值。基准值 4000 在构造函数里
+	 * 设定，本值暴露在细节面板，PIE 里可以边飞边调。
+	 */
+	UPROPERTY(EditAnywhere, Category = "Spaceship|Thrust")
+	float BoostAcceleration = 12000.f;
+
+	/**
+	 * 惯性保持开关。开 = 松手不减速，速率一直保持（宇宙空间不受力就不变运动状态）；
+	 * 关 = 松手按基准 Deceleration 减速停下。
+	 *
+	 * 保持的是**速率**而不是速度矢量：巡航中转弯，速度方向跟着机头走，不会横着飘。
+	 *
+	 * 运行时按 Tab 切换（见 TogglePreserveVelocity），细节面板里改的是**初始状态**，
+	 * 每帧生效，PIE 里也能直接勾。
+	 *
+	 * 刹车仍然按 S：反向推力会先把速度减到零再反向，不需要额外的刹车键。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spaceship|Thrust")
+	bool bPreserveVelocity = false;
+
+	/**
+	 * 自动回正速率（度/秒）。只回正横滚，不动玩家给的俯仰。0 = 关闭。
+	 *
+	 * 默认 0（关闭）：横滚完全归玩家，"转了就转了"。曾经是 45 —— 那个值会和按住的
+	 * A/D 抢方向盘（MaxRollRate 120 被顶掉 45，净滚转只剩 75°/s），松手后还会自动
+	 * 把机身拉回水平，玩家压出来的角度留不住。
+	 *
+	 * 关掉之后 PlanetActor / PlanetReevaluateInterval 那套参考行星的机制会空转
+	 * （GetAutoLevelUp() 只被这里用）。留着不动：代价是每 PlanetReevaluateInterval
+	 * 秒一次遍历几颗 Actor，可忽略；把本属性调回正数即可整体复活。
+	 *
+	 * 代价：贴着行星飞大圆时曲面往下走，机身不会自己跟，需要玩家压杆维持高度。
+	 */
+	UPROPERTY(EditAnywhere, Category = "Spaceship|Handling")
+	float AutoLevelSpeed = 0.f;
+
+	/**
+	 * 自动回正的重力参考行星。BeginPlay 时自动查找最近的一颗；找不到（纯太空关卡）
+	 * 时自动回正退回世界 Z。软依赖：缺了它飞船照常飞。
+	 */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Spaceship")
+	TObjectPtr<AVoxelPlanetActor> PlanetActor;
+
+	/** 查找行星时的最大距离（厘米）。默认 1000 公里，够覆盖任意单颗行星。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spaceship")
+	float PlanetSearchRadius = 1.0e8f;
+
+	/**
+	 * 重新评估「最近的行星」的间隔（秒）。默认 0.5。设 0 关闭。
+	 *
+	 * 行星在动，最近的一颗会换人。不重评的话，飞离母星之后自动回正会一直
+	 * 对齐到已经远去的旧星，横滚再也拉不回来。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spaceship")
+	float PlanetReevaluateInterval = 0.5f;
+
+	/** 判定“已落地”的速度阈值（厘米/秒）。 */
+	UPROPERTY(EditAnywhere, Category = "Spaceship|Landing")
+	float LandingSpeedThreshold = 200.f;
+
+	/**
+	 * 落地检测球的半径（厘米）。球心在机身中心，与机身朝向无关。
+	 *
+	 * 曾经是一条沿机身"下"方的射线。自动回正关掉后机身可以停在任何横滚角，射线
+	 * 会指偏、永远打不到地面，人就被卡在船里下不来（IsLanded 恒为假，按 E 无效）。
+	 * 换成全向球后，滚成什么样都能判定落地。
+	 *
+	 * 取舍：球是全向的，贴着悬崖侧面慢速悬停也会判为已落地。本判定唯一的用途是
+	 * 「能不能按 E 下船」，从几百厘米高处落到地面可以接受。
+	 *
+	 * 名字里的 Distance 是历史遗留（当时是射线长度），改 UPROPERTY 名有让关卡
+	 * 实例里已设的值丢失的风险，故保留。
+	 */
+	UPROPERTY(EditAnywhere, Category = "Spaceship|Landing")
+	float LandingProbeDistance = 600.f;
+
+	/** 登船触发半径（厘米）。 */
+	UPROPERTY(EditAnywhere, Category = "Spaceship|Boarding")
+	float BoardingRadius = 600.f;
+
+	/**
+	 * 船体模型。留空 = C++ 不介入网格体：蓝图里覆盖的模型、或构造期塞进去的
+	 * 引擎立方体都保持原样。
+	 *
+	 * 这是「具体表现」，默认留给子蓝图 BP_SpaceshipPawn 在 Class Defaults 里指定，
+	 * C++ 不硬编码任何项目资产路径 —— 换模型不必重新编译。推荐走这个属性而不是
+	 * 直接覆盖 Hull 组件的静态网格体：组件覆盖记在 UInheritableComponentHandler 里，
+	 * 原生类一重编译有被重新生成掉、模型无声退回占位立方体的风险。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spaceship|Mesh")
+	TObjectPtr<UStaticMesh> HullMesh;
+
+private:
+	/**
+	 * 把 HullMesh 套用到 Hull 的**网格体**上，不碰任何变换。
+	 *
+	 * 位置/朝向/缩放故意留给蓝图：在蓝图视口里选中 Hull 拖 Gizmo 即可，值存在
+	 * 蓝图资产里。如果这里写 RelativeLocation / Rotation / Scale，每次重编译
+	 * （OnConstruction 会重跑）都会把手拖出来的值冲回去 —— 表现就是"模型在蓝图
+	 * 里怎么都调不动"。
+	 *
+	 * 必须在 OnConstruction 与 BeginPlay 里调用，不能只在构造函数里做：
+	 * 蓝图 CDO 构造时会先跑一遍 C++ 构造函数，之后才加载蓝图里存的值，
+	 * 构造期读到的永远是 C++ 默认值 —— 在蓝图 Class Defaults 里改 HullMesh
+	 * 就会静默失效。APlanetCharacter 的 WalkSpeed 出于同样的原因在 BeginPlay
+	 * 里再套用一次（见 PlanetCharacter.cpp）。
+	 */
+	void ApplyHullMesh();
+
+	float ThrustInput = 0.f;
+	float RollInput = 0.f;
+	float VerticalInput = 0.f;
+	float YawRate = 0.f;
+	float PitchRate = 0.f;
+
+	/** 加速键（Shift）当前是否按下。 */
+	bool bBoosting = false;
+
+	/**
+	 * FloatingMovement 的基准加速度 / 减速度，BeginPlay 时从组件上抄下来。
+	 *
+	 * 运行时这两个值会被改写（Shift 叠加速度、惯性开关把减速度归零），所以必须先
+	 * 存一份基准，否则改一次就再也回不去了。
+	 */
+	float BaseAcceleration = 0.f;
+	float BaseDeceleration = 0.f;
+
+	/** 本帧沿机身前方的速度（厘米/秒）。第 4 段算一次，第 4、5 段共用。 */
+	float ForwardSpeed = 0.f;
+
+	/** 距离下次重新评估最近行星还剩多少秒。 */
+	float PlanetReevaluateTimer = 0.f;
+
+	/**
+	 * SpringArm 的基准臂长，BeginPlay 时从组件上抄下来。
+	 *
+	 * 不在 Tick 里写死 1800：蓝图或关卡实例可能改过 TargetArmLength，抄一次再
+	 * 叠加后缩量，才不会被本类覆盖掉。
+	 */
+	float BaseArmLength = 0.f;
+
+	/** 当前相机后缩量（厘米），平滑后的值。 */
+	float CameraPullback = 0.f;
+
+	/** 滚轮缩放的**目标**偏移（厘米），正 = 相机更远。滚轮改的是它。 */
+	float TargetZoomOffset = 0.f;
+
+	/** 平滑后的缩放偏移（厘米）。与 CameraPullback 一起加在基准臂长之上。 */
+	float ZoomOffset = 0.f;
+
+	/** 相机横滚当前落后机身的角度（度）。正 = 相机比机身少滚了这么多。 */
+	float CameraRollLag = 0.f;
+
+	/**
+	 * 上一帧的机身朝向，用来差分出"本帧滚了多少"。
+	 *
+	 * 必须在 BeginPlay 里初始化：若留到第一次 Tick 才赋值，差分就从单位四元数
+	 * 起算，开局摆位那一次旋转会被当成一次巨大的横滚。
+	 */
+	FQuat PreviousRotation = FQuat::Identity;
+
+	/**
+	 * 相机的基准相对朝向（蓝图可能给相机设过）。横滚偏移叠加在它上面，
+	 * 而不是直接覆盖 —— 否则会把蓝图里调好的相机朝向冲掉。
+	 * BeginPlay 时从组件上抄下来。
+	 */
+	FQuat CameraBaseRotation = FQuat::Identity;
+
+	/** 在关卡里找离飞船最近的一颗行星；找不到返回 nullptr。 */
+	AVoxelPlanetActor* FindNearestPlanet() const;
+
+	/**
+	 * 自动回正的目标“上”：有行星时取该行星的径向外侧（飞船停在球面任何位置都
+	 * 贴合当地水平面），太空中退回世界 Z。
+	 */
+	FVector GetAutoLevelUp() const;
+
+	/** 当前在船上的角色。 */
+	UPROPERTY(Transient)
+	TObjectPtr<APlanetCharacter> BoardedCharacter;
+};

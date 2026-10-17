@@ -1,0 +1,14 @@
+/.codegraph
+/.git
+/.superpowers
+/.vscode
+/.workbuddy
+/ArtSource
+/Content
+/DerivedDataCache
+/docs
+/Intermediate
+/Saved
+/Plugins/VoxelFree/Content
+/Plugins/VoxelFree/Intermediate
+/Plugins/VoxelFree/Shaders

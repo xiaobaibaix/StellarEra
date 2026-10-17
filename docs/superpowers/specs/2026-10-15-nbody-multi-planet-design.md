@@ -5,6 +5,13 @@
 - **状态**：设计已批准，待生成实现计划
 - **参考**：`F:\workspace\ue\思路\VoxelTestStudy`（VoxelCosmos / VoxelPlanet / VoxelFactory 三个插件 + 若干设计文档）
 
+> **2026-10-17 变更（本文档部分内容已过期）**：`Orbit` / `CentralMassSolar` /
+> `bApplyOrbitInit` 三个字段已删除，天体初态改由「关卡摆放位置 + `InitialVelocity`」
+> 决定。**§5.2 属性表、§5.3 的 `StepsPerOrbit` 说明、§6.1 关卡摆放**均涉及这三个字段，
+> 请以
+> [`2026-10-17-nbody-initial-state-from-level.md`](./2026-10-17-nbody-initial-state-from-level.md)
+> 为准。
+
 ---
 
 ## 1. 目标

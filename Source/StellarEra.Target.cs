@@ -10,6 +10,12 @@ public class StellarEraTarget : TargetRules
 		Type = TargetType.Game;
 		DefaultBuildSettings = BuildSettingsVersion.V7;
 		IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_8;
-		ExtraModuleNames.Add("StellarEra");
+		ExtraModuleNames.AddRange(new string[]
+		{
+			"StellarEra",          // 框架（primary game module）
+			"StellarEraCore",      // 天体力学
+			"StellarEraPlanet",    // 体素星球
+			"StellarEraVehicle",   // 角色载具
+		});
 	}
 }

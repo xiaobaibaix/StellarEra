@@ -1,0 +1,30 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "Voxel Cosmos",
+	"Description": "N-body gravitational simulation with a Dyson Sphere Program style free-fly camera. Pairs with VoxelPlanet for voxel planets.",
+	"Category": "Physics",
+	"CreatedBy": "VoxelCosmos",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"EnabledByDefault": true,
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "VoxelCosmos",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"WhitelistPlatforms": [
+				"Win64",
+				"Linux",
+				"Mac"
+			]
+		}
+	 ],
+	"Plugins": []
+}

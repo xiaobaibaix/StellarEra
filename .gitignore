@@ -13,3 +13,6 @@ Saved
 *.xcodeproj
 *.xcworkspace
 ArtSource/
+.superpowers/
+.workbuddy/
+.codegraph/

@@ -10,6 +10,13 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-15-nbody-multi-planet-design.md`
 
+> **2026-10-17 变更（本计划部分任务已过期）**：`Orbit` / `CentralMassSolar` /
+> `bApplyOrbitInit` 三个字段已删除，天体初态改由「关卡摆放位置 + `InitialVelocity`」
+> 决定。**Task 3（组件定义）、Task 4（子系统）、Task 6（关卡摆放）** 中涉及这三个字段
+> 的步骤均以
+> [`../specs/2026-10-17-nbody-initial-state-from-level.md`](../specs/2026-10-17-nbody-initial-state-from-level.md)
+> 为准。
+
 ---
 
 ## Global Constraints

@@ -1,0 +1,405 @@
+﻿// N 体引力求解器 —— 实现。
+
+#include "NBodySimulator.h"
+
+// double 版三角函数（Sin / Cos / Atan2 / Sqrt）由 CoreMinimal.h 经
+// HAL/PlatformMath.h → GenericPlatformMath.h 提供，FMath 已有 double 重载，
+// 传 double 不会被截断成 float，因此这里不需要任何额外的数学头文件。
+
+FNBodySimulator::FNBodySimulator()
+{
+	MarkEnergyBaseline();
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// 参数
+
+void FNBodySimulator::SetUnitSystem(ECosmosUnitSystem Unit)
+{
+	UnitSystem = Unit;
+}
+
+void FNBodySimulator::SetSofteningLength(double InSoftening)
+{
+	SofteningLength = FMath::Max(InSoftening, 1e-12);
+}
+
+void FNBodySimulator::SetCentimetersPerAu(double InCentimetersPerAu)
+{
+	// 给一个下限：0 会让所有天体坍缩到原点，负数更无意义。
+	CentimetersPerAu = FMath::Max(InCentimetersPerAu, 1.0);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// 天体管理
+
+int32 FNBodySimulator::AddBody(const FCosmosBodyState& Body)
+{
+	const int32 Index = Bodies.Add(Body);
+	Accelerations.Add(FVector3d::ZeroVector);
+	ComputeAccelerations();
+	return Index;
+}
+
+int32 FNBodySimulator::FindBodyByActor(const AActor* Actor) const
+{
+	for (int32 i = 0; i < Bodies.Num(); ++i)
+	{
+		if (Bodies[i].OwnerActor.Get() == Actor)
+		{
+			return i;
+		}
+	}
+	return INDEX_NONE;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// 引力计算
+
+double FNBodySimulator::GetG() const
+{
+	return (UnitSystem == ECosmosUnitSystem::Game)
+		? CosmosUnits::GravitationalConstant_Game
+		: CosmosUnits::GravitationalConstant_SI;
+}
+
+void FNBodySimulator::ComputeAccelerations()
+{
+	const int32 N = Bodies.Num();
+	Accelerations.SetNumZeroed(N);
+
+	const double G = GetG();
+
+	const double CutoffSq = (GravityCutoff > 0.0) ? GravityCutoff * GravityCutoff : 0.0;
+
+	for (int32 i = 0; i < N; ++i)
+	{
+		FVector3d Sum = FVector3d::ZeroVector;
+
+		for (int32 j = 0; j < N; ++j)
+		{
+			if (i == j)
+			{
+				continue;
+			}
+
+			const FVector3d Delta = Bodies[j].Position - Bodies[i].Position;
+			double R2 = Delta.SizeSquared();
+
+			if (CutoffSq > 0.0 && R2 > CutoffSq)
+			{
+				continue;
+			}
+
+			// 软化：给距离加一个下限，彻底消除 r→0 时的奇点。
+			// 没有这一项，两颗星擦肩而过时加速度会趋于无穷大，数值直接溢出。
+			const double Soft = Bodies[i].SofteningOverride > 0.0
+				? Bodies[i].SofteningOverride
+				: SofteningLength;
+			R2 += Soft * Soft;
+
+			// 1/r³
+			const double InvR = 1.0 / FMath::Sqrt(R2);
+			const double InvR3 = InvR * InvR * InvR;
+
+			Sum += Bodies[j].Mass * InvR3 * Delta;
+		}
+
+		Accelerations[i] = G * Sum;
+	}
+
+	for (int32 i = 0; i < N; ++i)
+	{
+		Bodies[i].Acceleration = Accelerations[i];
+	}
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// 积分
+
+void FNBodySimulator::StepVelocityVerlet(double Dt)
+{
+	const int32 N = Bodies.Num();
+	if (N == 0)
+	{
+		return;
+	}
+
+	// ── 辛积分的核心：位置半步 → 速度全步 → 位置半步 ──
+	// 这样做的关键是保持相空间体积，误差有界不累积。
+
+	// ① 用当前加速度推位置（半步）
+	for (int32 i = 0; i < N; ++i)
+	{
+		Bodies[i].Position += Bodies[i].Velocity * (Dt * 0.5);
+	}
+
+	// ② 在新位置重算加速度
+	ComputeAccelerations();
+
+	// ③ 用新加速度推速度（全步），再用新速度补完位置（半步）
+	for (int32 i = 0; i < N; ++i)
+	{
+		Bodies[i].Velocity += Bodies[i].Acceleration * Dt;
+		Bodies[i].Position += Bodies[i].Velocity * (Dt * 0.5);
+	}
+
+	SimulatedTime += Dt;
+}
+
+void FNBodySimulator::StepEuler(double Dt)
+{
+	// 显式欧拉法：一阶方法，误差同向累积。
+	// 轨道会在可观时间内螺旋坠入中心天体。这里仅用于对比验证。
+	ComputeAccelerations();
+
+	for (int32 i = 0; i < Bodies.Num(); ++i)
+	{
+		Bodies[i].Velocity += Bodies[i].Acceleration * Dt;
+		Bodies[i].Position += Bodies[i].Velocity * Dt;
+	}
+
+	SimulatedTime += Dt;
+}
+
+void FNBodySimulator::StepExact(double TimeStep)
+{
+	switch (Integrator)
+	{
+	case ECosmosIntegrator::VelocityVerlet:
+		StepVelocityVerlet(TimeStep);
+		break;
+
+	case ECosmosIntegrator::Euler:
+		StepEuler(TimeStep);
+		break;
+
+	case ECosmosIntegrator::None:
+		// 不积分：天体保持初始速度做匀速直线运动
+		SimulatedTime += TimeStep;
+		break;
+	}
+}
+
+void FNBodySimulator::Step(float Dt)
+{
+	if (Dt <= 0.0f)
+	{
+		return;
+	}
+
+	Accumulator += Dt;
+	StepExact(Accumulator);
+	Accumulator = 0.0;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// 诊断
+
+double FNBodySimulator::GetTotalEnergy() const
+{
+	const double G = GetG();
+
+	double Kinetic = 0.0;
+	double Potential = 0.0;
+
+	for (int32 i = 0; i < Bodies.Num(); ++i)
+	{
+		// 动能 ½mv²
+		Kinetic += 0.5 * Bodies[i].Mass * Bodies[i].Velocity.SizeSquared();
+	}
+
+	for (int32 i = 0; i < Bodies.Num(); ++i)
+	{
+		for (int32 j = i + 1; j < Bodies.Num(); ++j)
+		{
+			double R2 = (Bodies[j].Position - Bodies[i].Position).SizeSquared();
+			const double Soft = Bodies[i].SofteningOverride > 0.0
+				? Bodies[i].SofteningOverride
+				: SofteningLength;
+			R2 += Soft * Soft;
+
+			// 势能 −Gm_im_j / r
+			Potential -= G * Bodies[i].Mass * Bodies[j].Mass / FMath::Sqrt(R2);
+		}
+	}
+
+	return Kinetic + Potential;
+}
+
+FVector3d FNBodySimulator::GetTotalMomentum() const
+{
+	FVector3d Sum = FVector3d::ZeroVector;
+	for (const FCosmosBodyState& B : Bodies)
+	{
+		Sum += B.Mass * B.Velocity;
+	}
+	return Sum;
+}
+
+FVector3d FNBodySimulator::GetTotalAngularMomentum() const
+{
+	// 先算质心，角动量必须相对质心才有意义
+	FVector3d CenterOfMass = FVector3d::ZeroVector;
+	double TotalMass = 0.0;
+	for (const FCosmosBodyState& B : Bodies)
+	{
+		CenterOfMass += B.Mass * B.Position;
+		TotalMass += B.Mass;
+	}
+	if (TotalMass <= 0.0)
+	{
+		return FVector3d::ZeroVector;
+	}
+	CenterOfMass /= TotalMass;
+
+	FVector3d Sum = FVector3d::ZeroVector;
+	for (const FCosmosBodyState& B : Bodies)
+	{
+		Sum += B.Mass * FVector3d::CrossProduct(B.Position - CenterOfMass, B.Velocity);
+	}
+	return Sum;
+}
+
+void FNBodySimulator::MarkEnergyBaseline()
+{
+	EnergyBaseline = GetTotalEnergy();
+	bEnergyBaselineValid = true;
+}
+
+double FNBodySimulator::GetEnergyDriftRatio() const
+{
+	if (!bEnergyBaselineValid || FMath::IsNearlyEqual(EnergyBaseline, 0.0))
+	{
+		return 0.0;
+	}
+	return (GetTotalEnergy() - EnergyBaseline) / FMath::Abs(EnergyBaseline);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// 坐标转换
+
+FVector FNBodySimulator::ToWorldLocation(const FVector3d& GameUnitPosition) const
+{
+	if (UnitSystem == ECosmosUnitSystem::Game)
+	{
+		return FVector(GameUnitPosition) * CentimetersPerAu;
+	}
+	return FVector(GameUnitPosition);
+}
+
+FVector3d FNBodySimulator::ToGameUnitPosition(const FVector& WorldLocation) const
+{
+	if (UnitSystem == ECosmosUnitSystem::Game)
+	{
+		return FVector3d(WorldLocation) / CentimetersPerAu;
+	}
+	return FVector3d(WorldLocation);
+}
+
+// ── 以下三个换算目前无人调用 ──
+// 本项目只用到位置换算（ToWorldLocation / ToGameUnitPosition）。速度、秒、距离
+// 三个换算在参考项目里也是死代码。保留是为了让搬运保持完整、将来要加拖尾或
+// 速度显示时直接用；改动此处时不要以为有调用方在依赖它。
+//
+// 用之前先看清它们是**实时**换算：1 AU/年 → 1e6 厘米 / 3.15576e7 秒 ≈ 0.032 厘米/秒，
+// 而游戏里 1 模拟年只花 1/TimeScale 真实秒（当前 TimeScale ≈ 0.00333，约 300 秒），
+// 同一个速度按游戏时钟算是 ≈ 3330 厘米/秒。要在屏幕上显示速度，得把这里的实时值再乘
+// YearToSecond · TimeScale ≈ 1.05e5，而不是乘 1/TimeScale —— 后者是模拟时间的压缩比，
+// 换算成「每真实秒」还要再过一道 YearToSecond。否则地球的 209 米/秒会显示成 0.2 厘米/秒。
+FVector FNBodySimulator::ToWorldVelocity(const FVector3d& GameUnitVelocity) const
+{
+	if (UnitSystem == ECosmosUnitSystem::Game)
+	{
+		// AU/年 → cm/s
+		return FVector(GameUnitVelocity) * (CentimetersPerAu / CosmosUnits::YearToSecond);
+	}
+	return FVector(GameUnitVelocity);
+}
+
+double FNBodySimulator::ToWorldSeconds(double GameUnitYears) const
+{
+	return (UnitSystem == ECosmosUnitSystem::Game) ? GameUnitYears * CosmosUnits::YearToSecond : GameUnitYears;
+}
+
+double FNBodySimulator::ToWorldCentimeter(double GameUnitAu) const
+{
+	return (UnitSystem == ECosmosUnitSystem::Game) ? GameUnitAu * CentimetersPerAu : GameUnitAu;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// 预测 —— 只读
+
+double FNBodySimulator::PairOrbitalPeriod(const FCosmosBodyState& A, const FCosmosBodyState& B, double G)
+{
+	const double Separation = (B.Position - A.Position).Size();
+	const double Mu = G * (A.Mass + B.Mass);
+
+	// 与 FinalizeRegistration 里原来那段判定完全一致：间距为零或总质量为零时
+	// 这一对没有意义，返回 0 让调用方跳过。
+	if (Separation <= 0.0 || Mu <= 0.0)
+	{
+		return 0.0;
+	}
+
+	return 2.0 * PI * FMath::Sqrt(Separation * Separation * Separation / Mu);
+}
+
+double FNBodySimulator::EstimateOrbitalPeriod(int32 BodyIndex) const
+{
+	if (!Bodies.IsValidIndex(BodyIndex))
+	{
+		return 0.0;
+	}
+
+	const double G = GetG();
+	double Shortest = 0.0;
+
+	for (int32 j = 0; j < Bodies.Num(); ++j)
+	{
+		if (j == BodyIndex)
+		{
+			continue;
+		}
+
+		const double Period = PairOrbitalPeriod(Bodies[BodyIndex], Bodies[j], G);
+		if (Period > 0.0 && (Shortest <= 0.0 || Period < Shortest))
+		{
+			Shortest = Period;
+		}
+	}
+
+	return Shortest;
+}
+
+bool FNBodySimulator::PredictTrajectory(int32 BodyIndex, double Horizon, int32 NumSamples,
+                                        TArray<FVector3d>& OutPositions) const
+{
+	OutPositions.Reset();
+
+	if (!Bodies.IsValidIndex(BodyIndex) || Horizon <= 0.0 || NumSamples < 2)
+	{
+		return false;
+	}
+
+	// 值类型，复制即得一份完整状态（见头文件注释）。
+	FNBodySimulator Copy = *this;
+
+	// 步长取 Horizon / (NumSamples - 1)，于是末点**恰好**落在 Horizon 上，
+	// 而不是 Horizon 差一步的位置。
+	//
+	// 局部量叫 StepSize 而不是 Step：后者会遮蔽成员函数 FNBodySimulator::Step，
+	// 而 UE 5.8 把 C4458 当作硬错误。
+	const double StepSize = Horizon / double(NumSamples - 1);
+
+	OutPositions.Reserve(NumSamples);
+	OutPositions.Add(Copy.GetBody(BodyIndex).Position);
+
+	for (int32 SampleIndex = 1; SampleIndex < NumSamples; ++SampleIndex)
+	{
+		Copy.StepExact(StepSize);
+		OutPositions.Add(Copy.GetBody(BodyIndex).Position);
+	}
+
+	return true;
+}
