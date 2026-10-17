@@ -626,8 +626,8 @@ void AStellarEraPlayerController::ToggleStarMap()
 		//
 		// **这条路径是可达的** —— 别因为 Source/ 里没有 Destroy 就以为安全：引擎自己会
 		// 销毁 Pawn。AActor::CheckStillInWorld 在 GetActorLocation().Z < WorldSettings->KillZ
-		// （且 WorldBoundsChecks 开着）时调 AActor::FellOutOfWorld，后者的函数体里调
-		// Destroy()；AKillZVolume 走同一条路。
+		// （且 WorldBoundsChecks 开着）时调 AActor::FellOutOfWorld；AKillZVolume 则**直接**调
+		// FellOutOfWorld、不经 CheckStillInWorld。两条路都在 FellOutOfWorld 的函数体里调 Destroy()。
 		//
 		// **这一整条链有授权门控**：CheckStillInWorld 与 FellOutOfWorld 两处都要求
 		// `HasAuthority() || GetLocalRole() == ROLE_None`，不满足就直接跳过、不销毁。
