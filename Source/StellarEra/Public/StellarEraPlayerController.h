@@ -7,6 +7,7 @@
 #include "GameFramework/PlayerController.h"
 #include "StellarEraPlayerController.generated.h"
 
+class AStarMapCameraPawn;
 class ASpaceshipPawn;
 class UInputAction;
 class UInputMappingContext;
@@ -83,6 +84,26 @@ protected:
 	void OnZoom(const FInputActionValue& Value);
 
 	/**
+	 * 进入 / 退出星图模式。
+	 *
+	 * 方向由「当前 Possess 的是不是星图 Pawn」判定，**不用单独的状态标志** ——
+	 * 幂等，也不会和实际 Possess 的 Pawn 不同步。
+	 *
+	 * 做成无参是为了直接绑给 Enhanced Input：FEnhancedInputActionHandlerSignature
+	 * 就是一个无参委托（EnhancedInputComponent.h:490 的 DEFINE_BIND_ACTION）。
+	 */
+	void ToggleStarMap();
+
+	/** 左键按下：记下位置，用来区分「点击」和「拖拽」。 */
+	void OnStarMapSelectStarted(const FInputActionValue& Value);
+
+	/** 左键松开：位移小于阈值算点击（拾取），否则算拖拽结束（不改变选中）。 */
+	void OnStarMapSelectCompleted(const FInputActionValue& Value);
+
+	/** 把已注册天体投到屏幕，交给纯函数挑出光标下的那颗。没有就是 nullptr。 */
+	AActor* PickBodyUnderCursor() const;
+
+	/**
 	 * 调试用：直接在角色与飞船之间切换 Possess，跳过登船流程。
 	 * 在 PIE 控制台输入 `DebugPossessShip` 调用。Task 4 做好登船后，
 	 * 这个命令仍保留作为开发工具。
@@ -117,6 +138,26 @@ protected:
 	 * 角色自己拐弯（A/D 横移时 bOrientRotationToMovement 转的身）也不会被拖走。
 	 */
 	bool bLookHeld = false;
+
+	/**
+	 * 星图里左键是否按住。与 bLookHeld 同理：换 Pawn 时必须清零，否则按着左键
+	 * 进出星图之后，松开事件送到新 Pawn 身上，这个标志就永远停在 true。
+	 */
+	bool bStarMapSelectHeld = false;
+
+	/** 左键按下的屏幕位置（像素）。用 double 存 —— 与 GetMousePosition 的 double 重载对齐。 */
+	FVector2D StarMapPressPosition = FVector2D::ZeroVector;
+
+	/** 拾取的像素容差。20 像素保证远处的星球也点得中。 */
+	UPROPERTY(EditAnywhere, Category = "StarMap")
+	float SelectionPixelRadius = 20.f;
+
+	/** 星图相机 Pawn。懒创建并复用，不每次进出都 Spawn/Destroy。 */
+	UPROPERTY(Transient)
+	TObjectPtr<AStarMapCameraPawn> StarMapPawn;
+
+	/** 进入星图前 Possess 的 Pawn。退出时换回去。弱引用 —— 它可能已经没了。 */
+	TWeakObjectPtr<APawn> PreviousPawn;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UInputMappingContext> MappingContext;
@@ -166,4 +207,12 @@ protected:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> IA_Interact;
+
+	/** 星图模式开关（M）。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> IA_StarMapToggle;
+
+	/** 星图里选中天体 / 拖拽转视角（鼠标左键）。按下与松开的位移区分两者。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> IA_StarMapSelect;
 };

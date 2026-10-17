@@ -5,6 +5,8 @@
 #include "PlanetCharacter.h"
 #include "SpaceshipPawn.h"
 #include "StellarEraHUD.h"
+#include "CosmosSimulationSubsystem.h"
+#include "StarMapCameraPawn.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputAction.h"
@@ -38,6 +40,15 @@ namespace
 			Mapping.Modifiers.Add(Modifier);
 		}
 	}
+
+	/**
+	 * 左键「点击」与「拖拽」的分界（像素）。
+	 *
+	 * 同一个左键既选中又转视角，靠按下与松开的位移区分：小于它算点击（拾取），
+	 * 否则算拖拽结束（不改选中）。太空里天体在动，手抖几个像素很正常，
+	 * 阈值太小会把「想选中」判成「想转视角」。
+	 */
+	constexpr double ClickMoveThresholdPx = 5.0;
 
 	UInputModifier* MakeNegate(UObject* Outer)
 	{
@@ -98,6 +109,13 @@ void AStellarEraPlayerController::SetupInputComponent()
 	// 只绑 Triggered：滚轮每格是一次独立冲量，不滚就不产生值，没有 Completed 可收。
 	EnhancedInput->BindAction(IA_Zoom, ETriggerEvent::Triggered, this, &AStellarEraPlayerController::OnZoom);
 
+	EnhancedInput->BindAction(IA_StarMapToggle, ETriggerEvent::Started,
+		this, &AStellarEraPlayerController::ToggleStarMap);
+	EnhancedInput->BindAction(IA_StarMapSelect, ETriggerEvent::Started,
+		this, &AStellarEraPlayerController::OnStarMapSelectStarted);
+	EnhancedInput->BindAction(IA_StarMapSelect, ETriggerEvent::Completed,
+		this, &AStellarEraPlayerController::OnStarMapSelectCompleted);
+
 	EnhancedInput->BindAction(IA_Interact, ETriggerEvent::Started, this, &AStellarEraPlayerController::OnInteract);
 }
 
@@ -124,14 +142,18 @@ void AStellarEraPlayerController::OnPossess(APawn* InPawn)
 
 void AStellarEraPlayerController::ApplyMouseModeForPawn(APawn* InPawn)
 {
-	// 换 Pawn 时把开关清零。按着右键登船/离船的话，松开事件会送到新 Pawn 身上，
-	// 这个标志就永远停在 true —— 角色一下船就自己转视角，不用按右键。
+	// 换 Pawn 时把两个「按住」标志都清零。按着键登船/离船/进星图的话，松开事件
+	// 会送到新 Pawn 身上，标志就永远停在 true —— 角色一下船就自己转视角，
+	// 或者星图里没按左键也在转视角。
 	bLookHeld = false;
+	bStarMapSelectHeld = false;
 
 	const bool bWalking = Cast<APlanetCharacter>(InPawn) != nullptr;
+	const bool bStarMap = Cast<AStarMapCameraPawn>(InPawn) != nullptr;
 
 	// 走路时光标常驻。飞船里保持隐藏：鼠标就是它的操纵杆，藏起来才像在驾驶。
-	bShowMouseCursor = bWalking;
+	// 星图里光标也要可见可点。
+	bShowMouseCursor = bWalking || bStarMap;
 
 	UGameViewportClient* ViewportClient = GetWorld() ? GetWorld()->GetGameViewport() : nullptr;
 	if (!ViewportClient)
@@ -167,6 +189,18 @@ void AStellarEraPlayerController::ApplyMouseModeForPawn(APawn* InPawn)
 		// 又触发 AcquireFocusAndCapture 拿到位移，松开时再自动放掉。
 		ViewportClient->SetMouseCaptureMode(EMouseCaptureMode::CaptureDuringRightMouseDown);
 	}
+	else if (bStarMap)
+	{
+		// 星图：光标要可见可点，而且**必须有捕获** —— SceneViewport 里 MouseDelta 的
+		// 累加整段包在 if (bViewportHasCapture) 里（SceneViewport.cpp:905 判定、
+		// :923-933 累加），没有捕获就收不到任何位移，左键拖拽等于没接上。
+		// CaptureDuringMouseDown 正是为此存在的枚举：「按住鼠标时捕获，松开释放」
+		// （EngineBaseTypes.h:49）。角色用的是右键版，星图要任意键版。
+		SetInputMode(FInputModeGameAndUI()
+			.SetLockMouseToViewportBehavior(EMouseLockMode::LockOnCapture)
+			.SetHideCursorDuringCapture(false));
+		ViewportClient->SetMouseCaptureMode(EMouseCaptureMode::CaptureDuringMouseDown);
+	}
 	else
 	{
 		// 飞船：永久捕获 + 光标隐藏。鼠标是它的操纵杆，位移必须一直有值。
@@ -200,6 +234,8 @@ void AStellarEraPlayerController::BuildInputAssets()
 	IA_Cruise = MakeAction(this, TEXT("IA_Cruise"), EInputActionValueType::Boolean);
 	IA_Zoom = MakeAction(this, TEXT("IA_Zoom"), EInputActionValueType::Axis1D);
 	IA_Interact = MakeAction(this, TEXT("IA_Interact"), EInputActionValueType::Boolean);
+	IA_StarMapToggle = MakeAction(this, TEXT("IA_StarMapToggle"), EInputActionValueType::Boolean);
+	IA_StarMapSelect = MakeAction(this, TEXT("IA_StarMapSelect"), EInputActionValueType::Boolean);
 
 	// WASD 合成一个二维向量：W/S 走 X 轴，A/D 先用 Swizzle 搬到 Y 轴再取反。
 	// 修饰器按数组顺序依次作用，所以 A 是“先 Swizzle 再 Negate”。
@@ -232,6 +268,8 @@ void AStellarEraPlayerController::BuildInputAssets()
 	MapKey(MappingContext, IA_Zoom, EKeys::MouseWheelAxis);
 
 	MapKey(MappingContext, IA_Interact, EKeys::E);
+	MapKey(MappingContext, IA_StarMapToggle, EKeys::M);
+	MapKey(MappingContext, IA_StarMapSelect, EKeys::LeftMouseButton);
 }
 
 void AStellarEraPlayerController::OnMove(const FInputActionValue& Value)
@@ -264,6 +302,12 @@ void AStellarEraPlayerController::OnLook(const FInputActionValue& Value)
 	{
 		// 飞船不设这道门：鼠标就是它的操纵杆，要按住右键才能转向等于飞不动。
 		Ship->Look(DeltaYaw, DeltaPitch);
+	}
+	else if (AStarMapCameraPawn* StarMap = Cast<AStarMapCameraPawn>(GetPawn()))
+	{
+		// 星图里左键拖拽就是转视角，不设 bLookHeld 那道门 —— 那道门是给角色
+		// 「不按右键就别动视角」用的；星图的相机除了转视角没有别的职责。
+		StarMap->OrbitLook(DeltaYaw, DeltaPitch);
 	}
 }
 
@@ -375,6 +419,10 @@ void AStellarEraPlayerController::OnZoom(const FInputActionValue& Value)
 	{
 		Ship->AddZoom(Value.Get<float>());
 	}
+	else if (AStarMapCameraPawn* StarMap = Cast<AStarMapCameraPawn>(GetPawn()))
+	{
+		StarMap->AddZoom(Value.Get<float>());
+	}
 }
 
 void AStellarEraPlayerController::DebugPossessShip()
@@ -466,6 +514,19 @@ void AStellarEraPlayerController::PlayerTick(float DeltaTime)
 			ShowPrompt(TEXT("按 E 离船"));
 		}
 	}
+	else if (AStarMapCameraPawn* StarMap = Cast<AStarMapCameraPawn>(GetPawn()))
+	{
+		if (AActor* Selected = StarMap->ResolveSelectedBody())
+		{
+			ShowPrompt(FString::Printf(
+				TEXT("%s　左键拖拽绕行　滚轮缩放　再点它取消选中　M 退出"),
+				*Selected->GetName()));
+		}
+		else
+		{
+			ShowPrompt(TEXT("左键点击选中天体　拖拽转视角　滚轮缩放　M 退出星图"));
+		}
+	}
 }
 
 void AStellarEraPlayerController::OnInteract(const FInputActionValue& Value)
@@ -536,6 +597,163 @@ void AStellarEraPlayerController::LeaveShip(ASpaceshipPawn* Ship)
 	PawnCharacter->SnapToPlanetSurface();
 
 	Possess(PawnCharacter);
+}
+
+void AStellarEraPlayerController::ToggleStarMap()
+{
+	AStarMapCameraPawn* CurrentStarMapPawn = Cast<AStarMapCameraPawn>(GetPawn());
+
+	UCosmosSimulationSubsystem* Subsystem =
+		GetWorld() ? GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>() : nullptr;
+	if (!Subsystem)
+	{
+		return;
+	}
+
+	if (CurrentStarMapPawn)
+	{
+		// ── 退出 ──
+		Subsystem->SetSelectedBody(nullptr);
+		Subsystem->SetStarMapActive(false);
+
+		// PreviousPawn 可能已经没了（比如角色在星图里被销毁）。那时**不 Possess** ——
+		// 留在相机上，再按 M 还能进，且不会崩。
+		if (APawn* ReturnPawn = PreviousPawn.Get())
+		{
+			Possess(ReturnPawn);
+		}
+		PreviousPawn.Reset();
+		return;
+	}
+
+	// ── 进入 ──
+	if (!StarMapPawn)
+	{
+		// 懒创建，之后复用：每次进出都 Spawn/Destroy 没必要。
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.Owner = this;
+		SpawnParams.SpawnCollisionHandlingOverride =
+			ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		StarMapPawn = GetWorld()->SpawnActor<AStarMapCameraPawn>(
+			AStarMapCameraPawn::StaticClass(), FTransform::Identity, SpawnParams);
+	}
+	if (!StarMapPawn)
+	{
+		return;
+	}
+
+	// 「进入时相机原地不动、不选中」：把进入前的视角直接交给它当基准。
+	// 用 GetPlayerViewPoint 而不是读 Pawn 的变换 —— 相机在 tick 组之后才更新，
+	// Pawn 的变换不等于玩家此刻看到的画面。
+	FVector ViewLocation;
+	FRotator ViewRotation;
+	GetPlayerViewPoint(ViewLocation, ViewRotation);
+	StarMapPawn->EnterFrom(ViewLocation, ViewRotation);
+
+	PreviousPawn = GetPawn();
+	Subsystem->SetSelectedBody(nullptr);
+	Subsystem->SetStarMapActive(true);
+	Possess(StarMapPawn);
+}
+
+void AStellarEraPlayerController::OnStarMapSelectStarted(const FInputActionValue& Value)
+{
+	if (!Cast<AStarMapCameraPawn>(GetPawn()))
+	{
+		return;
+	}
+
+	// 用 double 重载：引擎两个重载都提供了（PlayerController.h:1623 float /
+	// :1624 double），屏幕坐标没有理由退到 float。
+	double MouseX = 0.0;
+	double MouseY = 0.0;
+	if (GetMousePosition(MouseX, MouseY))
+	{
+		StarMapPressPosition = FVector2D(MouseX, MouseY);
+		bStarMapSelectHeld = true;
+	}
+}
+
+void AStellarEraPlayerController::OnStarMapSelectCompleted(const FInputActionValue& Value)
+{
+	if (!bStarMapSelectHeld)
+	{
+		return;
+	}
+	bStarMapSelectHeld = false;
+
+	if (!Cast<AStarMapCameraPawn>(GetPawn()))
+	{
+		return;
+	}
+
+	double MouseX = 0.0;
+	double MouseY = 0.0;
+	if (!GetMousePosition(MouseX, MouseY))
+	{
+		return;
+	}
+
+	// 按下与松开的位移大于阈值 → 这是「拖拽转视角」的收尾，不改选中。
+	const double MovedSq = FVector2D::DistSquared(
+		StarMapPressPosition, FVector2D(MouseX, MouseY));
+	if (MovedSq > ClickMoveThresholdPx * ClickMoveThresholdPx)
+	{
+		return;
+	}
+
+	// 点空白什么都不做（spec §5.2：取消选中会让相机停止跟随、丢失目标，
+	// 绑在误点很容易触发的动作上不划算）。要取消就明确地点回它自己。
+	AActor* Picked = PickBodyUnderCursor();
+	if (!Picked)
+	{
+		return;
+	}
+
+	UCosmosSimulationSubsystem* Subsystem =
+		GetWorld() ? GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>() : nullptr;
+	if (!Subsystem)
+	{
+		return;
+	}
+
+	Subsystem->SetSelectedBody(
+		Subsystem->GetSelectedBody() == Picked ? nullptr : Picked);
+}
+
+AActor* AStellarEraPlayerController::PickBodyUnderCursor() const
+{
+	UCosmosSimulationSubsystem* Subsystem =
+		GetWorld() ? GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>() : nullptr;
+	if (!Subsystem)
+	{
+		return nullptr;
+	}
+
+	TArray<AActor*> Bodies;
+	Subsystem->GetRegisteredBodies(Bodies);
+
+	// 投影留在调用方，拾取函数才能是纯函数、才能无头测。
+	TArray<FStarMapScreenCandidate> Candidates;
+	Candidates.Reserve(Bodies.Num());
+	for (AActor* Body : Bodies)
+	{
+		FVector2D ScreenPosition;
+		if (Body && ProjectWorldLocationToScreen(Body->GetActorLocation(), ScreenPosition))
+		{
+			Candidates.Add({ Body, ScreenPosition });
+		}
+	}
+
+	double MouseX = 0.0;
+	double MouseY = 0.0;
+	if (!GetMousePosition(MouseX, MouseY))
+	{
+		return nullptr;
+	}
+
+	return AStarMapCameraPawn::PickBodyAtScreenPosition(
+		Candidates, FVector2D(MouseX, MouseY), SelectionPixelRadius);
 }
 
 void AStellarEraPlayerController::ShowPrompt(const FString& Text)
