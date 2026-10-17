@@ -84,7 +84,17 @@ protected:
 	UPROPERTY(Transient, VisibleAnywhere, Category = "StarMap|State")
 	FRotator OrbitRotation = FRotator::ZeroRotator;
 
-	/** 相机到焦点的距离（厘米）。 */
+	/**
+	 * 相机到焦点的距离（厘米）。
+	 *
+	 * **只在发生过一次选中之后才有意义。** 初始值 0 是哨兵，不参与任何计算：
+	 * 未选中时 CalcCamera 不更新 CameraLocation（也就用不到它），而第一次选中时
+	 * CalcCamera 会用「当前相机位置 → 焦点」的实际距离把它整个覆盖掉。
+	 * EnterFrom 不重置它 —— 重置成什么都不影响结果，因为首次选中必然覆盖。
+	 *
+	 * 因此：不要读它来初始化「进星图时的距离」；也不要指望选中之前调 AddZoom
+	 * 有可观测效果（那期间它被夹到 MinOrbitDistanceCm，但没人看）。
+	 */
 	UPROPERTY(Transient, VisibleAnywhere, Category = "StarMap|State")
 	double OrbitDistanceCm = 0.0;
 
@@ -100,8 +110,17 @@ protected:
 	/**
 	 * 上一帧看到的选中天体，用来检出「选中状态变了」。
 	 *
-	 * 检出变化时从**当前** CameraLocation 反推 OrbitRotation / OrbitDistanceCm，
-	 * 于是相机只是「开始跟着」新焦点，位置和朝向都不跳（spec §5.2）。
+	 * 检出变化时从**当前** CameraLocation 反推 OrbitDistanceCm，并把 OrbitRotation
+	 * 重算成「看向新焦点」。
+	 *
+	 * **位置不跳，朝向会跳。** 距离取 |相机→焦点|、方向取「相机→焦点」的单位向量，
+	 * 于是 焦点 − 方向 × 距离 ≡ 原来的 CameraLocation —— 位置代数上严格不变。
+	 * 但朝向是被整个替换掉的，只有原本就正对着该天体时才不变；最明显的是 EnterFrom
+	 * 之后的第一次选中（从「进星图时的飞船视角」直接摆到对准被选天体）。
+	 *
+	 * 位置不变与朝向重算是一体的：CameraLocation 由 OrbitRotation 与 OrbitDistanceCm
+	 * 共同决定，想保住位置，朝向就只能取「看向焦点」这一个值。唯一的例外是距离被
+	 * 夹取时（相机不能钻进星体），那时位置也会跳一次 —— 见 CalcCamera 里的注释。
 	 */
 	UPROPERTY(Transient)
 	TWeakObjectPtr<AActor> LastSeenSelected;
