@@ -33,13 +33,34 @@ struct FCosmosBodyState
 	 * 推开到刚好相切，相互接近的法向速度被抹掉（见 ResolveContacts）。
 	 *
 	 * 为 0 表示点质量，永不接触 —— 恒星以及任何没设半径的天体都是这样。本项目里
-	 * 只有体素星球有地表半径（AddBodyToSimulator 里从 GetSurfaceRadiusCm 取），
-	 * 飞船是 0，所以「飞船落到地表」= 飞船的**中心点**被钳在地表半径上。
+	 * 体素星球与飞船都有半径：星球取当前朝向下的地形地表高度
+	 * （RefreshPlanetContactRadii），飞船取碰撞球半径 300 厘米
+	 * （ASpaceshipPawn::GetContactRadiusCm）。飞船的半径**不是 0**，否则它的
+	 * **中心点**会被钳在地表上、机身下半截埋进地形里。
 	 */
 	double Radius = 0.0;
 
 	/** 软化半径。等于 0 时使用求解器的全局设置。 */
 	double SofteningOverride = 0.0;
+
+	/**
+	 * 外力加速度（AU/年²）。**不是引力** —— 由外部每帧写入，求解器只加不解释。
+	 *
+	 * 默认零 = 纯引力天体，现有行为一字不变（`x + 0.0` 在 IEEE 下是精确运算）。
+	 * 本项目的飞船用它承载推力，见 UCosmosSimulationSubsystem::ApplyControlledBodyForces。
+	 */
+	FVector3d ExternalAcceleration = FVector3d::ZeroVector;
+
+	/**
+	 * 线性阻尼系数（1/年）：a_damp = −k·v。默认 0 = 无阻尼。
+	 *
+	 * 单位是 1/年 而不是 1/秒，因为求解器的时间单位是模拟年。
+	 *
+	 * 必须在求解器里**逐子步**算，不能在外部按帧算好一个常量加速度：一帧最多跑
+	 * MaxStepsPerFrame = 200 个子步、约 7.5 毫秒世界时间，而飞船的阻尼时间常数是
+	 * 10 毫秒 —— 一帧之内速度要变 2 倍以上，按帧首速度算常量阻力等于把阻尼削掉一大截。
+	 */
+	double LinearDamping = 0.0;
 
 	/** 关联的 Actor。求解器不做任何 UObject 操作。 */
 	TWeakObjectPtr<AActor> OwnerActor;
@@ -261,9 +282,11 @@ private:
 	/**
 	 * 接触时两个天体各让多少位移，按「谁轻谁让路」分配，两者之和恒为 1。
 	 *
-	 * 质量 ≤ 0 视为测试粒子（本项目的飞船就是 MassSolar = 0）：它让全部，
-	 * 对方一点都不让。取质量倒数会除零，所以这里必须显式分情形，不能写成
-	 * m_j/(m_i+m_j)。
+	 * 质量 ≤ 0 视为测试粒子：它让全部，对方一点都不让。取质量倒数会除零，
+	 * 所以这里必须显式分情形，不能写成 m_j/(m_i+m_j)。
+	 *
+	 * 本项目的飞船**不是**测试粒子（MassSolar = 1e-6）：它按质量比让路，
+	 * 但 1e-6 相对行星的 0.873237 等于让全部，行为上仍是「行星纹丝不动」。
 	 */
 	static void ComputeContactShares(double MassI, double MassJ,
 	                                 double& OutShareI, double& OutShareJ);

@@ -105,7 +105,13 @@ void FNBodySimulator::ComputeAccelerations()
 			Sum += Bodies[j].Mass * InvR3 * Delta;
 		}
 
-		Accelerations[i] = G * Sum;
+		// 外力与阻尼都是**逐子步**求值的：阻尼那一项用的是本步此刻的 Velocity，
+		// 而 StepVelocityVerlet 在步骤②重算加速度时速度还没被踢 —— 所以阻尼是
+		// 显式欧拉，每步放大因子 1 − k·dt。稳定性要求 k·dt < 2；飞船的
+		// k·dt = 3.0e4 × 1.25e-7 = 3.75e-3，余量三个数量级。
+		Accelerations[i] = G * Sum
+			+ Bodies[i].ExternalAcceleration
+			- Bodies[i].LinearDamping * Bodies[i].Velocity;
 	}
 
 	for (int32 i = 0; i < N; ++i)
@@ -486,6 +492,17 @@ bool FNBodySimulator::PredictTrajectory(int32 BodyIndex, double Horizon, int32 N
 
 	// 值类型，复制即得一份完整状态（见头文件注释）。
 	FNBodySimulator Copy = *this;
+
+	// 副本会把 ExternalAcceleration / LinearDamping 一起继承过去，于是星图上的
+	// 预测线画成一条「一直加速」的曲线。这里清零 —— 预测的是**松手之后会去哪**
+	// 的纯引力轨迹，那才是玩家要的信息。
+	//
+	// 想要「一直按着 W 会去哪」是另一个特性，应该显式做，不该靠静默继承。
+	for (FCosmosBodyState& Body : Copy.Bodies)
+	{
+		Body.ExternalAcceleration = FVector3d::ZeroVector;
+		Body.LinearDamping = 0.0;
+	}
 
 	// 步长取 Horizon / (NumSamples - 1)，于是末点**恰好**落在 Horizon 上，
 	// 而不是 Horizon 差一步的位置。

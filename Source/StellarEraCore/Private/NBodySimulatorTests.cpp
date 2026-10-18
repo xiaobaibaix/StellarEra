@@ -5,8 +5,9 @@
 // 这几组断言挡的是同一类错误：功能看起来像那么回事、其实是错的。
 // 全是纯数学 —— 不依赖世界、不依赖编辑器，这是本项目唯一能自动验证的地方。
 //
-// 跑法：用 UnrealEditor-Cmd 跑自动化测试 StellarEra.Core（两个用例：
-// StellarEra.Core.NBodyPrediction 与 StellarEra.Core.NBodyContact）。
+// 跑法：用 UnrealEditor-Cmd 跑自动化测试 StellarEra.Core（三个用例：
+// StellarEra.Core.NBodyPrediction、StellarEra.Core.NBodyContact、
+// StellarEra.Core.NBodyExternalForce）。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -364,6 +365,185 @@ bool FStellarEraNBodyContactTest::RunTest(const FString& Parameters)
 		}
 
 		TestTrue(TEXT("没有半径时飞船穿过地表（对照）"), MinDistance < 0.070);
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraNBodyExternalForceTest,
+	"StellarEra.Core.NBodyExternalForce",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraNBodyExternalForceTest::RunTest(const FString& Parameters)
+{
+	// ── 1. 常力下的抛物线是**精确**的 ──
+	//
+	// Velocity Verlet 对「加速度与位置、速度都无关」的力是精确解，不是近似解：
+	// 每一步的 x += v·dt/2 → 算 a → v += a·dt → x += v·dt/2 串起来正好等于
+	// x₀ + v₀t + ½at²，与步长无关。所以这里可以用 1e-9 这种量级的容差 ——
+	// 留出来的余量只装浮点累加误差（1000 次加法，量级 1e-13）。
+	//
+	// 这条钉住的是「外力真的进了积分器」。写错成「每帧只加一次」「忘了乘 dt」
+	// 「加到了位置上而不是加速度上」都会让末点偏出十万八千里。
+	{
+		FNBodySimulator Simulator;
+		Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
+		Simulator.SetIntegrator(ECosmosIntegrator::VelocityVerlet);
+		Simulator.SetSofteningLength(1.0e-5);
+
+		FCosmosBodyState Body;            // 单天体 = 没有引力，只剩外力
+		Body.Mass = 0.0;
+		Body.Position = FVector3d::ZeroVector;
+		Body.Velocity = FVector3d(1.0, 0.0, 0.0);
+		Body.ExternalAcceleration = FVector3d(0.0, -2.0, 0.0);
+		Simulator.AddBody(Body);
+
+		const double Dt = 0.01;
+		const int32 NumSteps = 1000;      // t = 10 年
+		for (int32 Step = 0; Step < NumSteps; ++Step)
+		{
+			Simulator.StepExact(Dt);
+		}
+
+		const FVector3d FinalPosition = Simulator.GetBody(0).Position;
+		const FVector3d FinalVelocity = Simulator.GetBody(0).Velocity;
+
+		// x = 0 + 1×10 = 10；y = 0 − ½×2×10² = −100；z 不动
+		TestEqual(TEXT("常力：末位置 X"), FinalPosition.X, 10.0, 1.0e-9);
+		TestEqual(TEXT("常力：末位置 Y"), FinalPosition.Y, -100.0, 1.0e-9);
+		TestEqual(TEXT("常力：末位置 Z"), FinalPosition.Z, 0.0, 1.0e-9);
+
+		// vx 不变 = 1；vy = 0 − 2×10 = −20
+		TestEqual(TEXT("常力：末速度 X"), FinalVelocity.X, 1.0, 1.0e-9);
+		TestEqual(TEXT("常力：末速度 Y"), FinalVelocity.Y, -20.0, 1.0e-9);
+	}
+
+	// ── 2. 阻尼是指数衰减，且误差随步长**线性**下降 ──
+	//
+	// 阻尼项在 StepVelocityVerlet 里用的是**踢之前**的速度（步骤②重算加速度时
+	// 速度还没更新），所以它是显式欧拉：v_{n+1} = v_n·(1 − k·dt)，闭式解
+	// v_N = v₀·(1 − k·dt)^N，恒小于解析解 v₀·e^(−k·t)。显式欧拉是一阶的，
+	// 所以步长减半、误差也减半 —— 这正是下面那条「一阶收敛」断言钉的东西。
+	//
+	// 为什么要钉「一阶」而不只钉数值：只钉数值的话，把阻尼写成用**踢之后**的
+	// 速度（隐式欧拉，误差反号）照样能过。阶数对了，说明实现方式就是设计里那一种。
+	{
+		const double K = 2.0;             // 1/年
+		const double V0 = 1.0;
+		const double Exact = V0 * FMath::Exp(-K * 1.0);   // t = 1 年
+
+		// 单天体 + 只有阻尼，没有引力也没有外力。
+		auto RunDecay = [](double Dt, int32 NumSteps, double K, double V0) -> double
+		{
+			FNBodySimulator Simulator;
+			Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
+			Simulator.SetIntegrator(ECosmosIntegrator::VelocityVerlet);
+
+			FCosmosBodyState Body;
+			Body.Mass = 0.0;
+			Body.Velocity = FVector3d(V0, 0.0, 0.0);
+			Body.LinearDamping = K;
+			Simulator.AddBody(Body);
+
+			for (int32 Step = 0; Step < NumSteps; ++Step)
+			{
+				Simulator.StepExact(Dt);
+			}
+			return Simulator.GetBody(0).Velocity.X;
+		};
+
+		const double Coarse = RunDecay(1.0e-4, 10000, K, V0);   // 10000 × 1e-4 = 1 年
+		const double Fine = RunDecay(5.0e-5, 20000, K, V0);     // 20000 × 5e-5 = 1 年
+
+		const double ErrCoarse = FMath::Abs(Coarse - Exact);
+		const double ErrFine = FMath::Abs(Fine - Exact);
+
+		TestTrue(TEXT("阻尼：粗步长解低于解析解（显式欧拉的符号）"), Coarse < Exact);
+		TestTrue(TEXT("阻尼：误差在 1e-4 以内"), ErrCoarse < 1.0e-4);
+		TestTrue(TEXT("阻尼：误差不为零（真的在积分，不是抄了解析解）"), ErrCoarse > 1.0e-8);
+		// 期望比值 ≈ 0.5（一阶）。放到 0.6 留余量，仍挡得住「零阶」（比值 1）
+		// 与「二阶」（比值 0.25）两种写错。
+		TestTrue(TEXT("阻尼：步长减半，误差减半（一阶收敛）"), ErrFine < ErrCoarse * 0.6);
+	}
+
+	// ── 3. 终端速度 v → A/k ──
+	//
+	// 这是飞船赖以工作的那一条：阻尼模型下按 W 会收敛到「推力 × τ」，而 τ = 1/k。
+	// 离散系统的不动点**恰好**是 A/k（解 v = A·dt + v·(1 − k·dt) 即得），
+	// 所以长跑之后应该贴在 A/k 上。写成 A/(k·dt) 或 A·k 都会在这里红。
+	{
+		const double A = 2.0;
+		const double K = 4.0;
+		const double Terminal = A / K;    // 0.5
+
+		FNBodySimulator Simulator;
+		Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
+		Simulator.SetIntegrator(ECosmosIntegrator::VelocityVerlet);
+
+		FCosmosBodyState Body;            // 从静止起，只有常力 + 阻尼
+		Body.Mass = 0.0;
+		Body.ExternalAcceleration = FVector3d(A, 0.0, 0.0);
+		Body.LinearDamping = K;
+		Simulator.AddBody(Body);
+
+		const double Dt = 1.0e-3;         // k·dt = 4e-3，稳定性余量三个数量级
+		for (int32 Step = 0; Step < 5000; ++Step)   // t = 5 年 ≫ 1/k = 0.25 年
+		{
+			Simulator.StepExact(Dt);
+		}
+
+		const double Final = Simulator.GetBody(0).Velocity.X;
+
+		TestTrue(TEXT("终端速度：从下方逼近 A/k"), Final < Terminal);
+		TestEqual(TEXT("终端速度 = A/k"), Final, Terminal, 1.0e-6);
+	}
+
+	// ── 4. 预测副本不继承外力 ──
+	//
+	// PredictTrajectory 是 `FNBodySimulator Copy = *this;` 再往前跑。值拷贝会把
+	// ExternalAcceleration / LinearDamping 一起带过去，星图上就会画出一条「一直
+	// 加速」的线 —— 那不是玩家要的信息（预测的是**松手之后**的纯引力轨迹）。
+	//
+	// 用「同一初态、一份设外力一份不设」的对照跑逐点比对，比「主求解器没被改动」
+	// 更严：后者只挡得住「忘了用副本」，挡不住「副本继承了外力」。
+	{
+		auto MakePair = [](bool bForced)
+		{
+			FNBodySimulator Simulator = MakeCircularTwoBody(0.718, 1.0);
+			if (bForced)
+			{
+				// 施在**下标 1** 那个天体身上（也就是下面预测的那个）—— 一旦副本
+				// 继承了外力，预测线会被推得肉眼可见（0.608 年里偏 ½×5×0.608² ≈ 0.92 AU）。
+				Simulator.GetBodyMutable(1).ExternalAcceleration = FVector3d(0.0, 5.0, 0.0);
+				Simulator.GetBodyMutable(1).LinearDamping = 3.0;
+			}
+			return Simulator;
+		};
+
+		FNBodySimulator Forced = MakePair(true);
+		FNBodySimulator Control = MakePair(false);
+
+		TArray<FVector3d> ForcedPoints;
+		TArray<FVector3d> ControlPoints;
+		TestTrue(TEXT("预测调用成功（带外力）"),
+			Forced.PredictTrajectory(1, 0.608, 64, ForcedPoints));
+		TestTrue(TEXT("预测调用成功（无外力对照）"),
+			Control.PredictTrajectory(1, 0.608, 64, ControlPoints));
+
+		TestEqual(TEXT("预测点数一致"), ForcedPoints.Num(), ControlPoints.Num());
+
+		// 逐点比，只累加「不一样」的个数 —— 64 次 Printf 会淹掉日志。
+		// 两份求解器由同一个函数、同一串运算造出来，浮点结果必须逐位相同。
+		const int32 Count = FMath::Min(ForcedPoints.Num(), ControlPoints.Num());
+		int32 Mismatched = 0;
+		for (int32 Index = 0; Index < Count; ++Index)
+		{
+			if (ForcedPoints[Index] != ControlPoints[Index])
+			{
+				++Mismatched;
+			}
+		}
+		TestEqual(TEXT("预测点逐位相同：外力没有渗进预测副本"), Mismatched, 0);
 	}
 
 	return true;
