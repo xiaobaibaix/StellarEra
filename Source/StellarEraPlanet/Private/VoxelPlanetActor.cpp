@@ -10,6 +10,7 @@
 #include "VoxelComponents/VoxelInvokerComponent.h"
 #include "VoxelPlanetGenerator.h"
 #include "VoxelPlanetTerrainModule.h"
+#include "PlanetAtmosphereComponent.h"
 #include "Materials/MaterialInterface.h"
 #include "Engine/World.h"
 #include "UObject/ConstructorHelpers.h"
@@ -66,6 +67,11 @@ AVoxelPlanetActor::AVoxelPlanetActor()
 	// 占位值，RebuildPlanet 会按半径重算。
 	LODInvoker->LODToSet = 6;
 	LODInvoker->LODRange = 150000.f;
+
+	// 大气壳。挂到根组件上，相对位置为零 —— 球心与行星球心重合。
+	// 材质与缩放都在 BeginPlay 里按 GetSurfaceRadiusCm() 定，构造期拿不到最终半径。
+	AtmosphereComponent = CreateDefaultSubobject<UPlanetAtmosphereComponent>(TEXT("PlanetAtmosphere"));
+	AtmosphereComponent->SetupAttachment(RootComponent);
 }
 
 float AVoxelPlanetActor::GetScaledRadiusVoxels() const

@@ -8,6 +8,7 @@
 #include "VoxelPlanetActor.generated.h"
 
 class UMaterialInterface;
+class UPlanetAtmosphereComponent;
 class UVoxelPlanetGenerator;
 class UVoxelPlanetTerrainModule;
 class UVoxelSimpleInvokerComponent;
@@ -144,6 +145,13 @@ public:
 	/** 以球心为中心的 LOD Invoker。挂在基类的 WorldRoot 下，随之变换。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet")
 	TObjectPtr<UVoxelSimpleInvokerComponent> LODInvoker;
+
+	/** 大气壳。构造时自动创建，每颗行星一个。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "StellarEra|Atmosphere")
+	TObjectPtr<UPlanetAtmosphereComponent> AtmosphereComponent;
+
+	UFUNCTION(BlueprintPure, Category = "StellarEra|Atmosphere")
+	UPlanetAtmosphereComponent* GetAtmosphereComponent() const { return AtmosphereComponent; }
 
 private:
 	/**
