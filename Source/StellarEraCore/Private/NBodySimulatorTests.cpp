@@ -461,8 +461,10 @@ bool FStellarEraNBodyExternalForceTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("阻尼：粗步长解低于解析解（显式欧拉的符号）"), Coarse < Exact);
 		TestTrue(TEXT("阻尼：误差在 1e-4 以内"), ErrCoarse < 1.0e-4);
 		TestTrue(TEXT("阻尼：误差不为零（真的在积分，不是抄了解析解）"), ErrCoarse > 1.0e-8);
-		// 期望比值 ≈ 0.5（一阶）。放到 0.6 留余量，仍挡得住「零阶」（比值 1）
-		// 与「二阶」（比值 0.25）两种写错。
+		// 期望比值 ≈ 0.5（一阶），放到 0.6 留余量 —— 挡得住「零阶」（比值 1）。
+		// **挡不住二阶**：0.25 照样小于 0.6。二阶由上面那行下限
+		// ErrCoarse > 1e-8 挡（本配置下二阶格式的误差约 1e-9，落在下限之下），
+		// 所以那个看着多余的下限是二阶的唯一鉴别力，别删。
 		TestTrue(TEXT("阻尼：步长减半，误差减半（一阶收敛）"), ErrFine < ErrCoarse * 0.6);
 	}
 
