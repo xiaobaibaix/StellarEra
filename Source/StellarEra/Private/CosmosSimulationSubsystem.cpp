@@ -4,6 +4,7 @@
 
 #include "CosmosOrbitComponent.h"
 #include "VoxelPlanetActor.h"
+#include "SpaceshipPawn.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Pawn.h"
@@ -105,10 +106,72 @@ void UCosmosSimulationSubsystem::AddBodyToSimulator(UCosmosOrbitComponent* Compo
 	// 不携带任何人，留 0 即可 —— 携带判定走的是 Task 5 里单独的一条路径。
 	if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(BodyActor))
 	{
+		// 这里先给平均球半径当**兜底**：第一次 Tick 就会由
+		// RefreshPlanetContactRadii 换成朝最近天体那个方向的地形半径。
+		// 保留它是因为开局日志要打一行半径，那时还没刷过。
 		State.Radius = double(Planet->GetSurfaceRadiusCm()) / CentimetersPerAu;
+	}
+	else if (const ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(BodyActor))
+	{
+		// 飞船的接触半径取碰撞球半径，让**机身外壳**贴地而不是**球心**贴地。
+		// 留 0 的话求解器把中心钳在地表上，机身下半截埋进地形里 —— 300 厘米的
+		// 球埋掉 3 米，正是 PIE 里看到的那一幕。
+		State.Radius = double(Ship->GetContactRadiusCm()) / CentimetersPerAu;
 	}
 
 	Component->SimulatorIndex = Simulator.AddBody(State);
+}
+
+void UCosmosSimulationSubsystem::RefreshPlanetContactRadii()
+{
+	const int32 NumBodies = Simulator.GetNumBodies();
+
+	for (int32 Index = 0; Index < NumBodies; ++Index)
+	{
+		const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(Simulator.GetBody(Index).OwnerActor.Get());
+		if (!Planet)
+		{
+			continue;
+		}
+
+		// 只有最近的那个天体可能进到接触距离内，所以只需要朝它那个方向的地表高度。
+		// 其它方向就算矮了 80 米也不会有人碰到，不必白算。
+		int32 NearestIndex = INDEX_NONE;
+		double NearestDistanceSq = 0.0;
+
+		for (int32 Other = 0; Other < NumBodies; ++Other)
+		{
+			if (Other == Index)
+			{
+				continue;
+			}
+
+			const double DistanceSq =
+				(Simulator.GetBody(Other).Position - Simulator.GetBody(Index).Position).SizeSquared();
+
+			if (NearestIndex == INDEX_NONE || DistanceSq < NearestDistanceSq)
+			{
+				NearestIndex = Other;
+				NearestDistanceSq = DistanceSq;
+			}
+		}
+
+		if (NearestIndex == INDEX_NONE)
+		{
+			continue;
+		}
+
+		// 方向 = 星球中心 → 最近天体。AU 空间与世界空间只差一个等比缩放、没有旋转，
+		// 所以方向可以原样交给地形查询（它内部会归一化）。
+		const FVector Direction =
+			FVector(Simulator.GetBody(NearestIndex).Position - Simulator.GetBody(Index).Position);
+
+		const double SurfaceRadiusCm = double(Planet->GetSurfaceRadiusCmAtDirection(Direction));
+		if (SurfaceRadiusCm > 0.0)
+		{
+			Simulator.GetBodyMutable(Index).Radius = SurfaceRadiusCm / CentimetersPerAu;
+		}
+	}
 }
 
 void UCosmosSimulationSubsystem::FinalizeRegistration()
@@ -245,6 +308,11 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 	{
 		return;
 	}
+
+	// ── 0. 刷新行星的接触半径 ──
+	// 必须在推进之前：接触解算发生在 StepExact 内部，读的就是这一刻的 Radius。
+	// 放到推进之后，这一帧的接触用的还是上一帧的地形高度。
+	RefreshPlanetContactRadii();
 
 	// ── 1. 时间推进 ──
 	// 真实秒 × TimeScale = 需要模拟的天文年数。
@@ -463,6 +531,23 @@ void UCosmosSimulationSubsystem::CarryRiders(AActor* BodyActor, const FVector& D
 			continue;
 		}
 
+		// 自身就是 N 体天体的 Pawn 也跳过：本函数上方已经用 SetActorLocation 按
+		// 引力把它搬到新位置了，这里再按星球位移叠一次就是走两步。飞船属于这一类
+		// —— 它挂 UCosmosOrbitComponent（MassSolar = 0），靠引力绕行星走，不是
+		// 被星球「带着」的乘客。
+		//
+		// 判据用 SimulatorIndex 而不是「有没有挂组件」：组件可能存在但还没注册进
+		// 求解器（FinalizeRegistration 之前），那种 Pawn 求解器不管，仍该按乘客
+		// 处理，否则它会掉在原地不动。
+		if (const UCosmosOrbitComponent* RiderOrbit =
+			Rider->FindComponentByClass<UCosmosOrbitComponent>())
+		{
+			if (RiderOrbit->SimulatorIndex != INDEX_NONE)
+			{
+				continue;
+			}
+		}
+
 		const FVector RiderLocation = Rider->GetActorLocation();
 
 		if (FVector::DistSquared(RiderLocation, PlanetLocation) > RideRadiusSq)
@@ -470,17 +555,17 @@ void UCosmosSimulationSubsystem::CarryRiders(AActor* BodyActor, const FVector& D
 			continue;
 		}
 
-		// 最近者独占。两颗星的判定球可能重叠：本关卡行星一 7.181 km、行星二
-		// 9.833 km，相隔 2.652 km，而每颗星的判定半径各 2 km（半径 1 km ×
-		// RideRadiusScale 2.0），地表之间只隔 0.652 km —— 远小于判定半径。
-		// 重叠区里的 Pawn 会被两颗星各推一次，位移叠加成两倍：行星一相对行星二
-		// 的参考系速度是 246 m/s，远超飞船的 MaxSpeed 8000 cm/s，飞船会被卡在
-		// 行星二判定球边界上横向扫走，根本飞不到行星二上。
+		// 最近者独占。判定球理论上可能重叠：RideRadiusScale 是子系统级的，同关卡里
+		// 地表半径相同的星球判定半径就相同，两颗靠近到「判定半径之和」以内时，重叠
+		// 区里的 Pawn 会被两颗星各推一次，位移叠加成两倍。
+		//
+		// 本关卡三颗行星地表半径都是 0.075 AU 量级、彼此相隔 10 AU，判定球远够不着
+		// 对方，碰不到重叠；这条规则是为将来星球挨得近时准备的。
 		//
 		// 这条规则依赖「所有体素星球的判定半径相同」（RideRadiusScale 是子系统级
-		// 配置，本关卡四颗行星半径都是 1 km）。将来若加入半径更小的星球，「更近」就
-		// 不再蕴含「够得着」：站在大星判定球内、却离小星更近的 Pawn 会被两颗星同时
-		// 放弃。届时要把比较条件改成「更近**且**够得着」。
+		// 配置）。将来若加入半径更小的星球，「更近」就不再蕴含「够得着」：站在大星
+		// 判定球内、却离小星更近的 Pawn 会被两颗星同时放弃。届时要把比较条件改成
+		// 「更近**且**够得着」。
 		//
 		// 所以只由「离 Pawn 最近的携带者」推它，其余天体的调用跳过。恒星不是
 		// 携带者，它的远近与本规则无关，不能参与比较、更不能否决行星。

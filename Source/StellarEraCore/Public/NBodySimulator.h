@@ -28,7 +28,14 @@ struct FCosmosBodyState
 	/** 质量。游戏单位 M☉ 或 SI 单位 千克。 */
 	double Mass = 0.0;
 
-	/** 半径（用于计算碰撞与视觉大小，不参与引力）。 */
+	/**
+	 * 半径。**不参与引力，只参与接触**：两个天体的中心距小于半径之和时，它们被
+	 * 推开到刚好相切，相互接近的法向速度被抹掉（见 ResolveContacts）。
+	 *
+	 * 为 0 表示点质量，永不接触 —— 恒星以及任何没设半径的天体都是这样。本项目里
+	 * 只有体素星球有地表半径（AddBodyToSimulator 里从 GetSurfaceRadiusCm 取），
+	 * 飞船是 0，所以「飞船落到地表」= 飞船的**中心点**被钳在地表半径上。
+	 */
 	double Radius = 0.0;
 
 	/** 软化半径。等于 0 时使用求解器的全局设置。 */
@@ -239,6 +246,27 @@ private:
 
 	/** 计算所有天体的加速度，写入各自Acceleration。 */
 	void ComputeAccelerations();
+
+	/**
+	 * 解算所有天体对的接触：重叠的推开到相切，相互接近的法向速度抹掉。
+	 *
+	 * 在 StepExact 的积分之后调用，所以三种积分器、以及 Step 与 PredictTrajectory
+	 * 走的是同一套约束（预测跑的是同一个 StepExact 的副本）。
+	 *
+	 * 半径全为 0 的天体对永不接触 —— 现有的能量漂移测试造的都是点质量，
+	 * 因此不受这一项影响。
+	 */
+	void ResolveContacts();
+
+	/**
+	 * 接触时两个天体各让多少位移，按「谁轻谁让路」分配，两者之和恒为 1。
+	 *
+	 * 质量 ≤ 0 视为测试粒子（本项目的飞船就是 MassSolar = 0）：它让全部，
+	 * 对方一点都不让。取质量倒数会除零，所以这里必须显式分情形，不能写成
+	 * m_j/(m_i+m_j)。
+	 */
+	static void ComputeContactShares(double MassI, double MassJ,
+	                                 double& OutShareI, double& OutShareJ);
 
 	/** 用给定加速度做一次 Velocity Verlet 半步推进。 */
 	void StepVelocityVerlet(double Dt);

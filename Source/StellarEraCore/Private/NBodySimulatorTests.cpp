@@ -1,11 +1,12 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 //
-// N 体求解器「预测」功能的自动化测试。
+// N 体求解器「预测」与「接触」功能的自动化测试。
 //
-// 这几组断言挡的是同一类错误：预测看起来像那么回事、其实是错的。
+// 这几组断言挡的是同一类错误：功能看起来像那么回事、其实是错的。
 // 全是纯数学 —— 不依赖世界、不依赖编辑器，这是本项目唯一能自动验证的地方。
 //
-// 跑法：用 UnrealEditor-Cmd 跑自动化测试 StellarEra.Core.NBodyPrediction。
+// 跑法：用 UnrealEditor-Cmd 跑自动化测试 StellarEra.Core（两个用例：
+// StellarEra.Core.NBodyPrediction 与 StellarEra.Core.NBodyContact）。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -194,6 +195,175 @@ bool FStellarEraNBodyPredictionTest::RunTest(const FString& Parameters)
 
 		TestFalse(TEXT("窗口为零返回 false"), Simulator.PredictTrajectory(1, 0.0, 16, Predicted));
 		TestFalse(TEXT("采样点不足返回 false"), Simulator.PredictTrajectory(1, 1.0, 1, Predicted));
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraNBodyContactTest,
+	"StellarEra.Core.NBodyContact",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraNBodyContactTest::RunTest(const FString& Parameters)
+{
+	// ── 1. 接触的纯几何：一步、且这一步里积分器什么都不做 ──
+	// dt = 0 让 StepExact 只剩 ResolveContacts 有作用 —— 引力推进量是零，接触是
+	// 唯一的变量。这样期望值能按公式手算出来钉死，而不是「跑跑看差不多」。
+	//
+	// 两颗质量不等的天体迎面对撞，且**总动量不为零**（3×0.05 + 1×(−0.01) = 0.14）。
+	// 这一条同时挡两种写错的接触：
+	//   · 只推一颗的 —— 位移必须按 0.25 / 0.75 分（轻的让得多）；
+	//   · 抹掉各自**绝对**法向速度的 —— 那会把总动量吃成 0，而不是保持 0.14。
+	{
+		FNBodySimulator Simulator;
+		Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
+		Simulator.SetIntegrator(ECosmosIntegrator::VelocityVerlet);
+		Simulator.SetSofteningLength(1.0e-5);
+
+		FCosmosBodyState Heavy;
+		Heavy.Mass = 3.0;
+		Heavy.Radius = 0.05;
+		Heavy.Position = FVector3d(-0.04, 0.0, 0.0);
+		Heavy.Velocity = FVector3d(0.05, 0.0, 0.0);
+		Simulator.AddBody(Heavy);
+
+		FCosmosBodyState Light;
+		Light.Mass = 1.0;
+		Light.Radius = 0.05;
+		Light.Position = FVector3d(0.04, 0.0, 0.0);
+		Light.Velocity = FVector3d(-0.01, 0.0, 0.0);
+		Simulator.AddBody(Light);
+
+		const FVector3d MomentumBefore = Simulator.GetTotalMomentum();
+
+		Simulator.StepExact(0.0);
+
+		// 半径之和 0.1，初始间距 0.08 → 重叠 0.02。让路比例 = 对方质量 / 总质量：
+		//   Heavy 让 1/4 = 0.25： −0.04 − 0.02×0.25 = −0.045
+		//   Light 让 3/4 = 0.75： +0.04 + 0.02×0.75 = +0.055
+		TestEqual(TEXT("重的一方少让路"),
+			Simulator.GetBody(0).Position.X, -0.045, 1.0e-15);
+		TestEqual(TEXT("轻的一方多让路"),
+			Simulator.GetBody(1).Position.X, 0.055, 1.0e-15);
+		TestEqual(TEXT("推开后正好相切（间距 = 半径之和）"),
+			(Simulator.GetBody(1).Position - Simulator.GetBody(0).Position).Size(),
+			0.1, 1.0e-15);
+
+		// 相对法向速度被抹平 → 两者沿 X 的速度变得**相等**，而**不是都变成 0**。
+		// 相等值由动量守恒定：0.14 / (3+1) = 0.035。
+		TestEqual(TEXT("接触后两者法向速度相等"),
+			Simulator.GetBody(0).Velocity.X, Simulator.GetBody(1).Velocity.X, 1.0e-15);
+		TestEqual(TEXT("相等值 = 总动量 / 总质量 = 0.035"),
+			Simulator.GetBody(0).Velocity.X, 0.035, 1.0e-15);
+
+		TestTrue(TEXT("接触不改变总动量"),
+			(Simulator.GetTotalMomentum() - MomentumBefore).Size() < 1.0e-15);
+
+		// 切向分量必须原样留着（接触面是光滑的）。
+		//
+		// 初态要**重新摆成迎面接近**：位置与 X 向速度都复位，否则相对法向速度
+		// 已经是 0，接触那一支根本不执行，这条断言就变成恒真的了。Y 分量是这里
+		// 唯一新增的东西，接触解算不该碰它。
+		Simulator.GetBodyMutable(0).Position = FVector3d(-0.04, 0.0, 0.0);
+		Simulator.GetBodyMutable(1).Position = FVector3d(0.04, 0.0, 0.0);
+		Simulator.GetBodyMutable(0).Velocity = FVector3d(0.05, 0.007, 0.0);
+		Simulator.GetBodyMutable(1).Velocity = FVector3d(-0.01, -0.003, 0.0);
+
+		Simulator.StepExact(0.0);
+
+		TestEqual(TEXT("切向速度不被接触改动（重）"),
+			Simulator.GetBody(0).Velocity.Y, 0.007, 1.0e-15);
+		TestEqual(TEXT("切向速度不被接触改动（轻）"),
+			Simulator.GetBody(1).Velocity.Y, -0.003, 1.0e-15);
+
+		// 同时确认法向确实被处理了 —— 否则上面两条可能只是因为整个接触分支
+		// 没执行而通过。
+		TestEqual(TEXT("同一步里法向速度仍被抹平"),
+			Simulator.GetBody(0).Velocity.X, Simulator.GetBody(1).Velocity.X, 1.0e-15);
+	}
+
+	// ── 2. 自由落体落到地表并停住 ──
+	// 质量与半径都取本关卡 A 的实际值（0.873237 M☉ / 0.075 AU），飞船取
+	// AddBodyToSimulator 里实际填的（质量 0、半径 0 —— 它不是体素星球）。
+	{
+		FNBodySimulator Simulator;
+		Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
+		Simulator.SetIntegrator(ECosmosIntegrator::VelocityVerlet);
+		Simulator.SetSofteningLength(1.0e-5);
+		Simulator.SetCentimetersPerAu(1.0e6);
+
+		FCosmosBodyState Planet;
+		Planet.Mass = 0.873237;
+		Planet.Radius = 0.075;
+		Simulator.AddBody(Planet);
+
+		FCosmosBodyState Ship;
+		Ship.Mass = 0.0;
+		Ship.Radius = 0.0;
+		Ship.Position = FVector3d(0.076, 0.0, 0.0);   // 地表上方 0.001 AU
+		Simulator.AddBody(Ship);
+
+		const double Step = 1.0e-6;
+		const int32 NumSteps = 5000;                  // 0.005 年，自由落体只需约 6e-4 年
+		double DeepestBelowSurface = 0.0;
+
+		for (int32 StepIndex = 0; StepIndex < NumSteps; ++StepIndex)
+		{
+			Simulator.StepExact(Step);
+
+			const double Distance = Simulator.GetBody(1).Position.Size();
+			DeepestBelowSurface = FMath::Max(DeepestBelowSurface, 0.075 - Distance);
+		}
+
+		const FCosmosBodyState& FinalShip = Simulator.GetBody(1);
+
+		TestTrue(TEXT("落到地表：距离收敛到半径"),
+			FMath::Abs(FinalShip.Position.Size() - 0.075) < 1.0e-12);
+
+		// 全程一次都没穿透。位置钳制不留余量、且每步都在 StepExact 末尾执行，
+		// 所以**任何一步结束时**的距离都不该小于半径。留的 1e-12 是浮点舍入，
+		// 不是穿透余量 —— 把它放大到 1e-3 就会放过「每步往下陷一点」那类错。
+		TestTrue(TEXT("全程没有穿透地表"),
+			DeepestBelowSurface < 1.0e-12);
+
+		// 停住而不是弹跳：法向速度被抹掉。这一条不是恒真的 —— 每步重力都会给
+		// 飞船加上 a·dt ≈ 6.1e-3 AU/年 的接近速度，是接触解算把它抹回去的。
+		TestTrue(TEXT("法向速度归零（停住、不回弹）"),
+			FMath::Abs(FinalShip.Velocity.X) < 1.0e-12);
+
+		// 质量 0 的飞船推不动行星。
+		TestEqual(TEXT("行星没有被飞船推走"),
+			Simulator.GetBody(0).Position.X, 0.0, 1.0e-15);
+	}
+
+	// ── 3. 对照组：把半径去掉，同一套初态就会穿过去 ──
+	// 这是「接触项确实是拦住它的那一项」的反证。没有它，第 2 组断言有可能被
+	// 别的东西（比如软化长度）意外满足，而接触项其实没生效。
+	{
+		FNBodySimulator Simulator;
+		Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
+		Simulator.SetIntegrator(ECosmosIntegrator::VelocityVerlet);
+		Simulator.SetSofteningLength(1.0e-5);
+
+		FCosmosBodyState Planet;
+		Planet.Mass = 0.873237;
+		Planet.Radius = 0.0;                          // ← 与第 2 组唯一的差别
+		Simulator.AddBody(Planet);
+
+		FCosmosBodyState Ship;
+		Ship.Mass = 0.0;
+		Ship.Radius = 0.0;
+		Ship.Position = FVector3d(0.076, 0.0, 0.0);
+		Simulator.AddBody(Ship);
+
+		double MinDistance = TNumericLimits<double>::Max();
+		for (int32 StepIndex = 0; StepIndex < 5000; ++StepIndex)
+		{
+			Simulator.StepExact(1.0e-6);
+			MinDistance = FMath::Min(MinDistance, Simulator.GetBody(1).Position.Size());
+		}
+
+		TestTrue(TEXT("没有半径时飞船穿过地表（对照）"), MinDistance < 0.070);
 	}
 
 	return true;

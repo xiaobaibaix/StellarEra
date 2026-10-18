@@ -162,6 +162,100 @@ void FNBodySimulator::StepEuler(double Dt)
 	SimulatedTime += Dt;
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// 接触
+
+void FNBodySimulator::ComputeContactShares(double MassI, double MassJ,
+                                           double& OutShareI, double& OutShareJ)
+{
+	// 「谁轻谁让路」：位移按对方质量占两者之和的比例分。
+	//
+	// 质量 ≤ 0 的是测试粒子（本项目的飞船就是 MassSolar = 0）：它让全部、对方
+	// 一点都不让。**不能写成 m_j/(m_i+m_j)** —— 那样在 m_i = 0 时会让对方承担
+	// 100%（正好反了），两个都 ≤ 0 时还是 0/0。
+	const bool bRealI = MassI > 0.0;
+	const bool bRealJ = MassJ > 0.0;
+
+	if (bRealI && bRealJ)
+	{
+		const double Total = MassI + MassJ;
+		OutShareI = MassJ / Total;
+		OutShareJ = MassI / Total;
+	}
+	else if (bRealI)
+	{
+		OutShareI = 0.0;
+		OutShareJ = 1.0;
+	}
+	else if (bRealJ)
+	{
+		OutShareI = 1.0;
+		OutShareJ = 0.0;
+	}
+	else
+	{
+		// 两个都是测试粒子：没有质量可以分配，对半分。
+		OutShareI = 0.5;
+		OutShareJ = 0.5;
+	}
+}
+
+void FNBodySimulator::ResolveContacts()
+{
+	const int32 N = Bodies.Num();
+
+	for (int32 i = 0; i < N; ++i)
+	{
+		for (int32 j = i + 1; j < N; ++j)
+		{
+			const double ContactDistance = Bodies[i].Radius + Bodies[j].Radius;
+			if (ContactDistance <= 0.0)
+			{
+				// 两个都是点质量。本项目的恒星、以及所有没设半径的天体走这一支，
+				// 所以接触项对它们是完全无操作的。
+				continue;
+			}
+
+			const FVector3d Delta = Bodies[j].Position - Bodies[i].Position;
+			const double DistanceSq = Delta.SizeSquared();
+			if (DistanceSq >= ContactDistance * ContactDistance)
+			{
+				continue;
+			}
+
+			const double Distance = FMath::Sqrt(DistanceSq);
+
+			// 完全重合时 Delta 没有方向可言，任取一个轴。这里只需要「有个方向」
+			// 把它们分开 —— 下一次解算看到的就已经是真实的分离方向了。
+			const FVector3d Normal = Distance > 1e-12
+				? Delta / Distance
+				: FVector3d(1.0, 0.0, 0.0);
+
+			double ShareI = 0.0;
+			double ShareJ = 0.0;
+			ComputeContactShares(Bodies[i].Mass, Bodies[j].Mass, ShareI, ShareJ);
+
+			// ① 位置：推开到刚好相切。**不留穿透余量** —— 余量会让天体每步往下
+			//    陷一点点，长期看就是「地表在漏」。
+			const double Overlap = ContactDistance - Distance;
+			Bodies[i].Position -= Normal * (Overlap * ShareI);
+			Bodies[j].Position += Normal * (Overlap * ShareJ);
+
+			// ② 速度：只抹掉「相互接近」的法向分量，切向留着 —— 接触面是光滑的，
+			//    天体沿地表滑。抹的是**相对**速度而不是各自的速度：后者会把整个
+			//    系统的总动量吃掉，而总动量是这个求解器自己的诊断量之一。
+			const double Approach = FVector3d::DotProduct(
+				Bodies[j].Velocity - Bodies[i].Velocity, Normal);
+
+			if (Approach < 0.0)
+			{
+				Bodies[i].Velocity += Normal * (Approach * ShareI);
+				Bodies[j].Velocity -= Normal * (Approach * ShareJ);
+			}
+		}
+	}
+}
+
 void FNBodySimulator::StepExact(double TimeStep)
 {
 	switch (Integrator)
@@ -179,6 +273,14 @@ void FNBodySimulator::StepExact(double TimeStep)
 		SimulatedTime += TimeStep;
 		break;
 	}
+
+	// 约束放在积分**之后**：这样三种积分器共用一处，Step 与 PredictTrajectory
+	// 也就自动拿到同样的接触行为（预测跑的是同一个 StepExact 的副本）。
+	//
+	// 位置被钳过之后，缓存里的 Acceleration 对应的是钳制前的位置，下一步的
+	// 第一个半步会用这个带一步滞后的值 —— 这是 Velocity Verlet 本来就有的性质，
+	// 不是接触引入的。
+	ResolveContacts();
 }
 
 void FNBodySimulator::Step(float Dt)

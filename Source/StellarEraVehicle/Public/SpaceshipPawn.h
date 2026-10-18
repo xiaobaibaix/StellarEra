@@ -127,6 +127,18 @@ public:
 	/** 当前在船上的角色；没有则为 nullptr。 */
 	APlanetCharacter* GetBoardedCharacter() const { return BoardedCharacter; }
 
+	/**
+	 * 接触半径（厘米）—— N 体求解器把飞船当球体解接触时用的那个半径。
+	 *
+	 * 取碰撞球的缩放后半径（默认 300 厘米）。**不能返回 0**：半径 0 的点质量
+	 * 在求解器里会让飞船的**中心**被钳在地表上，机身下半截埋进地形里。
+	 *
+	 * 读的是 Collision 而不是 Hull：Collision 本来就是「飞船占多大地方」的那个
+	 * 形状（它同时是根组件和 UFloatingPawnMovement 扫掠用的形状），Hull 是纯外观
+	 * （CollisionEnabled 为 NoCollision）。
+	 */
+	float GetContactRadiusCm() const;
+
 protected:
 	/** 碰撞球：既是根组件也是 UFloatingPawnMovement 扫掠用的形状。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spaceship")

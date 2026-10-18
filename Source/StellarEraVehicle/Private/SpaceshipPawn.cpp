@@ -550,3 +550,11 @@ void ASpaceshipPawn::SetBoardedCharacter(APlanetCharacter* Character)
 {
 	BoardedCharacter = Character;
 }
+
+float ASpaceshipPawn::GetContactRadiusCm() const
+{
+	// GetScaledSphereRadius 而不是 GetUnscaledSphereRadius：飞船在关卡里可能被
+	// 整体缩放，N 体那边要的是**世界尺度**的半径（跟 CentimetersPerAu 同一套单位）。
+	// Collision 为空只会出现在 CDO 构造的中途，返回 0 即退回点质量行为。
+	return Collision ? Collision->GetScaledSphereRadius() : 0.f;
+}
