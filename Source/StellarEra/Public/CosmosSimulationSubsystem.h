@@ -69,6 +69,20 @@ public:
 	/** 天体 i 参与的最短动力学时标（年）。算不出（单天体 / 退化配对）返回 0。 */
 	double GetOrbitalPeriodYears(int32 SimulatorIndex) const;
 
+	/**
+	 * 全系统最短的那条配对周期（年），即所有 (i, j) 配对里最短的一个。
+	 * FinalizeRegistration 还没跑、或一对都算不出时返回 0。
+	 *
+	 * 与 GetOrbitalPeriodYears(i) 的区别：那个是「天体 i 参与的」最短，逐天体不同；
+	 * 这个是全系统的下界，**只有一个值**。它同时是自动积分步长的分母
+	 * （BaseTimeStep = 该值 / StepsPerOrbit）。
+	 *
+	 * 预测窗口的上限读它 —— 理由见 UCosmosOrbitComponent::MaxAutoPredictionPeriods：
+	 * 预测副本用固定步长走完窗口，它能分辨的最快动力学就是这个周期，窗口相对它越长、
+	 * 副本自身的积分误差越大。
+	 */
+	double GetShortestPeriodYears() const { return ShortestPeriodYears; }
+
 	//////////////////////////////////////////////////////////////////////////
 	// 星图模式
 	//
@@ -199,6 +213,14 @@ private:
 
 	/** 自动推导出的积分步长，单位模拟年。 */
 	double BaseTimeStep = 5.0e-5;
+
+	/**
+	 * 全系统最短的配对周期（年），FinalizeRegistration 里算一次。
+	 *
+	 * 与 BaseTimeStep 同源（后者 = 它 / StepsPerOrbit），所以一起存 —— 两者都基于
+	 * **开局**的间距，之后不再变。预测窗口的上限读它，见 GetShortestPeriodYears。
+	 */
+	double ShortestPeriodYears = 0.0;
 
 	/**
 	 * 跨帧累积的待推进时间（模拟年）。

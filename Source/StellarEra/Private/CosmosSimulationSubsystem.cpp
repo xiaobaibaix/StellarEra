@@ -150,8 +150,8 @@ void UCosmosSimulationSubsystem::FinalizeRegistration()
 	// 再取其中最短的一条除以 StepsPerOrbit。
 	//
 	// 为什么取最短的那条：它就是这个系统里最快的动力学时标，积分步长必须跟着它走。
-	// 本关卡里它是「母星 ↔ 恒星」那一对，算出来与删掉轨道根数之前基本一致 ——
-	// 那时用半长轴 0.723 AU，现在用实际摆出来的 0.718 AU 近日点距离。
+	// 本关卡实测这条是 0.790569 年（开局日志那行的「最短周期」），步长 3.952847e-05 年
+	// 正好是它除以 StepsPerOrbit = 20000。
 	double ShortestPeriod = TNumericLimits<double>::Max();
 
 	for (int32 I = 0; I < Simulator.GetNumBodies(); ++I)
@@ -171,6 +171,14 @@ void UCosmosSimulationSubsystem::FinalizeRegistration()
 		}
 	}
 
+	// 与 BaseTimeStep 同源，但**分开判**：下面那一支还额外要求 StepsPerOrbit > 0，
+	// 而最短周期本身是个独立的量 —— StepsPerOrbit 填 0 时步长退回默认值，最短周期
+	// 照样有效，预测窗口的上限还要用它。没算出任何正周期时它保持 0。
+	if (FMath::IsFinite(ShortestPeriod) && ShortestPeriod > 0.0)
+	{
+		ShortestPeriodYears = ShortestPeriod;
+	}
+
 	if (FMath::IsFinite(ShortestPeriod) && ShortestPeriod > 0.0 && StepsPerOrbit > 0)
 	{
 		BaseTimeStep = FMath::Clamp(ShortestPeriod / double(StepsPerOrbit), 1e-12, 1e-2);
@@ -181,6 +189,47 @@ void UCosmosSimulationSubsystem::FinalizeRegistration()
 	UE_LOG(LogTemp, Log,
 		TEXT("[Cosmos] 初始化完成：%d 个天体，最短周期 %.6f 年，步长 %.6e 年，TimeScale %.5f 年/秒，1 AU = %.0f 厘米"),
 		Simulator.GetNumBodies(), ShortestPeriod, BaseTimeStep, TimeScale, CentimetersPerAu);
+
+	// ── 每个天体一行初态，只在开局打这一次 ──
+	//
+	// 有这三样就够手算了：质量给 M，位置给 r，速度给 v —— 由它们能算出逃逸速度
+	// √(2M/r) 与束缚能 v²/2 − M/r。「轨道为什么不闭合」「预测窗口为什么这么长」
+	// 这两个问题都从这里开始查，不必再跑一遍模拟。
+	//
+	// 最近邻单独列出来，因为**它才是预测窗口的来源**：窗口 = 1.05 × 该天体的
+	// 最短周期，而最短周期 = min over j 的 PairOrbitalPeriod，即与最近邻的那一对。
+	// 上面那行「最短周期」是全系统的最小值，不一定属于这个天体。
+	//
+	// 每帧打会淹掉日志，而初态本来就不变，所以只在这里打一次。
+	for (int32 Index = 0; Index < Simulator.GetNumBodies(); ++Index)
+	{
+		const FCosmosBodyState& Body = Simulator.GetBody(Index);
+
+		int32 NearestIndex = INDEX_NONE;
+		double NearestDistance = 0.0;
+		for (int32 Other = 0; Other < Simulator.GetNumBodies(); ++Other)
+		{
+			if (Other == Index)
+			{
+				continue;
+			}
+
+			const double Distance = (Simulator.GetBody(Other).Position - Body.Position).Size();
+			if (NearestIndex == INDEX_NONE || Distance < NearestDistance)
+			{
+				NearestIndex = Other;
+				NearestDistance = Distance;
+			}
+		}
+
+		UE_LOG(LogTemp, Log,
+			TEXT("[Cosmos]   天体 %d：质量 %.6g M☉，半径 %.4f AU，位置 (%.4f, %.4f, %.4f) AU，速度 (%.4f, %.4f, %.4f) AU/年，最近邻 %d（%.4f AU），最短周期 %.6f 年"),
+			Index, Body.Mass, Body.Radius,
+			Body.Position.X, Body.Position.Y, Body.Position.Z,
+			Body.Velocity.X, Body.Velocity.Y, Body.Velocity.Z,
+			NearestIndex, NearestDistance,
+			Simulator.EstimateOrbitalPeriod(Index));
+	}
 }
 
 void UCosmosSimulationSubsystem::Tick(float DeltaTime)

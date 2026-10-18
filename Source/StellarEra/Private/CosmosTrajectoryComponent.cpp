@@ -252,21 +252,50 @@ double UCosmosTrajectoryComponent::ResolvePredictionHorizonYears(
 	}
 
 	// 手填优先，与估算完全无关 —— 自动与手填的分支只在这一处判断。
+	// 这一条**不进缓存**：它是人在详情面板里填的，随时可能改，改了要立刻生效。
 	if (Orbit->PredictionYears > 0.0)
 	{
 		return Orbit->PredictionYears;
 	}
 
-	if (Orbit->SimulatorIndex != INDEX_NONE)
+	// 自动窗口只在第一次真的算出周期时解析一次，之后一直用缓存值。
+	//
+	// 每帧重算的话窗口会跟着当前间距跑：周期 ∝ 间距^1.5，天体一分开窗口就涨、
+	// 画出来的线跟着变长；最近邻一换（下面 EstimateOrbitalPeriod 里 min 的那一项
+	// 换人）还会跳一下。缓存下来之后窗口是个常量，线长稳定、可预期。
+	//
+	// 只在真的算出周期时才置位 bAutoHorizonResolved，所以「轨迹组件已经 Tick 了、
+	// 但子系统还没 FinalizeRegistration、SimulatorIndex 仍是 INDEX_NONE」的那几帧
+	// 不会把回退值钉死 —— 下一帧继续试。
+	if (!bAutoHorizonResolved && Orbit->SimulatorIndex != INDEX_NONE)
 	{
 		const double Period = Subsystem.GetOrbitalPeriodYears(Orbit->SimulatorIndex);
 		if (Period > 0.0 && FMath::IsFinite(Period))
 		{
-			return Period * AutoHorizonPeriodFactor;
+			CachedAutoHorizonYears = Period * AutoHorizonPeriodFactor;
+			bAutoHorizonResolved = true;
 		}
 	}
 
-	// 求解器里只有一颗天体、或所有配对都算不出有限正周期。
+	if (bAutoHorizonResolved)
+	{
+		// 上限**不缓存**，在返回时才施加 —— 这样它与手填那条一样，运行期改了
+		// 立刻生效。上限的单位是「系统最短周期的倍数」，所以还得问子系统要那个
+		// 周期；它按**开局**间距算一次就不变，与这里的缓存无关。
+		//
+		// 0 = 不设限；子系统还没算出最短周期（返回 0，比如关卡里只有一颗天体）
+		// 时也无从钳起，原样返回。为什么要钳见 MaxAutoPredictionPeriods 的注释：
+		// 预测是粗积分，误差按 (窗口/最短周期)³ 涨。
+		const double ShortestPeriod = Subsystem.GetShortestPeriodYears();
+		if (Orbit->MaxAutoPredictionPeriods > 0.0 && ShortestPeriod > 0.0)
+		{
+			return FMath::Min(CachedAutoHorizonYears,
+				Orbit->MaxAutoPredictionPeriods * ShortestPeriod);
+		}
+		return CachedAutoHorizonYears;
+	}
+
+	// 求解器里只有一颗天体、或所有配对都算不出有限正周期 —— 每帧重试。
 	return FallbackPredictionYears;
 }
 

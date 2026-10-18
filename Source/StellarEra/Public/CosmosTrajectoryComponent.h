@@ -57,7 +57,17 @@ public:
 	//~ End UActorComponent Interface
 
 private:
-	/** 实际的预测窗口（年）：手填优先 → 1.05 × 估算周期 → 回退常量。 */
+	/**
+	 * 实际的预测窗口（年）：
+	 *     手填优先
+	 *     → 1.05 × 估算周期（**只解析一次**）
+	 *     → 再钳到「MaxAutoPredictionPeriods × 系统最短周期」
+	 *     → 都算不出时回退常量。
+	 *
+	 * 手填与上限都不缓存，每帧重判，运行期改了立刻生效；只有「1.05 × 估算周期」
+	 * 那一步的结果被缓存，理由见实现处。上限为什么按最短周期的倍数算、
+	 * 而不是按绝对年数，见 UCosmosOrbitComponent::MaxAutoPredictionPeriods。
+	 */
 	double ResolvePredictionHorizonYears(const UCosmosSimulationSubsystem& Subsystem) const;
 
 	/** 把一段折线追加进 Lines。 */
@@ -100,6 +110,20 @@ private:
 
 	/** 上次采样时的模拟时间（年）。 */
 	double LastTrailSampleTime = 0.0;
+
+	/**
+	 * 「1.05 × 估算周期」的解析结果（年），以及它是否已经解析过。
+	 *
+	 * 解析一次就定住 —— 每帧重算的话窗口会跟着当前间距跑（周期 ∝ 间距^1.5），
+	 * 线长会变、最近邻一换还会跳。只在**真的算出周期**时才置位
+	 * bAutoHorizonResolved，所以注册还没轮到、SimulatorIndex 还是 INDEX_NONE
+	 * 的那几帧不会把回退值钉死。
+	 *
+	 * mutable 是因为 ResolvePredictionHorizonYears 是 const —— 它只读 Orbit 与
+	 * 子系统，缓存是它的内部记忆，不改变任何对外可见的状态。
+	 */
+	mutable double CachedAutoHorizonYears = 0.0;
+	mutable bool bAutoHorizonResolved = false;
 
 	/** 复用的中间数组，避免每帧重新分配。 */
 	TArray<FVector> PredictedWorld;

@@ -86,6 +86,27 @@ bool PredictTrajectory(int32 BodyIndex, double Horizon, int32 NumSamples,
 手填 `PredictionYears > 0` 时永远走手填值，与估算完全无关 —— 自动与手填的分支只在
 「属性是不是 0」这一处判断。
 
+### 3.4 自动窗口的两道约束：缓存与上限
+
+自动值有两个毛病，各由一个机制管住，**两者都只作用于自动那条路**。
+
+**毛病一：它每帧重算，于是跟着当前间距跑。** `EstimateOrbitalPeriod` 拿当前间距当
+半径，而周期 ∝ 间距^1.5 —— 天体一分开窗口就涨、画出的线跟着变长；最近邻一换
+（`min` 那一项换人）还会跳一下。**修法：只在第一次真的算出周期时解析一次**，之后
+一直用那个值，窗口因此是个常量。没算出周期时不置位（下一帧继续试），所以「轨迹组件
+已经 Tick 了、子系统还没 `FinalizeRegistration`」那几帧不会把回退值钉死。
+
+**毛病二：它无界。** 间距多大窗口就能多长，而窗口一长预测就不再可信 —— 误差按
+`(窗口/P)³` 涨，见 §12 取舍 2。**修法：钳到 `MaxAutoPredictionPeriods × P`**，
+P = 系统最短周期（`UCosmosSimulationSubsystem::GetShortestPeriodYears`，与
+`BaseTimeStep` 同源，按**开局**间距算一次就不再变）。
+
+**手填值与上限都不进缓存**，每帧重判：手填 `PredictionYears`、`MaxAutoPredictionPeriods`
+运行期在详情面板里改了都立刻生效 —— 上限若被缓存，改了不生效会让人以为属性坏了。
+
+代价写清楚：自身周期远长于最短周期的天体，窗口会被钳到不足一圈，画出的椭圆不再
+首尾相接。那一段本来也不可信（误差已上到十几个百分点），所以这是**有意**的取舍。
+
 ## 4. 子系统查询：`UCosmosSimulationSubsystem`
 
 只加一个薄转发，渲染层不必碰求解器：
@@ -112,7 +133,8 @@ double GetSimulatedTimeYears() const;
 | `PredictionColor` | 浅蓝 `(90, 170, 255)` | 预测轨迹，浅 |
 | `TrailColor` | 深蓝 `(20, 50, 110)` | 拖尾，深 |
 | `InitialVelocityColor` | 琥珀 `(255, 210, 80)` | 初始速度矢量 |
-| `PredictionYears` | `0` = 自动 | 自动 = `1.05 × EstimateOrbitalPeriod` |
+| `PredictionYears` | `0` = 自动 | 自动 = `1.05 × EstimateOrbitalPeriod`，**只在第一次算出周期时解析一次** |
+| `MaxAutoPredictionPeriods` | `3.0` | 自动窗口的上限 = 该值 × **系统最短周期**。`0` = 不设限。只钳自动那条路 |
 | `TrailYears` | `0` = 自动 | 自动 = `0.25 × 预测时长` |
 | `bDrawInitialVelocity` | `true` | 箭头开关 |
 | `VelocityArrowScaleCm` | `10000` | 每 (AU/年) 画多长，厘米 |
@@ -307,12 +329,20 @@ performant for runtime use.」我们每帧重画、每次不到 4 千条线、�
 1. **拖尾默认只画 0.25 圈。** 想要更长就调大 `TrailYears`，代价是同样 512 个点摊得
    更开、每段跳幅变大（见 §6 的表可以自己反推）。要同时长又平滑，就得调大采样点数
    常量，那会线性增加每帧线数。
-2. **预测用的步长比模拟粗约 80 倍**（`周期/256` 对 `周期/20000`）。论证见 §3.2 ——
-   差在 11 厘米级（见 §3.2）。若将来把 `StepsPerOrbit` 调小到接近 256，两者会开始
-   接近，需要重新评估。
-3. **`EstimateOrbitalPeriod` 拿当前间距当半径**，偏心轨道上会低估周期。
-   这与 `BaseTimeStep` 的既有近似完全一致 —— 一致性优先于精度，而且它是自动值，
-   不满意可以直接手填 `PredictionYears`。
+2. **预测是粗积分：误差按 `(窗口/P)³` 涨，P = 系统最短周期。** 预测把整个系统复制
+   一份，用固定步长 `窗口 / (PredictionSamples − 1)` = `窗口/255` 走完窗口；模拟用的是
+   `P / StepsPerOrbit` = `P/20000`。窗口正好取 P 时两者差 **82 倍**。
+   Velocity Verlet 走完窗口后的相对位置误差 ≈ `(2π)³ × (窗口/P)³ / 255²` ——
+   拿模拟自验：代入得 6.2e-7，与开局日志里能量漂移的实测峰值 4.0e-7 量级吻合。
+   于是 窗口/P = 1.05 → 0.44%，3 → 10%，8 → **195%（远端已是噪声，不是轨道）**。
+   这就是 `MaxAutoPredictionPeriods` 默认取 3 的理由：远端误差约 10%，对一个纯视觉
+   参考量够了。想画得更远就得同时调大 `PredictionSamples`（误差按 N² 降），代价是
+   每帧线数线性上涨。
+3. **`EstimateOrbitalPeriod` 拿当前间距当半径**，偏心轨道上会低估周期；**而且它无界**
+   —— 周期 ∝ 间距^1.5，天体一分开这个值就涨，最近邻一换还会跳一下。前者与
+   `BaseTimeStep` 的既有近似一致（一致性优先于精度）；后者由
+   `MaxAutoPredictionPeriods` 兜底，而「每帧涨」那一条由「只解析一次」的缓存挡住。
+   两条都不影响手填 `PredictionYears`。
 4. **每个天体一个 `ULineBatchComponent`**，即 N 个 draw call。N ≤ 10 时无所谓；
    天体数量上到几十个时应改成子系统持有单个 batch（见 §3.2 的备注）。
 5. **运行期增删天体不在本次范围。** 与既有设计一致 —— 本项目的天体整局不增不减
