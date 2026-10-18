@@ -802,7 +802,6 @@ void UCosmosSimulationSubsystem::UpdateSkyAtmosphereRetarget()
 	{
 		return;
 	}
-	LastAtmosphereTargetPlanet = NearestPlanet;
 
 	ASkyAtmosphere* SkyAtmosphere = nullptr;
 	for (TActorIterator<ASkyAtmosphere> It(World); It; ++It)
@@ -818,6 +817,16 @@ void UCosmosSimulationSubsystem::UpdateSkyAtmosphereRetarget()
 				TEXT("[大气] 关卡里没有 ASkyAtmosphere，行星表面不会有天空。"));
 			bLoggedMissingSkyAtmosphere = true;
 		}
+
+		// **这里不能落 LastAtmosphereTargetPlanet**：落下去就等于宣告"这颗行星已经
+		// 处理过了"，于是上面那个早退在之后每一帧都生效，重定位再也不会发生 —— 天空
+		// 大气稍后被加进关卡（或流式加载进来）也救不回来，只能重启 PIE。
+		//
+		// 代价是天空大气缺失期间每帧都走一次 TActorIterator（本关卡 9 个 actor）——
+		// 这正是要的：它让子系统能发现天空大气"出现了"。所以别为了省这次遍历而把
+		// 标记挪回来，也别加"放弃重试"的一次性标志，那会把同一个 bug 重新引入。
+		//
+		// 警告本身仍然只打一次（bLoggedMissingSkyAtmosphere），不会变成每帧一行。
 		return;
 	}
 
@@ -826,6 +835,10 @@ void UCosmosSimulationSubsystem::UpdateSkyAtmosphereRetarget()
 	{
 		return;
 	}
+
+	// 查找成功了才落标记。上面任何一步返回都还没写进 LastAtmosphereTargetPlanet，
+	// 下一帧会重新尝试 —— 一次瞬时失败不会永久关掉这个功能。
+	LastAtmosphereTargetPlanet = NearestPlanet;
 
 	const float SurfaceRadiusKm = NearestPlanet->GetSurfaceRadiusCm() / 100000.0f; // cm → km
 	const PlanetAtmosphere::FSkyAtmosphereScaleParams ScaleParams =
