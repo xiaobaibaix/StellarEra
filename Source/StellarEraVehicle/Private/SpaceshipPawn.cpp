@@ -48,9 +48,13 @@ ASpaceshipPawn::ASpaceshipPawn()
 	// 多出 1.2 公里预警，且不额外扩大细分区域。停稳时速度为零，退化成普通调用器。
 	//
 	// ⚠ 调用器的位置是**搬到预测点**去的（同上：Position = 组件位置 + 速度 ×
-	// PredictionTime），不是「两个点都罩住」—— 所以范围必须自己罩得住那个偏移量。
-	// 范围从 200 米改成 3 公里就是这么来的：沿用原口径「2.5 秒提前量」，
-	// 1.2e5 cm/s × 2.5 s = 3e5 厘米。PredictionTime 保持 1 秒（1.2 公里 < 3 公里）。
+	// PredictionTime），不是「两个点都罩住」—— 所以范围必须自己罩得住那个偏移量：
+	// 硬约束是「范围 ≥ 最大速度 × PredictionTime」。最大速度**含** BoostMultiplier
+	// （1.2e5 × 3 = 3.6e5 厘米/秒），PredictionTime 保持 1 秒 → 预测点超前 3.6e5
+	// 厘米。两个范围因此取 4.5e5 厘米 = 3.6e5 × 1.25。
+	//
+	// 巡航（关阻尼）下速度无上界，任何有限范围都盖不住 —— 这是已知上限，不是调
+	// 参数能解决的：届时预测点跑到范围外，调用器就盖不到飞船本体了。
 	//
 	// 数值与角色一致（见 PlanetCharacter.cpp）：LODToSet = 0 是插件对「贴着表面的
 	// Pawn」的约定用法。范围留在组件面板上可调 —— 嫌地形追不上就同时调大
@@ -58,15 +62,15 @@ ASpaceshipPawn::ASpaceshipPawn()
 	// CollisionsRange 单独驱动），或把 bUseForPriorities 打开让飞船附近的区块
 	// 优先网格化。
 	//
-	// 代价未知：本关卡行星半径只有 750 米，3 公里的范围等于整颗行星全程满精度 +
+	// 代价未知：本关卡行星半径只有 750 米，4.5 公里的范围等于整颗行星全程满精度 +
 	// 带碰撞。这一项要实测；嫌贵就往回收，改完把上面的推导一起改掉。
 	VoxelInvoker = CreateDefaultSubobject<UVoxelInvokerWithPredictionComponent>(TEXT("VoxelInvoker"));
 	VoxelInvoker->SetupAttachment(Collision);
 	VoxelInvoker->bUseForLOD = true;
 	VoxelInvoker->LODToSet = 0;
-	VoxelInvoker->LODRange = 300000.f;
+	VoxelInvoker->LODRange = 450000.f;
 	VoxelInvoker->bUseForCollisions = true;
-	VoxelInvoker->CollisionsRange = 300000.f;
+	VoxelInvoker->CollisionsRange = 450000.f;
 	VoxelInvoker->bUseForNavmesh = false;
 	VoxelInvoker->bUseForEvents = false;
 	VoxelInvoker->bUseForPriorities = false;
@@ -484,7 +488,7 @@ float ASpaceshipPawn::GetContactRadiusCm() const
 FVector ASpaceshipPawn::GetThrustAccelerationWorld() const
 {
 	// 方向 = 机头 × 前后输入 + 机身上 × 升降输入，合成向量夹到长度 1 ——
-	// 与 UFloatingPawnMovement::AddInputVector 的 GetClampedToMaxSize(1) 同规则：
+	// 与**原来的** UFloatingPawnMovement::AddInputVector 的 GetClampedToMaxSize(1) 同规则：
 	// 斜着同时按 W 和 Space 不该比单按一个多出 41% 的推力。
 	const FVector Direction =
 		(GetActorForwardVector() * ThrustInput + GetActorUpVector() * VerticalInput)

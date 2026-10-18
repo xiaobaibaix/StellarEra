@@ -83,6 +83,18 @@ void UCosmosSimulationSubsystem::UnregisterBody(UCosmosOrbitComponent* Component
 	// 只从列表里摘掉，求解器里的那个天体留着不动 —— 中途把它从数组里删掉会让
 	// 后面所有索引整体前移，其余组件已存的 SimulatorIndex 全部失效。
 	// 本项目的天体在整局游戏里不增不减，这个取舍是安全的。
+	//
+	// 但要把「每帧由组件写进去」的那两个字段清零：否则按住 W 销毁飞船时，那颗
+	// 幽灵天体会带着最后一帧的外力与阻尼继续飞（它只剩引力，物理上可忽略），
+	// 而 bHasForcedBodies 下一帧就变回 false —— 诊断里的 ⚠ 跟着消失，等于诊断
+	// 在撒谎。
+	if (Component->SimulatorIndex != INDEX_NONE
+		&& Component->SimulatorIndex < Simulator.GetNumBodies())
+	{
+		FCosmosBodyState& Body = Simulator.GetBodyMutable(Component->SimulatorIndex);
+		Body.ExternalAcceleration = FVector3d::ZeroVector;
+		Body.LinearDamping = 0.0;
+	}
 }
 
 void UCosmosSimulationSubsystem::AddBodyToSimulator(UCosmosOrbitComponent* Component)
@@ -102,8 +114,9 @@ void UCosmosSimulationSubsystem::AddBodyToSimulator(UCosmosOrbitComponent* Compo
 	State.Mass = Component->MassSolar;
 	State.OwnerActor = BodyActor;
 
-	// 半径只对体素星球有意义（只有它才有「地表」这个概念）。恒星之类的天体
-	// 不携带任何人，留 0 即可 —— 携带判定走的是 Task 5 里单独的一条路径。
+	// 半径只对**有「地表」这个概念的天体**有意义 —— 就是下面这两个分支：星球
+	// 与飞船。其余天体留 0 即可（点质量、永不接触）。携带判定走的是
+	// CarryRiders 里的 Cast<AVoxelPlanetActor>，与这里写不写半径无关。
 	if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(BodyActor))
 	{
 		// 这里先给平均球半径当**兜底**：第一次 Tick 就会由
@@ -216,6 +229,10 @@ void UCosmosSimulationSubsystem::ApplyControlledBodyForces()
 			FVector3d(Ship->GetThrustAccelerationWorld()) / CmPerS2PerAuPerY2;
 
 		// τ 是真实秒，求解器的时间单位是模拟年，所以除一个 TimeScale。
+		//
+		// ⚠ 阻尼作用在**惯性系**速度上，不是相对携带天体的速度 —— 求解器不知道
+		// 谁携带谁（那是 CarryRiders 的事，而且是单向的）。行星自己在跑时，阻尼
+		// 抽走的是 k·v_行星 那个量级；后果见 spec §7。
 		const float DampingTime = Ship->GetDampingTime();
 		Body.LinearDamping = DampingTime > 0.f
 			? 1.0 / (double(DampingTime) * TimeScale)
@@ -479,9 +496,9 @@ void UCosmosSimulationSubsystem::LogDiagnostics() const
 		TimeScale, TimeScale > 0.0 ? 1.0 / TimeScale : 0.0);
 	UE_LOG(LogTemp, Log, TEXT("[Cosmos] 已模拟    : %.6f 年"), Simulator.GetSimulatedTime());
 
-	// 有受控天体时总能量与总动量都不再守恒：有外力或阻尼时此值不再守恒 —— 推力
-	// 做功、以及接触抹掉法向速度都会让它偏离（接触把它拉负、推力做功把它推正）。
-	// 所以加一句提醒，免得看日志的人把它当成积分误差去查积分器。
+	// 有受控天体时，总能量与总动量这两项都不再守恒，这个漂移值于是不再是积分
+	// 误差：推力做功把它推正，阻尼与接触耗散把它拉负（接触抹的是相对法向速度，
+	// 只吃能量、不动总动量）。加一句提醒，免得看日志的人去查积分器。
 	UE_LOG(LogTemp, Log, TEXT("[Cosmos] 能量漂移  : %.6e  （辛积分应 < 1e-5）%s"),
 		Simulator.GetEnergyDriftRatio(),
 		bHasForcedBodies ? TEXT("  ⚠ 含受控天体，此值不守恒") : TEXT(""));
@@ -585,7 +602,7 @@ void UCosmosSimulationSubsystem::GetRegisteredBodies(TArray<AActor*>& Out) const
 
 void UCosmosSimulationSubsystem::CarryRiders(AActor* BodyActor, const FVector& Delta)
 {
-	// 只有体素星球携带人。恒星是网格、没有「地表」这个概念，
+	// 只有 AVoxelPlanetActor 携带人；不是它的天体没有「地表」这个概念，
 	// 站在上面的东西靠自身重力待着就行。
 	const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(BodyActor);
 	if (!Planet)
@@ -658,8 +675,9 @@ void UCosmosSimulationSubsystem::CarryRiders(AActor* BodyActor, const FVector& D
 		// 判定球内、却离小星更近的 Pawn 会被两颗星同时放弃。届时要把比较条件改成
 		// 「更近**且**够得着」。
 		//
-		// 所以只由「离 Pawn 最近的携带者」推它，其余天体的调用跳过。恒星不是
-		// 携带者，它的远近与本规则无关，不能参与比较、更不能否决行星。
+		// 所以只由「离 Pawn 最近的携带者」推它，其余天体的调用跳过。不是
+		// AVoxelPlanetActor 的天体不是携带者，它的远近与本规则无关，不能参与
+		// 比较、更不能否决行星。
 		//
 		// 距离相等时按 (距离平方, UniqueID) 取最小，保证同帧恰好一颗星携带：
 		// 只比距离的话，正好落在两个等半径判定球中点的 Pawn 会被推两次。
@@ -675,7 +693,7 @@ void UCosmosSimulationSubsystem::CarryRiders(AActor* BodyActor, const FVector& D
 				continue;
 			}
 
-			// 恒星不是携带者，不参与比较。
+			// 不是 AVoxelPlanetActor 的天体不是携带者，不参与比较。
 			if (!Cast<AVoxelPlanetActor>(OtherBody))
 			{
 				continue;

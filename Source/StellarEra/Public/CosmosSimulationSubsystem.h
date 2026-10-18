@@ -22,9 +22,8 @@ class UCosmosOrbitComponent;
  * 每帧顺序（全在一次 Tick 内完成，避免天体之间差一帧）：
  *   0. 刷新行星接触半径 + 把受控天体（飞船）的推力/阻尼喂给求解器
  *   1. 推进求解器若干步
- *   2. 对每个天体：把求解器位置与速度写回 Actor（bSimulated 为真时）
- *   3. 体素星球：同步代理体素世界的变换
- *   4. 把位移施加给骑在这颗星球上的 Pawn
+ *   2. 把求解器位置与速度写回天体、并把位移带给骑在上面的 Pawn
+ *   3. 诊断
  */
 UCLASS(Config = Game)
 class UCosmosSimulationSubsystem : public UTickableWorldSubsystem
@@ -301,8 +300,8 @@ private:
 	 *
 	 * 两颗星的判定球可能重叠，重叠区里的 Pawn 若被两颗星各推一次，位移会叠加成
 	 * 两倍（本关卡足以让飞船卡在边界上横向扫走、飞不到另一颗星）。所以再加一条
-	 * 「最近者独占」：只有离 Pawn 最近的那颗体素星球才携带它。恒星不是携带者，
-	 * 不参与比较。
+	 * 「最近者独占」：只有离 Pawn 最近的那颗 AVoxelPlanetActor 才携带它。
+	 * 不是 AVoxelPlanetActor 的天体不是携带者，不参与比较。
 	 */
 	void CarryRiders(AActor* BodyActor, const FVector& Delta);
 
@@ -317,9 +316,9 @@ private:
 	/**
 	 * 上一次 ApplyControlledBodyForces 里是否有天体被外力或阻尼作用。
 	 *
-	 * 有的话总能量与总动量都不再守恒：有外力或阻尼时此值不再守恒 —— 推力做功、
-	 * 以及接触抹掉法向速度都会让它偏离（接触把它拉负、推力做功把它推正）。
-	 * LogDiagnostics 据此加一句提醒，免得看日志的人把它当成积分误差去查积分器。
+	 * 有受控天体时，总能量与总动量这两项都不再守恒，这个漂移值于是不再是积分
+	 * 误差：推力做功把它推正，阻尼与接触耗散把它拉负（接触抹的是相对法向速度，
+	 * 只吃能量、不动总动量）。加一句提醒，免得看日志的人去查积分器。
 	 */
 	bool bHasForcedBodies = false;
 

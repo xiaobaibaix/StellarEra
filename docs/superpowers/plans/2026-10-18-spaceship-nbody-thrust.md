@@ -32,7 +32,7 @@
 - **推力下限被当地重力锁死**：本关卡中心天体 M = 100 M☉、飞船在 r = 0.07425 AU，表面重力 = G·M/r² = 716,089 AU/年² = **7.94e6 cm/s²**。推力加速度必须大于它，否则飞船一步都升不起来。
 - **换算常数**：`CentimetersPerAu = 1e6`、`TimeScale = 0.00333` 时，`1 AU/年² = CentimetersPerAu × TimeScale² = 11.089 厘米/秒²`，`1 AU/年 = CentimetersPerAu × TimeScale = 3330 厘米/秒`。
 - **模块依赖无环**：`StellarEra → StellarEraVehicle → StellarEraPlanet`、`StellarEra → StellarEraCore`。`StellarEraVehicle` **不能**依赖 `StellarEra`。飞船里不许 include `CosmosOrbitComponent.h` 或 `CosmosSimulationSubsystem.h`。
-- **数值标定**（照抄，不要「优化」）：`ThrustAcceleration = 1.2e7f`、`BoostMultiplier = 3.0f`、`DampingTime = 0.01f`、体素 `LODRange` / `CollisionsRange = 300000.f`。
+- **数值标定**（照抄，不要「优化」）：`ThrustAcceleration = 1.2e7f`、`BoostMultiplier = 3.0f`、`DampingTime = 0.01f`、体素 `LODRange` / `CollisionsRange = 450000.f`（原稿写 `300000.f`，漏算了 `BoostMultiplier`；见 Task 2 Step 2 (c) 末尾那条订正）。
 - **求解器里的等价量**：推力 1.082e6 AU/年²、`LinearDamping` k = 3.0e4 /年。稳定性 `k·dt = 3.0e4 × 1.25e-7 = 3.75e-3 ≪ 2`，**积分器不用改**。
 
 ---
@@ -557,7 +557,7 @@ class UFloatingPawnMovement;
 	 * 关：有阻尼，松手后速度按 τ 衰减停下。
 	 *
 	 * **只关阻尼，推力照给**：开着巡航按住 W 才能一路加速到圆轨道速度
-	 * （阻尼极速 1.2 km/s 只有圆轨道速度 767.8 km/s 的 0.156 倍）。
+	 * （阻尼极速 1.2 km/s 只有圆轨道速度 7.678 km/s 的 0.156 倍）。
 	 *
 	 * 只翻转、不接收目标值：状态归飞船自己管，输入侧不需要知道当前是开是关。
 	 */
@@ -700,9 +700,13 @@ struct FSpaceshipStatus
 	// 多出 1.2 公里预警，且不额外扩大细分区域。停稳时速度为零，退化成普通调用器。
 	//
 	// ⚠ 调用器的位置是**搬到预测点**去的（同上：Position = 组件位置 + 速度 ×
-	// PredictionTime），不是「两个点都罩住」—— 所以范围必须自己罩得住那个偏移量。
-	// 范围从 200 米改成 3 公里就是这么来的：沿用原口径「2.5 秒提前量」，
-	// 1.2e5 cm/s × 2.5 s = 3e5 厘米。PredictionTime 保持 1 秒（1.2 公里 < 3 公里）。
+	// PredictionTime），不是「两个点都罩住」—— 所以范围必须自己罩得住那个偏移量：
+	// 硬约束是「范围 ≥ 最大速度 × PredictionTime」。最大速度**含** BoostMultiplier
+	// （1.2e5 × 3 = 3.6e5 厘米/秒），PredictionTime 保持 1 秒 → 预测点超前 3.6e5
+	// 厘米。两个范围因此取 4.5e5 厘米 = 3.6e5 × 1.25。
+	//
+	// 巡航（关阻尼）下速度无上界，任何有限范围都盖不住 —— 这是已知上限，不是调
+	// 参数能解决的：届时预测点跑到范围外，调用器就盖不到飞船本体了。
 	//
 	// 数值与角色一致（见 PlanetCharacter.cpp）：LODToSet = 0 是插件对「贴着表面的
 	// Pawn」的约定用法。范围留在组件面板上可调 —— 嫌地形追不上就同时调大
@@ -710,20 +714,22 @@ struct FSpaceshipStatus
 	// CollisionsRange 单独驱动），或把 bUseForPriorities 打开让飞船附近的区块
 	// 优先网格化。
 	//
-	// 代价未知：本关卡行星半径只有 750 米，3 公里的范围等于整颗行星全程满精度 +
+	// 代价未知：本关卡行星半径只有 750 米，4.5 公里的范围等于整颗行星全程满精度 +
 	// 带碰撞。这一项要实测；嫌贵就往回收，改完把上面的推导一起改掉。
 ```
 
-> 两处与原文的差别，都是有意的：`8000 cm/s → 2.5 秒` 变成 `1.2e5 cm/s → 0.17 秒`（速度涨了 15 倍，20000 厘米 ÷ 1.2e5 = 0.167 秒，同样的范围下提前量就缩短 15 倍）；末段里「200 m 是本项目已经在跑的量级」删掉了，因为范围已经不是 200 m。
+> 三处与原文的差别，都是有意的：`8000 cm/s → 2.5 秒` 变成 `1.2e5 cm/s → 0.17 秒`（速度涨了 15 倍，20000 厘米 ÷ 1.2e5 = 0.167 秒，同样的范围下提前量就缩短 15 倍）；末段里「200 m 是本项目已经在跑的量级」删掉了，因为范围已经不是 200 m。
+>
+> 第三处是**整条分支复审时的订正**（F2）：上面那段 ⚠ 的推导原本只用了极速 `1.2e5 cm/s`、据此把范围写成 3 公里，**漏了 `BoostMultiplier`** —— 按 Shift 时极速是 `3.6e5 cm/s`，而调用器的位置是搬到预测点去的（偏移 = 速度 × `PredictionTime` = 3.6e5 厘米），3e5 厘米的范围罩不住飞船本体。订正后的推导与数值就是上面这份，范围取 4.5 公里。这里如实记下，免得下一轮再从「3 公里」反推一遍。
 
-(d) 第 59 行与第 61 行，范围改大：
+(d) 第 59 行与第 61 行，范围改大（**原稿写 `300000.f`，因漏算 `BoostMultiplier` 复审时上调到 `450000.f`**）：
 
 ```cpp
-	VoxelInvoker->LODRange = 300000.f;
+	VoxelInvoker->LODRange = 450000.f;
 ```
 
 ```cpp
-	VoxelInvoker->CollisionsRange = 300000.f;
+	VoxelInvoker->CollisionsRange = 450000.f;
 ```
 
 - [ ] **Step 3: 改实现 —— BeginPlay**
@@ -897,6 +903,8 @@ DampingTime 0.01 秒 → 极速 1.2 km/s。体素调用器范围 200 米 → 3 �
 Co-Authored-By: Claude Code <noreply@anthropic.com>" \
   Source/StellarEraVehicle/Public/SpaceshipPawn.h Source/StellarEraVehicle/Private/SpaceshipPawn.cpp Source/StellarEra/Private/StellarEraHUD.cpp
 ```
+
+> ⚠ **上面这段引用保持原样，是 `cb5683c` 当时真实的提交信息，不改** —— 改了就等于谎称那个提交当初是这么写的。但要知道它里面有两个数后来被推翻了：**「极速 1.2 km/s」**只算了裸推力，没乘 `BoostMultiplier`（按 Shift 时是 3.6 km/s）；据此得出的**「范围 200 米 → 3 公里」**也因此不够，整条分支复审时订正为 **4.5 公里**。以 Task 2 Step 2 (c)/(d) 那份订正后的推导为准（也就是最终代码 `SpaceshipPawn.cpp` 里现在写的）。
 
 ---
 
@@ -1172,7 +1180,7 @@ spec §8.7 / §8.8 / §8.9 / §8.10。这四条 probe 做不到（`-game -nullrh
 1. 飞船能起飞、能悬停、能落地；HUD 的「速度」显示的是真实速度。
 2. 按住 W 时高度在若干帧内单调上升，**净上升加速度约 0.5 g**（推力 1.51 g − 重力 1 g）。
 3. **松开 W 后速度按 τ ≈ 10 毫秒衰减**（不是旧尺度那种 2 秒）。这条是阻尼真的接上了的判据 —— 只看「飞得起来」分不出「阻尼生效」和「阻尼被漏掉、只是推力大」。
-4. 高速飞行时地形跟得上（不穿模）—— 这是 `LODRange` / `CollisionsRange` 那 3 公里是否够的判据。嫌贵就往回收，收的时候把 `SpaceshipPawn.cpp` 里那段推导一起改掉。
+4. 高速飞行时地形跟得上（不穿模）—— 这是 `LODRange` / `CollisionsRange` 那 4.5 公里是否够的判据。嫌贵就往回收，收的时候把 `SpaceshipPawn.cpp` 里那段推导一起改掉。
 
 另外记住 spec §7 的已知后果，别把它们当 bug 查：
 
