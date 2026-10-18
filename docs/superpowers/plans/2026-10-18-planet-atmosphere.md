@@ -449,7 +449,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$TEMP/ue_mcp/run_nbody_test
 
 如果脚本不支持 `-Filter`，直接按既有模板改一个：`UnrealEditor-Cmd.exe "<项目>.uproject" -ExecCmds="Automation RunTests StellarEra.Planet.AtmosphereParams" -TestExit="Automation Test Queue Empty" -unattended -nopause -nullrhi -nosplash -stdout -abslog="<日志路径>"`。
 
-预期：5 条测试全 `Success`。
+预期：4 条测试全 `Success`（`EarthDefaults` / `ShellRadius` / `EngineScale` / `ShellScattering`）。
 
 **如果 `EarthDefaults` 那条红了**：说明我们记的地球基准常量与引擎默认值不符。以引擎为准，改 `PlanetAtmosphereParams.h` 里的常量，**同时**改本任务测试里的期望值（`EngineScale` / `ShellScattering` 两条里的 `8480`、`0.2648`、`0.005328` 是按 `6360 / 0.75` 和地球常量算出来的，常量一改这些数字要跟着重算）。**不要**为了迁就测试改测试的容差。
 
@@ -1429,7 +1429,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$TEMP/ue_mcp/ue_build.ps1"
 powershell -NoProfile -ExecutionPolicy Bypass -File "$TEMP/ue_mcp/run_nbody_test.ps1" -Filter "StellarEra.Atmosphere.Targeting"
 ```
 
-预期：构建 `Result: Succeeded`；测试 7 条全 `Success`。
+预期：构建 `Result: Succeeded`；1 条测试 `StellarEra.Atmosphere.Targeting` 全 `Success`，里面有 7 条断言。
 
 - [ ] **Step 5: 接进子系统**
 
