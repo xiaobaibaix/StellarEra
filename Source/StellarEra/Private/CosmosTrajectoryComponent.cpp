@@ -165,9 +165,15 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	// ── 门控：只门控「画」 ──
 	// 采样在上面**无条件**跑完了 —— 拖尾是真实历史。星图模式之外看不见它，
 	// 但历史一直在攒，所以一进星图就是完整的，不是从零开始长。
-	const bool bVisible = Orbit->bDrawTrajectory
-		&& (Subsystem->IsStarMapActive() || Orbit->bShowOutsideStarMap);
-	if (!bVisible)
+	//
+	// 三样东西各有一个逐天体开关，彼此独立、谁也不否决谁。星图可见性那一关
+	// （星图模式 或 bShowOutsideStarMap）同时管住三样。
+	const bool bInStarMapView = Subsystem->IsStarMapActive() || Orbit->bShowOutsideStarMap;
+	const bool bWantTrail = bInStarMapView && Orbit->bDrawTrail;
+	const bool bWantPrediction = bInStarMapView && Orbit->bDrawPrediction;
+	const bool bWantArrow = bInStarMapView && Orbit->bDrawInitialVelocity;
+
+	if (!bWantTrail && !bWantPrediction && !bWantArrow)
 	{
 		ClearDrawnLines();
 		return;
@@ -180,8 +186,10 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	//
 	// 滞后一律用**角度**说，不要用米：本关卡一圈约 7.5 秒，节流 0.2 秒 ≈ 10°，
 	// 1 帧（60fps）≈ 0.8°。换关卡时按「时长 ÷ 一圈时长 × 360°」自己算。
+	//
+	// bDrawPrediction 为假时整段跳过 —— 这正是那个开关省下的大头（整系统复制 + 255 步）。
 	PredictedWorld.Reset();
-	if (Orbit->SimulatorIndex != INDEX_NONE)
+	if (bWantPrediction && Orbit->SimulatorIndex != INDEX_NONE)
 	{
 		Subsystem->PredictTrajectoryWorld(Orbit->SimulatorIndex, Horizon,
 			PredictionSamples, PredictedWorld);
@@ -200,17 +208,17 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 
 	Lines.Reset();
 
-	if (Trail.Num() >= 2)
+	if (bWantTrail && Trail.Num() >= 2)
 	{
 		AppendPolyline(Trail, TrailColor);
 	}
 
-	if (PredictedWorld.Num() >= 2)
+	if (bWantPrediction && PredictedWorld.Num() >= 2)
 	{
 		AppendPolyline(PredictedWorld, PredictionColor);
 	}
 
-	if (Orbit->bDrawInitialVelocity)
+	if (bWantArrow)
 	{
 		AppendVelocityArrow(FLinearColor(Orbit->InitialVelocityColor));
 	}

@@ -107,7 +107,8 @@ double GetSimulatedTimeYears() const;
 
 | 属性 | 默认 | 说明 |
 |---|---|---|
-| `bDrawTrajectory` | `true` | 逐天体开关。飞船或恒星想关就关 |
+| `bDrawPrediction` | `true` | 预测折线的逐天体开关。关掉连预测重算都跳过 |
+| `bDrawTrail` | `true` | 拖尾的逐天体开关。只门控「画」，采样照跑 |
 | `PredictionColor` | 浅蓝 `(90, 170, 255)` | 预测轨迹，浅 |
 | `TrailColor` | 深蓝 `(20, 50, 110)` | 拖尾，深 |
 | `InitialVelocityColor` | 琥珀 `(255, 210, 80)` | 初始速度矢量 |
@@ -299,7 +300,7 @@ performant for runtime use.」我们每帧重画、每次不到 4 千条线、�
    - 出发点有琥珀色箭头，方向与初速度一致
 3. 日志：每个天体打印估算周期与选中的预测时长
 4. `stat unit` 确认没有帧时间回归
-5. 逐项关掉 `bDrawTrajectory` / `bDrawInitialVelocity`，确认开关生效
+5. 逐项关掉 `bDrawPrediction` / `bDrawTrail` / `bDrawInitialVelocity`，确认开关生效
 
 ## 12. 已知取舍
 
@@ -324,7 +325,8 @@ performant for runtime use.」我们每帧重画、每次不到 4 千条线、�
    位置（照样在漂，所以画出一条椭圆）。两者本来就在描述不同的东西 ——
    这与 `bSimulated` 的既有语义一致（见 `CosmosOrbitComponent.h` 里那段
    「两边会分叉」的说明），不是本次引入的新问题。视觉上是「一个不动的点 +
-   一条椭圆」，真觉得别扭就把那种天体的 `bDrawTrajectory` 关掉。
+   一条椭圆」，真觉得别扭就把那种天体的 `bDrawPrediction` 关掉（拖尾留着 ——
+   那才是它真实的路径）。
 
 ## 附录：随轨迹提交一并落地的三处改动（无独立 spec，补记于此）
 

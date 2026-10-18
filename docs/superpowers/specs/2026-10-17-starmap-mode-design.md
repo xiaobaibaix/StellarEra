@@ -220,11 +220,11 @@ void SetStarMapActive(bool bActive);
 2. Subsystem 判空 → return              ← 保持现状（那条 parked 缺陷本轮不动）
 3. Orbit 判空
 4. ── 拖尾采样（无条件，仍按模拟时间门限 TrailInterval）──   ← 搬到这里
-5. bVisible = Orbit->bDrawTrajectory
-            && (Subsystem->IsStarMapActive() || Orbit->bShowOutsideStarMap)
-6. !bVisible → 只清一次线（沿用 bDrewLastFrame 的写法）→ return
-7. 预测 + 画（选中的高亮）
-8. Flush + DrawLines
+5. bInStarMapView = Subsystem->IsStarMapActive() || Orbit->bShowOutsideStarMap
+6. 三个逐天体开关各自与它相与：bWantTrail / bWantPrediction / bWantArrow
+7. 三个都为假 → 只清一次线（沿用 bDrewLastFrame 的写法）→ return
+8. 预测（仅当 bWantPrediction）+ 画（选中的高亮）
+9. Flush + DrawLines
 ```
 
 第 4 步原在早退**之后**，所以现在关掉轨迹就不采样、拖尾不积累。
@@ -232,10 +232,14 @@ void SetStarMapActive(bool bActive);
 保留点数 ≤ `TrailSamples + 1` = 513。所以「一直不显示」也不会无限增长。
 
 > ⚠️ **`bDrawTrajectory` 的语义跟着变了，它的注释要一起改。**
-> 现在的文档写着「关掉可省下它的全部开销」（`CosmosOrbitComponent.h:90`）。
+> 现在的文档写着「关掉可省下它的全部开销」。
 > 采样上移之后它只门控「画」，采样照跑 —— 这句话就假了。改成如实描述：
 > 关掉省下的是**预测重算与画线**，拖尾采样仍在跑（成本有界，保留点数 ≤ 513）。
 > 这条属于「注释声称的事实」，必须与代码同改，否则就是下一轮复审要抓的假注释。
+>
+> **后续（2026-10-18）：这条属性被拆成两个** —— `bDrawPrediction`（关掉时连预测重算
+> 都跳过，比原来更强）与 `bDrawTrail`（只门控「画」，上面这段不变量原样保留）。
+> 两者互相独立，谁也不否决谁；星图可见性那一关仍然同时管住三样。
 
 **改动 B：`UCosmosOrbitComponent` 新增属性 `bShowOutsideStarMap`（默认 `false`）。**
 

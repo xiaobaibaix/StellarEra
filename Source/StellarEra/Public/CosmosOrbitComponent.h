@@ -88,24 +88,39 @@ public:
 	// 这儿才能逐天体在详情面板里调（颜色有取色器），且零编辑器侧手工操作。
 
 	/**
-	 * 是否画这个天体的轨迹（预测 + 拖尾）。
+	 * 是否画这个天体的**预测折线**（浅色那条）。默认开。
 	 *
-	 * 它只门控「画」—— 拖尾采样**不**受它影响，一直在跑（拖尾是真实历史，
-	 * 采样无条件进行，成本有界：保留点数 ≤ TrailSamples + 1 = 513）。
-	 * 关掉省下的是预测重算与画线，那是开销的大头。
+	 * 关掉省下的是**整段预测重算** —— 那是开销的大头：每帧把整个系统复制一份，
+	 * 再按预测窗口走 255 步。为假时连 PredictTrajectoryWorld 都不会被调用。
+	 *
+	 * 它与 bDrawTrail 完全独立，谁也不否决谁；两个都关才是「这条天体什么线都不画」。
 	 *
 	 * 注意默认它开着，但轨迹**默认仍然看不见** —— 可见性还要过
 	 * bShowOutsideStarMap 或星图模式那一关。见下面那条属性。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
-	bool bDrawTrajectory = true;
+	bool bDrawPrediction = true;
+
+	/**
+	 * 是否画这个天体的**拖尾**（深色那条，真实走过的路径）。默认开。
+	 *
+	 * 它只门控「画」—— 拖尾采样**不**受它影响，一直在跑（拖尾是真实历史，
+	 * 采样无条件进行，成本有界：保留点数 ≤ TrailSamples + 1 = 513）。
+	 * 所以关掉再打开立刻就是完整拖尾，不用等它从零长起来。
+	 *
+	 * 与 bDrawPrediction 完全独立：想只看真实走过的路径、不要预测，就留它、关掉
+	 * bDrawPrediction。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
+	bool bDrawTrail = true;
 
 	/**
 	 * 是否在**星图模式之外**也画这个天体的轨迹。默认关。
 	 *
 	 * 默认关 = 轨迹只在星图模式里显示。星图模式本身（含按 M 进出的开关）见
 	 * AStellarEraPlayerController::ToggleStarMap。
-	 * 想在普通游戏画面里也看到就把它勾上 —— 这是逐天体开关，与 bDrawTrajectory 是「与」的关系。
+	 * 想在普通游戏画面里也看到就把它勾上 —— 这是逐天体开关，与 bDrawPrediction /
+	 * bDrawTrail / bDrawInitialVelocity 都是「与」的关系。
 	 *
 	 * 放在 Orbit 组件上而不是轨迹组件上：轨迹组件是**哑渲染器**，它自己的头注释
 	 * 写着「不存任何面向用户的参数，参数全从兄弟 UCosmosOrbitComponent 上读」。
