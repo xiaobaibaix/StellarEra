@@ -5,6 +5,8 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
+// 断言写法说明：浮点一律显式带容差。
+
 // 这一组锁死"我们的常量 == 引擎的默认值"。
 // 引擎升级改了默认值，这里会红，而不是悄悄让所有缩放算错。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraAtmosphereEarthDefaultsTest,
