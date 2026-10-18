@@ -77,17 +77,21 @@ Scene->SkyAtmosphere = SkyAtmosphereSceneProxy->RenderSceneInfo;
 
 **结论**：壳的 HLSL 必须**自带散射数学**，不能复用引擎的散射函数。
 
-### 3.3 `UMaterialExpressionCustom::IncludeFilePaths` 只做依赖跟踪
+### 3.3 Custom 节点的 `IncludeFilePaths` **会**生成 `#include`，但我们不用它
 
-`GetIncludeFilePaths` 把路径收集进 `FMaterialCachedExpressionData::EditorOnlyData::ExpressionIncludeFilePaths`
-（`MaterialExpressions.cpp:12929`、`MaterialCachedData.cpp:569`）。全引擎消费点只有两处：
+`UMaterialExpressionCustom::IncludeFilePaths` 有两条独立的消费路径：
 
-- DDC 哈希：`FMaterial::GetExpressionIncludesHash`（`MaterialShared.cpp:4725-4738`）
-- cook 依赖：`MaterialShader.cpp:561-567`
+- **依赖跟踪**：`GetIncludeFilePaths` 把路径收进
+  `FMaterialCachedExpressionData::EditorOnlyData::ExpressionIncludeFilePaths`
+  （`MaterialExpressions.cpp:12929`、`MaterialCachedData.cpp:569`），被 DDC 哈希
+  （`MaterialShared.cpp:4725-4738`）与 cook 依赖（`MaterialShader.cpp:561-567`）读取。
+- **代码生成**：`FHLSLMaterialTranslator::CustomExpression` 把每条路径写成一行
+  `#include "<path>"`，插在生成的函数体之前（`HLSLMaterialTranslator.cpp:14327-14336`）。
 
-**没有一处把它变成生成的 `#include`。**
-
-**结论**：HLSL 直接作为**自包含字符串**写进 Custom 节点，不依赖任何 shader 目录映射。
+**结论**：路径确实会进 shader。代价是**必须**有一套 shader 目录映射能把那个虚拟路径解析到
+磁盘（缓存阶段 `GetShaderSourceFilePath` 会校验，解析不了就丢弃并打 Warning）。
+我们选择**不用**它：HLSL 作为自包含字符串写进 Custom 节点，零外部路径依赖，
+材质资产自带全部源码，也不需要在 `Build.cs` 里注册 shader 目录。
 
 ### 3.4 壳从球内看天然不可见
 
