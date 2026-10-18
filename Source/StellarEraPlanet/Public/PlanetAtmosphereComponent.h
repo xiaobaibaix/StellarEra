@@ -65,7 +65,12 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<ADirectionalLight> CachedSunLight;
 
-	/** 每帧推给材质的两个世界坐标，只在变化时写。 */
+	/**
+	 * CameraPos / SunDirection 的上一次值，用来判断"这一帧变了没有"。
+	 *
+	 * 只有这两个走门控。PlanetCenter 在 TickComponent 里**每帧无条件写**，
+	 * 不经过这里，所以这里没有它的缓存。
+	 */
 	FVector LastCameraPos = FVector(UE_BIG_NUMBER);
 	FVector LastSunDirection = FVector(UE_BIG_NUMBER);
 	bool bLoggedMissingSun = false;

@@ -1,12 +1,13 @@
 ﻿#include "PlanetAtmosphereComponent.h"
 
+// APlayerCameraManager 不在 GameFramework/ 下，在 Camera/ 下
+// （Engine/Classes/Camera/PlayerCameraManager.h 是引擎里唯一一份）。
+// 写成 GameFramework/PlayerCameraManager.h 编译不过（C1083）。
+#include "Camera/PlayerCameraManager.h"
 #include "Engine/DirectionalLight.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
-// 注意：APlayerCameraManager 不在 GameFramework/ 下，而在 Camera/ 下
-// （Engine/Classes/Camera/PlayerCameraManager.h）。计划里写的是前者，编译不过。
-#include "Camera/PlayerCameraManager.h"
 #include "GameFramework/PlayerController.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
@@ -45,7 +46,10 @@ UPlanetAtmosphereComponent::UPlanetAtmosphereComponent()
 	SetCastShadow(false);
 	bReceivesDecals = false;
 
-	// 负值让壳排在其他半透明之后画。
+	// 负值让壳排在其他半透明的**后面**（深度上靠后）。
+	// 引擎原话：lower sort priority draws behind objects with a higher priority
+	// （PrimitiveComponent.h:883-884）。
+	// 别用"之前画 / 之后画"来描述 —— 那说的是绘制先后，与"前后"正好相反，已经写反过一次。
 	// 直接赋属性：UPrimitiveComponent 上**没有** SetTranslucencySortPriority 这个函数，
 	// 只有公开成员 TranslucencySortPriority（PrimitiveComponent.h:892），写成 setter 编译不过。
 	TranslucencySortPriority = -1;
@@ -55,6 +59,13 @@ UPlanetAtmosphereComponent::UPlanetAtmosphereComponent()
 	if (SphereMesh.Succeeded())
 	{
 		SetStaticMesh(SphereMesh.Object);
+	}
+	else
+	{
+		// 必须在这里报：没有网格的壳是空的，而下游唯一的症状是
+		// "CreateDynamicMaterialInstance 失败"，那会把人引到材质上去。
+		UE_LOG(LogTemp, Error,
+			TEXT("[大气] 加载 /Engine/BasicShapes/Sphere.Sphere 失败 —— 壳没有网格，永远画不出来。"));
 	}
 }
 
@@ -92,8 +103,18 @@ void UPlanetAtmosphereComponent::BeginPlay()
 
 void UPlanetAtmosphereComponent::RefreshAtmosphereGeometry()
 {
-	if (!bAtmosphereEnabled || !AtmosphereMID)
+	if (!bAtmosphereEnabled)
 	{
+		// 关掉是用户的显式选择，不是失败，不报。
+		return;
+	}
+
+	if (!AtmosphereMID)
+	{
+		// 本函数是 BlueprintCallable，BeginPlay 之前调它会走到这里。
+		// 静默返回的话调用方拿不到任何反馈，只能看着壳没反应。
+		UE_LOG(LogTemp, Warning,
+			TEXT("[大气] RefreshAtmosphereGeometry 在 BeginPlay 之前被调用（AtmosphereMID 还是空），本次不做任何事。"));
 		return;
 	}
 
@@ -174,7 +195,19 @@ void UPlanetAtmosphereComponent::TickComponent(float DeltaTime, ELevelTick TickT
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	if (!bAtmosphereEnabled || !AtmosphereMID)
+	if (!bAtmosphereEnabled)
+	{
+		// 面板里取消勾选必须当场生效：只早退不够 —— 壳会带着上一次的参数继续画，
+		// Task 5 就是靠勾掉这一项来对比 stat unit 的，那样量到的是"什么都没变"。
+		// 用 IsVisible() 守卫，免得每帧都写一次可见性。
+		if (IsVisible())
+		{
+			SetVisibility(false);
+		}
+		return;
+	}
+
+	if (!AtmosphereMID)
 	{
 		return;
 	}
