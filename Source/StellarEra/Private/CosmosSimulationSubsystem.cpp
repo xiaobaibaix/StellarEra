@@ -85,9 +85,9 @@ void UCosmosSimulationSubsystem::UnregisterBody(UCosmosOrbitComponent* Component
 	// 本项目的天体在整局游戏里不增不减，这个取舍是安全的。
 	//
 	// 但要把「每帧由组件写进去」的那两个字段清零：否则按住 W 销毁飞船时，那颗
-	// 幽灵天体会带着最后一帧的外力与阻尼继续飞（它只剩引力，物理上可忽略），
-	// 而 bHasForcedBodies 下一帧就变回 false —— 诊断里的 ⚠ 跟着消失，等于诊断
-	// 在撒谎。
+	// 幽灵天体会一直带着最后一帧的外力与阻尼飞下去。物理上这点力可以忽略，
+	// 真正的问题是 bHasForcedBodies 下一帧就变回 false —— 诊断里的 ⚠ 跟着消失，
+	// 等于诊断在撒谎。
 	if (Component->SimulatorIndex != INDEX_NONE
 		&& Component->SimulatorIndex < Simulator.GetNumBodies())
 	{
@@ -282,8 +282,8 @@ void UCosmosSimulationSubsystem::FinalizeRegistration()
 	// 再取其中最短的一条除以 StepsPerOrbit。
 	//
 	// 为什么取最短的那条：它就是这个系统里最快的动力学时标，积分步长必须跟着它走。
-	// 具体数值逐关卡不同（改质量、改初始位置都会变），要看就去看开局日志那两行
-	// 「最短周期」与「步长」—— 步长恒等于最短周期除以 StepsPerOrbit。
+	// 具体数值逐关卡不同（改质量、改初始位置都会变）—— 要看就去看开局日志那行，
+	// 「最短周期」与「步长」两个字段都在上面。
 	double ShortestPeriod = TNumericLimits<double>::Max();
 
 	for (int32 I = 0; I < Simulator.GetNumBodies(); ++I)

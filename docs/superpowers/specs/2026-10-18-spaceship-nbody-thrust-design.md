@@ -124,14 +124,15 @@ Accelerations[i] = G * Sum
 ```
 
 **为什么阻尼必须在求解器里逐子步算，而不是在外面算好一个常量加速度：**
-`StepVelocityVerlet` 一帧内要跑最多 `MaxStepsPerFrame = 200` 个子步，覆盖约 7.5 毫秒的
-世界时间，而 τ = 10 毫秒 —— 一帧之内速度要变 2 倍以上。在外面按帧首速度算一个常量阻力，
-等于把阻尼削掉一大截。
+`StepVelocityVerlet` 一帧内要跑最多 `MaxStepsPerFrame = 200` 个子步，这些子步覆盖的
+世界时间与 τ = 10 毫秒同量级 —— 一帧之内速度要变 2 倍以上。在外面按帧首速度算一个
+常量阻力，等于把阻尼削掉一大截。
 
 **稳定性**：`StepVelocityVerlet` 在步骤②重算加速度时用的还是**踢之前**的速度
 （`x += v·dt/2` → `ComputeAccelerations` → `v += a·dt`），所以阻尼项是显式欧拉，
-每步的放大因子是 `1 − k·dt`。要求 `k·dt < 2`，而
-`k·dt = 3.0e4 × 1.25e-7 = 3.75e-3`，余量三个数量级。**积分器不用改。**
+每步的放大因子是 `1 − k·dt`。要求 `k·dt < 2`，而飞船的 `k = 3.0e4 /年`、`dt` 是
+逐关卡派生的（最短周期 / `StepsPerOrbit`，约 `1e-7` 年量级），于是 `k·dt` 在
+`1e-3` 量级 —— 远小于上限 2。**积分器不用改。**
 
 ### 5.2 预测副本要清零
 
@@ -302,8 +303,9 @@ FVector ToWorldVelocityScaled(const FVector3d& GameUnitVelocity) const;
 
 ### 5.7 诊断措辞
 
-有受控天体时总能量与总动量都不再守恒，`GetEnergyDriftRatio()` 会报出一个巨大的数
-（那是推力做功，不是积分误差）。`LogDiagnostics` 里加个后缀：
+有受控天体时，总能量与总动量这两项都不再守恒，`GetEnergyDriftRatio()` 于是不再是
+积分误差：推力做功把它推正，阻尼与接触耗散把它拉负（接触抹的是相对法向速度，
+只吃能量、不动总动量）。`LogDiagnostics` 里加个后缀：
 
 ```cpp
 UE_LOG(LogTemp, Log, TEXT("能量漂移  : %.6e  （辛积分应 < 1e-5）%s"),

@@ -33,7 +33,7 @@
 - **换算常数**：`CentimetersPerAu = 1e6`、`TimeScale = 0.00333` 时，`1 AU/年² = CentimetersPerAu × TimeScale² = 11.089 厘米/秒²`，`1 AU/年 = CentimetersPerAu × TimeScale = 3330 厘米/秒`。
 - **模块依赖无环**：`StellarEra → StellarEraVehicle → StellarEraPlanet`、`StellarEra → StellarEraCore`。`StellarEraVehicle` **不能**依赖 `StellarEra`。飞船里不许 include `CosmosOrbitComponent.h` 或 `CosmosSimulationSubsystem.h`。
 - **数值标定**（照抄，不要「优化」）：`ThrustAcceleration = 1.2e7f`、`BoostMultiplier = 3.0f`、`DampingTime = 0.01f`、体素 `LODRange` / `CollisionsRange = 450000.f`（原稿写 `300000.f`，漏算了 `BoostMultiplier`；见 Task 2 Step 2 (c) 末尾那条订正）。
-- **求解器里的等价量**：推力 1.082e6 AU/年²、`LinearDamping` k = 3.0e4 /年。稳定性 `k·dt = 3.0e4 × 1.25e-7 = 3.75e-3 ≪ 2`，**积分器不用改**。
+- **求解器里的等价量**：推力 1.082e6 AU/年²、`LinearDamping` k = 3.0e4 /年。稳定性 `k·dt ≪ 2`（`dt` 逐关卡派生、约 `1e-7` 年量级，`k·dt` 落在 `1e-3` 量级），**积分器不用改**。
 
 ---
 
@@ -302,8 +302,9 @@ powershell -File "$env:TEMP\ue_mcp\ue_build.ps1"
 	 * 单位是 1/年 而不是 1/秒，因为求解器的时间单位是模拟年。
 	 *
 	 * 必须在求解器里**逐子步**算，不能在外部按帧算好一个常量加速度：一帧最多跑
-	 * MaxStepsPerFrame = 200 个子步、约 7.5 毫秒世界时间，而飞船的阻尼时间常数是
-	 * 10 毫秒 —— 一帧之内速度要变 2 倍以上，按帧首速度算常量阻力等于把阻尼削掉一大截。
+	 * MaxStepsPerFrame = 200 个子步，这些子步覆盖的世界时间与飞船的阻尼时间常数
+	 * τ = 10 毫秒同量级 —— 一帧之内速度要变 2 倍以上，按帧首速度算常量阻力等于
+	 * 把阻尼削掉一大截。
 	 */
 	double LinearDamping = 0.0;
 ```
@@ -321,8 +322,12 @@ powershell -File "$env:TEMP\ue_mcp\ue_build.ps1"
 ```cpp
 		// 外力与阻尼都是**逐子步**求值的：阻尼那一项用的是本步此刻的 Velocity，
 		// 而 StepVelocityVerlet 在步骤②重算加速度时速度还没被踢 —— 所以阻尼是
-		// 显式欧拉，每步放大因子 1 − k·dt。稳定性要求 k·dt < 2；飞船的
-		// k·dt = 3.0e4 × 1.25e-7 = 3.75e-3，余量三个数量级。
+		// 显式欧拉，每步放大因子 1 − k·dt。稳定性要求 k·dt < 2。
+		//
+		// 判据只写公式，不代具体步长：dt 是逐关卡派生的（最短周期 / StepsPerOrbit，
+		// 另有钳制与默认值兜底），换关卡、甚至同关卡改初始条件都会变。飞船的
+		// k = 3.0e4 /年，本关卡 dt 在 1e-7 年量级，于是 k·dt 在 1e-3 量级 ——
+		// 远小于上限 2，余量两到三个数量级。
 		Accelerations[i] = G * Sum
 			+ Bodies[i].ExternalAcceleration
 			- Bodies[i].LinearDamping * Bodies[i].Velocity;
@@ -370,6 +375,10 @@ powershell -File "$env:TEMP\ue_mcp\ue_build.ps1"
 	 * （ASpaceshipPawn::GetContactRadiusCm）。飞船的半径**不是 0**，否则它的
 	 * **中心点**会被钳在地表上、机身下半截埋进地形里。
 ```
+
+> ⚠ **最终复审轮订正**：上面这个"改后"块在最终复审时又改过一次 —— 原文用「恒星」
+> 举例，但本关卡没有网格恒星，改成了代码判据式写法（只有 `AVoxelPlanetActor` 携带人）。
+> 以 `Source/StellarEraCore/Public/NBodySimulator.h` 的发货注释为准。
 
 **(b) `ComputeContactShares` 的注释中间三行（第 264–266 行）。** 它说「本项目的飞船就是 `MassSolar = 0`」—— 实际是 `1e-6`。
 
@@ -433,6 +442,10 @@ PredictTrajectory 的副本清零这两项：预测的是松手之后的纯引�
 Co-Authored-By: Claude Code <noreply@anthropic.com>" \
   Source/StellarEraCore/Public/NBodySimulator.h Source/StellarEraCore/Private/NBodySimulator.cpp Source/StellarEraCore/Private/NBodySimulatorTests.cpp
 ```
+
+> ⚠ **最终复审轮订正**：上面这段是 `4ade358` 的**提交信息原文**，其中的 `≈ 7.5 毫秒`
+> 与 `k·dt = 3.75e-3` 是写计划时那一次运行的关卡实测值，后来随关卡改动而变；结论
+> `k·dt ≪ 2` 不受影响。**引文原样保留，不改写历史记录。**
 
 **提交必须带 pathspec 挂在 `git commit` 上**（索引里有常驻暂存文件，裸 `git commit` 会一口气吞掉全部）。
 
@@ -967,8 +980,9 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>" \
 	/**
 	 * 上一次 ApplyControlledBodyForces 里是否有天体被外力或阻尼作用。
 	 *
-	 * 有的话总能量与总动量都不再守恒，GetEnergyDriftRatio() 会报出一个巨大的数
-	 * （那是推力做功，不是积分误差）—— LogDiagnostics 据此加一句提醒。
+	 * 有受控天体时，总能量与总动量这两项都不再守恒，这个漂移值于是不再是积分
+	 * 误差：推力做功把它推正，阻尼与接触耗散把它拉负（接触抹的是相对法向速度，
+	 * 只吃能量、不动总动量）。加一句提醒，免得看日志的人去查积分器。
 	 */
 	bool bHasForcedBodies = false;
 ```
