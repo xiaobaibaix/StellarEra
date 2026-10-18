@@ -16,7 +16,7 @@
 |---|---|---|---|
 | 1 | **预测轨迹** —— 未来一段时间的路径，补一点成闭合 | 浅（默认浅蓝） | 复制求解器、推进副本、记录目标天体 |
 | 2 | **拖尾** —— 运行以后实际走过的路径 | 深（默认深蓝） | 按模拟时间采样的历史位置 |
-| 3 | **初始速度矢量** —— 出发时朝哪、多快 | 琥珀 | `InitialVelocity` + 开局位置 |
+| 3 | **速度矢量** —— 此刻朝哪、多快，跟着天体走 | 琥珀 | 求解器里该天体**当前**的速度 + 天体当前位置 |
 
 三样都是**只读视图**：不改初态、不改模拟状态、不改 Actor 位置。
 
@@ -132,11 +132,11 @@ double GetSimulatedTimeYears() const;
 | `bDrawTrail` | `true` | 拖尾的逐天体开关。只门控「画」，采样照跑 |
 | `PredictionColor` | 浅蓝 `(90, 170, 255)` | 预测轨迹，浅 |
 | `TrailColor` | 深蓝 `(20, 50, 110)` | 拖尾，深 |
-| `InitialVelocityColor` | 琥珀 `(255, 210, 80)` | 初始速度矢量 |
+| `VelocityArrowColor` | 琥珀 `(255, 210, 80)` | 速度矢量 |
 | `PredictionYears` | `0` = 自动 | 自动 = `1.05 × EstimateOrbitalPeriod`，**只在第一次算出周期时解析一次** |
 | `MaxAutoPredictionPeriods` | `0.5` | 自动窗口的上限 = 该值 × **系统最短周期**。`0` = 不设限。只钳自动那条路 |
 | `TrailYears` | `0` = 自动 | 自动 = `0.25 × 预测时长` |
-| `bDrawInitialVelocity` | `true` | 箭头开关 |
+| `bDrawVelocityArrow` | `true` | 速度矢量开关 |
 | `VelocityArrowScaleCm` | `10000` | 每 (AU/年) 画多长，厘米 |
 
 采样点数不进属性，是 `.cpp` 里的常量：预测 256 点、拖尾 512 点。需要更密就直接改
@@ -196,7 +196,6 @@ T = 2π√( r³ / (G·(m_i + m_j)) )      项目里 G = 4π²，2π 与 G 抵消
 | `TArray<FVector> TrailBuffer` + 写指针 | 环形缓冲，容量 512 |
 | `TArray<FVector> PredictedGameUnit` | 复用的输出数组，避免每帧重新分配 |
 | `TArray<FVector> PredictedWorld` | 同上（AU → 厘米 转换后） |
-| `FVector InitialWorldLocation` | 开局位置，速度箭头的锚点 |
 | `double LastTrailSampleTime` | 上次采样的模拟时间 |
 | `TArray<FBatchedLine> Lines` | 复用的提交缓冲，填好后一次交给 `DrawLines` |
 
@@ -254,21 +253,39 @@ performant for runtime use.」我们每帧重画、每次不到 4 千条线、�
 常态），但它确实踩在这句警告的边界上，所以 §11 把帧时间检查列为必做。将来若把采样
 点数或天体数量调大一个量级，第一件该回头看的事就是这句警告。
 
-## 8. 初始速度矢量
+## 8. 速度矢量
 
 | 量 | 取值 |
 |---|---|
-| 起点 | `InitialWorldLocation`（开局缓存的 `GetActorLocation()`），**静止不动** |
-| 方向 | `Simulator.ToWorldVelocity(FVector3d(InitialVelocity))` 归一化 |
-| 长度 | `VelocityArrowScaleCm × InitialVelocity.Size()` |
+| 起点 | 天体**当前**的 `GetActorLocation()`，每帧重读 |
+| 方向 | `Subsystem.GetBodyVelocityGameUnits(i)` 归一化 |
+| 长度 | `VelocityArrowScaleCm × 当前速度大小`（AU/年） |
 | 箭头 | 末端两条短线，长度 = 杆长的 15%，与杆成 ±150° |
 
-默认值下的样子：`10000 × 7.416 = 74,157` 厘米 = **742 米**，是 7.18 公里轨道半径的
-约 10%。够显眼，又不会盖住轨道。（这里的初速是 0.718 AU 圆轨道的
-`2π√(M/r) = 7.416` AU/年，不是地球的 6.283 —— 那个数对应 1 AU。）
+**它画的是求解器里那一刻的速度，不是配置的 `InitialVelocity`。** 所以箭头跟着天体走、
+随实际速度变长变短、随实际运动掉头 —— 这正是它作为诊断的价值：近距离交会时速度暴涨，
+箭头一眼就能看出来。配置的初速度在详情面板里本来就能看，画出来只是重复信息；而当前
+速度没有别的地方能看到。
 
-箭头**钉在出发点**而不是跟着星球走：它记录的是「从这儿出发、朝这个方向、这个速度」。
-星球飞走之后箭头留在原地，正好标出起点。
+**静止天体不画** —— 速度为零时没有矢量可画。这在关卡里是常态：UniverseMap 中间那颗
+初速就是 0，它没有箭头。
+
+长度**不是**物理速度的世界长度。按本项目世界尺度换算，7.4 AU/年 只有 0.24 厘米/秒，
+画出来看不见；而把 AU/年 直接当 AU 长度按世界尺度画，又比轨道半径长一个数量级。
+两个极端都不能用，所以长度是「速度大小 × `VelocityArrowScaleCm`」的示意图，只保证
+相对长短正确。默认值下 20 AU/年 → `10000 × 20` = 200,000 厘米 = **2 公里**，在 92
+公里的关卡里够显眼。
+
+**刻意不钳制长度**：速度暴涨时箭头会很长，但近距离交会时那正是要看的信号，钳掉就等于
+把要看的东西藏起来。
+
+> **2026-10-18 改的**：之前它画 `InitialVelocity`、钉在出发点上，那时叫「初始速度矢量」。
+> 改成活的之后，`bDrawInitialVelocity` / `InitialVelocityColor` 改名成
+> `bDrawVelocityArrow` / `VelocityArrowColor`，`InitialWorldLocation` 删除。
+> 三个名字在 `Content/` 里一个都没被序列化过（值等于 CDO 默认值，UE 不存），
+> 所以**不需要 CoreRedirect**。新增的接口是
+> `UCosmosSimulationSubsystem::GetBodyVelocityGameUnits(int32)` —— 它自带下标校验，
+> 因为求解器的 `GetBody` 内部是裸的 `Bodies[Index]`，越界是 UB 而不是断言。
 
 ## 9. 测试
 
@@ -319,10 +336,10 @@ performant for runtime use.」我们每帧重画、每次不到 4 千条线、�
 2. PIE：
    - 浅色椭圆**闭合**（末点接上首点附近）
    - 深色拖尾从星球身后生长成彗尾
-   - 出发点有琥珀色箭头，方向与初速度一致
+   - 每个运动中的天体身上有琥珀色箭头，方向与**当前**速度一致、长度随速度变；静止天体没有箭头
 3. 日志：每个天体打印估算周期与选中的预测时长
 4. `stat unit` 确认没有帧时间回归
-5. 逐项关掉 `bDrawPrediction` / `bDrawTrail` / `bDrawInitialVelocity`，确认开关生效
+5. 逐项关掉 `bDrawPrediction` / `bDrawTrail` / `bDrawVelocityArrow`，确认开关生效
 
 ## 12. 已知取舍
 

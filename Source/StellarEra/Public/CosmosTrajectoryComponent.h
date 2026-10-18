@@ -1,6 +1,6 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 //
-// 天体轨迹渲染：预测轨迹（浅）、已走过的拖尾（深）、初始速度矢量。
+// 天体轨迹渲染：预测轨迹（浅）、已走过的拖尾（深）、速度矢量。
 //
 // 这是一个**哑渲染器**：它不存任何面向用户的参数，参数全从兄弟
 // UCosmosOrbitComponent 上读（那边在编辑器详情面板里能调、有取色器）。
@@ -73,8 +73,13 @@ private:
 	/** 把一段折线追加进 Lines。 */
 	void AppendPolyline(TArrayView<const FVector> Points, const FLinearColor& Color);
 
-	/** 把速度箭头（杆 + 两段箭头）追加进 Lines。 */
-	void AppendVelocityArrow(const FLinearColor& Color);
+	/**
+	 * 把速度矢量（杆 + 两段箭头）追加进 Lines。
+	 *
+	 * 锚点是天体**当前**位置，方向与长度读求解器**当前**速度 —— 都不是配置的
+	 * InitialVelocity。速度要向子系统要，所以 Subsystem 得传进来。
+	 */
+	void AppendVelocityArrow(const UCosmosSimulationSubsystem& Subsystem, const FLinearColor& Color);
 
 	/**
 	 * 把已经画上去的线清一次（bDrewLastFrame 为真时才真清）。

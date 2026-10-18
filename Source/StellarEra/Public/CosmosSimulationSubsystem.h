@@ -83,6 +83,22 @@ public:
 	 */
 	double GetShortestPeriodYears() const { return ShortestPeriodYears; }
 
+	/**
+	 * 天体 i **当前**的游戏单位速度（AU/年），即求解器里那一刻的值。
+	 *
+	 * 与 `UCosmosOrbitComponent::InitialVelocity` 的区别：那个是配置的**开局**速度，
+	 * 运行期不变；这个是每帧都在变的状态。速度箭头读的是这个，不是那个 ——
+	 * 所以箭头才会跟着天体走、随实际速度变长变短。
+	 *
+	 * 下标无效（含 INDEX_NONE —— 轨迹组件注册还没轮到的那几帧）、或求解器里还没有
+	 * 这颗天体时返回零向量。**下标校验必须在这里做**：求解器的 `GetBody` 内部是裸的
+	 * `Bodies[Index]`，越界不报错、直接是 UB。
+	 *
+	 * 单位是游戏单位而不是世界单位：箭头长度按「速度大小 × VelocityArrowScaleCm」
+	 * 画，而那个系数的定义就是「每 1 AU/年 画多少厘米」，所以这里不做换算。
+	 */
+	FVector3d GetBodyVelocityGameUnits(int32 SimulatorIndex) const;
+
 	//////////////////////////////////////////////////////////////////////////
 	// 星图模式
 	//

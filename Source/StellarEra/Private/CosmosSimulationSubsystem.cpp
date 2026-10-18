@@ -382,6 +382,18 @@ double UCosmosSimulationSubsystem::GetOrbitalPeriodYears(int32 SimulatorIndex) c
 	return Simulator.EstimateOrbitalPeriod(SimulatorIndex);
 }
 
+FVector3d UCosmosSimulationSubsystem::GetBodyVelocityGameUnits(int32 SimulatorIndex) const
+{
+	// 求解器的 GetBody 是裸的 Bodies[Index]，越界不会断言、直接是 UB ——
+	// 所以校验只能在这一层做，不能省。
+	if (SimulatorIndex < 0 || SimulatorIndex >= Simulator.GetNumBodies())
+	{
+		return FVector3d::ZeroVector;
+	}
+
+	return Simulator.GetBody(SimulatorIndex).Velocity;
+}
+
 void UCosmosSimulationSubsystem::SetSelectedBody(AActor* Body)
 {
 	SelectedBody = Body;

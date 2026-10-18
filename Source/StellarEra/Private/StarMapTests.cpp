@@ -334,4 +334,32 @@ bool FStellarEraStarMapSilhouetteScaleTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapVelocityQueryTest,
+	"StellarEra.StarMap.VelocityQuery",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraStarMapVelocityQueryTest::RunTest(const FString& Parameters)
+{
+	// 裸实例就够：这个接口只转发给求解器，不碰世界（NewObject 不会调 Initialize）。
+	UCosmosSimulationSubsystem* Subsystem = NewObject<UCosmosSimulationSubsystem>();
+	if (!TestNotNull(TEXT("子系统裸实例"), Subsystem))
+	{
+		return false;
+	}
+
+	// 求解器里一颗天体都没有 —— 每个下标都必须安全返回零向量。
+	// 这一层守卫是本接口唯一的逻辑：求解器的 GetBody 内部是裸的 Bodies[Index]，
+	// 越界不报错、直接是 UB，所以下标校验必须在这里做。
+	TestTrue(TEXT("INDEX_NONE 返回零"),
+		Subsystem->GetBodyVelocityGameUnits(INDEX_NONE).IsNearlyZero());
+	TestTrue(TEXT("负下标返回零"),
+		Subsystem->GetBodyVelocityGameUnits(-1).IsNearlyZero());
+	TestTrue(TEXT("0 号越界返回零"),
+		Subsystem->GetBodyVelocityGameUnits(0).IsNearlyZero());
+	TestTrue(TEXT("大下标越界返回零"),
+		Subsystem->GetBodyVelocityGameUnits(9999).IsNearlyZero());
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

@@ -171,7 +171,7 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	const bool bInStarMapView = Subsystem->IsStarMapActive() || Orbit->bShowOutsideStarMap;
 	const bool bWantTrail = bInStarMapView && Orbit->bDrawTrail;
 	const bool bWantPrediction = bInStarMapView && Orbit->bDrawPrediction;
-	const bool bWantArrow = bInStarMapView && Orbit->bDrawInitialVelocity;
+	const bool bWantArrow = bInStarMapView && Orbit->bDrawVelocityArrow;
 
 	if (!bWantTrail && !bWantPrediction && !bWantArrow)
 	{
@@ -220,7 +220,7 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 
 	if (bWantArrow)
 	{
-		AppendVelocityArrow(FLinearColor(Orbit->InitialVelocityColor));
+		AppendVelocityArrow(*Subsystem, FLinearColor(Orbit->VelocityArrowColor));
 	}
 
 	// Flush 是必须的：线用 LifeTime = 0 画上去就永不过期，不清的话每帧的线会
@@ -310,37 +310,53 @@ void UCosmosTrajectoryComponent::AppendPolyline(TArrayView<const FVector> Points
 	}
 }
 
-void UCosmosTrajectoryComponent::AppendVelocityArrow(const FLinearColor& Color)
+void UCosmosTrajectoryComponent::AppendVelocityArrow(const UCosmosSimulationSubsystem& Subsystem,
+	const FLinearColor& Color)
 {
 	if (!Orbit)
 	{
 		return;
 	}
 
-	const double Speed = Orbit->InitialVelocity.Size();
+	// 锚点是天体**当前**的位置。这是个速度矢量 —— 脱离天体、钉在出发点上就没有
+	// 意义了（那是旧行为「初始速度矢量」）。出发点的信息由拖尾和详情面板给。
+	const AActor* OwnerActor = GetOwner();
+	if (!OwnerActor)
+	{
+		return;
+	}
+	const FVector Anchor = OwnerActor->GetActorLocation();
+
+	// 读求解器里**那一刻**的速度，不是配置的 InitialVelocity —— 所以箭头会随实际
+	// 速度变长变短、随实际运动掉头。这正是它作为诊断的价值：近距离交会时速度暴涨，
+	// 箭头一眼就能看出来。
+	//
+	// 单位是 AU/年（游戏单位），不是世界单位：长度按 VelocityArrowScaleCm 画，
+	// 而那个系数的定义就是「每 1 AU/年 画多少厘米」。按世界尺度换算的话 1 AU/年 只有
+	// 0.032 厘米/秒（见 InitialVelocity 的注释），画出来看不见。
+	//
+	// 求解器里还没有这颗天体（SimulatorIndex 仍是 INDEX_NONE）时这里拿到零向量，
+	// 下面那句 Speed <= 0 会直接返回 —— 不必在这儿再判一次下标。
+	const FVector Velocity = Subsystem.GetBodyVelocityGameUnits(Orbit->SimulatorIndex);
+	const double Speed = Velocity.Size();
 	if (Speed <= 0.0 || Orbit->VelocityArrowScaleCm <= 0.0)
 	{
-		// 静止天体没有速度矢量可画。
+		// 静止天体没有速度矢量可画。这在关卡里是常态：UniverseMap 中间那颗初速就是 0。
 		return;
 	}
 
-	// 方向就是 InitialVelocity 的方向：ToWorldVelocity 只是把它按一个**正常数**
-	// 缩放（AU/年 → 厘米/秒），归一化之后完全相同，所以直接用游戏单位向量。
-	//
-	// 长度**不是**物理速度的世界长度 —— 按本项目世界尺度换算，7.4 AU/年 只有 0.24 厘米/秒，
-	// 画出来看不见。长度是「速度大小 × VelocityArrowScaleCm」的示意图。
-	const FVector Direction = Orbit->InitialVelocity.GetSafeNormal();
+	const FVector Direction = Velocity.GetSafeNormal();
 	if (Direction.IsNearlyZero())
 	{
 		return;
 	}
 
 	const double ShaftLength = Orbit->VelocityArrowScaleCm * Speed;
-	const FVector Tip = Orbit->InitialWorldLocation + Direction * ShaftLength;
+	const FVector Tip = Anchor + Direction * ShaftLength;
 
 	// 杆。FBatchedLine 的构造参数序是 (Start, End, Color, LifeTime, Thickness,
 	// DepthPriority) —— 与 DrawLine 的函数参数序相反，别写混。
-	Lines.Emplace(Orbit->InitialWorldLocation, Tip, Color,
+	Lines.Emplace(Anchor, Tip, Color,
 		/*LifeTime=*/0.0f, LineThickness, LineDepthPriority);
 
 	// 箭头：从箭尖往回折两条短线。需要一个与杆垂直的参考方向；杆若几乎平行于

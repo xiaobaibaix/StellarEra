@@ -16,13 +16,6 @@ void UCosmosOrbitComponent::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// 开局位置 = 速度矢量的锚点。缓存下来，因为「初始位置」指的是天体**出发**
-	// 的地方：星球飞走之后箭头要留在原地标出起点。
-	if (const AActor* OwnerActor = GetOwner())
-	{
-		InitialWorldLocation = OwnerActor->GetActorLocation();
-	}
-
 	CreateTrajectoryComponent();
 
 	// 组件自己找上门注册，而不是让子系统去遍历全关卡的 Actor：

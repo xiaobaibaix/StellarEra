@@ -58,6 +58,9 @@ public:
 	 * 圆轨道速度由开普勒第三定律给：v = √(GM/r) = 2π√(M/r)，M 是中心天体质量
 	 * （M☉）、r 是到中心天体的距离（AU）。例如距 1 M☉ 0.718 AU 的圆轨道是
 	 * 2π/√0.718 ≈ 7.41 AU/年，方向与「天体 → 中心天体」的连线垂直。
+	 *
+	 * **注意**：速度矢量（bDrawVelocityArrow）画的是求解器里的**当前**速度，
+	 * 不是这一项 —— 这一项只决定开局。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Body")
 	FVector InitialVelocity = FVector::ZeroVector;
@@ -120,7 +123,7 @@ public:
 	 * 默认关 = 轨迹只在星图模式里显示。星图模式本身（含按 M 进出的开关）见
 	 * AStellarEraPlayerController::ToggleStarMap。
 	 * 想在普通游戏画面里也看到就把它勾上 —— 这是逐天体开关，与 bDrawPrediction /
-	 * bDrawTrail / bDrawInitialVelocity 都是「与」的关系。
+	 * bDrawTrail / bDrawVelocityArrow 都是「与」的关系。
 	 *
 	 * 放在 Orbit 组件上而不是轨迹组件上：轨迹组件是**哑渲染器**，它自己的头注释
 	 * 写着「不存任何面向用户的参数，参数全从兄弟 UCosmosOrbitComponent 上读」。
@@ -140,9 +143,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
 	FColor TrailColor = FColor(20, 50, 110);
 
-	/** 初始速度矢量的颜色。 */
+	/** 速度矢量的颜色。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
-	FColor InitialVelocityColor = FColor(255, 210, 80);
+	FColor VelocityArrowColor = FColor(255, 210, 80);
 
 	/**
 	 * 预测多长，单位模拟年。0 = 自动。
@@ -202,12 +205,23 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory", meta = (ClampMin = "0.0"))
 	double TrailYears = 0.0;
 
-	/** 是否画初始速度矢量。 */
+	/**
+	 * 是否画这个天体的**速度矢量**（跟着它走的那根箭头）。默认开。
+	 *
+	 * 锚在天体**当前**位置，方向与长度读求解器**当前**速度 —— 所以它跟着天体走、
+	 * 随实际速度变长变短。**不是** InitialVelocity 的可视化：那个值在详情面板里
+	 * 本来就能看，画出来只是重复信息；而当前速度没有别的地方能看到。
+	 *
+	 * 静止天体不画 —— 速度为零时没有矢量可画。这在关卡里是常态：UniverseMap
+	 * 中间那颗初速就是 0。
+	 *
+	 * 速度暴涨时箭头会很长，**刻意不钳制**：近距离交会时那正是要看的信号。
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
-	bool bDrawInitialVelocity = true;
+	bool bDrawVelocityArrow = true;
 
 	/**
-	 * 初始速度矢量的长度系数：每 1 AU/年 画多少厘米。
+	 * 速度矢量的长度系数：每 1 AU/年 画多少厘米。
 	 *
 	 * 这**不是**物理速度的世界长度。把 AU/年 直接当 AU 长度按世界尺度画，
 	 * 箭头会比轨道半径还长一个数量级；而按本项目的世界尺度（1 AU = CentimetersPerAu = 1e6 厘米）换算，1 AU/年 ≈ 0.032 厘米/秒，
@@ -216,15 +230,6 @@ public:
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
 	double VelocityArrowScaleCm = 10000.0;
-
-	/**
-	 * 开局时的世界位置。速度矢量的锚点。
-	 *
-	 * 运行时在 BeginPlay 里缓存，不要手改 —— 它记的是天体**出发**的地方，
-	 * 星球飞走之后箭头要留在原地标出起点。
-	 */
-	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "Cosmos|Trajectory")
-	FVector InitialWorldLocation = FVector::ZeroVector;
 
 	//~ Begin UActorComponent Interface
 	virtual void BeginPlay() override;
