@@ -966,11 +966,14 @@ private:
 ```cpp
 #include "PlanetAtmosphereComponent.h"
 
+// APlayerCameraManager 不在 GameFramework/ 下，在 Camera/ 下
+// （Engine/Classes/Camera/PlayerCameraManager.h 是引擎里唯一一份）。
+// 写成 GameFramework/PlayerCameraManager.h 编译不过（C1083）。
+#include "Camera/PlayerCameraManager.h"
 #include "Engine/DirectionalLight.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
-#include "GameFramework/PlayerCameraManager.h"
 #include "GameFramework/PlayerController.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
