@@ -159,6 +159,16 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "StarMap", meta = (ClampMin = "0.0"))
 	float SelectionPixelRadius = 20.f;
 
+	/**
+	 * 驾驶飞船时按 M 进星图，相机以飞船为焦点拉远到的距离（厘米）。
+	 *
+	 * 世界尺度：1 AU = 1e6 厘米，默认体素行星半径约 1e4 厘米。取 5e5 = 0.5 AU，
+	 * 能同时看清飞船、附近的行星表面和一段轨道，又不会小到只看见飞船本身。
+	 * 最终会被 StarMapCameraPawn 的 MinOrbitDistanceCm / MaxOrbitDistanceCm 夹住。
+	 */
+	UPROPERTY(EditAnywhere, Category = "StarMap", meta = (ClampMin = "0.0"))
+	double StarMapFocusDistanceCm = 5.0e5;
+
 	/** 星图相机 Pawn。懒创建并复用，不每次进出都 Spawn/Destroy。 */
 	UPROPERTY(Transient)
 	TObjectPtr<AStarMapCameraPawn> StarMapPawn;

@@ -29,6 +29,34 @@ void AStarMapCameraPawn::EnterFrom(const FVector& InCameraLocation, const FRotat
 	SetActorLocationAndRotation(InCameraLocation, InCameraRotation, /*bSweep=*/false);
 }
 
+void AStarMapCameraPawn::FocusOn(AActor* Body, double DistanceCm)
+{
+	if (!Body)
+	{
+		return;
+	}
+
+	// 焦点设为它，距离夹到 Min/Max。朝向用「当前相机位置 → 焦点」的方向，
+	// 于是相机沿进入前的视线方向后退 —— 位置代数上「沿视线拉远」，观感是
+	// 画面保持朝向、只是向后缩。
+	const FVector Focus = Body->GetActorLocation();
+	const FVector ToFocus = Focus - CameraLocation;
+
+	OrbitDistanceCm = FMath::Clamp(DistanceCm, MinOrbitDistanceCm, MaxOrbitDistanceCm);
+
+	if (!ToFocus.IsNearlyZero())
+	{
+		OrbitRotation = ToFocus.Rotation();
+	}
+
+	// 立即把相机摆到新位置：CalcCamera 只有在选中状态变化时才重算，而这里直接
+	// 写 CameraLocation，下一帧 CalcCamera 看到 Selected != LastSeenSelected 会
+	// 再算一次 —— 但第一次选中那次会从「当前 CameraLocation 反推距离」，若这里
+	// 不先摆好，反推出来的是进入前的距离而不是我们想拉的距离。所以先摆到位。
+	CameraLocation = Focus - OrbitRotation.Vector() * OrbitDistanceCm;
+	LastSeenSelected = nullptr;   // 让 CalcCamera 下一帧按新的 OrbitDistanceCm 重算一次，保持一致
+}
+
 void AStarMapCameraPawn::OrbitLook(float DeltaYaw, float DeltaPitch)
 {
 	// 只动朝向不动距离 —— 下一帧 CalcCamera 按新朝向重算位置，看起来就是「绕着焦点转」。

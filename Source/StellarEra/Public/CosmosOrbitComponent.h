@@ -237,6 +237,34 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
 	double VelocityArrowScaleCm = 10000.0;
 
+	/**
+	 * 是否画这个天体的**引力合力矢量**（指向它被拉向的方向的箭头）。默认开。
+	 *
+	 * 锚在天体**当前**位置，方向与长度读求解器**当前**的纯引力加速度 —— 与速度
+	 * 箭头同族，但量纲不同：速度是 AU/年，引力是 AU/年²。引力箭头画出的是「此刻
+	 * 它被万有引力往哪拉、拉得多狠」，飞船上推力不算进去（见
+	 * FCosmosBodyState::GravitationalAcceleration）。
+	 *
+	 * 引力为零时（比如系统质心、或只有一颗天体的退化场景）不画。长度刻意不钳制：
+	 * 近距离交会时引力暴涨，箭头变长正是要看的信号。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
+	bool bDrawGravityArrow = true;
+
+	/** 引力矢量的颜色。默认取暖橙，与速度矢量的黄色区分开。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
+	FColor GravityArrowColor = FColor(255, 120, 60);
+
+	/**
+	 * 引力矢量的长度系数：每 1 AU/年² 画多少厘米。示意比例，非物理世界长度，
+	 * 理由同 VelocityArrowScaleCm。
+	 *
+	 * 引力加速度的量级远大于速度（本关卡中心天体在行星轨道处的引力 ≈ 716 AU/年²），
+	 * 所以默认系数比速度箭头小得多（100 而非 10000），否则箭头会横穿整个星系。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
+	double GravityArrowScaleCm = 100.0;
+
 	//~ Begin UActorComponent Interface
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;

@@ -82,6 +82,15 @@ private:
 	void AppendVelocityArrow(const UCosmosSimulationSubsystem& Subsystem, const FLinearColor& Color);
 
 	/**
+	 * 把引力合力矢量（杆 + 两段箭头）追加进 Lines。
+	 *
+	 * 与速度箭头同构，但读的是求解器**当前**的纯引力加速度（AU/年²，不含推力与
+	 * 阻尼）。锚点是天体当前位置，方向 = 引力方向，长度 = |引力| × GravityArrowScaleCm。
+	 * 引力为零时不画。
+	 */
+	void AppendGravityArrow(const UCosmosSimulationSubsystem& Subsystem, const FLinearColor& Color);
+
+	/**
 	 * 把已经画上去的线清一次（bDrewLastFrame 为真时才真清）。
 	 *
 	 * 线用 LifeTime = 0 画上去就永不过期，所以「这一帧不画了」必须显式清，

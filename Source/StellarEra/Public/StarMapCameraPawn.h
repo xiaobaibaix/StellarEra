@@ -56,6 +56,18 @@ public:
 	/** 进入星图模式时由控制器调用：把相机原地钉住，并重置为「未选中」。 */
 	void EnterFrom(const FVector& InCameraLocation, const FRotator& InCameraRotation);
 
+	/**
+	 * 进入星图模式时立刻聚焦到某个天体：把焦点设为它，并把相机沿当前视线方向
+	 * 后退到距焦点 DistanceCm 处。
+	 *
+	 * 与「进入后手动点选」的区别：手动点选时相机位置不动、只把朝向摆向新焦点
+	 * （见 CalcCamera 里 LastSeenSelected 那段）；这里则是**主动拉远**，让飞船
+	 * 连同附近轨道一起进入视野 —— 这是「驾驶中按 M 进星图」想要的观感。
+	 *
+	 * 距离会被夹到 Min/Max 之间。Body 为空时什么都不做。
+	 */
+	void FocusOn(AActor* Body, double DistanceCm);
+
 	/** 鼠标位移 → 绕焦点转视角。单位是度，来自控制器的 LookSensitivity。 */
 	void OrbitLook(float DeltaYaw, float DeltaPitch);
 

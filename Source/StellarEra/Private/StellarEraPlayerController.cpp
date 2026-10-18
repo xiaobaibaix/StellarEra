@@ -252,7 +252,7 @@ void AStellarEraPlayerController::BuildInputAssets()
 	MapKey(MappingContext, IA_Jump, EKeys::SpaceBar);
 	MapKey(MappingContext, IA_Sprint, EKeys::LeftShift);
 
-	// 飞船：W/S 主推力，D/A 横滚，Space/LeftControl 升降，LeftShift 加速，Tab 巡航。
+	// 飞船：W 推力 / S 制动，D/A 横滚，Space/LeftControl 升降，LeftShift 加速，Tab 巡航。
 	// 与角色的 WASD、LeftShift 共用按键没问题——同一个 IMC 里的动作互不吞输入，
 	// 分派由 Pawn 类型决定（IA_Sprint 只认 APlanetCharacter，IA_Boost 只认飞船）。
 	MapKey(MappingContext, IA_Thrust, EKeys::W);
@@ -679,10 +679,23 @@ void AStellarEraPlayerController::ToggleStarMap()
 	GetPlayerViewPoint(ViewLocation, ViewRotation);
 	StarMapPawn->EnterFrom(ViewLocation, ViewRotation);
 
+	// 记住进入前 Possess 的是谁：退出时要换回去；若是飞船，进星图后直接选中它
+	// 并拉远 —— 这样驾驶中按 M，看到的不是静止画面而是「飞船为焦点的星图」。
 	PreviousPawn = GetPawn();
+	ASpaceshipPawn* EnteringShip = Cast<ASpaceshipPawn>(PreviousPawn.Get());
+
 	Subsystem->SetSelectedBody(nullptr);
 	Subsystem->SetStarMapActive(true);
 	Possess(StarMapPawn);
+
+	// 进入前在开飞船：选中飞船，并让相机以它为焦点、沿当前视线拉远到能看清
+	// 飞船连同附近轨道。放在 Possess 之后 —— FocusOn 只改相机 Pawn 自己的状态，
+	// 不依赖 Possess，但语义上「进入星图」这个动作应当整体先完成再调相机。
+	if (EnteringShip)
+	{
+		Subsystem->SetSelectedBody(EnteringShip);
+		StarMapPawn->FocusOn(EnteringShip, StarMapFocusDistanceCm);
+	}
 }
 
 void AStellarEraPlayerController::OnStarMapSelectStarted(const FInputActionValue& Value)

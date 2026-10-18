@@ -172,8 +172,9 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	const bool bWantTrail = bInStarMapView && Orbit->bDrawTrail;
 	const bool bWantPrediction = bInStarMapView && Orbit->bDrawPrediction;
 	const bool bWantArrow = bInStarMapView && Orbit->bDrawVelocityArrow;
+	const bool bWantGravityArrow = bInStarMapView && Orbit->bDrawGravityArrow;
 
-	if (!bWantTrail && !bWantPrediction && !bWantArrow)
+	if (!bWantTrail && !bWantPrediction && !bWantArrow && !bWantGravityArrow)
 	{
 		ClearDrawnLines();
 		return;
@@ -221,6 +222,11 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	if (bWantArrow)
 	{
 		AppendVelocityArrow(*Subsystem, FLinearColor(Orbit->VelocityArrowColor));
+	}
+
+	if (bWantGravityArrow)
+	{
+		AppendGravityArrow(*Subsystem, FLinearColor(Orbit->GravityArrowColor));
 	}
 
 	// Flush 是必须的：线用 LifeTime = 0 画上去就永不过期，不清的话每帧的线会
@@ -366,6 +372,65 @@ void UCosmosTrajectoryComponent::AppendVelocityArrow(const UCosmosSimulationSubs
 	if (Perp.IsNearlyZero())
 	{
 		return;   // 上面已经排除了退化，这里只是兜底
+	}
+
+	const double HeadLength = ShaftLength * ArrowHeadLengthFraction;
+	const double HeadAngleRad = FMath::DegreesToRadians(ArrowHeadAngleDegrees);
+	const double HeadCos = FMath::Cos(HeadAngleRad);
+	const double HeadSin = FMath::Sin(HeadAngleRad);
+
+	Lines.Emplace(Tip, Tip + (Direction * HeadCos + Perp * HeadSin) * HeadLength,
+		Color, 0.0f, LineThickness, LineDepthPriority);
+	Lines.Emplace(Tip, Tip + (Direction * HeadCos - Perp * HeadSin) * HeadLength,
+		Color, 0.0f, LineThickness, LineDepthPriority);
+}
+
+void UCosmosTrajectoryComponent::AppendGravityArrow(const UCosmosSimulationSubsystem& Subsystem,
+	const FLinearColor& Color)
+{
+	if (!Orbit)
+	{
+		return;
+	}
+
+	// 与速度箭头同构：锚点是天体当前位置，读的是求解器**当前**的引力，不是任何
+	// 配置值。引力方向指向「被拉向的方向」—— 严格说引力加速度指向吸引源，这里
+	// 画的就是加速度向量本身（方向 = 合力方向），所以叫「引力合力矢量」。
+	const AActor* OwnerActor = GetOwner();
+	if (!OwnerActor)
+	{
+		return;
+	}
+	const FVector Anchor = OwnerActor->GetActorLocation();
+
+	// 读纯引力（AU/年²），不含飞船推力/阻尼。求解器里还没有这颗天体时拿到零向量，
+	// 下面 Size() <= 0 直接返回。
+	const FVector Gravity = Subsystem.GetBodyGravityGameUnits(Orbit->SimulatorIndex);
+	const double Magnitude = Gravity.Size();
+	if (Magnitude <= 0.0 || Orbit->GravityArrowScaleCm <= 0.0)
+	{
+		// 引力为零（系统质心、单天体退化）时没有合力可画。
+		return;
+	}
+
+	const FVector Direction = Gravity.GetSafeNormal();
+	if (Direction.IsNearlyZero())
+	{
+		return;
+	}
+
+	const double ShaftLength = Orbit->GravityArrowScaleCm * Magnitude;
+	const FVector Tip = Anchor + Direction * ShaftLength;
+
+	Lines.Emplace(Anchor, Tip, Color,
+		/*LifeTime=*/0.0f, LineThickness, LineDepthPriority);
+
+	// 箭头段：与速度箭头同一套几何（从箭尖往回折两条短线）。
+	const FVector Reference = FMath::Abs(Direction.Z) < 0.9 ? FVector::UpVector : FVector::RightVector;
+	const FVector Perp = FVector::CrossProduct(Direction, Reference).GetSafeNormal();
+	if (Perp.IsNearlyZero())
+	{
+		return;
 	}
 
 	const double HeadLength = ShaftLength * ArrowHeadLengthFraction;

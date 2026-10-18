@@ -90,7 +90,7 @@ void AStellarEraHUD::DrawStatusPanel(const FSpaceshipStatus& Status)
 	}
 	else if (Status.ThrustInput < 0.f)
 	{
-		ThrustLabel = TEXT("S 反推");
+		ThrustLabel = TEXT("S 减速");
 	}
 	else
 	{

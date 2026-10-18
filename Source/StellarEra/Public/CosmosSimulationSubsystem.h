@@ -99,6 +99,21 @@ public:
 	 */
 	FVector3d GetBodyVelocityGameUnits(int32 SimulatorIndex) const;
 
+	/**
+	 * 天体 i **当前**的纯引力加速度（游戏单位 AU/年²），即求解器里那一刻的值。
+	 *
+	 * 只含万有引力（`G·Σ m_j·Δ/r³`），**不含**飞船的推力与阻尼 —— 见
+	 * FCosmosBodyState::GravitationalAcceleration 的注释。星图里的「引力合力箭头」
+	 * 读它：方向就是天体此刻被拉向哪，长度正比于引力大小。
+	 *
+	 * 下标无效（含 INDEX_NONE）、或求解器里还没有这颗天体时返回零向量。
+	 * 下标校验在这里做，理由同 GetBodyVelocityGameUnits。
+	 *
+	 * 单位是游戏单位（AU/年²）而不是世界单位：箭头长度按「大小 ×
+	 * GravityArrowScaleCm」画，系数定义与速度箭头同族（示意比例，非物理世界长度）。
+	 */
+	FVector3d GetBodyGravityGameUnits(int32 SimulatorIndex) const;
+
 	//////////////////////////////////////////////////////////////////////////
 	// 星图模式
 	//
@@ -276,10 +291,15 @@ private:
 	 * 方向只能是「子系统下来读飞船」：StellarEraVehicle 不能依赖 StellarEra，
 	 * 飞船不能反过来调本子系统（见 ASpaceshipPawn 的类注释）。
 	 *
+	 * DeltaSeconds 是本帧的帧时长，原样转给飞船 —— 它的制动要按「本帧满推力能改变
+	 * 多少速度」收敛（见 ASpaceshipPawn::GetThrustAccelerationWorld），必须知道这一帧
+	 * 有多长。由本处传入而不是让飞船在自己 Tick 里抄一份：两个 Tick 谁先谁后不保证，
+	 * 抄的那份在帧率突变的那一帧会让制动过冲。
+	 *
 	 * 只认 ASpaceshipPawn —— 现在只有一艘船，Cast 就是全部；等出现第二个受控天体
 	 * （第二艘船、导弹）再抽接口，那时抽出来的形状也才看得清。
 	 */
-	void ApplyControlledBodyForces();
+	void ApplyControlledBodyForces(float DeltaSeconds);
 
 	/**
 	 * 游戏单位速度（AU/年）→ **玩家感知**的世界速度（厘米/秒）。
