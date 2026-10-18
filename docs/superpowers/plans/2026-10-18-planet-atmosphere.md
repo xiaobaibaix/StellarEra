@@ -1009,8 +1009,10 @@ UPlanetAtmosphereComponent::UPlanetAtmosphereComponent()
 	SetCastShadow(false);
 	bReceivesDecals = false;
 
-	// 负值让壳排在其他半透明之前画。
-	SetTranslucencySortPriority(-1);
+	// 负值让壳排在其他半透明之后画。
+	// 直接赋属性：UPrimitiveComponent 上**没有** SetTranslucencySortPriority 这个函数，
+	// 只有公开成员 TranslucencySortPriority（PrimitiveComponent.h:892），写成 setter 编译不过。
+	TranslucencySortPriority = -1;
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereMesh(
 		TEXT("/Engine/BasicShapes/Sphere.Sphere"));
