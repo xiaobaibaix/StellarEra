@@ -174,6 +174,58 @@ void UCosmosSimulationSubsystem::RefreshPlanetContactRadii()
 	}
 }
 
+void UCosmosSimulationSubsystem::ApplyControlledBodyForces()
+{
+	bHasForcedBodies = false;
+
+	// 1 AU/年² 等于多少厘米/秒²。与速度那条是同一个换算族：
+	// 1 AU/年² = CentimetersPerAu × TimeScale²，默认 1e6 × 0.00333² = 11.089。
+	//
+	// 这道守卫挡的是 ini 里把 TimeScale 改成 0：那时 AdvanceAccumulator 每帧只加 0，
+	// 求解器根本不推进，所以留下上一帧的力也无所谓；但不守卫的话除零会得到 inf，
+	// 而 inf 一旦进了天体状态，GetEnergyDriftRatio 会变成 nan 把日志打花。
+	const double CmPerS2PerAuPerY2 = CentimetersPerAu * TimeScale * TimeScale;
+	if (CmPerS2PerAuPerY2 <= 0.0)
+	{
+		return;
+	}
+
+	for (UCosmosOrbitComponent* Component : Bodies)
+	{
+		if (!Component || Component->SimulatorIndex == INDEX_NONE)
+		{
+			continue;
+		}
+
+		const ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(Component->GetOwner());
+		if (!Ship)
+		{
+			continue;
+		}
+
+		// 求解器的 GetBodyMutable 是裸的 Bodies[Index]，越界不报错、直接是 UB ——
+		// 校验只能在这一层做，与 GetBodyVelocityGameUnits 同一个理由。
+		if (Component->SimulatorIndex >= Simulator.GetNumBodies())
+		{
+			continue;
+		}
+
+		FCosmosBodyState& Body = Simulator.GetBodyMutable(Component->SimulatorIndex);
+
+		Body.ExternalAcceleration =
+			FVector3d(Ship->GetThrustAccelerationWorld()) / CmPerS2PerAuPerY2;
+
+		// τ 是真实秒，求解器的时间单位是模拟年，所以除一个 TimeScale。
+		const float DampingTime = Ship->GetDampingTime();
+		Body.LinearDamping = DampingTime > 0.f
+			? 1.0 / (double(DampingTime) * TimeScale)
+			: 0.0;
+
+		bHasForcedBodies |= !Body.ExternalAcceleration.IsNearlyZero()
+			|| Body.LinearDamping != 0.0;
+	}
+}
+
 void UCosmosSimulationSubsystem::FinalizeRegistration()
 {
 	bInitialized = true;
@@ -309,10 +361,15 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 		return;
 	}
 
-	// ── 0. 刷新行星的接触半径 ──
-	// 必须在推进之前：接触解算发生在 StepExact 内部，读的就是这一刻的 Radius。
-	// 放到推进之后，这一帧的接触用的还是上一帧的地形高度。
+	// ── 0. 刷新行星的接触半径 + 施加受控天体的外力 ──
+	// 两者都是「推进之前把引擎侧状态喂给求解器」。
+	//
+	// 接触半径必须在推进之前：接触解算发生在 StepExact 内部，读的就是这一刻的
+	// Radius。放到推进之后，这一帧的接触用的还是上一帧的地形高度。
+	//
+	// 外力同理：本帧推进读的就是这一刻写进去的值。
 	RefreshPlanetContactRadii();
+	ApplyControlledBodyForces();
 
 	// ── 1. 时间推进 ──
 	// 真实秒 × TimeScale = 需要模拟的天文年数。
@@ -374,6 +431,14 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 		{
 			const FCosmosBodyState& State = Simulator.GetBody(Component->SimulatorIndex);
 			BodyActor->SetActorLocation(Simulator.ToWorldLocation(State.Position), /*bSweep=*/false);
+
+			// 受控天体（飞船）：把求解器速度一并写回 Actor。
+			// ASpaceshipPawn::GetVelocity() 的覆写读的就是它 —— 体素调用器的预测、
+			// IsLanded() 的阈值判断、HUD 的速度显示都走那一处收口。
+			if (ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(BodyActor))
+			{
+				Ship->SetCosmosVelocity(ToWorldVelocityScaled(State.Velocity));
+			}
 		}
 
 		// 位移取 Actor 的**实际**变化量，而不是求解器算出的差值：
@@ -406,17 +471,39 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 
 void UCosmosSimulationSubsystem::LogDiagnostics() const
 {
-	UE_LOG(LogTemp, Log, TEXT("========== Cosmos 诊断 =========="));
-	UE_LOG(LogTemp, Log, TEXT("天体数量  : %d"), Simulator.GetNumBodies());
-	UE_LOG(LogTemp, Log, TEXT("步长      : %.6e 年"), BaseTimeStep);
-	UE_LOG(LogTemp, Log, TEXT("TimeScale : %.5f 年/秒（公转一圈约 %.0f 秒）"),
+	// 整块都带 `[Cosmos]` 前缀 —— probe 只打印带前缀的行（见函数上方说明）。
+	UE_LOG(LogTemp, Log, TEXT("[Cosmos] ========== 诊断 =========="));
+	UE_LOG(LogTemp, Log, TEXT("[Cosmos] 天体数量  : %d"), Simulator.GetNumBodies());
+	UE_LOG(LogTemp, Log, TEXT("[Cosmos] 步长      : %.6e 年"), BaseTimeStep);
+	UE_LOG(LogTemp, Log, TEXT("[Cosmos] TimeScale : %.5f 年/秒（公转一圈约 %.0f 秒）"),
 		TimeScale, TimeScale > 0.0 ? 1.0 / TimeScale : 0.0);
-	UE_LOG(LogTemp, Log, TEXT("已模拟    : %.6f 年"), Simulator.GetSimulatedTime());
-	UE_LOG(LogTemp, Log, TEXT("能量漂移  : %.6e  （辛积分应 < 1e-5）"), Simulator.GetEnergyDriftRatio());
-	UE_LOG(LogTemp, Log, TEXT("总动量    : %.6e"), Simulator.GetTotalMomentum().Size());
-	UE_LOG(LogTemp, Log, TEXT("角动量    : %.6e"), Simulator.GetTotalAngularMomentum().Size());
-	UE_LOG(LogTemp, Log, TEXT("1 AU      : %.0f 厘米"), CentimetersPerAu);
-	UE_LOG(LogTemp, Log, TEXT("=================================="));
+	UE_LOG(LogTemp, Log, TEXT("[Cosmos] 已模拟    : %.6f 年"), Simulator.GetSimulatedTime());
+
+	// 有受控天体时总能量与总动量都不再守恒：有外力或阻尼时此值不再守恒 —— 推力
+	// 做功、以及接触抹掉法向速度都会让它偏离（接触把它拉负、推力做功把它推正）。
+	// 所以加一句提醒，免得看日志的人把它当成积分误差去查积分器。
+	UE_LOG(LogTemp, Log, TEXT("[Cosmos] 能量漂移  : %.6e  （辛积分应 < 1e-5）%s"),
+		Simulator.GetEnergyDriftRatio(),
+		bHasForcedBodies ? TEXT("  ⚠ 含受控天体，此值不守恒") : TEXT(""));
+	UE_LOG(LogTemp, Log, TEXT("[Cosmos] 总动量    : %.6e"), Simulator.GetTotalMomentum().Size());
+	UE_LOG(LogTemp, Log, TEXT("[Cosmos] 角动量    : %.6e"), Simulator.GetTotalAngularMomentum().Size());
+	UE_LOG(LogTemp, Log, TEXT("[Cosmos] 1 AU      : %.0f 厘米"), CentimetersPerAu);
+
+	// 受控天体（飞船）单独一行，值非零才打 —— 它的存在本身就是
+	// 「子系统真的下来读到飞船了」的证据：没有输入时外力为 0，但阻尼是
+	// 1/(DampingTime × TimeScale) = 3.0030e+04 /年，非零。
+	for (int32 Index = 0; Index < Simulator.GetNumBodies(); ++Index)
+	{
+		const FCosmosBodyState& Body = Simulator.GetBody(Index);
+		if (Body.ExternalAcceleration.IsNearlyZero() && Body.LinearDamping == 0.0)
+		{
+			continue;
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("[Cosmos] 受控天体 %d：外力 %.4e AU/年²，阻尼 %.4e /年"),
+			Index, Body.ExternalAcceleration.Size(), Body.LinearDamping);
+	}
+	UE_LOG(LogTemp, Log, TEXT("[Cosmos] =========================="));
 }
 
 bool UCosmosSimulationSubsystem::PredictTrajectoryWorld(int32 SimulatorIndex, double HorizonYears,
@@ -460,6 +547,11 @@ FVector3d UCosmosSimulationSubsystem::GetBodyVelocityGameUnits(int32 SimulatorIn
 	}
 
 	return Simulator.GetBody(SimulatorIndex).Velocity;
+}
+
+FVector UCosmosSimulationSubsystem::ToWorldVelocityScaled(const FVector3d& GameUnitVelocity) const
+{
+	return FVector(GameUnitVelocity) * (CentimetersPerAu * TimeScale);
 }
 
 void UCosmosSimulationSubsystem::SetSelectedBody(AActor* Body)
@@ -531,10 +623,9 @@ void UCosmosSimulationSubsystem::CarryRiders(AActor* BodyActor, const FVector& D
 			continue;
 		}
 
-		// 自身就是 N 体天体的 Pawn 也跳过：本函数上方已经用 SetActorLocation 按
-		// 引力把它搬到新位置了，这里再按星球位移叠一次就是走两步。飞船属于这一类
-		// —— 它挂 UCosmosOrbitComponent（MassSolar = 0），靠引力绕行星走，不是
-		// 被星球「带着」的乘客。
+		// 自身就是 N 体天体的 Pawn 也跳过：本函数上方已经用 SetActorLocation 把它
+		// 搬到新位置了，这里再按星球位移叠一次就是走两步。飞船属于这一类
+		// —— 它挂 UCosmosOrbitComponent，位置由求解器决定，不是被星球「带着」的乘客。
 		//
 		// 判据用 SimulatorIndex 而不是「有没有挂组件」：组件可能存在但还没注册进
 		// 求解器（FinalizeRegistration 之前），那种 Pawn 求解器不管，仍该按乘客

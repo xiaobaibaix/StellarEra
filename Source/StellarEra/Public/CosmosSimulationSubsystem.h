@@ -20,10 +20,11 @@ class UCosmosOrbitComponent;
  *     WorldSubsystem 的单例由引擎保证，不需要在关卡里摆一个驱动 Actor。
  *
  * 每帧顺序（全在一次 Tick 内完成，避免天体之间差一帧）：
+ *   0. 刷新行星接触半径 + 把受控天体（飞船）的推力/阻尼喂给求解器
  *   1. 推进求解器若干步
- *   2. 对每个天体：把求解器位置写回 Actor（bSimulated 为真时）
+ *   2. 对每个天体：把求解器位置与速度写回 Actor（bSimulated 为真时）
  *   3. 体素星球：同步代理体素世界的变换
- *   4. 把位移施加给骑在这颗星球上的 Pawn（Task 5）
+ *   4. 把位移施加给骑在这颗星球上的 Pawn
  */
 UCLASS(Config = Game)
 class UCosmosSimulationSubsystem : public UTickableWorldSubsystem
@@ -271,6 +272,28 @@ private:
 	void RefreshPlanetContactRadii();
 
 	/**
+	 * 每帧推进之前，把**受控天体**（飞船）想施加的力写进求解器。
+	 *
+	 * 方向只能是「子系统下来读飞船」：StellarEraVehicle 不能依赖 StellarEra，
+	 * 飞船不能反过来调本子系统（见 ASpaceshipPawn 的类注释）。
+	 *
+	 * 只认 ASpaceshipPawn —— 现在只有一艘船，Cast 就是全部；等出现第二个受控天体
+	 * （第二艘船、导弹）再抽接口，那时抽出来的形状也才看得清。
+	 */
+	void ApplyControlledBodyForces();
+
+	/**
+	 * 游戏单位速度（AU/年）→ **玩家感知**的世界速度（厘米/秒）。
+	 *
+	 * 即「飞船在真实一秒里走过多少厘米」。1 模拟年只花 1/TimeScale 真实秒，所以
+	 * v_world = v_game × CentimetersPerAu × TimeScale（默认 3330）。
+	 *
+	 * ⚠ 与 FNBodySimulator::ToWorldVelocity 差 YearToSecond · TimeScale ≈ 1.05e5 倍
+	 * —— 那个是「1 模拟年 = 1 真实年」的实时值，屏幕上的数不是它。
+	 */
+	FVector ToWorldVelocityScaled(const FVector3d& GameUnitVelocity) const;
+
+	/**
 	 * 把 BodyActor 本帧的位移施加给骑在它上面的 Pawn。
 	 *
 	 * 只在星球附近生效（判定半径 = 地表半径 × RideRadiusScale），不是全局平移：
@@ -290,6 +313,15 @@ private:
 
 	/** 星图模式是否激活。 */
 	bool bStarMapActive = false;
+
+	/**
+	 * 上一次 ApplyControlledBodyForces 里是否有天体被外力或阻尼作用。
+	 *
+	 * 有的话总能量与总动量都不再守恒：有外力或阻尼时此值不再守恒 —— 推力做功、
+	 * 以及接触抹掉法向速度都会让它偏离（接触把它拉负、推力做功把它推正）。
+	 * LogDiagnostics 据此加一句提醒，免得看日志的人把它当成积分误差去查积分器。
+	 */
+	bool bHasForcedBodies = false;
 
 	FNBodySimulator Simulator;
 
