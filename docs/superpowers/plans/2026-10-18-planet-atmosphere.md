@@ -1012,7 +1012,10 @@ UPlanetAtmosphereComponent::UPlanetAtmosphereComponent()
 	SetCastShadow(false);
 	bReceivesDecals = false;
 
-	// 负值让壳排在其他半透明之后画。
+	// 负值让壳排在其他半透明的**后面**（深度上靠后）。
+	// 引擎原话：lower sort priority draws behind objects with a higher priority
+	// （PrimitiveComponent.h:883-884）。
+	// 别用"之前画 / 之后画"来描述 —— 那说的是绘制先后，与"前后"正好相反，已经写反过一次。
 	// 直接赋属性：UPrimitiveComponent 上**没有** SetTranslucencySortPriority 这个函数，
 	// 只有公开成员 TranslucencySortPriority（PrimitiveComponent.h:892），写成 setter 编译不过。
 	TranslucencySortPriority = -1;
