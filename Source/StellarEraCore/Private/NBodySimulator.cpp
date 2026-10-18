@@ -113,6 +113,10 @@ void FNBodySimulator::ComputeAccelerations()
 		// 另有钳制与默认值兜底），换关卡、甚至同关卡改初始条件都会变。飞船的
 		// k = 3.0e4 /年，本关卡 dt 在 1e-7 年量级，于是 k·dt 在 1e-3 量级 ——
 		// 远小于上限 2，余量两到三个数量级。
+		//
+		// 引力单独存一份（GravitationalAcceleration），不和外力/阻尼混 —— 星图里
+		// 的「引力合力箭头」读它，才能画出纯引力方向、不被推力搅混。
+		Bodies[i].GravitationalAcceleration = G * Sum;
 		Accelerations[i] = G * Sum
 			+ Bodies[i].ExternalAcceleration
 			- Bodies[i].LinearDamping * Bodies[i].Velocity;
@@ -254,9 +258,33 @@ void FNBodySimulator::ResolveContacts()
 			Bodies[i].Position -= Normal * (Overlap * ShareI);
 			Bodies[j].Position += Normal * (Overlap * ShareJ);
 
-			// ② 速度：只抹掉「相互接近」的法向分量，切向留着 —— 接触面是光滑的，
-			//    天体沿地表滑。抹的是**相对**速度而不是各自的速度：后者会把整个
-			//    系统的总动量吃掉，而总动量是这个求解器自己的诊断量之一。
+			// ② 速度：默认只抹掉「相互接近」的法向分量，切向留着 —— 接触面是
+			//    光滑的，天体沿地表滑。抹的是**相对**速度而不是各自的速度：后者会把
+			//    整个系统的总动量吃掉，而总动量是这个求解器自己的诊断量之一。
+			//
+			//    若某一方带 bZeroVelocityOnContact（飞船），则走「撞上即停」的
+			//    特例：把它整条速度设成对方的速度（相对速度归零，随行星一起动），
+			//    不再保留切向滑行分量。
+			const bool bZeroI = Bodies[i].bZeroVelocityOnContact;
+			const bool bZeroJ = Bodies[j].bZeroVelocityOnContact;
+
+			// 只有**一方**要求清零才走「撞上即停」特例。双方都要求清零是误配
+			// （没有可参照的速度），退回默认的法向抹除 —— 实际项目里只有飞船
+			// 会开这个开关，永远只有一方为 true，此分支不会误入。
+			if (bZeroI != bZeroJ)
+			{
+				// 把带开关的那一方整条速度钉到对方上（相对速度归零，随行星一起动）。
+				if (bZeroI)
+				{
+					Bodies[i].Velocity = Bodies[j].Velocity;
+				}
+				else
+				{
+					Bodies[j].Velocity = Bodies[i].Velocity;
+				}
+				continue;
+			}
+
 			const double Approach = FVector3d::DotProduct(
 				Bodies[j].Velocity - Bodies[i].Velocity, Normal);
 

@@ -130,6 +130,10 @@ void UCosmosSimulationSubsystem::AddBodyToSimulator(UCosmosOrbitComponent* Compo
 		// 留 0 的话求解器把中心钳在地表上，机身下半截埋进地形里 —— 300 厘米的
 		// 球埋掉 3 米，正是 PIE 里看到的那一幕。
 		State.Radius = double(Ship->GetContactRadiusCm()) / CentimetersPerAu;
+
+		// 撞上行星时**整条速度归零**（相对速度归零、随行星一起动），而不是默认的
+		// 「只抹法向、切向沿地表滑」—— 玩家期望撞地即停，不是擦着地表一路滑。
+		State.bZeroVelocityOnContact = true;
 	}
 
 	Component->SimulatorIndex = Simulator.AddBody(State);
@@ -187,7 +191,7 @@ void UCosmosSimulationSubsystem::RefreshPlanetContactRadii()
 	}
 }
 
-void UCosmosSimulationSubsystem::ApplyControlledBodyForces()
+void UCosmosSimulationSubsystem::ApplyControlledBodyForces(float DeltaSeconds)
 {
 	bHasForcedBodies = false;
 
@@ -225,8 +229,10 @@ void UCosmosSimulationSubsystem::ApplyControlledBodyForces()
 
 		FCosmosBodyState& Body = Simulator.GetBodyMutable(Component->SimulatorIndex);
 
+		// 帧时长原样转给飞船：它的制动要按「本帧满推力能改变多少速度」收敛，
+		// 见 ASpaceshipPawn::GetThrustAccelerationWorld。
 		Body.ExternalAcceleration =
-			FVector3d(Ship->GetThrustAccelerationWorld()) / CmPerS2PerAuPerY2;
+			FVector3d(Ship->GetThrustAccelerationWorld(DeltaSeconds)) / CmPerS2PerAuPerY2;
 
 		// τ 是真实秒，求解器的时间单位是模拟年，所以除一个 TimeScale。
 		//
@@ -386,7 +392,7 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 	//
 	// 外力同理：本帧推进读的就是这一刻写进去的值。
 	RefreshPlanetContactRadii();
-	ApplyControlledBodyForces();
+	ApplyControlledBodyForces(DeltaTime);
 
 	// ── 1. 时间推进 ──
 	// 真实秒 × TimeScale = 需要模拟的天文年数。
@@ -564,6 +570,17 @@ FVector3d UCosmosSimulationSubsystem::GetBodyVelocityGameUnits(int32 SimulatorIn
 	}
 
 	return Simulator.GetBody(SimulatorIndex).Velocity;
+}
+
+FVector3d UCosmosSimulationSubsystem::GetBodyGravityGameUnits(int32 SimulatorIndex) const
+{
+	// 与 GetBodyVelocityGameUnits 同一个校验理由：GetBody 越界是 UB。
+	if (SimulatorIndex < 0 || SimulatorIndex >= Simulator.GetNumBodies())
+	{
+		return FVector3d::ZeroVector;
+	}
+
+	return Simulator.GetBody(SimulatorIndex).GravitationalAcceleration;
 }
 
 FVector UCosmosSimulationSubsystem::ToWorldVelocityScaled(const FVector3d& GameUnitVelocity) const

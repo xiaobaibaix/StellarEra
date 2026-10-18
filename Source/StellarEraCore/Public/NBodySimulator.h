@@ -25,6 +25,18 @@ struct FCosmosBodyState
 	/** 当前加速度。由求解器写入，不要手动设置。 */
 	FVector3d Acceleration = FVector3d::ZeroVector;
 
+	/**
+	 * 纯引力加速度（AU/年² 或 SI 厘米/秒²，随 UnitSystem）。
+	 *
+	 * 只含万有引力项 `G · Σ m_j·Δ/r³`，**不含**外力（ExternalAcceleration）与阻尼。
+	 * 与 Acceleration 的区别：Acceleration 是「引力 + 外力 − 阻尼」的合力，用来积分；
+	 * 这一项单独存引力部分，供星图里画「引力合力箭头」这类诊断读取 —— 否则把外力
+	 * 算进去，推力会把箭头方向搅混。
+	 *
+	 * 由 ComputeAccelerations 写入，不要手动设置。
+	 */
+	FVector3d GravitationalAcceleration = FVector3d::ZeroVector;
+
 	/** 质量。游戏单位 M☉ 或 SI 单位 千克。 */
 	double Mass = 0.0;
 
@@ -62,6 +74,16 @@ struct FCosmosBodyState
 	 * 把阻尼削掉一大截。
 	 */
 	double LinearDamping = 0.0;
+
+	/**
+	 * 接触时把**全部**速度清零（相对速度归零，跟随对方一起动），而不是默认的
+	 * 「只抹相互接近的法向分量、切向沿地表滑」。为 true 的天体撞上别的天体时，
+	 * 其速度被直接设成对方的速度 —— 飞船撞地即停、并随行星一起动。
+	 *
+	 * 只给飞船开（见 AddBodyToSimulator）。行星之间仍走默认的光滑硬球语义，
+	 * 这样「行星撞行星」不会被这个开关误伤。
+	 */
+	bool bZeroVelocityOnContact = false;
 
 	/** 关联的 Actor。求解器不做任何 UObject 操作。 */
 	TWeakObjectPtr<AActor> OwnerActor;

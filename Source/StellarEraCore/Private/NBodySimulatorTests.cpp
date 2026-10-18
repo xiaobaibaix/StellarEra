@@ -367,6 +367,42 @@ bool FStellarEraNBodyContactTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("没有半径时飞船穿过地表（对照）"), MinDistance < 0.070);
 	}
 
+	// ── 4. 飞船撞地即停：bZeroVelocityOnContact 把整条速度钉到行星上 ──
+	// 飞船带切向速度斜撞向行星。默认的光滑硬球会保留切向分量（沿地表滑），
+	// 但飞船开了 bZeroVelocityOnContact，所以接触后它的速度应**完全等于**行星
+	// 的速度（相对速度归零），切向分量一并被抹掉。
+	{
+		FNBodySimulator Simulator;
+		Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
+		Simulator.SetIntegrator(ECosmosIntegrator::VelocityVerlet);
+		Simulator.SetSofteningLength(1.0e-5);
+
+		FCosmosBodyState Planet;
+		Planet.Mass = 0.873237;
+		Planet.Radius = 0.075;
+		Planet.Velocity = FVector3d(0.0, 0.02, 0.0);   // 行星自己在动
+		Simulator.AddBody(Planet);
+
+		FCosmosBodyState Ship;
+		Ship.Mass = 0.0;
+		Ship.Radius = 0.0;
+		Ship.Position = FVector3d(0.074, 0.0, 0.0);     // 地表内（< 0.075），立刻接触
+		// 既有法向接近（X），也有切向（Y）—— 斜撞，看切向是否也被清掉。
+		Ship.Velocity = FVector3d(-0.05, 0.03, 0.0);
+		Ship.bZeroVelocityOnContact = true;
+		Simulator.AddBody(Ship);
+
+		Simulator.StepExact(0.0);
+
+		const FCosmosBodyState& FinalShip = Simulator.GetBody(1);
+
+		// 整条速度都被钉到行星速度上：X、Y 都等于行星，切向滑行分量不复存在。
+		TestEqual(TEXT("撞地后飞船速度 = 行星速度（法向 X）"),
+			FinalShip.Velocity.X, 0.0, 1.0e-15);
+		TestEqual(TEXT("撞地后飞船速度 = 行星速度（切向 Y 一并清零）"),
+			FinalShip.Velocity.Y, 0.02, 1.0e-15);
+	}
+
 	return true;
 }
 
