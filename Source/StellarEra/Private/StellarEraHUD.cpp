@@ -81,14 +81,10 @@ void AStellarEraHUD::DrawStatusPanel(const FSpaceshipStatus& Status)
 		return;
 	}
 
-	// 推力单独成串而不是直接印输入值：玩家看不出「按着 W 但速度已经锁住」和
-	// 「按着 W 还在加速」的区别，而那正是保底速度机制的全部可见效果。
+	// 推力标签：`bThrustLocked`（旧「保底速度锁定」）随移动组件一起没了 ——
+	// 阻尼模型下按 W 自然收敛到极速，不需要「保底 + 锁速」这个机制。
 	FString ThrustLabel;
-	if (Status.bThrustLocked)
-	{
-		ThrustLabel = TEXT("W 锁定");
-	}
-	else if (Status.ThrustInput > 0.f)
+	if (Status.ThrustInput > 0.f)
 	{
 		ThrustLabel = TEXT("W 加速");
 	}
@@ -101,10 +97,17 @@ void AStellarEraHUD::DrawStatusPanel(const FSpaceshipStatus& Status)
 		ThrustLabel = TEXT("无");
 	}
 
+	// 极速为 0 表示巡航开着（阻尼关掉了）—— 那是「没有上限」，不是「不能动」，
+	// 所以分两种印法而不是直接印 0。
+	const FString SpeedLine = Status.MaxSpeed > 0.f
+		? FString::Printf(TEXT("速度      %d / %d cm/s"),
+			FMath::RoundToInt(Status.Speed), FMath::RoundToInt(Status.MaxSpeed))
+		: FString::Printf(TEXT("速度      %d cm/s（巡航，无上限）"),
+			FMath::RoundToInt(Status.Speed));
+
 	const TArray<FString> Lines =
 	{
-		FString::Printf(TEXT("速度      %d / %d cm/s"),
-			FMath::RoundToInt(Status.Speed), FMath::RoundToInt(Status.MaxSpeed)),
+		SpeedLine,
 		FString::Printf(TEXT("推力      %s"), *ThrustLabel),
 		FString::Printf(TEXT("加速      %s"), Status.bBoosting ? TEXT("ON") : TEXT("OFF")),
 		FString::Printf(TEXT("巡航      %s"), Status.bPreserveVelocity ? TEXT("开") : TEXT("关")),

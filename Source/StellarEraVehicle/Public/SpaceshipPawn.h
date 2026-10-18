@@ -10,7 +10,6 @@
 class APlanetCharacter;
 class AVoxelPlanetActor;
 class UCameraComponent;
-class UFloatingPawnMovement;
 class USphereComponent;
 class USpringArmComponent;
 class UStaticMesh;
@@ -27,10 +26,14 @@ class UVoxelInvokerWithPredictionComponent;
  */
 struct FSpaceshipStatus
 {
-	/** 速度大小（厘米/秒）。 */
+	/** 速度大小（厘米/秒）。取自求解器写回的速度（见 ASpaceshipPawn::GetVelocity）。 */
 	float Speed = 0.f;
 
-	/** 移动组件的速度上限（厘米/秒）。 */
+	/**
+	 * 阻尼极速（厘米/秒）= 推力加速度 × 阻尼时间常数。
+	 *
+	 * 0 表示**没有上限**（巡航开着，阻尼关掉了），不是「不能动」。
+	 */
 	float MaxSpeed = 0.f;
 
 	/** 主推力输入，-1 ~ +1。 */
@@ -38,9 +41,6 @@ struct FSpaceshipStatus
 
 	/** Shift 是否按下。 */
 	bool bBoosting = false;
-
-	/** W 是否已达到保底速度、不再继续加速。 */
-	bool bThrustLocked = false;
 
 	/** 巡航（速度保持）是否开启。 */
 	bool bPreserveVelocity = false;
@@ -52,9 +52,17 @@ struct FSpaceshipStatus
 /**
  * 街机式太空飞船。
  *
- * 位移交给 UFloatingPawnMovement（自带扫掠、加速度、阻尼），手感写在 Tick 里：
- * 鼠标给的是角速度冲量而不是直接设朝向，松手后指数衰减——这是“开飞机”的
- * 惯性感来源，也是《戴森球计划》伊卡洛斯的做法。
+ * **位移完全归 N 体求解器**：本类不自己搬自己，只把「这一帧想施加多少推力加速度」
+ * 暴露出去（GetThrustAccelerationWorld / GetDampingTime），由
+ * UCosmosSimulationSubsystem 每帧下来读走、换算成 AU/年² 写进它那个 FCosmosBodyState。
+ * 位置与速度都由求解器写回（SetActorLocation + SetCosmosVelocity）。
+ *
+ * 力只能是这个方向：StellarEraVehicle 不能依赖 StellarEra（会成环），所以飞船
+ * 既不能 include CosmosOrbitComponent.h，也不能调那个子系统。
+ *
+ * 鼠标给的是角速度冲量而不是直接设朝向，松手后指数衰减 —— 这是"开飞机"的惯性感
+ * 来源，也是《戴森球计划》伊卡洛斯的做法。姿态是**运动学**的：它只决定推力朝哪，
+ * 不参与积分。
  */
 UCLASS()
 class STELLARERAVEHICLE_API ASpaceshipPawn : public APawn
@@ -80,7 +88,7 @@ public:
 	/** 鼠标输入（度）。以冲量形式累加进角速度，松手后衰减。 */
 	void Look(float DeltaYaw, float DeltaPitch);
 
-	/** 加速键（Shift）。按下时在基准加速度上叠加 BoostAcceleration。 */
+	/** 加速键（Shift）。按下时推力加速度乘 BoostMultiplier。 */
 	void SetBoost(bool bValue);
 
 	/**
@@ -97,11 +105,11 @@ public:
 	/**
 	 * 巡航开关（Tab）。翻转 bPreserveVelocity。
 	 *
-	 * 开：松手不减速，速率一直保持 —— 按 W 加到稳、按一下 Tab 就能松开 W 继续飞。
-	 * 关：恢复正常，W 没按着就按基准 Deceleration 减速停下。
+	 * 开：关掉阻尼，速度不再自动衰减 —— 按 W 加到稳、按一下 Tab 就能松开 W 继续飞。
+	 * 关：有阻尼，松手后速度按 τ 衰减停下。
 	 *
-	 * 锁的是**速率**（速度大小），不是速度矢量：巡航中转弯，速度方向会跟着机头转，
-	 * 船不会横着往原方向飘。机制见 Tick 第 4 段的 bCruiseCoasting。
+	 * **只关阻尼，推力照给**：开着巡航按住 W 才能一路加速到圆轨道速度
+	 * （阻尼极速 1.2 km/s 只有圆轨道速度 767.8 km/s 的 0.156 倍）。
 	 *
 	 * 只翻转、不接收目标值：状态归飞船自己管，输入侧不需要知道当前是开是关。
 	 */
@@ -134,13 +142,49 @@ public:
 	 * 在求解器里会让飞船的**中心**被钳在地表上，机身下半截埋进地形里。
 	 *
 	 * 读的是 Collision 而不是 Hull：Collision 本来就是「飞船占多大地方」的那个
-	 * 形状（它同时是根组件和 UFloatingPawnMovement 扫掠用的形状），Hull 是纯外观
-	 * （CollisionEnabled 为 NoCollision）。
+	 * 形状（它同时是根组件），Hull 是纯外观（CollisionEnabled 为 NoCollision）。
 	 */
 	float GetContactRadiusCm() const;
 
+	/**
+	 * 本帧要施加在自己那个 N 体上的推力加速度（厘米/秒²，世界坐标）。零 = 无推力。
+	 *
+	 * 由 UCosmosSimulationSubsystem 每帧下来读走（依赖方向见类注释）。
+	 *
+	 * 方向 = 机头 × ThrustInput + 机身上 × VerticalInput，合成向量夹到长度 1 ——
+	 * 与 UFloatingPawnMovement 原来的 GetClampedToMaxSize(1) 同规则：斜着同时按
+	 * W 和 Space 不该比单按一个多出 41% 的推力。再乘 ThrustAcceleration，
+	 * Shift 时乘 BoostMultiplier。
+	 */
+	FVector GetThrustAccelerationWorld() const;
+
+	/**
+	 * 阻尼时间常数（秒）。0 = 不阻尼。
+	 *
+	 * 巡航（bPreserveVelocity）开着就是 0 —— 「巡航 = 只关阻尼，推力照给」：
+	 * 关掉阻尼才有办法一路加速到圆轨道速度（阻尼极速只有它的 0.156 倍，见 spec §4）。
+	 * 有阻尼时速度收敛到「推力 × 本值」，这就是极速的来源。
+	 */
+	float GetDampingTime() const;
+
+	/**
+	 * 由 UCosmosSimulationSubsystem 在写回位置时一并写入的**求解器速度**
+	 * （厘米/秒，世界坐标）。本类不自己算速度 —— 位移归求解器，速度也就该由它给。
+	 */
+	void SetCosmosVelocity(const FVector& InVelocity) { CosmosVelocity = InVelocity; }
+
+	/**
+	 * 覆写：让引擎侧所有问「这艘船多快」的地方拿到求解器给的真值。
+	 *
+	 * 单点收口，替掉三个散落的改点：IsLanded() 的第一道判断、GetStatus().Speed、
+	 * 以及体素调用器的预测（UVoxelInvokerWithPredictionComponent::
+	 * GetInvokerGlobalPosition 读的是 GetOwner()->GetVelocity()）。删掉移动组件后
+	 * 根组件的速度不再有人写，不覆写的话预测会静默失效 —— 高速飞行时地形就追不上了。
+	 */
+	virtual FVector GetVelocity() const override { return CosmosVelocity; }
+
 protected:
-	/** 碰撞球：既是根组件也是 UFloatingPawnMovement 扫掠用的形状。 */
+	/** 碰撞球：根组件，也是飞船「占多大地方」的那个形状（接触半径取自它）。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spaceship")
 	TObjectPtr<USphereComponent> Collision;
 
@@ -180,9 +224,6 @@ protected:
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spaceship")
 	TObjectPtr<UStaticMeshComponent> Hull;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spaceship")
-	TObjectPtr<UFloatingPawnMovement> FloatingMovement;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
 	TObjectPtr<USpringArmComponent> SpringArm;
@@ -267,34 +308,52 @@ protected:
 	float AngularDamping = 3.5f;
 
 	/**
-	 * 只按 W（不按 Shift）时的保底速度（厘米/秒）。
+	 * 主推力加速度（厘米/秒²）。**本轮唯一被调大的量。**
 	 *
-	 * W 的语义是「保证速度不低于这个值」：低于它就加速，到了就不再提速 ——
-	 * 想更快只能按 Shift。达到之后 W 会**锁住**速度（既不加速也不减速），
-	 * 所以松 W 之后是保持还是减速，完全由 bPreserveVelocity 决定。
+	 * 下限被当地重力锁死：本关卡中心天体 100 M☉、飞船在 r = 0.07425 AU，
+	 * 表面重力 = G·M/r² = 716,089 AU/年² = 7.94e6 cm/s²。推力必须大于它，否则
+	 * 飞船一步都升不起来 —— 这跟怎么接线无关，是物理。改动前飞船的最大推力是
+	 * 4000 + 12000 = 16000 cm/s²，只有重力的 0.20 %。
+	 *
+	 * 1.2e7 = 1.51 × 表面重力，留 51% 净余量。
+	 *
+	 * 极速 = 本值 × DampingTime = 1.2e7 × 0.01 = 1.2e5 cm/s = 1.2 km/s，只有该处
+	 * 圆轨道速度（7.678e5 cm/s）的 0.156 倍 —— 光按 W 飞不出行星，只能悬停、
+	 * 爬升、绕圈。要进轨道得开巡航（关阻尼）持续加速。
 	 */
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Thrust")
-	float MinThrustSpeed = 2000.f;
+	float ThrustAcceleration = 1.2e7f;
+
+	/** 按 Shift 时乘在 ThrustAcceleration 上的倍数。松开即回到 1。 */
+	UPROPERTY(EditAnywhere, Category = "Spaceship|Thrust")
+	float BoostMultiplier = 3.0f;
 
 	/**
-	 * 按 Shift 时**叠加**到基准加速度上的额外加速度（厘米/秒²）。
+	 * 阻尼时间常数 τ（秒）：速度按 a_damp = −v/τ 衰减，收敛到「推力 × τ」。
 	 *
-	 * 最终加速度 = FloatingMovement->Acceleration + 本值。基准值 4000 在构造函数里
-	 * 设定，本值暴露在细节面板，PIE 里可以边飞边调。
+	 * 单位是秒，而求解器的时间单位是模拟年 —— 换算在
+	 * UCosmosSimulationSubsystem::ApplyControlledBodyForces 里做（除以 TimeScale）。
+	 *
+	 * 0.01 秒是**在「有惯性感」和「世界跟得上」之间取的折中**：τ 再大极速就上千
+	 * km/s，体素调用器的范围要跟着涨到几十公里。代价是响应很硬 —— 约 3τ = 30 毫秒
+	 * 到极速（60 fps 下两帧）。旧的「2 秒加到 80 m/s」是旧尺度（飞船不参与引力）
+	 * 的产物，回不去了。
 	 */
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Thrust")
-	float BoostAcceleration = 12000.f;
+	float DampingTime = 0.01f;
 
 	/**
-	 * 惯性保持开关。开 = 松手不减速，速率一直保持（宇宙空间不受力就不变运动状态）；
-	 * 关 = 松手按基准 Deceleration 减速停下。
+	 * 巡航开关。开 = 关掉阻尼（速度保持）；关 = 有阻尼，松手就按 τ 衰减停下。
 	 *
-	 * 保持的是**速率**而不是速度矢量：巡航中转弯，速度方向跟着机头走，不会横着飘。
+	 * **只关阻尼，推力照给** —— 开着巡航按住 W 才能一路加速到圆轨道速度。
+	 *
+	 * 关掉阻尼之后飞船走纯引力测地线：松手不减速，但**行星引力照样作用**，
+	 * 所以「停」不下来，只能悬停或绕圈。
 	 *
 	 * 运行时按 Tab 切换（见 TogglePreserveVelocity），细节面板里改的是**初始状态**，
 	 * 每帧生效，PIE 里也能直接勾。
 	 *
-	 * 刹车仍然按 S：反向推力会先把速度减到零再反向，不需要额外的刹车键。
+	 * 刹车按 S：反向推力会先把速度减到零再反向，不需要额外的刹车键。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spaceship|Thrust")
 	bool bPreserveVelocity = false;
@@ -398,16 +457,13 @@ private:
 	bool bBoosting = false;
 
 	/**
-	 * FloatingMovement 的基准加速度 / 减速度，BeginPlay 时从组件上抄下来。
+	 * 求解器每帧写回的当前速度（厘米/秒，世界坐标）。
 	 *
-	 * 运行时这两个值会被改写（Shift 叠加速度、惯性开关把减速度归零），所以必须先
-	 * 存一份基准，否则改一次就再也回不去了。
+	 * 由 UCosmosSimulationSubsystem 在写回位置时一并写入，本类只读不改。
+	 * 初值零 —— 第一帧写回之前 GetVelocity() 返回零向量，IsLanded() 因此按
+	 * 「速度为零」判断，与旧行为一致。
 	 */
-	float BaseAcceleration = 0.f;
-	float BaseDeceleration = 0.f;
-
-	/** 本帧沿机身前方的速度（厘米/秒）。第 4 段算一次，第 4、5 段共用。 */
-	float ForwardSpeed = 0.f;
+	FVector CosmosVelocity = FVector::ZeroVector;
 
 	/** 距离下次重新评估最近行星还剩多少秒。 */
 	float PlanetReevaluateTimer = 0.f;

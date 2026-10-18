@@ -7,7 +7,6 @@
 #include "Camera/CameraComponent.h"
 #include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
-#include "GameFramework/FloatingPawnMovement.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "UObject/ConstructorHelpers.h"
 #include "EngineUtils.h"
@@ -41,38 +40,42 @@ ASpaceshipPawn::ASpaceshipPawn()
 	// 挂在根节点而不是机头：调用器的位置同时决定 LOD 范围和碰撞范围，碰撞范围
 	// 必须罩住飞船自身的物理体，否则飞机会撞进还没生成碰撞体的地形里。
 	//
-	// 用带预测的版本，而不是角色那种 UVoxelSimpleInvokerComponent：巡航速度
-	// 8000 cm/s 而范围只有 200 m，不预测就只剩 2.5 秒的提前量，地形还没网格化完
-	// 人已经撞上去了。预测把采样点沿速度方向前移 PredictionTime 秒
+	// 用带预测的版本，而不是角色那种 UVoxelSimpleInvokerComponent：极速
+	// 1.2e5 cm/s（= 推力 1.2e7 × 阻尼时间常数 0.01，见 ThrustAcceleration），
+	// 而范围只有 200 m 的话不预测就只剩 0.17 秒的提前量，地形还没网格化完人已经
+	// 撞上去了。预测把采样点沿速度方向前移 PredictionTime 秒
 	// （UVoxelInvokerWithPredictionComponent::GetInvokerGlobalPosition），凭空
-	// 多出 80 m 预警，且不额外扩大细分区域。停稳时速度为零，退化成普通调用器。
+	// 多出 1.2 公里预警，且不额外扩大细分区域。停稳时速度为零，退化成普通调用器。
+	//
+	// ⚠ 调用器的位置是**搬到预测点**去的（同上：Position = 组件位置 + 速度 ×
+	// PredictionTime），不是「两个点都罩住」—— 所以范围必须自己罩得住那个偏移量。
+	// 范围从 200 米改成 3 公里就是这么来的：沿用原口径「2.5 秒提前量」，
+	// 1.2e5 cm/s × 2.5 s = 3e5 厘米。PredictionTime 保持 1 秒（1.2 公里 < 3 公里）。
 	//
 	// 数值与角色一致（见 PlanetCharacter.cpp）：LODToSet = 0 是插件对「贴着表面的
-	// Pawn」的约定用法，200 m 是本项目已经在跑的量级。范围留在组件面板上可调 ——
-	// 嫌地形追不上就同时调大 LODRange 与 CollisionsRange（两个都要，LOD 只影响
-	// 画质，碰撞由 CollisionsRange 单独驱动），或把 bUseForPriorities 打开让
-	// 飞船附近的区块优先网格化。
+	// Pawn」的约定用法。范围留在组件面板上可调 —— 嫌地形追不上就同时调大
+	// LODRange 与 CollisionsRange（两个都要，LOD 只影响画质，碰撞由
+	// CollisionsRange 单独驱动），或把 bUseForPriorities 打开让飞船附近的区块
+	// 优先网格化。
+	//
+	// 代价未知：本关卡行星半径只有 750 米，3 公里的范围等于整颗行星全程满精度 +
+	// 带碰撞。这一项要实测；嫌贵就往回收，改完把上面的推导一起改掉。
 	VoxelInvoker = CreateDefaultSubobject<UVoxelInvokerWithPredictionComponent>(TEXT("VoxelInvoker"));
 	VoxelInvoker->SetupAttachment(Collision);
 	VoxelInvoker->bUseForLOD = true;
 	VoxelInvoker->LODToSet = 0;
-	VoxelInvoker->LODRange = 20000.f;
+	VoxelInvoker->LODRange = 300000.f;
 	VoxelInvoker->bUseForCollisions = true;
-	VoxelInvoker->CollisionsRange = 20000.f;
+	VoxelInvoker->CollisionsRange = 300000.f;
 	VoxelInvoker->bUseForNavmesh = false;
 	VoxelInvoker->bUseForEvents = false;
 	VoxelInvoker->bUseForPriorities = false;
 	VoxelInvoker->bEnablePrediction = true;
 	VoxelInvoker->PredictionTime = 1.f;
 
-	// Acceleration / Deceleration 是**基准值**：运行时会被改写（Shift 叠加速度、
-	// 惯性开关把减速度归零），所以 BeginPlay 会把它们抄进 BaseAcceleration /
-	// BaseDeceleration，之后一律以基准值为起点重新算，不会越改越偏。
-	FloatingMovement = CreateDefaultSubobject<UFloatingPawnMovement>(TEXT("FloatingMovement"));
-	FloatingMovement->MaxSpeed = 8000.f;
-	FloatingMovement->Acceleration = 4000.f;
-	FloatingMovement->Deceleration = 2000.f;
-	FloatingMovement->TurningBoost = 8.f;
+	// 没有移动组件：位移完全归 N 体求解器（见类注释）。曾经的 UFloatingPawnMovement
+	// 会每帧 MoveUpdatedComponent(Velocity * dt)，留着它就和求解器的写回抢着改位置
+	// —— 而且「不喂它输入」也挡不住，它照样按残留速度搬人。
 
 	SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArm"));
 	SpringArm->SetupAttachment(Collision);
@@ -201,15 +204,6 @@ void ASpaceshipPawn::BeginPlay()
 	//     差分从单位四元数起算，开局摆位那一次旋转会被算成一次巨大的横滚。
 	CameraBaseRotation = Camera ? Camera->GetRelativeRotation().Quaternion() : FQuat::Identity;
 	PreviousRotation = GetActorQuat();
-
-	// 同理抄下加减速度的基准值：Tick 每帧都会改写组件上的这两个数
-	// （Shift 叠加、惯性开关归零），没有基准就再也回不去了。
-	// 从组件上读而不是写死 4000 / 2000，蓝图或关卡实例改过的值才作数。
-	if (FloatingMovement)
-	{
-		BaseAcceleration = FloatingMovement->Acceleration;
-		BaseDeceleration = FloatingMovement->Deceleration;
-	}
 }
 
 AVoxelPlanetActor* ASpaceshipPawn::FindNearestPlanet() const
@@ -295,80 +289,11 @@ void ASpaceshipPawn::Tick(float DeltaSeconds)
 
 	// --- 4. 推力 ---
 	//
-	// 沿机身前方的速度。读的是 FloatingMovement->Velocity，也就是上一帧的值
-	// （移动组件在本帧稍后才消费下面的 AddInputVector）—— 差一帧对这里的阈值
-	// 判断没有影响。只服务下面那个保底速度判断。
-	ForwardSpeed = FVector::DotProduct(FloatingMovement->Velocity, GetActorForwardVector());
-
-	// 惯性开关：开 = 松手不减速（Deceleration 归零，速度一直保持，就是「宇宙空间
-	// 不受力就不变运动状态」）；关 = 保持组件上的基准减速度。每帧写一次，细节面板
-	// 里可以实时切换。
-	FloatingMovement->Deceleration = bPreserveVelocity ? 0.f : BaseDeceleration;
-
-	// Shift 在基准加速度上**叠加** BoostAcceleration，松开即恢复。
-	// 从基准值起算而不是在组件当前值上累加，避免连按 Shift 把加速度越加越大。
-	float TargetAcceleration = BaseAcceleration + (bBoosting ? BoostAcceleration : 0.f);
-
-	// 巡航滑行：开着巡航、没按 W、没按 Shift —— 也就是"松手让它自己飞"的状态。
+	// 推力不再由这里施加 —— 本类只把「想施加多少」暴露出去
+	// （GetThrustAccelerationWorld / GetDampingTime），由 UCosmosSimulationSubsystem
+	// 每帧下来读走、换算、写进求解器。
 	//
-	// 按 S 不算滑行（要留出刹车），按 Space/LeftControl 算（升降不该改变速率，
-	// 见下面对方向目标的处理）。
-	const bool bCruiseCoasting =
-		bPreserveVelocity && !bBoosting && FMath::IsNearlyZero(ThrustInput);
-
-	if (bCruiseCoasting)
-	{
-		TargetAcceleration = 0.f;
-	}
-
-	// W 的保底速度：已经到 MinThrustSpeed 就不再加速。
-	//
-	// 这里只把**加速度**归零，推力输入照给。输入在，移动组件就不会走施加
-	// Deceleration 的那条分支，速度因此稳定锁在保底值上。若连输入一起撤掉，
-	// 速度会在「加速 → 掉到阈值下 → 再加速」之间逐帧抖，而这个抖动会经加速度
-	// 传到第 5 段的相机后缩上，画面会颤。
-	if (ThrustInput > 0.f && !bBoosting && ForwardSpeed >= MinThrustSpeed)
-	{
-		TargetAcceleration = 0.f;
-	}
-	FloatingMovement->Acceleration = TargetAcceleration;
-
-	if (bCruiseCoasting)
-	{
-		// 巡航时速度矢量由这里说了算：转向目标方向，速率分毫不动。
-		//
-		// 为什么不沿用移动组件的方向对齐（给个前向输入让它自己转）：那条分支用的是
-		// **线性插值** —— Velocity = V + (目标方向 × |V| - V) * t。两个等长矢量线性
-		// 插值的结果一定短于原矢量（除非同向），所以每对齐一次就掉一点速率。按
-		// TurningBoost = 8、60fps 估，持续转弯每秒掉十几个百分点 —— 表现就是
-		// "一动视角速度就变"。
-		//
-		// 平时按住 W 感觉不到：速率掉到 MinThrustSpeed 以下后，保底速度逻辑立刻把它
-		// 推回去，等于自带一个调节器。巡航时没有这个调节器，掉多少就是多少。
-		//
-		// 这里改用**旋转**（Slerp 保长）而不是插值，速率因此严格不变。转速沿用组件的
-		// TurningBoost，巡航手感和按住 W 时一致。
-		//
-		// 不给移动组件喂任何输入：零输入时它既不加速也不减速（巡航时 Deceleration
-		// 已是 0），不会跟这里抢速度矢量。
-		//
-		// 方向目标是"机头 + 升降"的合成方向，所以巡航中按 Space/LeftControl 能爬升、
-		// 下降，速率同样锁住。
-		FVector TargetDirection = GetActorForwardVector() + GetActorUpVector() * VerticalInput;
-		const FVector Velocity = FloatingMovement->Velocity;
-
-		if (TargetDirection.Normalize() && !Velocity.IsNearlyZero())
-		{
-			const float Alpha = FMath::Clamp(DeltaSeconds * FloatingMovement->TurningBoost, 0.f, 1.f);
-			const FQuat Delta = FQuat::FindBetweenNormals(Velocity.GetSafeNormal(), TargetDirection);
-			FloatingMovement->Velocity = FQuat::Slerp(FQuat::Identity, Delta, Alpha).RotateVector(Velocity);
-		}
-	}
-	else
-	{
-		FloatingMovement->AddInputVector(GetActorForwardVector() * ThrustInput);
-		FloatingMovement->AddInputVector(GetActorUpVector() * VerticalInput);
-	}
+	// 本段只剩相机后缩要用的 ThrustInput，见第 5 段。
 
 	// --- 5. 按 W 时相机后缩 ---
 	// 驱动量就是**推力输入本身**，不是速度也不是加速度：按住 W 就后缩，松开就回位；
@@ -488,20 +413,17 @@ FSpaceshipStatus ASpaceshipPawn::GetStatus() const
 {
 	FSpaceshipStatus Status;
 
-	if (FloatingMovement)
-	{
-		Status.Speed = FloatingMovement->Velocity.Size();
-		Status.MaxSpeed = FloatingMovement->GetMaxSpeed();
-	}
+	// 速度取自求解器写回的值（GetVelocity 的覆写读的就是它）。
+	Status.Speed = GetVelocity().Size();
+
+	// 阻尼极速 = 推力 × τ。巡航（无阻尼）时为 0，表示「没有上限」。
+	const float Damping = GetDampingTime();
+	Status.MaxSpeed = Damping > 0.f
+		? (ThrustAcceleration * (bBoosting ? BoostMultiplier : 1.f)) * Damping
+		: 0.f;
 
 	Status.ThrustInput = ThrustInput;
 	Status.bBoosting = bBoosting;
-
-	// 必须与 Tick 第 4 段的锁速条件逐字一致：显示层和逻辑层对不上比不显示更误导
-	// （HUD 说「还在加速」而速度其实已经锁死，就没人能查清保底速度到底生效没有）。
-	Status.bThrustLocked =
-		ThrustInput > 0.f && !bBoosting && ForwardSpeed >= MinThrustSpeed;
-
 	Status.bPreserveVelocity = bPreserveVelocity;
 	Status.bLanded = IsLanded();
 
@@ -557,4 +479,26 @@ float ASpaceshipPawn::GetContactRadiusCm() const
 	// 整体缩放，N 体那边要的是**世界尺度**的半径（跟 CentimetersPerAu 同一套单位）。
 	// Collision 为空只会出现在 CDO 构造的中途，返回 0 即退回点质量行为。
 	return Collision ? Collision->GetScaledSphereRadius() : 0.f;
+}
+
+FVector ASpaceshipPawn::GetThrustAccelerationWorld() const
+{
+	// 方向 = 机头 × 前后输入 + 机身上 × 升降输入，合成向量夹到长度 1 ——
+	// 与 UFloatingPawnMovement::AddInputVector 的 GetClampedToMaxSize(1) 同规则：
+	// 斜着同时按 W 和 Space 不该比单按一个多出 41% 的推力。
+	const FVector Direction =
+		(GetActorForwardVector() * ThrustInput + GetActorUpVector() * VerticalInput)
+			.GetClampedToMaxSize(1.0);
+
+	// Shift 乘在**大小**上而不是方向分量上：这样斜着按 W+Space+Shift 时，
+	// 总量仍然只有单按一个的 1 倍（而不是 1.41 倍）。
+	const float Magnitude = ThrustAcceleration * (bBoosting ? BoostMultiplier : 1.f);
+	return Direction * Magnitude;
+}
+
+float ASpaceshipPawn::GetDampingTime() const
+{
+	// 巡航 = 只关阻尼，推力照给。关掉阻尼才有办法一路加速到圆轨道速度 ——
+	// 阻尼极速只有它的 0.156 倍。
+	return bPreserveVelocity ? 0.f : DampingTime;
 }
