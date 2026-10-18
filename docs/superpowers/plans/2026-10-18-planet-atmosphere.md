@@ -751,8 +751,9 @@ bool BuildPlanetAtmosphereMaterial(FString& OutError)
 	Material->BlendMode = BLEND_Translucent;
 	Material->SetShadingModel(MSM_Unlit);
 	Material->TwoSided = false;             // 球内看不见壳，交给引擎大气
-	Material->bCastDynamicShadow = false;
-	Material->bCastStaticShadow = false;
+	// 不投影**不在这里设**：UMaterial 上没有 bCastDynamicShadow / bCastStaticShadow，
+	// 那两个是 UPrimitiveComponent 的属性（PrimitiveComponent.h:568/572），写上编译不过。
+	// 由 Task 3 壳组件的 SetCastShadow(false) 负责 —— 投影本来就是组件的属性，不是材质的。
 
 	UMaterialEditorOnlyData* EditorData = Material->GetEditorOnlyData();
 	if (!EditorData)
