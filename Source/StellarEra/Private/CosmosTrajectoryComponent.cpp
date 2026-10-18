@@ -285,7 +285,7 @@ double UCosmosTrajectoryComponent::ResolvePredictionHorizonYears(
 		//
 		// 0 = 不设限；子系统还没算出最短周期（返回 0，比如关卡里只有一颗天体）
 		// 时也无从钳起，原样返回。为什么要钳见 MaxAutoPredictionPeriods 的注释：
-		// 预测是粗积分，误差按 (窗口/最短周期)³ 涨。
+		// 预测是粗积分，窗口越长误差越大，拐点在「窗口 / 最短周期 ≈ 0.5」。
 		const double ShortestPeriod = Subsystem.GetShortestPeriodYears();
 		if (Orbit->MaxAutoPredictionPeriods > 0.0 && ShortestPeriod > 0.0)
 		{
