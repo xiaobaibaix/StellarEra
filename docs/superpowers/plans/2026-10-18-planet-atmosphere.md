@@ -312,7 +312,13 @@ namespace PlanetAtmosphere
 		float MieAbsorptionScale = 0.0f;
 		float RayleighExponentialDistributionKm = 0.0f;
 		float MieExponentialDistributionKm = 0.0f;
-		/** s = 行星半径km / 6360，留作日志与断言。 */
+		/**
+		 * s = 行星半径km / 6360。
+		 *
+		 * 同时是**有效性的唯一信号**：半径非正时 ComputeSkyAtmosphereScaleParams
+		 * 返回全零结构体，此时 Scale == 0。调用方必须先查它再写引擎组件 ——
+		 * AtmosphereHeightKm == 0 会让引擎的 exp(-h/H) 除零。
+		 */
 		float Scale = 0.0f;
 	};
 
@@ -321,8 +327,8 @@ namespace PlanetAtmosphere
 	 *
 	 * 但 AtmosphereHeightKm **不**用几何缩放，而是 = 行星半径km × 厚度比。
 	 * 这是刻意的：引擎大气的厚度必须与壳一致（都是观感厚度），否则玩家穿过
-	 * 壳边界时会看到跳变。厚度比地球大 5.3 倍**不会**让光学厚度变大 ——
-	 * 那是 Task 5 用 AtmosphereCoefficientScale 调的事。
+	 * 壳边界时会看到跳变。该厚度比是地球的 5.3 倍，但 τ = β × H 并不因此改变
+	 * —— s 与 1/s 在 τ 里正好抵消（比值 1.0006），无需补偿，AtmosphereCoefficientScale 留在 1.0。
 	 */
 	STELLARERAPLANET_API FSkyAtmosphereScaleParams ComputeSkyAtmosphereScaleParams(
 		float SurfaceRadiusKm, float AtmosphereHeightRatio);
