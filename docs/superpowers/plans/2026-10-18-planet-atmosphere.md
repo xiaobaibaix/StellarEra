@@ -1435,10 +1435,14 @@ int32 FindNearestPlanet(const TArray<FVector>& Centers, const TArray<float>& Sur
 
 ```bash
 powershell -NoProfile -ExecutionPolicy Bypass -File "$TEMP/ue_mcp/ue_build.ps1"
-powershell -NoProfile -ExecutionPolicy Bypass -File "$TEMP/ue_mcp/run_nbody_test.ps1" -Filter "StellarEra.Atmosphere.Targeting"
+powershell -NoProfile -ExecutionPolicy Bypass -File "$TEMP/ue_mcp/run_atmo_test.ps1" -Filter "StellarEra.Atmosphere.Targeting"
 ```
 
 预期：构建 `Result: Succeeded`；1 条测试 `StellarEra.Atmosphere.Targeting` 全 `Success`，里面有 7 条断言。
+
+**注意**：`run_nbody_test.ps1` **不支持** `-Filter`（第 8 行把 `$filter` 写死成 `'StellarEra.Core'`），别用它跑这一条。
+用 `run_atmo_test.ps1`（Task 1 建的兄弟脚本），它现在接受可选的 `-Filter`，不传就还是跑
+`StellarEra.Planet.AtmosphereParams`。
 
 - [ ] **Step 5: 接进子系统**
 
@@ -1595,14 +1599,29 @@ void UCosmosSimulationSubsystem::UpdateSkyAtmosphereRetarget()
 	}
 
 	SkyAtmosphere->SetActorLocation(NearestPlanet->GetActorLocation());
+
+	// TransformMode 没有 setter —— 引擎只为 USKYATMOSPHERE_VARIABLES_WITH_SETFUNCTION
+	// 那一批生成了 Set##Name（SkyAtmosphereComponent.h:188-232），TransformMode 不在其中，
+	// 只能直接赋成员。
 	Atmosphere->TransformMode = ESkyAtmosphereTransformMode::PlanetCenterAtComponentTransform;
-	Atmosphere->BottomRadius = ScaleParams.BottomRadiusKm;
-	Atmosphere->AtmosphereHeight = ScaleParams.AtmosphereHeightKm;
-	Atmosphere->RayleighScatteringScale = ScaleParams.RayleighScatteringScale * AtmosphereCoefficientScale;
-	Atmosphere->MieScatteringScale = ScaleParams.MieScatteringScale * AtmosphereCoefficientScale;
-	Atmosphere->MieAbsorptionScale = ScaleParams.MieAbsorptionScale * AtmosphereCoefficientScale;
-	Atmosphere->RayleighExponentialDistribution = ScaleParams.RayleighExponentialDistributionKm;
-	Atmosphere->MieExponentialDistribution = ScaleParams.MieExponentialDistributionKm;
+
+	// 其余 7 个**必须走 setter**，不能直接赋成员。
+	// 引擎的 setter 宏（SkyAtmosphereComponent.cpp:462-471）在赋值后调 MarkRenderStateDirty()，
+	// 直接赋成员不会 —— 场景代理是在 CreateSceneProxy 里把参数拷进 FAtmosphereSetup 的，
+	// 不置脏就永远用旧值。后果是静默失效：不报错、不崩、只是什么都没变。
+	// （SkyAtmosphereGetClamped 对 float 是直通，setter 不会偷偷夹我们的值。）
+	Atmosphere->SetBottomRadius(ScaleParams.BottomRadiusKm);
+	Atmosphere->SetAtmosphereHeight(ScaleParams.AtmosphereHeightKm);
+	Atmosphere->SetRayleighScatteringScale(ScaleParams.RayleighScatteringScale * AtmosphereCoefficientScale);
+	Atmosphere->SetMieScatteringScale(ScaleParams.MieScatteringScale * AtmosphereCoefficientScale);
+	Atmosphere->SetMieAbsorptionScale(ScaleParams.MieAbsorptionScale * AtmosphereCoefficientScale);
+	Atmosphere->SetRayleighExponentialDistribution(ScaleParams.RayleighExponentialDistributionKm);
+	Atmosphere->SetMieExponentialDistribution(ScaleParams.MieExponentialDistributionKm);
+
+	// TransformMode 那行没有 setter 兜底，所以显式置一次脏。
+	// 上面 7 个 setter 里只要有一个真的改了值就已经置过脏了，这一行是换行星时
+	// 半径恰好相同、只有 TransformMode 变了那种情况下的保险。
+	Atmosphere->MarkRenderStateDirty();
 
 	UE_LOG(LogTemp, Display,
 		TEXT("[大气] 引擎大气重定位到 %s：R=%.4f km，厚度=%.5f km，瑞利系数=%.2f，米氏系数=%.4f"),
