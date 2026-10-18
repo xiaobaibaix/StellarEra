@@ -106,8 +106,15 @@ void UPlanetAtmosphereComponent::RefreshAtmosphereGeometry()
 	if (!bAtmosphereEnabled)
 	{
 		// 关掉是用户的显式选择，不是失败，不报。
+		// 同时清掉"已应用"：重新勾上时必须重算一次，否则壳不会回来。
+		bGeometryApplied = false;
 		return;
 	}
+
+	// 从这里往下就算"处理过了"，包括下面三条失败分支（MID 空 / Owner 不是行星 /
+	// 半径非正）。它们都合法地以"不可见"收场，若在这里不置真，TickComponent 的
+	// 边沿触发会每帧重试，每帧刷同一条日志。
+	bGeometryApplied = true;
 
 	if (!AtmosphereMID)
 	{
@@ -129,6 +136,8 @@ void UPlanetAtmosphereComponent::RefreshAtmosphereGeometry()
 	const float SurfaceRadiusCm = Planet->GetSurfaceRadiusCm();
 	if (SurfaceRadiusCm <= 0.0f)
 	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[大气] 行星表面半径 %.3f cm 非正，壳没有可套的球面，跳过。"), SurfaceRadiusCm);
 		SetVisibility(false);
 		return;
 	}
@@ -204,12 +213,23 @@ void UPlanetAtmosphereComponent::TickComponent(float DeltaTime, ELevelTick TickT
 		{
 			SetVisibility(false);
 		}
+		// 清掉"已应用"：重新勾上时要再算一遍，否则壳会一直不可见。
+		bGeometryApplied = false;
 		return;
 	}
 
 	if (!AtmosphereMID)
 	{
 		return;
+	}
+
+	// 重新开启的边沿：只在这里重算一次。
+	// 不能每帧无条件调 —— RefreshAtmosphereGeometry 会写世界缩放和 7 个材质参数；
+	// 也不能拿 IsVisible() 当判据 —— 它的三条失败分支本来就以"不可见"收场，
+	// 那样会每帧重试、每帧刷日志。判据只能是"这个启用状态算过没有"。
+	if (!bGeometryApplied)
+	{
+		RefreshAtmosphereGeometry();
 	}
 
 	// 行星中心就是组件自己的世界位置（相对位置是零）。

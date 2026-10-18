@@ -74,4 +74,18 @@ private:
 	FVector LastCameraPos = FVector(UE_BIG_NUMBER);
 	FVector LastSunDirection = FVector(UE_BIG_NUMBER);
 	bool bLoggedMissingSun = false;
+
+	/**
+	 * 几何与材质参数是否已经按**当前**启用状态算过一遍。
+	 *
+	 * 不变式：为真 ⟺ `RefreshAtmosphereGeometry()` 已经在当前启用状态下完整跑过一次
+	 * （**包括它的三条失败分支**）；`TickComponent` 观察到关掉时清假。
+	 *
+	 * 用来做边沿触发：`TickComponent` 只在它为假时重算一次。
+	 *   - 不能每帧无条件调 —— 那会每帧写一次世界缩放和 7 个材质参数；
+	 *   - 不能拿 `IsVisible()` 当判据 —— 三条失败分支本来就以"不可见"收场，
+	 *     那样会每帧重试、每帧刷同一条日志。
+	 * 失败分支也置真，正是为了不让它们每帧重试。
+	 */
+	bool bGeometryApplied = false;
 };
