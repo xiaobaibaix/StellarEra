@@ -65,7 +65,11 @@ namespace PlanetAtmosphere
 	 * 但 AtmosphereHeightKm **不**用几何缩放，而是 = 行星半径km × 厚度比。
 	 * 这是刻意的：引擎大气的厚度必须与壳一致（都是观感厚度），否则玩家穿过
 	 * 壳边界时会看到跳变。该厚度比是地球的 5.3 倍，但 τ = β × H 并不因此改变
-	 * —— s 与 1/s 在 τ 里正好抵消（比值 1.0006），无需补偿，AtmosphereCoefficientScale 留在 1.0。
+	 * —— s 与 1/s 在 τ 里正好抵消（比值 1.0006），无需补偿。
+	 *
+	 * **当前没有调用方**：引擎大气那一半已经撤掉（见提交 ef65a5a，关卡里不再有
+	 * ASkyAtmosphere）。这个函数连同它的自动化测试一起留着，是为了以后把引擎
+	 * 大气加回来时不用重写 —— 别当死代码删。
 	 */
 	STELLARERAPLANET_API FSkyAtmosphereScaleParams ComputeSkyAtmosphereScaleParams(
 		float SurfaceRadiusKm, float AtmosphereHeightRatio);
