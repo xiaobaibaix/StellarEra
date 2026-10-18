@@ -107,8 +107,11 @@ void FNBodySimulator::ComputeAccelerations()
 
 		// 外力与阻尼都是**逐子步**求值的：阻尼那一项用的是本步此刻的 Velocity，
 		// 而 StepVelocityVerlet 在步骤②重算加速度时速度还没被踢 —— 所以阻尼是
-		// 显式欧拉，每步放大因子 1 − k·dt。稳定性要求 k·dt < 2；飞船的
-		// k·dt = 3.0e4 × 1.25e-7 = 3.75e-3，余量三个数量级。
+		// 显式欧拉，每步放大因子 1 − k·dt。稳定性要求 k·dt < 2。
+		//
+		// 判据只写公式，不代具体步长：dt 是逐关卡派生的（最短周期 / StepsPerOrbit），
+		// 换关卡、甚至同关卡改初始条件都会变。飞船的 k = 3.0e4 /年，而这些关卡的
+		// dt 都在 1e-7 年量级，于是 k·dt 在 1e-3 量级 —— 距上限 2 有三个数量级余量。
 		Accelerations[i] = G * Sum
 			+ Bodies[i].ExternalAcceleration
 			- Bodies[i].LinearDamping * Bodies[i].Velocity;

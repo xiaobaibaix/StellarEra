@@ -282,8 +282,8 @@ void UCosmosSimulationSubsystem::FinalizeRegistration()
 	// 再取其中最短的一条除以 StepsPerOrbit。
 	//
 	// 为什么取最短的那条：它就是这个系统里最快的动力学时标，积分步长必须跟着它走。
-	// 本关卡实测这条是 0.790569 年（开局日志那行的「最短周期」），步长 3.952847e-05 年
-	// 正好是它除以 StepsPerOrbit = 20000。
+	// 具体数值逐关卡不同（改质量、改初始位置都会变），要看就去看开局日志那两行
+	// 「最短周期」与「步长」—— 步长恒等于最短周期除以 StepsPerOrbit。
 	double ShortestPeriod = TNumericLimits<double>::Max();
 
 	for (int32 I = 0; I < Simulator.GetNumBodies(); ++I)
