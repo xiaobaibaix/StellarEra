@@ -37,7 +37,7 @@
 
 2. **§5.2 与 §6 互相指认，壳的散射系数 `RayleighBeta` / `MieBeta` 没有初值。**
    §5.2 的"初值来源"栏写"见 §6"，§6 写"壳的参数不用这套，直接按 §5.2 用 `ShellRadius` 的比例给初值"——循环。
-   **补全办法**：让壳的**垂直光学厚度**等于地球的。光学厚度 `τ = β × H` 是无量纲量，也是真正决定观感的量；壳的厚度是观感值（比物理值厚约 7 倍），所以系数必须相应变薄，观感才对。
+   **补全办法**：让壳的**垂直光学厚度**等于地球的。光学厚度 `τ = β × H` 是无量纲量，也是真正决定观感的量；壳的厚度是观感值（比物理值厚约 5.3 倍），所以系数必须相应变薄，观感才对。
    `β_Rayleigh(B通道) = (0.033100 × 8.0) / RayleighScaleHeightCm`，`β_Mie = ((0.003996 + 0.000444) × 1.2) / MieScaleHeightCm`，RGB 比例取自地球的归一化颜色。
 
 3. **§5.3 写米氏 Henyey-Greenstein 的 `g = 0.76`，改为 `g = 0.8`。**
@@ -275,7 +275,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$TEMP/ue_mcp/ue_build.ps1"
  *    s = 行星半径km / 6360。
  *
  *  - 壳（每颗行星一个，自写散射）：用观感缩放。
- *    壳的厚度是观感参数（比物理厚度厚约 7 倍，否则从太空看是一条看不见的线），
+ *    壳的厚度是观感参数（比物理厚度厚约 5.3 倍，否则从太空看是一条看不见的线），
  *    所以系数不能跟着几何走，而是让垂直光学厚度 τ = β × H 与地球相等。
  *
  * 两边唯一必须一致的是**厚度比**，否则玩家穿过壳边界会看到跳变。
@@ -321,7 +321,7 @@ namespace PlanetAtmosphere
 	 *
 	 * 但 AtmosphereHeightKm **不**用几何缩放，而是 = 行星半径km × 厚度比。
 	 * 这是刻意的：引擎大气的厚度必须与壳一致（都是观感厚度），否则玩家穿过
-	 * 壳边界时会看到跳变。代价是光学厚度比地球厚约 7 倍，天空可能过饱和 ——
+	 * 壳边界时会看到跳变。厚度比地球大 5.3 倍**不会**让光学厚度变大 ——
 	 * 那是 Task 5 用 AtmosphereCoefficientScale 调的事。
 	 */
 	STELLARERAPLANET_API FSkyAtmosphereScaleParams ComputeSkyAtmosphereScaleParams(
@@ -340,7 +340,7 @@ namespace PlanetAtmosphere
 	/**
 	 * 壳的散射：标高按壳半径的比例给（观感），系数按"垂直光学厚度等于地球"反推。
 	 *
-	 * τ = β × H 是无量纲的，也是真正决定观感的量。壳比物理厚度厚约 7 倍，
+	 * τ = β × H 是无量纲的，也是真正决定观感的量。壳比物理厚度厚约 5.3 倍，
 	 * 所以 β 必须相应变薄，观感才对。
 	 *
 	 * @param ShellRadiusCm             壳半径（cm），来自 ComputeShellRadiusCm
@@ -1451,11 +1451,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$TEMP/ue_mcp/run_nbody_test
 	float AtmosphereHeightRatio = 0.05f;
 
 	/**
-	 * 引擎大气散射系数的额外倍率。
+	 * 引擎大气散射系数的额外倍率。初值 1.0 = 不做任何补偿。
 	 *
-	 * 几何缩放给的是"与地球等光学厚度"的系数，但大气厚度用了观感值（0.05 而不是物理的
-	 * 0.00094），所以实际光学厚度比地球厚约 7 倍，天空可能过饱和发白。
-	 * 天空糊成一片白就把这个值往小调；天空太淡就往大调。
+	 * 几何缩放（长度 ×s、系数 ×1/s）已经让垂直光学厚度 τ = β·H 与地球相等，
+	 * 所以观感上**不需要**预先补偿：厚度比地球大 5.3 倍并不会让 τ 变大，
+	 * 因为 s 与 1/s 在 β·H 里正好抵消（实算 τ 之比 1.0006）。
+	 * 这个值只用于观感微调：天空糊成一片白就往小调，太淡就往大调。
 	 */
 	UPROPERTY(Config, EditAnywhere, Category = "Cosmos|Atmosphere", meta = (ClampMin = "0.0"))
 	float AtmosphereCoefficientScale = 1.0f;
@@ -1647,9 +1648,9 @@ feat(大气): 引擎大气逐帧重定位到最近的行星
 找不到行星时保持上一次的设置 —— 绝不把 AtmosphereHeight 写成 0，
 那会让着色器里的 exp(-h / H) 除零。
 
-AtmosphereCoefficientScale 是配置项：大气厚度用了观感值（0.05 而不是
-物理的 0.00094），光学厚度因此比地球厚约 7 倍，天空可能过饱和，
-靠这个值往回调。
+AtmosphereCoefficientScale 是配置项，初值 1.0 —— 几何缩放（长度 ×s、
+系数 ×1/s）让 τ = β·H 与地球相等（实算之比 1.0006），观感上不需要
+预先补偿。这个值只用于微调。
 
 Co-Authored-By: Claude Code <noreply@anthropic.com>
 EOF
@@ -1705,10 +1706,11 @@ stat unit
 ```ini
 [/Script/StellarEra.CosmosSimulationSubsystem]
 AtmosphereHeightRatio=0.05
-AtmosphereCoefficientScale=0.14
+AtmosphereCoefficientScale=1.0
 ```
 
-`0.14` 只是一个起点，**不是算出来的值** —— 按天空的实际观感从 `0.2` 上下试，加到天空够蓝但不过曝为止。改完重启编辑器。
+`1.0` 是**算出来的**：几何缩放让 τ 与地球相等，不需要补偿。只有实测发现天空
+确实过曝时才往下调（每次减半试），够蓝就停。改完重启编辑器。
 
 - [ ] **Step 4: 逐条过验收标准**
 
