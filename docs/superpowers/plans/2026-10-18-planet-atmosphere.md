@@ -1270,7 +1270,14 @@ EOF
 
 ---
 
-### Task 4: 引擎大气重定位
+### Task 4: 引擎大气重定位 —— 已撤销（2026-10-19）
+
+**这个任务做了、又被撤掉了。** 代码在 `c2afa64`（含修复 `b3e6927`），撤销在 `ef65a5a`；
+原因见规格 §5.4 —— 关卡里的 `ASkyAtmosphere` 被有意删除，没有 actor 可搬。
+撤销前已验证：构建 `Result: Succeeded`，自动化测试 `StellarEra.Atmosphere.Targeting` 1 项 `{Success}`。
+
+**下面全部内容不再执行。** 留档是为了以后把引擎大气加回来时不必重推（做法：往关卡里放一个
+`ASkyAtmosphere`，然后 revert `ef65a5a`）。
 
 场景里唯一的 `ASkyAtmosphere` 逐帧搬到离相机最近的行星，按该行星半径缩放参数。这是"站在行星上"那一半。
 
@@ -1733,18 +1740,11 @@ stat unit
 
 调好后把值写回 `UPlanetAtmosphereComponent` 的成员初值（否则只在本次 PIE 生效）。
 
-- [ ] **Step 3: 调引擎大气**
+- [x] ~~**Step 3: 调引擎大气**~~ —— **已撤销（2026-10-19），跳过本步**
 
-如果行星表面的天空糊成一片白，改 `Config/DefaultGame.ini`：
-
-```ini
-[/Script/StellarEra.CosmosSimulationSubsystem]
-AtmosphereHeightRatio=0.05
-AtmosphereCoefficientScale=1.0
-```
-
-`1.0` 是**算出来的**：几何缩放让 τ 与地球相等，不需要补偿。只有实测发现天空
-确实过曝时才往下调（每次减半试），够蓝就停。改完重启编辑器。
+原本是改 `Config/DefaultGame.ini` 里的 `AtmosphereHeightRatio` / `AtmosphereCoefficientScale`
+来调行星表面的天空。引擎大气那一半已撤销（规格 §5.4），这两个 Config 属性也不再存在，
+没有可调的东西。
 
 - [ ] **Step 4: 逐条过验收标准**
 
@@ -1799,7 +1799,7 @@ EOF
 
 | 规格节 | 落到哪个任务 |
 |---|---|
-| §3.1 一个 world 一套大气 | 架构前提，Task 4 的 `UpdateSkyAtmosphereRetarget` 就是它的直接后果 |
+| §3.1 一个 world 一套大气 | 架构前提，Task 4 的 `UpdateSkyAtmosphereRetarget` 曾是它的直接后果；Task 4 已撤销 |
 | §3.2 材质里拿不到 LUT | Task 2 的 HLSL 自带散射数学 |
 | §3.3 不用 `IncludeFilePaths` | Task 2，`Code` 是自包含字符串，`IncludeFilePaths` 一个字没写 |
 | §3.4 球内天然不可见 | Task 3，`TwoSided = false` + 球面法线朝外 |
@@ -1807,7 +1807,7 @@ EOF
 | §5.1 壳组件 | Task 3 |
 | §5.2 材质参数表 | Task 2 建节点、Task 3 按名字设置 |
 | §5.3 单次散射 HLSL | Task 2 的 `AtmosphereHLSL` |
-| §5.4 引擎大气重定位 | Task 4 |
+| §5.4 引擎大气重定位 | Task 4 —— 已撤销（2026-10-19），见规格 §5.4 |
 | §5.5 材质生成器 | Task 2（`UnrealEd` 那处已在「偏差」第 1 条修正） |
 | §6 参数从哪来 | Task 1 的三条纯函数（壳散射系数的空洞已在「偏差」第 2 条补全） |
 | §7 风险表 | 风险 #1 → Task 4 Step 7 的退路；#2 → Task 5 Step 1；#3 → Task 4 的"只在换行星时写"；#4 → Task 2 的混合设置 + Task 3 Step 4 的排查；#5 → 材质随仓库提交 |
