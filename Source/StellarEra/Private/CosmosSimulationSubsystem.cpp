@@ -2,17 +2,12 @@
 
 #include "CosmosSimulationSubsystem.h"
 
-#include "Camera/PlayerCameraManager.h"
-#include "Components/SkyAtmosphereComponent.h"
 #include "CosmosOrbitComponent.h"
 #include "VoxelPlanetActor.h"
 #include "SpaceshipPawn.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Pawn.h"
-#include "GameFramework/PlayerController.h"
-#include "PlanetAtmosphereParams.h"
-#include "PlanetAtmosphereTargeting.h"
 #include "Stats/Stats.h"
 
 void UCosmosSimulationSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -139,10 +134,6 @@ void UCosmosSimulationSubsystem::AddBodyToSimulator(UCosmosOrbitComponent* Compo
 		// 撞上行星时**整条速度归零**（相对速度归零、随行星一起动），而不是默认的
 		// 「只抹法向、切向沿地表滑」—— 玩家期望撞地即停，不是擦着地表一路滑。
 		State.bZeroVelocityOnContact = true;
-
-		// 飞船是**测试粒子**：行星/恒星对它产生引力，但它不反过来吸引行星 ——
-		// 玩家飞船的质量不该把行星从轨道上拽动。对行星完全无反作用。
-		State.bTestParticle = true;
 	}
 
 	Component->SimulatorIndex = Simulator.AddBody(State);
@@ -401,7 +392,6 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 	//
 	// 外力同理：本帧推进读的就是这一刻写进去的值。
 	RefreshPlanetContactRadii();
-	UpdateSkyAtmosphereRetarget();
 	ApplyControlledBodyForces(DeltaTime);
 
 	// ── 1. 时间推进 ──
@@ -745,136 +735,4 @@ void UCosmosSimulationSubsystem::CarryRiders(AActor* BodyActor, const FVector& D
 		// 这一帧星球平移多少，Pawn 就跟着平移多少，相对关系原样保留。
 		Rider->AddActorWorldOffset(Delta, /*bSweep=*/false);
 	}
-}
-
-void UCosmosSimulationSubsystem::UpdateSkyAtmosphereRetarget()
-{
-	if (!bSkyAtmosphereRetargetEnabled)
-	{
-		return;
-	}
-
-	UWorld* World = GetWorld();
-	if (!World)
-	{
-		return;
-	}
-
-	// 相机位置。星图模式下 Possess 的是 AStarMapCameraPawn，一样能取到。
-	const APlayerController* PC = World->GetFirstPlayerController();
-	const APlayerCameraManager* CamMgr = PC ? PC->PlayerCameraManager : nullptr;
-	if (!CamMgr)
-	{
-		return;
-	}
-	const FVector CameraPos = CamMgr->GetCameraLocation();
-
-	// 收集所有行星
-	TArray<FVector> Centers;
-	TArray<float> SurfaceRadiiCm;
-	TArray<AVoxelPlanetActor*> Planets;
-	for (TActorIterator<AVoxelPlanetActor> It(World); It; ++It)
-	{
-		AVoxelPlanetActor* Planet = *It;
-		const float RadiusCm = Planet->GetSurfaceRadiusCm();
-		if (RadiusCm <= 0.0f)
-		{
-			continue;
-		}
-		Planets.Add(Planet);
-		Centers.Add(Planet->GetActorLocation());
-		SurfaceRadiiCm.Add(RadiusCm);
-	}
-
-	const int32 NearestIndex =
-		PlanetAtmosphereTargeting::FindNearestPlanet(Centers, SurfaceRadiiCm, CameraPos);
-	if (NearestIndex == INDEX_NONE)
-	{
-		// 一颗行星都没有：保持上一次的设置。
-		// 绝对不能把 AtmosphereHeight 写成 0 —— 着色器里的 exp(-h / H) 会除零。
-		return;
-	}
-
-	AVoxelPlanetActor* NearestPlanet = Planets[NearestIndex];
-
-	// 只有目标真的换了才写，避免每帧抖动着改渲染状态。
-	if (LastAtmosphereTargetPlanet.Get() == NearestPlanet)
-	{
-		return;
-	}
-
-	ASkyAtmosphere* SkyAtmosphere = nullptr;
-	for (TActorIterator<ASkyAtmosphere> It(World); It; ++It)
-	{
-		SkyAtmosphere = *It;
-		break;
-	}
-	if (!SkyAtmosphere)
-	{
-		if (!bLoggedMissingSkyAtmosphere)
-		{
-			UE_LOG(LogTemp, Warning,
-				TEXT("[大气] 关卡里没有 ASkyAtmosphere，行星表面不会有天空。"));
-			bLoggedMissingSkyAtmosphere = true;
-		}
-
-		// **这里不能落 LastAtmosphereTargetPlanet**：落下去就等于宣告"这颗行星已经
-		// 处理过了"，于是上面那个早退在之后每一帧都生效，重定位再也不会发生 —— 天空
-		// 大气稍后被加进关卡（或流式加载进来）也救不回来，只能重启 PIE。
-		//
-		// 代价是天空大气缺失期间每帧都走一次 TActorIterator（本关卡 9 个 actor）——
-		// 这正是要的：它让子系统能发现天空大气"出现了"。所以别为了省这次遍历而把
-		// 标记挪回来，也别加"放弃重试"的一次性标志，那会把同一个 bug 重新引入。
-		//
-		// 警告本身仍然只打一次（bLoggedMissingSkyAtmosphere），不会变成每帧一行。
-		return;
-	}
-
-	USkyAtmosphereComponent* Atmosphere = SkyAtmosphere->GetComponent();
-	if (!Atmosphere)
-	{
-		return;
-	}
-
-	// 查找成功了才落标记。上面任何一步返回都还没写进 LastAtmosphereTargetPlanet，
-	// 下一帧会重新尝试 —— 一次瞬时失败不会永久关掉这个功能。
-	LastAtmosphereTargetPlanet = NearestPlanet;
-
-	const float SurfaceRadiusKm = NearestPlanet->GetSurfaceRadiusCm() / 100000.0f; // cm → km
-	const PlanetAtmosphere::FSkyAtmosphereScaleParams ScaleParams =
-		PlanetAtmosphere::ComputeSkyAtmosphereScaleParams(SurfaceRadiusKm, AtmosphereHeightRatio);
-	if (ScaleParams.Scale <= 0.0f)
-	{
-		return;
-	}
-
-	SkyAtmosphere->SetActorLocation(NearestPlanet->GetActorLocation());
-
-	// TransformMode 没有 setter —— 引擎只为 USKYATMOSPHERE_VARIABLES_WITH_SETFUNCTION
-	// 那一批生成了 Set##Name（SkyAtmosphereComponent.h:188-232），TransformMode 不在其中，
-	// 只能直接赋成员。
-	Atmosphere->TransformMode = ESkyAtmosphereTransformMode::PlanetCenterAtComponentTransform;
-
-	// 其余 7 个**必须走 setter**，不能直接赋成员。
-	// 引擎的 setter 宏（SkyAtmosphereComponent.cpp:462-471）在赋值后调 MarkRenderStateDirty()，
-	// 直接赋成员不会 —— 场景代理是在 CreateSceneProxy 里把参数拷进 FAtmosphereSetup 的，
-	// 不置脏就永远用旧值。后果是静默失效：不报错、不崩、只是什么都没变。
-	// （SkyAtmosphereGetClamped 对 float 是直通，setter 不会偷偷夹我们的值。）
-	Atmosphere->SetBottomRadius(ScaleParams.BottomRadiusKm);
-	Atmosphere->SetAtmosphereHeight(ScaleParams.AtmosphereHeightKm);
-	Atmosphere->SetRayleighScatteringScale(ScaleParams.RayleighScatteringScale * AtmosphereCoefficientScale);
-	Atmosphere->SetMieScatteringScale(ScaleParams.MieScatteringScale * AtmosphereCoefficientScale);
-	Atmosphere->SetMieAbsorptionScale(ScaleParams.MieAbsorptionScale * AtmosphereCoefficientScale);
-	Atmosphere->SetRayleighExponentialDistribution(ScaleParams.RayleighExponentialDistributionKm);
-	Atmosphere->SetMieExponentialDistribution(ScaleParams.MieExponentialDistributionKm);
-
-	// TransformMode 那行没有 setter 兜底，所以显式置一次脏。
-	// 上面 7 个 setter 里只要有一个真的改了值就已经置过脏了，这一行是换行星时
-	// 半径恰好相同、只有 TransformMode 变了那种情况下的保险。
-	Atmosphere->MarkRenderStateDirty();
-
-	UE_LOG(LogTemp, Display,
-		TEXT("[大气] 引擎大气重定位到 %s：R=%.4f km，厚度=%.5f km，瑞利系数=%.2f，米氏系数=%.4f"),
-		*NearestPlanet->GetName(), ScaleParams.BottomRadiusKm, ScaleParams.AtmosphereHeightKm,
-		Atmosphere->RayleighScatteringScale, Atmosphere->MieScatteringScale);
 }

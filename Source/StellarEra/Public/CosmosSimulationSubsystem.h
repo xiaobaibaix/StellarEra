@@ -259,28 +259,6 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Cosmos|Physics")
 	double RideRadiusScale = 2.0;
 
-	/**
-	 * 大气壳厚度 / 行星半径。**必须**与 UPlanetAtmosphereComponent::AtmosphereHeightRatio 一致，
-	 * 否则玩家穿过壳边界时会看到跳变。
-	 */
-	UPROPERTY(Config, EditAnywhere, Category = "Cosmos|Atmosphere", meta = (ClampMin = "0.0"))
-	float AtmosphereHeightRatio = 0.05f;
-
-	/**
-	 * 引擎大气散射系数的额外倍率。初值 1.0 = 不做任何补偿。
-	 *
-	 * 几何缩放（长度 ×s、系数 ×1/s）已经让垂直光学厚度 τ = β·H 与地球相等，
-	 * 所以观感上**不需要**预先补偿：厚度比地球大 5.3 倍并不会让 τ 变大，
-	 * 因为 s 与 1/s 在 β·H 里正好抵消（实算 τ 之比 1.0006）。
-	 * 这个值只用于观感微调：天空糊成一片白就往小调，太淡就往大调。
-	 */
-	UPROPERTY(Config, EditAnywhere, Category = "Cosmos|Atmosphere", meta = (ClampMin = "0.0"))
-	float AtmosphereCoefficientScale = 1.0f;
-
-	/** 关掉即不重定位引擎大气（壳不受影响），用于对照实验。 */
-	UPROPERTY(Config, EditAnywhere, Category = "Cosmos|Atmosphere")
-	bool bSkyAtmosphereRetargetEnabled = true;
-
 	/** 诊断日志间隔（秒）。设 0 关闭。 */
 	UPROPERTY(Config, EditAnywhere, Category = "Cosmos|Debug")
 	float DiagnosticInterval = 5.f;
@@ -306,9 +284,6 @@ private:
 	 * 单向喂数据，不破坏它的引擎无关性。
 	 */
 	void RefreshPlanetContactRadii();
-
-	/** 把场景里唯一的 ASkyAtmosphere 搬到离相机最近的行星，并按该行星半径缩放参数。 */
-	void UpdateSkyAtmosphereRetarget();
 
 	/**
 	 * 每帧推进之前，把**受控天体**（飞船）想施加的力写进求解器。
@@ -349,12 +324,6 @@ private:
 	 * 不是 AVoxelPlanetActor 的天体不是携带者，不参与比较。
 	 */
 	void CarryRiders(AActor* BodyActor, const FVector& Delta);
-
-	/** 上一次重定位到的行星。只有它变了才写参数，避免每帧抖动。 */
-	TWeakObjectPtr<AActor> LastAtmosphereTargetPlanet;
-
-	/** 找不到 ASkyAtmosphere 时只报一次。 */
-	bool bLoggedMissingSkyAtmosphere = false;
 
 	TArray<TObjectPtr<UCosmosOrbitComponent>> Bodies;
 
