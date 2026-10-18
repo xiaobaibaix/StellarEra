@@ -1750,6 +1750,10 @@ AtmosphereCoefficientScale=1.0
 
 对着规格 §8 的 6 条，一条一条在 PIE 里确认，**把每条的实测结果**（看到什么、参数是多少）记下来。任何一条不通过就回到对应任务修，不要在这一步"绕过去"。
 
+**先量一个常量，再开始逐条过**：`PlanetAtmosphereComponent.cpp` 里的 `BasicSphereRadiusCm = 50.0f` 从头到尾**没有被机械验证过** —— 它是从"UE 的 `/Engine/BasicShapes/Sphere` 半径是 50 cm"这个印象写下来的。壳的世界缩放是 `ShellRadiusCm / BasicSphereRadiusCm`，所以这个常量错多少，整个壳就大错多少倍，而且不报错、不崩，只是大小不对。
+
+量法：PIE 里选中任意一颗行星的 `PlanetAtmosphere` 组件，看 Details 里的 **World Scale**；它应当等于 `GetSurfaceRadiusCm() * (1 + AtmosphereHeightRatio) / 50`。对不上就把 `BasicSphereRadiusCm` 改成实测值（`真实网格半径 = ShellRadiusCm / 观察到的 World Scale`），重新编译。改完这一条再往下走 —— 后面 6 条里"辉光可见""贴到地表就看不见"两条都依赖壳的大小是对的，壳大小不对时这两条会给出误导性的结果。
+
 特别地，第 4 条"时间推进导致太阳方向变化时，壳上的明暗分界跟着转"：本项目里太阳方向来自关卡的静态 `ADirectionalLight`，**世界空间里不随时间变**。真正会变的是**行星绕恒星公转导致行星表面相对太阳朝向变化**。所以这条的验证方式是：开时间加速，看行星公转一圈的过程中明暗分界确实扫过行星表面。如果公转太快看不清，把 `UCosmosSimulationSubsystem` 的时间配置临时调慢。
 
 如果实测下来"明暗分界不跟着转"，那就是真的没实现 —— 因为方向源是静态灯。此时**停下来跟用户确认**是要把方向源换成 n-body 里恒星的位置，那是一个独立的设计变更。
