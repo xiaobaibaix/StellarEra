@@ -5,10 +5,6 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-// 断言写法说明：指针一律用 TestTrue/TestFalse 比较。TestEqual 的泛型重载要走
-// LexToString，而指针没有可靠的 ToString —— 会编不过或打出没用的东西。
-// 浮点一律带容差。
-
 // 这一组锁死"我们的常量 == 引擎的默认值"。
 // 引擎升级改了默认值，这里会红，而不是悄悄让所有缩放算错。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraAtmosphereEarthDefaultsTest,
