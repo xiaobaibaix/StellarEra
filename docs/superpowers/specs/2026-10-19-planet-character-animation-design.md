@@ -135,8 +135,22 @@ bIsFalling  = GetCharacterMovement()->IsFalling()
 
 不新增 Tick、不订阅委托。
 
-`BP_PlanetCharacter` 的 `CharacterMesh0` 组件 `Anim Class` 指向
-`ABP_PlanetCharacter_C`。`APlanetCharacter::ApplyCharacterMesh()` 不动。
+`CharacterMesh0` 是 `ACharacter` 的原生继承组件，不在蓝图的 SCS 节点里，
+`BlueprintService.SetComponentProperty` 找不到它。因此动画类改走 C++ 属性接线：
+
+```cpp
+UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Character|Animation")
+TSubclassOf<UAnimInstance> CharacterAnimClass;
+```
+
+`APlanetCharacter::ApplyCharacterMesh()` 末尾调用
+`MeshComponent->SetAnimInstanceClass(CharacterAnimClass.Get())`；
+`BP_PlanetCharacter` 的 Class Defaults 只填 `CharacterAnimClass = ABP_PlanetCharacter_C`。
+
+面部附属网格 `Object_10`（`Face_30` 骨架）与 `Object_21`（`GLTF_created_0` 骨架）
+挂在 `CharacterMesh0` 下但使用不同骨架，身体动画后不会跟头骨走。`BeginPlay` 里
+把它们改挂到 `Head_50` 骨骼（`KeepWorldTransform`），骨骼名由 `FaceAttachBone`
+属性配置。
 
 ## 8. 生成器与可复现性
 
@@ -161,7 +175,8 @@ bIsFalling  = GetCharacterMovement()->IsFalling()
 4. **自动化**：`UnrealEditor-Cmd ... Automation RunTests StellarEra` 全绿；新增
    一条 `StellarEra.Vehicle.AnimationAssets`：
    - 四个 `AS_` 资产可加载，时长 > 0，且含 `Leg_L_4` / `Arm_R_90` 的骨骼轨道
-   - `BP_PlanetCharacter` 的 Mesh `Anim Class` 等于 `ABP_PlanetCharacter` 生成类
+   - `BP_PlanetCharacter` 生成类 CDO 的 `CharacterAnimClass` 等于 `ABP_PlanetCharacter_C`
+     （editor world 不跑 BeginPlay，不能断言 Mesh 上的运行期 Anim Class）
 
 ## 10. 已知取舍与风险
 
