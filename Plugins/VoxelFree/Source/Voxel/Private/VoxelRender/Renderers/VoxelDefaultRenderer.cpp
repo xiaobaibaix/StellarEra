@@ -751,7 +751,7 @@ void FVoxelDefaultRenderer::StartTask(FChunk& Chunk)
 		else
 		{
 			ensure(IfTaskExists == EIfTaskExists::Assert);
-			ensure(false);
+ 			ensure(false);
 			return;
 		}
 	}
@@ -843,7 +843,7 @@ void FVoxelDefaultRenderer::ClearPreviousChunks(FChunk& Chunk)
 		if (PreviousChunk.NumNewChunksLeft == 0)
 		{
 			 // If 0 and have no previous chunks shouldn't be a previous chunk and should already be deleted
-			if (!ensure(PreviousChunk.MeshId.IsValid() || PreviousChunk.PreviousChunks.Num() > 0)) continue;
+   			if (!ensure(PreviousChunk.MeshId.IsValid() || PreviousChunk.PreviousChunks.Num() > 0)) continue;
 			NewChunksFinished(PreviousChunk, Chunk);
 		}
 	}
