@@ -1,0 +1,25 @@
+// Copyright Buckley Builds LLC 2026 All Rights Reserved.
+
+#pragma once
+
+#include "CoreMinimal.h"
+
+/**
+ * Bridges VibeUE's dynamic FToolRegistry tools (registered via REGISTER_VIBEUE_TOOL) onto
+ * UE 5.8's native ModelContextProtocol server, so they appear as ordinary MCP tools on Epic's
+ * endpoint. VibeUE no longer runs its own MCP server — Epic's is the single endpoint.
+ */
+namespace VibeUEMCPToolBridge
+{
+	/** Wrap every non-internal VibeUE tool as an IModelContextProtocolTool and AddTool() it to Epic's MCP module. */
+	VIBEUE_API void RegisterAll();
+
+	/** Remove the tools registered by RegisterAll(). */
+	VIBEUE_API void UnregisterAll();
+
+	/**
+	 * Cancel every call still running off the game thread (deep_research, terrain_data), then stop the threads they
+	 * run on; later calls are refused. Game thread, at exit and module shutdown only (a second call does nothing).
+	 */
+	VIBEUE_API void CancelAllRunning();
+}

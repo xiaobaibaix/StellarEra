@@ -1,0 +1,233 @@
+// Copyright Buckley Builds LLC 2026 All Rights Reserved.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "ToolsetRegistry/ToolsetDefinition.h"
+#include "AssetRegistry/AssetData.h"
+#include "UAssetDiscoveryService.generated.h"
+
+/**
+ * Result of DeleteAssetUnattended.
+ *
+ * The function used to return bool with OutReferencers/OutError out-params, and Python maps a
+ * false bool return to None, which dropped the referencers AND the reason on every refusal — the
+ * exact information the caller needs to recover. A struct return always survives to Python.
+ */
+USTRUCT(BlueprintType)
+struct FUnattendedDeleteResult
+{
+	GENERATED_BODY()
+
+	/** True only when the asset is gone. */
+	UPROPERTY(BlueprintReadWrite, Category = "Assets")
+	bool bSuccess = false;
+
+	/** Package paths / object names that referenced the asset (filled on refusal AND on a forced delete). */
+	UPROPERTY(BlueprintReadWrite, Category = "Assets")
+	TArray<FString> Referencers;
+
+	/** Human-readable reason when the delete did not happen; empty on success. */
+	UPROPERTY(BlueprintReadWrite, Category = "Assets")
+	FString ErrorMessage;
+};
+
+/**
+ * Asset import/export and Content Browser service exposed directly to Python.
+ *
+ * Asset search and general CRUD are provided by the engine's AssetTools toolset.
+ * This service owns file import (images, meshes, any format the editor imports),
+ * texture export, Content Browser selection, and open-editor checks.
+ *
+ * Python Usage:
+ *   import unreal
+ *
+ *   # Import an image (a mesh or any other importable file takes the same call)
+ *   path, error = unreal.AssetDiscoveryService.import_asset(
+ *       "C:/Images/rocks.jpg", "/Game/UI/Textures", "T_Rocks")
+ *
+ *   # Inspect the current Content Browser selection
+ *   asset_data = unreal.AssetDiscoveryService.get_primary_content_browser_selection()
+ *   if asset_data:
+ *       print(asset_data.package_name)
+ *
+ * @note All methods are static.
+ */
+UCLASS(BlueprintType)
+class VIBEUE_API UAssetDiscoveryService : public UToolsetDefinition
+{
+	GENERATED_BODY()
+
+public:
+	// ========== Texture Operations ==========
+
+	/**
+	 * Import a texture from the file system into the project.
+	 * Same importer as ImportAsset (DestinationPath split into folder + name), so a non-image file is imported as
+	 * its own asset type rather than refused.
+	 *
+	 * @param SourceFilePath - Absolute path to the texture file (PNG, JPG, TGA, etc.)
+	 * @param DestinationPath - Asset path where texture will be created (e.g., "/Game/Textures/MyTexture")
+	 * @return True if import was successful
+	 *
+	 * Example:
+	 *   unreal.AssetDiscoveryService.import_texture("C:/Images/logo.png", "/Game/Textures/Logo")
+	 */
+	UFUNCTION(BlueprintCallable, meta = (AICallable), Category = "VibeUE|Assets")
+	static bool ImportTexture(const FString& SourceFilePath, const FString& DestinationPath);
+
+	/**
+	 * Import a file from disk into the Content Browser and save it: an image as a Texture2D, a mesh (FBX, OBJ, glTF, ...)
+	 * or any other format the editor's importers take as its asset. An existing asset of the same name is replaced,
+	 * and so is any same-named asset in DestinationFolder that a multi-asset file brings along (an FBX's materials and
+	 * textures), without a prompt: import such files into a folder of their own.
+	 *
+	 * Images use the texture factory's direct binary path (FactoryCreateBinary). Every other format goes
+	 * through AssetTools' AssetImportTask, automated and synchronous. Its wait pumps the game thread's task queue,
+	 * which asserts (RecursionGuard) only when the caller is itself a game-thread task; tool calls and
+	 * execute_python_code are not, and a call from inside such a task is refused with a message.
+	 *
+	 * Image formats: png, jpg, jpeg, bmp, tga, dds, exr, hdr, tiff, tif, psd, pcx.
+	 *
+	 * @param SourceFilePath    - Absolute path to the file on disk
+	 * @param DestinationFolder - Content Browser folder (e.g. "/Game/UI/Textures")
+	 * @param AssetName         - Optional asset name; if empty, derived from the file name
+	 * @param OutError          - Receives a human-readable error message on failure
+	 * @return The created asset's object path (e.g. "/Game/UI/Textures/T_Foo.T_Foo"), or empty on failure. For a file
+	 *         that brings several assets, the main one: the mesh over its materials, textures, skeleton and physics
+	 *         asset (named AssetName when the importer used it; otherwise the importer's name is in the path)
+	 *
+	 * Example:
+	 *   path, err = unreal.AssetDiscoveryService.import_asset("C:/Images/rocks.jpg", "/Game/UI/Textures", "T_Rocks")
+	 *   path, err = unreal.AssetDiscoveryService.import_asset("C:/Art/crate.fbx", "/Game/Props", "SM_Crate")
+	 */
+	UFUNCTION(BlueprintCallable, meta = (AICallable), Category = "VibeUE|Assets")
+	static FString ImportAsset(
+		const FString& SourceFilePath,
+		const FString& DestinationFolder,
+		const FString& AssetName,
+		FString& OutError);
+
+	/**
+	 * Reimport an existing asset through the same handler used by Content Browser Reimport.
+	 *
+	 * Supports both Interchange and legacy factory imports. When NewSourcePath is supplied,
+	 * the registered reimport handler is asked to retarget the asset before reimporting it.
+	 * The operation is automated and never opens a missing-file picker or notification.
+	 *
+	 * @param AssetPath         - Content path or object path of the asset to reimport
+	 * @param NewSourcePath     - Optional replacement source file; empty uses the stored source
+	 * @param OutSourceFileUsed - Receives the resolved source file selected for reimport
+	 * @param OutError          - Receives a human-readable error message on failure
+	 * @return True when Unreal's registered reimport handler completed successfully
+	 *
+	 * Python usage (Unreal maps a false bool plus out parameters to None):
+	 *   result = unreal.AssetDiscoveryService.reimport_asset(
+	 *       "/Game/Characters/SKM_Player", "D:/Source/SKM_Player.fbx")
+	 *   if result is not None:
+	 *       source_file, error = result
+	 */
+	/**
+	 * Delete an asset with NO dialog, for unattended agent sessions. The engine's
+	 * EditorAssetLibrary.delete_asset pops a modal "asset is referenced" dialog when anything
+	 * points at the asset, and an MCP-driven editor cannot answer it: the game thread stalls
+	 * until someone force-kills the process. This function never asks. With
+	 * bForceEvenIfReferenced it force-deletes and nulls every reference (the same thing the
+	 * dialog's Force Delete button does); without it, a referenced asset is refused and the
+	 * referencers are returned so the caller can decide.
+	 *
+	 * IMPLEMENTATION: the refusal DECISION is a strictly NON-MUTATING, conservative native-root check.
+	 * It clears the Blueprint action database (harmless; mirrors the engine's OnAssetsPreDelete handler),
+	 * collects garbage, then runs ObjectTools::GatherObjectReferencersForDeletion with default flags to
+	 * see who holds the asset — WITHOUT replacing any references first. It refuses ONLY when an external
+	 * referencer is a UGCObjectReferencer: a native GC root holding the asset directly, which in an
+	 * unattended session is a Python module-level global that created or loaded it. That is the one case
+	 * the engine's force delete cannot clear, so it would stall on the modal "is in use" dialog. Every
+	 * other in-memory referencer — on-disk asset references, the action database's transient node
+	 * spawners, transient editor helpers like AnimSequencerController — the engine's own force delete
+	 * clears without prompting, so those are left to it.
+	 *
+	 * The decision does NOT run ForceReplaceReferences: an earlier shape did, and on a refusal it left the
+	 * Blueprint's skeleton/generated classes with a null ClassGeneratedBy, crashing the caller's retry
+	 * ("UBlueprintGeneratedClass::GetAuthoritativeClass: ClassGeneratedBy is null"). So the check only
+	 * looks; it never mutates.
+	 *
+	 * On success the ACTUAL deletion is handed to the real ObjectTools::ForceDeleteObjects(bShowConfirmation
+	 * =false), exactly as the pre-A13 code did, so child-Blueprint reparenting, child-redirector/
+	 * generated-class removal and UUserDefinedStruct reinstancing keep full engine fidelity. Its own
+	 * internal "is in use" check cannot reach a dialog, because we already confirmed no native root holds
+	 * the asset. A read-only package is also refused before ForceDeleteObjects, preventing its remaining
+	 * read-only-package prompt. The function therefore preserves its unattended/no-modal contract.
+	 *
+	 * @param AssetPath              - Package path of the asset (/Game/Folder/Asset)
+	 * @param bForceEvenIfReferenced - True: delete anyway and clear references; false: refuse if referenced
+	 * @return FUnattendedDeleteResult: bSuccess, Referencers (filled on refusal AND on force), ErrorMessage
+	 *
+	 * Python usage (the result struct always comes back, so the reason survives a refusal):
+	 *   result = unreal.AssetDiscoveryService.delete_asset_unattended("/Game/Anim/AS_Temp", True)
+	 *   if not result.b_success:
+	 *       print(result.error_message, result.referencers)
+	 */
+	UFUNCTION(BlueprintCallable, meta = (AICallable, CPP_Default_bForceEvenIfReferenced = "false"), Category = "VibeUE|Assets")
+	static FUnattendedDeleteResult DeleteAssetUnattended(
+		const FString& AssetPath,
+		bool bForceEvenIfReferenced);
+
+	UFUNCTION(BlueprintCallable, meta = (AICallable, CPP_Default_NewSourcePath = ""), Category = "VibeUE|Assets")
+	static bool ReimportAsset(
+		const FString& AssetPath,
+		const FString& NewSourcePath,
+		FString& OutSourceFileUsed,
+		FString& OutError);
+
+	/**
+	 * Export a texture to the file system for external analysis.
+	 *
+	 * @param AssetPath - Path to the texture asset
+	 * @param ExportFilePath - Absolute path where the texture will be exported
+	 * @return True if export was successful
+	 *
+	 * Example:
+	 *   unreal.AssetDiscoveryService.export_texture("/Game/Textures/MyTexture", "C:/Exports/texture.png")
+	 */
+	UFUNCTION(BlueprintCallable, meta = (AICallable), Category = "VibeUE|Assets")
+	static bool ExportTexture(const FString& AssetPath, const FString& ExportFilePath);
+
+	// ========== Open Assets & Content Browser ==========
+
+	/**
+	 * Get the primary asset selected in the Content Browser (first selection).
+	 *
+	 * @param OutAsset - The primary selected asset (only valid if function returns true)
+	 * @return True if an asset is selected, false if no selection
+	 *
+	 * Python signature: get_primary_content_browser_selection() -> AssetData or None
+	 * (the out-param becomes the return value; do NOT pass an AssetData argument)
+	 *
+	 * Example:
+	 *   asset = unreal.AssetDiscoveryService.get_primary_content_browser_selection()
+	 *   if asset:
+	 *       print(f"Primary selection: {asset.asset_name}")
+	 *   else:
+	 *       print("No asset selected")
+	 */
+	UFUNCTION(BlueprintCallable, meta = (AICallable), Category = "VibeUE|Assets|Editor")
+	static bool GetPrimaryContentBrowserSelection(FAssetData& OutAsset);
+
+	/**
+	 * Check if a specific asset is currently open in an editor.
+	 *
+	 * @param AssetPath - Full path to the asset
+	 * @return True if the asset is currently open
+	 *
+	 * Example:
+	 *   if unreal.AssetDiscoveryService.is_asset_open("/Game/Blueprints/BP_Player"):
+	 *       print("BP_Player is currently being edited")
+	 */
+	UFUNCTION(BlueprintCallable, meta = (AICallable), Category = "VibeUE|Assets|Editor")
+	static bool IsAssetOpen(const FString& AssetPath);
+
+private:
+	/** Helper: get all assets currently selected in the Content Browser. */
+	static TArray<FAssetData> GetContentBrowserSelections();
+};
