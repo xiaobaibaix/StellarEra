@@ -10,6 +10,7 @@
 class ASpaceshipPawn;
 class AVoxelPlanetActor;
 class UCameraComponent;
+class UAnimInstance;
 class USkeletalMesh;
 class USpringArmComponent;
 class UVoxelSimpleInvokerComponent;
@@ -176,6 +177,20 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Character|Mesh")
 	float MeshScale = 0.7f;
 
+public:
+	/**
+	 * 运动动画蓝图类。留空则角色没有动画（保持参考姿势）。
+	 *
+	 * 走 C++ 属性而不是在蓝图里直接设 Mesh 的 Anim Class：CharacterMesh0 是
+	 * ACharacter 的原生继承组件，不在蓝图的 SCS 节点里，蓝图侧的组件工具找不到它。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Character|Animation")
+	TSubclassOf<UAnimInstance> CharacterAnimClass;
+
+	/** 面部附属网格挂到身体网格的哪根骨骼上。留空则不改挂。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Character|Animation")
+	FName FaceAttachBone = TEXT("Head_50");
+
 private:
 	/**
 	 * 把 CharacterMesh / MeshRelativeLocation / MeshRelativeRotation / MeshScale
@@ -192,6 +207,15 @@ private:
 	 * 组件，比自建组件更容易踩这一脚。
 	 */
 	void ApplyCharacterMesh();
+
+	/**
+	 * 把挂在身体网格下、但使用不同骨架的附属网格（面部）改挂到 FaceAttachBone。
+	 *
+	 * 面部网格 Object_10 / Object_21 的骨架分别是 Face_30 / GLTF_created_0，
+	 * 与身体的 Object_14_Skeleton 不同。它们原本直接挂在 CharacterMesh0 下，
+	 * 身体动画不会带着它们走 —— 头一转，脸还留在原地。
+	 */
+	void AttachFaceMeshesToHead();
 
 	/** 关卡里有没有 PlayerStart（含 PIE 的 APlayerStartPIE）。 */
 	bool HasPlayerStartInLevel() const;

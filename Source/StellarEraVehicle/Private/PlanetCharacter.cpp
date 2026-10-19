@@ -11,6 +11,9 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerStart.h"
 #include "GameFramework/SpringArmComponent.h"
+#include "Animation/AnimInstance.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Engine/SkeletalMesh.h"
 #include "UObject/ConstructorHelpers.h"
 #include "EngineUtils.h"
 
@@ -151,6 +154,49 @@ void APlanetCharacter::ApplyCharacterMesh()
 	MeshComponent->SetRelativeLocation(MeshRelativeLocation);
 	MeshComponent->SetRelativeRotation(MeshRelativeRotation);
 	MeshComponent->SetRelativeScale3D(FVector(MeshScale));
+
+	// 动画类也在这里套用：它与上面四个属性一样是 EditAnywhere，构造期读不到蓝图值。
+	// SetAnimClass 在 5.5 起已弃用，用 SetAnimInstanceClass。
+	MeshComponent->SetAnimInstanceClass(CharacterAnimClass.Get());
+}
+
+void APlanetCharacter::AttachFaceMeshesToHead()
+{
+	USkeletalMeshComponent* BodyMesh = GetMesh();
+	const USkeletalMesh* BodyAsset =
+		BodyMesh ? BodyMesh->GetSkeletalMeshAsset() : nullptr;
+	const USkeleton* BodySkeleton = BodyAsset ? BodyAsset->GetSkeleton() : nullptr;
+	if (!BodySkeleton || FaceAttachBone.IsNone())
+	{
+		return;
+	}
+
+	TArray<USkeletalMeshComponent*> MeshComponents;
+	GetComponents<USkeletalMeshComponent>(MeshComponents);
+	for (USkeletalMeshComponent* MeshComponent : MeshComponents)
+	{
+		// 只处理直接挂在身体网格下、且骨架不同的附属网格（面部）。
+		if (!MeshComponent || MeshComponent == BodyMesh)
+		{
+			continue;
+		}
+		if (MeshComponent->GetAttachParent() != BodyMesh)
+		{
+			continue;
+		}
+
+		const USkeletalMesh* OtherAsset = MeshComponent->GetSkeletalMeshAsset();
+		const USkeleton* OtherSkeleton =
+			OtherAsset ? OtherAsset->GetSkeleton() : nullptr;
+		if (OtherSkeleton == BodySkeleton)
+		{
+			continue;
+		}
+
+		// KeepWorldTransform：改挂瞬间脸不能跳位置。
+		MeshComponent->AttachToComponent(
+			BodyMesh, FAttachmentTransformRules::KeepWorldTransform, FaceAttachBone);
+	}
 }
 
 void APlanetCharacter::OnConstruction(const FTransform& Transform)
@@ -173,6 +219,9 @@ void APlanetCharacter::BeginPlay()
 	// 再套一次：角色由 GameMode 按 DefaultPawnClass 运行时生成，实例的
 	// OnConstruction 未必在蓝图属性就位之后跑过。重复调用是幂等的。
 	ApplyCharacterMesh();
+
+	// 面部网格用不同骨架，必须在身体网格有模型之后才能挂到 Head_50。
+	AttachFaceMeshesToHead();
 
 	// 臂长同理：CameraArmLength 是 EditAnywhere，蓝图或关卡实例改过的值构造函数
 	// 读不到，这里才是它第一次生效的地方。基准臂长只在这一处抄，之后滚轮改的是
