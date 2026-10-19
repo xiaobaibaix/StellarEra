@@ -5,6 +5,9 @@
 #include "CosmosOrbitComponent.h"
 #include "CosmosSimulationSubsystem.h"
 #include "Engine/World.h"
+#include "GameFramework/Actor.h"
+#include "UObject/UObjectGlobals.h"
+#include "UObject/UObjectIterator.h"
 
 namespace
 {
@@ -35,20 +38,10 @@ namespace
 	/** 估算不出周期时的预测窗口（年）。 */
 	constexpr double FallbackPredictionYears = 1.0;
 
-	/**
-	 * 拖尾的标称采样点数，**也是保留点数的上界（至多 513）**。
-	 *
-	 * 采样门限 = TrailSpan / TrailSamples：距上次采样不足这个时长就不采，于是相邻两点
-	 * 的间隔 ≥ 门限 → 窗口内的点数 ≤ TrailSamples（含端点至多 +1）。
-	 *
-	 * 点数随帧率变，但**覆盖时长 ≈ TrailSpan**（至多差一个采样间隔 —— 这正是按模拟时间裁剪要买的东西）：
-	 * 帧率越低，每帧推进越大、点越稀（60 fps 约 119 点，30 fps 约 60 点）；帧率越高
-	 * 点越密，每帧推进小于门限后趋近上界（本关卡约 1000 fps 时约 493 点，量化所致）。
-	 * 想要固定点数就得改回按点数裁剪，那会让覆盖时长随帧率漂移 —— 不换。
-	 */
+	/** 拖尾的标称采样点数，也是保留点数的上界（至多 513）。 */
 	constexpr int32 TrailSamples = 512;
 
-	/** 自动拖尾时长 = 该系数 × 预测窗口。论证见 spec §6。 */
+	/** 自动拖尾时长 = 该系数 × 预测窗口。 */
 	constexpr double AutoTrailHorizonFraction = 0.25;
 
 	/** 星图里选中天体时，颜色朝白插值的比例。 */
@@ -58,27 +51,133 @@ namespace
 UCosmosTrajectoryComponent::UCosmosTrajectoryComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
+	bTickInEditor = true;   // 编辑器态也要画预测线与箭头（组件级开关，非 tick function）
 
 	// 排在位置写回之后（见类注释）。
 	PrimaryComponentTick.TickGroup = TG_PostUpdateWork;
 }
 
-void UCosmosTrajectoryComponent::Initialize(UCosmosOrbitComponent* InOrbit)
+void UCosmosTrajectoryComponent::OnRegister()
 {
-	Orbit = InOrbit;
+	Super::OnRegister();
+
+	EnsureLineBatch();
+}
+
+void UCosmosTrajectoryComponent::OnUnregister()
+{
+	// 只清线，不销毁行批：组件可能只是被重注册（蓝图重编译、组件重建），
+	// 下次 OnRegister 还要按名字把它找回来复用。行批的 outer 是 Actor，
+	// 不随本组件销毁；如果这里不 Flush，下一次注册会新建一个行批，旧的
+	// 带着上一版预测线留在场景里。
+	if (IsValid(LineBatch))
+	{
+		LineBatch->Flush();
+	}
+	bDrewLastFrame = false;
+
+	Super::OnUnregister();
+}
+
+ULineBatchComponent* UCosmosTrajectoryComponent::EnsureLineBatch()
+{
+	if (IsValid(LineBatch))
+	{
+		// 世界重载/组件重注册后可能处于未注册状态，补一次注册。
+		if (!LineBatch->IsRegistered())
+		{
+			LineBatch->RegisterComponent();
+		}
+		return LineBatch;
+	}
+
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		LineBatch = nullptr;
+		return nullptr;
+	}
 
 	// 线批组件自己造、自己注册。**不挂到任何父组件下**：行批的线是用世界坐标
 	// 直接交给 PDI 的（LineBatchComponent.cpp 里 DrawTranslucentLine(Line.Start,
 	// Line.End, ...)），所以它自己的变换只影响包围盒、不影响线。挂在移动中的
 	// 星球下面反而会让包围盒跟着跑、算错。引擎自己的行批也是这么造的。
-	LineBatch = NewObject<ULineBatchComponent>(GetOwner());
-	if (LineBatch)
+	//
+	// 名字里带本组件的名字：同一组件被重注册时能找回上一次的行批并复用，而不是
+	// 每注册一次就 NewObject 一个。行批的 outer 是 Actor（不是本组件），组件重建
+	// 时它不会被一起销毁，旧版本因此会不断累积带旧线的行批。
+	const FName BatchName(*FString::Printf(TEXT("CosmosTrajectoryLineBatch_%s"), *GetName()));
+
+	// FindObjectFast 取 FName 直接查，不会像 FindObject 那样按路径解析（UE 5.8 的
+	// FindObject 只接受 FStringView / FTopLevelAssetPath，不接受 FName）。
+	LineBatch = FindObjectFast<ULineBatchComponent>(Owner, BatchName);
+	if (!IsValid(LineBatch))
 	{
-		LineBatch->RegisterComponent();
+		LineBatch = NewObject<ULineBatchComponent>(Owner, BatchName);
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("[Cosmos] 轨迹组件已创建：%s"),
-		*GetNameSafe(GetOwner()));
+	if (IsValid(LineBatch))
+	{
+		LineBatch->ComponentTags.AddUnique(TEXT("CosmosTrajectoryLineBatch"));
+		if (!LineBatch->IsRegistered())
+		{
+			LineBatch->RegisterComponent();
+		}
+
+		DestroyStaleLineBatches();
+	}
+
+	return LineBatch;
+}
+
+void UCosmosTrajectoryComponent::DestroyStaleLineBatches()
+{
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return;
+	}
+
+	// 只有「本 Actor 只有一个轨迹组件」时才敢清理：多个轨迹组件各有自己的行批，
+	// 无法凭名字判断哪些是遗留的，删错会把别人的线一起清掉。
+	TArray<UCosmosTrajectoryComponent*> TrajectoryComponents;
+	Owner->GetComponents<UCosmosTrajectoryComponent>(TrajectoryComponents);
+	if (TrajectoryComponents.Num() != 1)
+	{
+		return;
+	}
+
+	TArray<ULineBatchComponent*> Batches;
+	Owner->GetComponents<ULineBatchComponent>(Batches);
+	for (ULineBatchComponent* Batch : Batches)
+	{
+		if (Batch && Batch != LineBatch)
+		{
+			// 老版本按默认名 NewObject 出来的遗留行批（outer = Actor，不随轨迹
+			// 组件重建而销毁）。清掉它们，旧预测线才会立刻消失。
+			Batch->DestroyComponent();
+		}
+	}
+}
+
+UCosmosOrbitComponent* UCosmosTrajectoryComponent::GetOrbitComponent()
+{
+	// 懒解析并缓存。兄弟 Orbit 组件在关卡加载时就已就位，这里第一次 Tick 时找一次
+	// 就够；找不到（挂错 Actor）就一直是 null，每帧重试也无妨 —— 成本是
+	// FindComponentByClass 一次哈希查找，可忽略。
+	if (Orbit)
+	{
+		return Orbit;
+	}
+
+	const AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return nullptr;
+	}
+
+	Orbit = Owner->FindComponentByClass<UCosmosOrbitComponent>();
+	return Orbit;
 }
 
 void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickType,
@@ -86,16 +185,34 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	if (!LineBatch)
+	if (!EnsureLineBatch())
 	{
 		return;
 	}
 
-	// Initialize 先赋 Orbit 再建 LineBatch，所以 !Orbit 蕴含 !LineBatch。
-	// 这条实际上已被上面那条覆盖，留着只为把「Orbit 可能为空」写明白。
-	if (!Orbit)
+	UCosmosOrbitComponent* OrbitComponent = GetOrbitComponent();
+	if (!OrbitComponent)
 	{
+		// 没挂 Orbit 组件：拿不到任何物理量，画不了，清掉上一帧的线。
 		ClearDrawnLines();
+		return;
+	}
+
+	// ── 编辑器态（不 Play）：走离线重建，完全不碰子系统 ──
+	// 编辑器世界里子系统不 Tick（DoesSupportWorldType 只认 Game/PIE），天体也没
+	// 注册进求解器（SimulatorIndex 恒为 INDEX_NONE）。下面的运行期路径全依赖
+	// 求解器的当前状态，拿到的只会是零向量，所以必须先在这里分流。
+	const UWorld* World = GetWorld();
+	if (World && !World->IsGameWorld())
+	{
+		if (bShowInEditor)
+		{
+			DrawInEditor();
+		}
+		else
+		{
+			ClearDrawnLines();
+		}
 		return;
 	}
 
@@ -103,8 +220,6 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 		GetWorld() ? GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>() : nullptr;
 	if (!Subsystem)
 	{
-		// 与上面 !Orbit 分支对齐：线是 LifeTime = 0 画的、永不过期，
-		// 早退不擦的话上一帧的轨迹会冻在画布上。
 		ClearDrawnLines();
 		return;
 	}
@@ -113,14 +228,10 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	const double Horizon = ResolvePredictionHorizonYears(*Subsystem);
 
 	// ── 拖尾：采样和裁剪**都**按模拟时间，都不按帧 ──
-	// 只「按时间采样」是不够的。采样间隔可能比每帧推进还短（本关卡 1.28e-5 年
-	// vs 60fps 下每帧推进 5.55e-5 年），那时每帧都会采，「点数上限」就等于
-	// 「时长上限」，覆盖时长又变回由帧率决定 —— 正是要避免的事。
-	// 所以裁剪也必须按时间：覆盖时长 ≈ TrailSpan，帧率只影响点的密度（缺口至多一个采样间隔）。
 	const double SimulatedTime = Subsystem->GetSimulatedTimeYears();
 
-	const double TrailSpan = Orbit->TrailYears > 0.0
-		? Orbit->TrailYears
+	const double TrailSpan = TrailYears > 0.0
+		? TrailYears
 		: Horizon * AutoTrailHorizonFraction;
 	const double TrailInterval = TrailSpan / double(TrailSamples);
 
@@ -131,23 +242,16 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 
 	if (Trail.Num() == 0)
 	{
-		// 开局先放一个点，否则拖尾要等到第一个采样时刻才开始长，缺开头一小段。
 		Trail.Add(CurrentLocation);
 		TrailTimes.Add(SimulatedTime);
 		LastTrailSampleTime = SimulatedTime;
 	}
 	else if (TrailInterval > 0.0 && SimulatedTime - LastTrailSampleTime >= TrailInterval)
 	{
-		// 一帧最多补一个点：掉帧时宁可让采样间隔临时变长，也不要在一帧里塞进
-		// 几十个几乎重合的点。
 		Trail.Add(CurrentLocation);
 		TrailTimes.Add(SimulatedTime);
 		LastTrailSampleTime = SimulatedTime;
 
-		// 按**模拟时间**裁剪，不按点数。这是本步的关键：按点数裁的话，
-		// 覆盖时长 = (TrailSamples-1) × max(TrailInterval, 每帧推进)，上面那种
-		// 「间隔比每帧推进还小」的情形下就退化成由帧数决定，帧率一变拖尾长度就变。
-		// 两个数组只在这里一起改，长度恒等。
 		const double TrailStartTime = SimulatedTime - TrailSpan;
 		int32 DropCount = 0;
 		while (DropCount < TrailTimes.Num() && TrailTimes[DropCount] < TrailStartTime)
@@ -156,23 +260,17 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 		}
 		if (DropCount > 0)
 		{
-			// EAllowShrinking::No = 保留容量，别每次裁剪都把分配器折腾一遍。
 			Trail.RemoveAt(0, DropCount, EAllowShrinking::No);
 			TrailTimes.RemoveAt(0, DropCount, EAllowShrinking::No);
 		}
 	}
 
 	// ── 门控：只门控「画」 ──
-	// 采样在上面**无条件**跑完了 —— 拖尾是真实历史。星图模式之外看不见它，
-	// 但历史一直在攒，所以一进星图就是完整的，不是从零开始长。
-	//
-	// 三样东西各有一个逐天体开关，彼此独立、谁也不否决谁。星图可见性那一关
-	// （星图模式 或 bShowOutsideStarMap）同时管住三样。
-	const bool bInStarMapView = Subsystem->IsStarMapActive() || Orbit->bShowOutsideStarMap;
-	const bool bWantTrail = bInStarMapView && Orbit->bDrawTrail;
-	const bool bWantPrediction = bInStarMapView && Orbit->bDrawPrediction;
-	const bool bWantArrow = bInStarMapView && Orbit->bDrawVelocityArrow;
-	const bool bWantGravityArrow = bInStarMapView && Orbit->bDrawGravityArrow;
+	const bool bInStarMapView = Subsystem->IsStarMapActive() || bShowOutsideStarMap;
+	const bool bWantTrail = bInStarMapView && bDrawTrail;
+	const bool bWantPrediction = bInStarMapView && bDrawPrediction;
+	const bool bWantArrow = bInStarMapView && bDrawVelocityArrow;
+	const bool bWantGravityArrow = bInStarMapView && bDrawGravityArrow;
 
 	if (!bWantTrail && !bWantPrediction && !bWantArrow && !bWantGravityArrow)
 	{
@@ -181,56 +279,45 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	}
 
 	// ── 预测：每帧重算 ──
-	// 不做节流。理由有两条：拖尾本来就要每帧重画（见 Task 6），而预测一旦节流，
-	// 画出的椭圆会比星球的真实位置落后「节流时长 / 一圈时长」那么多圈 ——
-	// 凑近星球看时那条线明显接不上。每帧重算把滞后压到 1 帧。
-	//
-	// 滞后一律用**角度**说，不要用米：本关卡一圈约 7.5 秒，节流 0.2 秒 ≈ 10°，
-	// 1 帧（60fps）≈ 0.8°。换关卡时按「时长 ÷ 一圈时长 × 360°」自己算。
-	//
-	// bDrawPrediction 为假时整段跳过 —— 这正是那个开关省下的大头（整系统复制 + 255 步）。
 	PredictedWorld.Reset();
-	if (bWantPrediction && Orbit->SimulatorIndex != INDEX_NONE)
+	if (bWantPrediction && OrbitComponent->SimulatorIndex != INDEX_NONE)
 	{
-		Subsystem->PredictTrajectoryWorld(Orbit->SimulatorIndex, Horizon,
+		Subsystem->PredictTrajectoryWorld(OrbitComponent->SimulatorIndex, Horizon,
 			PredictionSamples, PredictedWorld);
 	}
 
 	// ── 高亮：选中的天体两种颜色都向白提 ──
-	// 只改颜色不改线宽 —— 理由见 BrightenTowardWhite 的声明处。
 	const bool bSelected = (OwnerActor != nullptr)
 		&& (Subsystem->GetSelectedBody() == OwnerActor);
-	const FLinearColor TrailColor = bSelected
-		? FLinearColor(BrightenTowardWhite(Orbit->TrailColor, HighlightWhiteLerp))
-		: FLinearColor(Orbit->TrailColor);
-	const FLinearColor PredictionColor = bSelected
-		? FLinearColor(BrightenTowardWhite(Orbit->PredictionColor, HighlightWhiteLerp))
-		: FLinearColor(Orbit->PredictionColor);
+	const FLinearColor HighlightedTrailColor = bSelected
+		? FLinearColor(BrightenTowardWhite(TrailColor, HighlightWhiteLerp))
+		: FLinearColor(TrailColor);
+	const FLinearColor HighlightedPredictionColor = bSelected
+		? FLinearColor(BrightenTowardWhite(PredictionColor, HighlightWhiteLerp))
+		: FLinearColor(PredictionColor);
 
 	Lines.Reset();
 
 	if (bWantTrail && Trail.Num() >= 2)
 	{
-		AppendPolyline(Trail, TrailColor);
+		AppendPolyline(Trail, HighlightedTrailColor);
 	}
 
 	if (bWantPrediction && PredictedWorld.Num() >= 2)
 	{
-		AppendPolyline(PredictedWorld, PredictionColor);
+		AppendPolyline(PredictedWorld, HighlightedPredictionColor);
 	}
 
 	if (bWantArrow)
 	{
-		AppendVelocityArrow(*Subsystem, FLinearColor(Orbit->VelocityArrowColor));
+		AppendVelocityArrow(*Subsystem, FLinearColor(VelocityArrowColor));
 	}
 
 	if (bWantGravityArrow)
 	{
-		AppendGravityArrow(*Subsystem, FLinearColor(Orbit->GravityArrowColor));
+		AppendGravityArrow(*Subsystem, FLinearColor(GravityArrowColor));
 	}
 
-	// Flush 是必须的：线用 LifeTime = 0 画上去就永不过期，不清的话每帧的线会
-	// 无限叠加（这是 spec §7.1 对着引擎源码确认过的行为）。
 	LineBatch->Flush();
 	if (Lines.Num() > 0)
 	{
@@ -241,41 +328,31 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 
 void UCosmosTrajectoryComponent::ClearDrawnLines()
 {
-	// 关掉时把已画的线清一次就够，不必每帧 MarkRenderStateDirty。
-	if (bDrewLastFrame)
+	if (bDrewLastFrame && IsValid(LineBatch))
 	{
 		LineBatch->Flush();
-		bDrewLastFrame = false;
 	}
+	bDrewLastFrame = false;
 }
 
 double UCosmosTrajectoryComponent::ResolvePredictionHorizonYears(
 	const UCosmosSimulationSubsystem& Subsystem) const
 {
-	if (!Orbit)
-	{
-		return FallbackPredictionYears;
-	}
+	UCosmosOrbitComponent* OrbitComponent = GetOwner()
+		? GetOwner()->FindComponentByClass<UCosmosOrbitComponent>()
+		: nullptr;
 
-	// 手填优先，与估算完全无关 —— 自动与手填的分支只在这一处判断。
-	// 这一条**不进缓存**：它是人在详情面板里填的，随时可能改，改了要立刻生效。
-	if (Orbit->PredictionYears > 0.0)
+	// 手填优先，与估算完全无关。
+	if (PredictionYears > 0.0)
 	{
-		return Orbit->PredictionYears;
+		return PredictionYears;
 	}
 
 	// 自动窗口只在第一次真的算出周期时解析一次，之后一直用缓存值。
-	//
-	// 每帧重算的话窗口会跟着当前间距跑：周期 ∝ 间距^1.5，天体一分开窗口就涨、
-	// 画出来的线跟着变长；最近邻一换（下面 EstimateOrbitalPeriod 里 min 的那一项
-	// 换人）还会跳一下。缓存下来之后窗口是个常量，线长稳定、可预期。
-	//
-	// 只在真的算出周期时才置位 bAutoHorizonResolved，所以「轨迹组件已经 Tick 了、
-	// 但子系统还没 FinalizeRegistration、SimulatorIndex 仍是 INDEX_NONE」的那几帧
-	// 不会把回退值钉死 —— 下一帧继续试。
-	if (!bAutoHorizonResolved && Orbit->SimulatorIndex != INDEX_NONE)
+	if (!bAutoHorizonResolved && OrbitComponent
+		&& OrbitComponent->SimulatorIndex != INDEX_NONE)
 	{
-		const double Period = Subsystem.GetOrbitalPeriodYears(Orbit->SimulatorIndex);
+		const double Period = Subsystem.GetOrbitalPeriodYears(OrbitComponent->SimulatorIndex);
 		if (Period > 0.0 && FMath::IsFinite(Period))
 		{
 			CachedAutoHorizonYears = Period * AutoHorizonPeriodFactor;
@@ -285,30 +362,21 @@ double UCosmosTrajectoryComponent::ResolvePredictionHorizonYears(
 
 	if (bAutoHorizonResolved)
 	{
-		// 上限**不缓存**，在返回时才施加 —— 这样它与手填那条一样，运行期改了
-		// 立刻生效。上限的单位是「系统最短周期的倍数」，所以还得问子系统要那个
-		// 周期；它按**开局**间距算一次就不变，与这里的缓存无关。
-		//
-		// 0 = 不设限；子系统还没算出最短周期（返回 0，比如关卡里只有一颗天体）
-		// 时也无从钳起，原样返回。为什么要钳见 MaxAutoPredictionPeriods 的注释：
-		// 预测是粗积分，窗口越长误差越大，拐点在「窗口 / 最短周期 ≈ 0.5」。
 		const double ShortestPeriod = Subsystem.GetShortestPeriodYears();
-		if (Orbit->MaxAutoPredictionPeriods > 0.0 && ShortestPeriod > 0.0)
+		if (MaxAutoPredictionPeriods > 0.0 && ShortestPeriod > 0.0)
 		{
 			return FMath::Min(CachedAutoHorizonYears,
-				Orbit->MaxAutoPredictionPeriods * ShortestPeriod);
+				MaxAutoPredictionPeriods * ShortestPeriod);
 		}
 		return CachedAutoHorizonYears;
 	}
 
-	// 求解器里只有一颗天体、或所有配对都算不出有限正周期 —— 每帧重试。
 	return FallbackPredictionYears;
 }
 
 void UCosmosTrajectoryComponent::AppendPolyline(TArrayView<const FVector> Points,
 	const FLinearColor& Color)
 {
-	// 第 0 个点不画线，它是后面每一段的起点 —— 所以从 1 开始。
 	for (int32 Index = 1; Index < Points.Num(); ++Index)
 	{
 		Lines.Emplace(Points[Index - 1], Points[Index], Color,
@@ -319,13 +387,12 @@ void UCosmosTrajectoryComponent::AppendPolyline(TArrayView<const FVector> Points
 void UCosmosTrajectoryComponent::AppendVelocityArrow(const UCosmosSimulationSubsystem& Subsystem,
 	const FLinearColor& Color)
 {
-	if (!Orbit)
+	UCosmosOrbitComponent* OrbitComponent = GetOrbitComponent();
+	if (!OrbitComponent)
 	{
 		return;
 	}
 
-	// 锚点是天体**当前**的位置。这是个速度矢量 —— 脱离天体、钉在出发点上就没有
-	// 意义了（那是旧行为「初始速度矢量」）。出发点的信息由拖尾和详情面板给。
 	const AActor* OwnerActor = GetOwner();
 	if (!OwnerActor)
 	{
@@ -333,21 +400,10 @@ void UCosmosTrajectoryComponent::AppendVelocityArrow(const UCosmosSimulationSubs
 	}
 	const FVector Anchor = OwnerActor->GetActorLocation();
 
-	// 读求解器里**那一刻**的速度，不是配置的 InitialVelocity —— 所以箭头会随实际
-	// 速度变长变短、随实际运动掉头。这正是它作为诊断的价值：近距离交会时速度暴涨，
-	// 箭头一眼就能看出来。
-	//
-	// 单位是 AU/年（游戏单位），不是世界单位：长度按 VelocityArrowScaleCm 画，
-	// 而那个系数的定义就是「每 1 AU/年 画多少厘米」。按世界尺度换算的话 1 AU/年 只有
-	// 0.032 厘米/秒（见 InitialVelocity 的注释），画出来看不见。
-	//
-	// 求解器里还没有这颗天体（SimulatorIndex 仍是 INDEX_NONE）时这里拿到零向量，
-	// 下面那句 Speed <= 0 会直接返回 —— 不必在这儿再判一次下标。
-	const FVector Velocity = Subsystem.GetBodyVelocityGameUnits(Orbit->SimulatorIndex);
+	const FVector Velocity = Subsystem.GetBodyVelocityGameUnits(OrbitComponent->SimulatorIndex);
 	const double Speed = Velocity.Size();
-	if (Speed <= 0.0 || Orbit->VelocityArrowScaleCm <= 0.0)
+	if (Speed <= 0.0 || VelocityArrowScaleCm <= 0.0)
 	{
-		// 静止天体没有速度矢量可画。这在关卡里是常态：UniverseMap 中间那颗初速就是 0。
 		return;
 	}
 
@@ -357,21 +413,17 @@ void UCosmosTrajectoryComponent::AppendVelocityArrow(const UCosmosSimulationSubs
 		return;
 	}
 
-	const double ShaftLength = Orbit->VelocityArrowScaleCm * Speed;
+	const double ShaftLength = VelocityArrowScaleCm * Speed;
 	const FVector Tip = Anchor + Direction * ShaftLength;
 
-	// 杆。FBatchedLine 的构造参数序是 (Start, End, Color, LifeTime, Thickness,
-	// DepthPriority) —— 与 DrawLine 的函数参数序相反，别写混。
 	Lines.Emplace(Anchor, Tip, Color,
 		/*LifeTime=*/0.0f, LineThickness, LineDepthPriority);
 
-	// 箭头：从箭尖往回折两条短线。需要一个与杆垂直的参考方向；杆若几乎平行于
-	// UpVector，就换 RightVector 做叉乘，避免叉乘退化。
 	const FVector Reference = FMath::Abs(Direction.Z) < 0.9 ? FVector::UpVector : FVector::RightVector;
 	const FVector Perp = FVector::CrossProduct(Direction, Reference).GetSafeNormal();
 	if (Perp.IsNearlyZero())
 	{
-		return;   // 上面已经排除了退化，这里只是兜底
+		return;
 	}
 
 	const double HeadLength = ShaftLength * ArrowHeadLengthFraction;
@@ -388,14 +440,12 @@ void UCosmosTrajectoryComponent::AppendVelocityArrow(const UCosmosSimulationSubs
 void UCosmosTrajectoryComponent::AppendGravityArrow(const UCosmosSimulationSubsystem& Subsystem,
 	const FLinearColor& Color)
 {
-	if (!Orbit)
+	UCosmosOrbitComponent* OrbitComponent = GetOrbitComponent();
+	if (!OrbitComponent)
 	{
 		return;
 	}
 
-	// 与速度箭头同构：锚点是天体当前位置，读的是求解器**当前**的引力，不是任何
-	// 配置值。引力方向指向「被拉向的方向」—— 严格说引力加速度指向吸引源，这里
-	// 画的就是加速度向量本身（方向 = 合力方向），所以叫「引力合力矢量」。
 	const AActor* OwnerActor = GetOwner();
 	if (!OwnerActor)
 	{
@@ -403,13 +453,10 @@ void UCosmosTrajectoryComponent::AppendGravityArrow(const UCosmosSimulationSubsy
 	}
 	const FVector Anchor = OwnerActor->GetActorLocation();
 
-	// 读纯引力（AU/年²），不含飞船推力/阻尼。求解器里还没有这颗天体时拿到零向量，
-	// 下面 Size() <= 0 直接返回。
-	const FVector Gravity = Subsystem.GetBodyGravityGameUnits(Orbit->SimulatorIndex);
+	const FVector Gravity = Subsystem.GetBodyGravityGameUnits(OrbitComponent->SimulatorIndex);
 	const double Magnitude = Gravity.Size();
-	if (Magnitude <= 0.0 || Orbit->GravityArrowScaleCm <= 0.0)
+	if (Magnitude <= 0.0 || GravityArrowScaleCm <= 0.0)
 	{
-		// 引力为零（系统质心、单天体退化）时没有合力可画。
 		return;
 	}
 
@@ -419,13 +466,261 @@ void UCosmosTrajectoryComponent::AppendGravityArrow(const UCosmosSimulationSubsy
 		return;
 	}
 
-	const double ShaftLength = Orbit->GravityArrowScaleCm * Magnitude;
+	const double ShaftLength = GravityArrowScaleCm * Magnitude;
 	const FVector Tip = Anchor + Direction * ShaftLength;
 
 	Lines.Emplace(Anchor, Tip, Color,
 		/*LifeTime=*/0.0f, LineThickness, LineDepthPriority);
 
-	// 箭头段：与速度箭头同一套几何（从箭尖往回折两条短线）。
+	const FVector Reference = FMath::Abs(Direction.Z) < 0.9 ? FVector::UpVector : FVector::RightVector;
+	const FVector Perp = FVector::CrossProduct(Direction, Reference).GetSafeNormal();
+	if (Perp.IsNearlyZero())
+	{
+		return;
+	}
+
+	const double HeadLength = ShaftLength * ArrowHeadLengthFraction;
+	const double HeadAngleRad = FMath::DegreesToRadians(ArrowHeadAngleDegrees);
+	const double HeadCos = FMath::Cos(HeadAngleRad);
+	const double HeadSin = FMath::Sin(HeadAngleRad);
+
+	Lines.Emplace(Tip, Tip + (Direction * HeadCos + Perp * HeadSin) * HeadLength,
+		Color, 0.0f, LineThickness, LineDepthPriority);
+	Lines.Emplace(Tip, Tip + (Direction * HeadCos - Perp * HeadSin) * HeadLength,
+		Color, 0.0f, LineThickness, LineDepthPriority);
+}
+
+void UCosmosTrajectoryComponent::DrawInEditor()
+{
+	if (!GetWorld() || !IsValid(LineBatch))
+	{
+		return;
+	}
+
+	const UWorld* World = GetWorld();
+
+	// ── 标定值从子系统读 ──
+	double CmPerAu = 1.0e6;
+	double Softening = 0.0001;
+	if (const UCosmosSimulationSubsystem* Subsystem =
+		World->GetSubsystem<UCosmosSimulationSubsystem>())
+	{
+		CmPerAu = Subsystem->CentimetersPerAu;
+		Softening = Subsystem->SofteningLength;
+	}
+
+	// ── 离线重建求解器 ──
+	FNBodySimulator EditorSimulator;
+	EditorSimulator.SetUnitSystem(ECosmosUnitSystem::Game);
+	EditorSimulator.SetIntegrator(ECosmosIntegrator::VelocityVerlet);
+	EditorSimulator.SetSofteningLength(Softening);
+	EditorSimulator.SetCentimetersPerAu(CmPerAu);
+
+	for (TObjectIterator<UCosmosOrbitComponent> It; It; ++It)
+	{
+		UCosmosOrbitComponent* Component = *It;
+		if (!Component)
+		{
+			continue;
+		}
+
+		AActor* OwnerActor = Component->GetOwner();
+		if (!OwnerActor || OwnerActor->GetWorld() != World)
+		{
+			continue;   // 只收本关卡的天体
+		}
+
+		if (!FMath::IsFinite(Component->MassEarth) || Component->MassEarth <= 0.0)
+		{
+			continue;   // 与 AddBodyToSimulator 同口径：无效质量不参与预览
+		}
+
+		FCosmosBodyState State;
+		State.Position = EditorSimulator.ToGameUnitPosition(OwnerActor->GetActorLocation());
+		State.Velocity = CosmosUnits::KilometerPerSecondToAuPerYear(
+			FVector3d(Component->InitialVelocityKmPerSecond));
+		State.Mass = CosmosUnits::EarthMassToSolarMass(Component->MassEarth);
+		State.OwnerActor = OwnerActor;
+
+		// 与 AddBodyToSimulator 同口径：单向引力的天体在编辑器预览里也不拽别人，
+		// 否则不 Play 时看到的行星轨迹会被飞船拉偏，一进 PIE 又不动。
+		State.bTestParticle = !Component->bExertsGravity;
+		EditorSimulator.AddBody(State);
+	}
+
+	const AActor* SelfActor = GetOwner();
+	if (!SelfActor)
+	{
+		return;
+	}
+
+	// 自己这颗天体在离线求解器里的下标：按 OwnerActor 匹配。
+	int32 SelfIndex = INDEX_NONE;
+	{
+		const TArray<FCosmosBodyState>& Bodies = EditorSimulator.GetBodies();
+		for (int32 Index = 0; Index < Bodies.Num(); ++Index)
+		{
+			if (Bodies[Index].OwnerActor.Get() == SelfActor)
+			{
+				SelfIndex = Index;
+				break;
+			}
+		}
+	}
+
+	if (SelfIndex == INDEX_NONE)
+	{
+		return;   // 自己这颗天体没被收进离线求解器（没挂 Orbit 组件），画不了
+	}
+
+	const FVector Anchor = SelfActor->GetActorLocation();
+	Lines.Reset();
+
+	// ── 预测折线 ──
+	if (bDrawPrediction)
+	{
+		double Horizon = FallbackPredictionYears;
+		if (PredictionYears > 0.0)
+		{
+			Horizon = PredictionYears;
+		}
+		else
+		{
+			const double OwnPeriod = EditorSimulator.EstimateOrbitalPeriod(SelfIndex);
+			if (OwnPeriod > 0.0 && FMath::IsFinite(OwnPeriod))
+			{
+				Horizon = OwnPeriod * AutoHorizonPeriodFactor;
+
+				double ShortestPeriod = TNumericLimits<double>::Max();
+				const TArray<FCosmosBodyState>& Bodies = EditorSimulator.GetBodies();
+				for (int32 I = 0; I < Bodies.Num(); ++I)
+				{
+					for (int32 J = I + 1; J < Bodies.Num(); ++J)
+					{
+						const double PairPeriod = FNBodySimulator::PairOrbitalPeriod(
+							Bodies[I], Bodies[J], CosmosUnits::GravitationalConstant_Game);
+						if (PairPeriod > 0.0)
+						{
+							ShortestPeriod = FMath::Min(ShortestPeriod, PairPeriod);
+						}
+					}
+				}
+
+				if (MaxAutoPredictionPeriods > 0.0
+					&& FMath::IsFinite(ShortestPeriod) && ShortestPeriod > 0.0)
+				{
+					Horizon = FMath::Min(Horizon,
+						MaxAutoPredictionPeriods * ShortestPeriod);
+				}
+			}
+		}
+
+		TArray<FVector3d> GameUnitPositions;
+		if (EditorSimulator.PredictTrajectory(SelfIndex, Horizon, PredictionSamples,
+			GameUnitPositions))
+		{
+			PredictedWorld.Reset();
+			PredictedWorld.Reserve(GameUnitPositions.Num());
+			for (const FVector3d& Position : GameUnitPositions)
+			{
+				PredictedWorld.Add(EditorSimulator.ToWorldLocation(Position));
+			}
+			if (PredictedWorld.Num() >= 2)
+			{
+				AppendPolyline(PredictedWorld, FLinearColor(PredictionColor));
+			}
+		}
+	}
+
+	// ── 速度箭头（InitialVelocityKmPerSecond） ──
+	if (bDrawVelocityArrow)
+	{
+		UCosmosOrbitComponent* OrbitComponent = GetOrbitComponent();
+		AppendEditorVelocityArrow(Anchor,
+			OrbitComponent
+				? CosmosUnits::KilometerPerSecondToAuPerYear(
+					FVector3d(OrbitComponent->InitialVelocityKmPerSecond))
+				: FVector3d::ZeroVector,
+			FLinearColor(VelocityArrowColor));
+	}
+
+	// ── 引力箭头（离线算出的纯引力） ──
+	if (bDrawGravityArrow)
+	{
+		EditorSimulator.StepExact(1e-6);
+		AppendEditorGravityArrow(Anchor,
+			EditorSimulator.GetBody(SelfIndex).GravitationalAcceleration,
+			FLinearColor(GravityArrowColor));
+	}
+
+	LineBatch->Flush();
+	if (Lines.Num() > 0)
+	{
+		LineBatch->DrawLines(Lines);
+	}
+	bDrewLastFrame = Lines.Num() > 0;
+}
+
+void UCosmosTrajectoryComponent::AppendEditorVelocityArrow(const FVector& Anchor,
+	const FVector3d& Velocity, const FLinearColor& Color)
+{
+	const double Speed = Velocity.Size();
+	if (Speed <= 0.0 || VelocityArrowScaleCm <= 0.0)
+	{
+		return;
+	}
+
+	const FVector Direction = FVector(Velocity).GetSafeNormal();
+	if (Direction.IsNearlyZero())
+	{
+		return;
+	}
+
+	const double ShaftLength = VelocityArrowScaleCm * Speed;
+	const FVector Tip = Anchor + Direction * ShaftLength;
+
+	Lines.Emplace(Anchor, Tip, Color,
+		/*LifeTime=*/0.0f, LineThickness, LineDepthPriority);
+
+	const FVector Reference = FMath::Abs(Direction.Z) < 0.9 ? FVector::UpVector : FVector::RightVector;
+	const FVector Perp = FVector::CrossProduct(Direction, Reference).GetSafeNormal();
+	if (Perp.IsNearlyZero())
+	{
+		return;
+	}
+
+	const double HeadLength = ShaftLength * ArrowHeadLengthFraction;
+	const double HeadAngleRad = FMath::DegreesToRadians(ArrowHeadAngleDegrees);
+	const double HeadCos = FMath::Cos(HeadAngleRad);
+	const double HeadSin = FMath::Sin(HeadAngleRad);
+
+	Lines.Emplace(Tip, Tip + (Direction * HeadCos + Perp * HeadSin) * HeadLength,
+		Color, 0.0f, LineThickness, LineDepthPriority);
+	Lines.Emplace(Tip, Tip + (Direction * HeadCos - Perp * HeadSin) * HeadLength,
+		Color, 0.0f, LineThickness, LineDepthPriority);
+}
+
+void UCosmosTrajectoryComponent::AppendEditorGravityArrow(const FVector& Anchor,
+	const FVector3d& Gravity, const FLinearColor& Color)
+{
+	const double Magnitude = Gravity.Size();
+	if (Magnitude <= 0.0 || GravityArrowScaleCm <= 0.0)
+	{
+		return;
+	}
+
+	const FVector Direction = FVector(Gravity).GetSafeNormal();
+	if (Direction.IsNearlyZero())
+	{
+		return;
+	}
+
+	const double ShaftLength = GravityArrowScaleCm * Magnitude;
+	const FVector Tip = Anchor + Direction * ShaftLength;
+
+	Lines.Emplace(Anchor, Tip, Color,
+		/*LifeTime=*/0.0f, LineThickness, LineDepthPriority);
+
 	const FVector Reference = FMath::Abs(Direction.Z) < 0.9 ? FVector::UpVector : FVector::RightVector;
 	const FVector Perp = FVector::CrossProduct(Direction, Reference).GetSafeNormal();
 	if (Perp.IsNearlyZero())
@@ -446,8 +741,6 @@ void UCosmosTrajectoryComponent::AppendGravityArrow(const UCosmosSimulationSubsy
 
 FColor UCosmosTrajectoryComponent::BrightenTowardWhite(const FColor& In, float Amount)
 {
-	// 全部按 float 算：FMath::RoundToInt32 的 float 重载和 double 重载结果一致，
-	// 但混着写容易让人以为这里在做双精度插值。
 	const float T = FMath::Clamp(Amount, 0.f, 1.f);
 
 	return FColor(

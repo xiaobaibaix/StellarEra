@@ -41,6 +41,17 @@ struct FCosmosBodyState
 	double Mass = 0.0;
 
 	/**
+	 * 测试粒子：作为**引力源**不贡献质量（质量按 0 参与别人的加速度），但自己
+	 * 作为**受引力体**仍照常被其他天体吸引。即「单向引力」——大天体吸引它，
+	 * 它不反过来吸引大天体。
+	 *
+	 * 典型用途是本项目的飞船：玩家飞船不该把行星从轨道上拽动，所以给飞船开
+	 * 这个标志，让它对行星完全无反作用。注意这只是「不参与别人加速度」，
+	 * 接触解算（ResolveContacts）仍按真实质量分配让路权重。
+	 */
+	bool bTestParticle = false;
+
+	/**
 	 * 半径。**不参与引力，只参与接触**：两个天体的中心距小于半径之和时，它们被
 	 * 推开到刚好相切，相互接近的法向速度被抹掉（见 ResolveContacts）。
 	 *
@@ -288,6 +299,17 @@ private:
 	/** 当前单位制下的引力常数。ComputeAccelerations / GetTotalEnergy / 预测三处共用。 */
 	double GetG() const;
 
+	/**
+	 * 天体作为**引力源**时的有效质量：测试粒子（如飞船）不吸引别人，返回 0。
+	 *
+	 * 与 Mass 字段本身区分开 —— Mass 仍用于接触解算、动量/角动量诊断这些需要
+	 * 「真实惯性」的场合；引力源质量则额外过一道测试粒子判定。
+	 */
+	static double GravitationalSourceMass(const FCosmosBodyState& Body)
+	{
+		return Body.bTestParticle ? 0.0 : Body.Mass;
+	}
+
 	/** 计算所有天体的加速度，写入各自Acceleration。 */
 	void ComputeAccelerations();
 
@@ -308,8 +330,9 @@ private:
 	 * 质量 ≤ 0 视为测试粒子：它让全部，对方一点都不让。取质量倒数会除零，
 	 * 所以这里必须显式分情形，不能写成 m_j/(m_i+m_j)。
 	 *
-	 * 本项目的飞船**不是**测试粒子（MassSolar = 1e-6）：它按质量比让路，
-	 * 但 1e-6 相对行星的 0.873237 等于让全部，行为上仍是「行星纹丝不动」。
+	 * 本项目的飞船**是**测试粒子（UCosmosOrbitComponent::bExertsGravity = false），
+	 * 但这里不看那个标志：它仍按真实质量比让路。MassEarth = 0.332946 相对行星的
+	 * 290740.84 等于让全部，行为上仍是「行星纹丝不动」。
 	 */
 	static void ComputeContactShares(double MassI, double MassJ,
 	                                 double& OutShareI, double& OutShareJ);

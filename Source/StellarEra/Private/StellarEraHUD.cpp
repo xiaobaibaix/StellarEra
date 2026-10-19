@@ -99,11 +99,11 @@ void AStellarEraHUD::DrawStatusPanel(const FSpaceshipStatus& Status)
 
 	// 极速为 0 表示巡航开着（阻尼关掉了）—— 那是「没有上限」，不是「不能动」，
 	// 所以分两种印法而不是直接印 0。
-	const FString SpeedLine = Status.MaxSpeed > 0.f
-		? FString::Printf(TEXT("速度      %d / %d cm/s"),
-			FMath::RoundToInt(Status.Speed), FMath::RoundToInt(Status.MaxSpeed))
-		: FString::Printf(TEXT("速度      %d cm/s（巡航，无上限）"),
-			FMath::RoundToInt(Status.Speed));
+	const FString SpeedLine = Status.MaxSpeedKmPerSecond > 0.f
+		? FString::Printf(TEXT("速度      %.2f / %.2f km/s（世界速度）"),
+			Status.SpeedKmPerSecond, Status.MaxSpeedKmPerSecond)
+		: FString::Printf(TEXT("速度      %.2f km/s（世界速度，巡航无上限）"),
+			Status.SpeedKmPerSecond);
 
 	const TArray<FString> Lines =
 	{

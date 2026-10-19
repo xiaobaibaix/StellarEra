@@ -79,7 +79,10 @@ include `CosmosOrbitComponent.h`，也不能调 `UCosmosSimulationSubsystem`。
 | 极速（Shift） | 3.6e5 cm/s = 3.6 km/s | |
 | 求解器里的 `LinearDamping` k | 3.0e4 /年 | = 1 / (τ · TimeScale) |
 | 求解器里的推力 | 1.082e6 AU/年² | = 1.2e7 / 11.089 |
-| 体素 `LODRange` / `CollisionsRange` | 4.5e5 厘米 = 4.5 公里 | 范围 ≥ 最大速度 × `PredictionTime`，最大速度**含** `BoostMultiplier`：1.2e5 × 3 × 1 s = 3.6e5 厘米 |
+| 体素 `LODRange` | 2.4e4 厘米 = 240 米 | 管画质；**上限由显存定，不是插件的块数阀**，见 §5.6 |
+| 体素 `CollisionsRange` | 2.4e4 厘米 = 240 米 | 管精细碰撞，锁死在 `Height 0`，**是块数大头**；下限由 `速度 × PredictionTime` 卡住，见 §5.6 |
+| 体素 `PredictionTime` | 0.05 秒 | 助推时预测点超前 1.8e4 厘米，小于两个范围 2.4e4，飞船本体仍落在自己的盒内 |
+| 体素 `LODToSet` | **0**（与角色同） | 1 米网格。它**只管 LOD 路径，管不了碰撞路径**，且加档会让网格变粗，见 §5.6 |
 
 几条读法：
 
@@ -203,11 +206,15 @@ void UCosmosSimulationSubsystem::ApplyControlledBodyForces()
  * 由 UCosmosSimulationSubsystem 每帧下来读走。方向只能是「子系统读飞船」——
  * 飞船不能反过来调子系统，模块依赖会成环（见 spec §3.2）。
  *
- * 方向 = (机头 × ThrustInput + 机身上 × VerticalInput)，按 UFloatingPawnMovement
+ * 方向 = (机头 × max(ThrustInput, 0) + 机身上 × VerticalInput)，按 UFloatingPawnMovement
  * 的 GetClampedToMaxSize(1) 同样的规则夹一下：斜着同时按 W 和 Space 不该比
  * 单按一个多出 41% 的推力。
+ *
+ * ThrustInput < 0（S）不产生机头方向的推力，而是**制动**：方向取速度的反方向，
+ * 大小按「本帧满推力能改变的速度」收敛（见 §5.8）。DeltaSeconds 由调用方传入，
+ * 就是本帧的帧时长。
  */
-FVector GetThrustAccelerationWorld() const;
+FVector GetThrustAccelerationWorld(float DeltaSeconds) const;
 
 /** 阻尼时间常数（秒）。0 = 不阻尼（巡航）。 */
 float GetDampingTime() const;
@@ -287,19 +294,64 @@ FVector ToWorldVelocityScaled(const FVector3d& GameUnitVelocity) const;
 
 ### 5.6 体素调用器范围
 
-`SpaceshipPawn.cpp` 构造函数里 `LODRange` / `CollisionsRange` 从 `20000.f`（200 米）
-改成 `450000.f`（4.5 公里）。
-
-原注释（`SpaceshipPawn.cpp:45-48`）自己写着：巡航 8000 cm/s、范围 200 米，
-不预测只剩 2.5 秒提前量。调用器的位置是搬到**预测点**去的，所以范围必须罩得住
+原注释（`SpaceshipPawn.cpp`）自己写着：巡航 8000 cm/s、范围 200 米，不预测只剩 2.5 秒
+提前量。调用器的位置是搬到**预测点**去的，所以**每个**范围都必须罩得住
 `速度 × PredictionTime` 这个偏移量 —— 而最大速度要**含** `BoostMultiplier`：
-1.2e5 × 3 = 3.6e5 cm/s，`PredictionTime = 1.f` → 偏移 3.6e5 厘米，取 4.5 公里留
-25% 余量。
+1.2e5 × 3 = 3.6e5 cm/s。`LODRange` 与 `CollisionsRange` 用的是同一个预测点，这条约束
+对两者**分别**成立。巡航（关阻尼）下速度无上界，任何有限范围都盖不住 —— 这是已知上限。
 
-巡航（关阻尼）下速度无上界，任何有限范围都盖不住 —— 这是已知上限。
+**两条独立的细分路径（2026-10-18 实测订正）。** 八叉树爆块不是一条路径，是两条，块数
+各按自己盒子的**体积**涨，且**都不看盒子里有没有地形**：
 
-**代价未知**：本关卡行星半径只有 750 米，4.5 公里的范围等于整颗行星全程满精度 + 带碰撞。
-这一项要实测；嫌贵就往回收，注释里写清推导。
+1. **LOD** —— `FVoxelRenderOctree::ShouldSubdivideByDistance`。与 ±`LODRange` 盒子相交
+   的块细到 `LODToSet` 为止，叶块边长 `32 · 2^LODToSet` 体素。
+2. **碰撞** —— `ShouldSubdivideByOthers` → `IsInvokerInRange`。与 ±`CollisionsRange`
+   盒子相交的块**一路细到 `Height 0`**，**完全不经过 `LODToSet`**：`IsInvokerInRange`
+   只做一次包围盒相交测试，没有任何 LOD 判断。
+
+块数都 ≈ `(min(2·范围, 世界边长) / 叶块边长)³`，父块再加约 1/7（1/8 + 1/64 + …）。本关卡
+世界边长 4096 体素、`RENDER_CHUNK_SIZE = 32`。
+
+**为什么「调 `LODToSet`」看起来没用**：它只影响 LOD 路径。碰撞路径铺满整个盒子时的叶块数
+是 128³ ≈ 2.1e6 —— 而两个范围当时都写着 4.5e5，单碰撞这一条就超插件上限一倍。所以第一次
+修复（`LODToSet` 0→1）实测毫无效果，报错照旧。
+
+**但插件的 1e6 上限不是有用的护栏 —— 真正的上限是显存。** 上限只在超限时把整棵树作废
+（`FVoxelDefaultLODManager::Tick` 只在新树有效时才替换 → **静默失效**：地形 LOD 冻结，
+且每次重建都失败。实测症状：开图后 6 秒、飞船一动不动就报「Render octree update was
+stopped!」，**与速度无关**）。它**不保证**上限以内的配置跑得动 —— 2026-10-18 实测：把
+`CollisionsRange` 收到 6e4、八叉树**通过**之后，请求了约 3.3e5 个区块，在 GTX 1650（4 GB）
+上直接报「Video memory has been exhausted (52,945 MB over budget)」，星球整片渲染不出来。
+**范围要按显卡显存反推，不能只按「别撞插件上限」反推。**
+
+**关键取舍：`LODToSet` 每加一档，叶块边长翻倍、块数少 8 倍。** 所以「覆盖半径」与「网格
+精度」是在**固定块数**下互换的 —— 想看得远就得让网格变粗：
+
+| `LODToSet` | 网格采样步长 | 用得起的大致覆盖半径 |
+|---|---|---|
+| 0 | 1 米 | 240 米（本设计取值） |
+| 1 | 2 米 | 480 米 |
+| 2 | 4 米 | 960 米 |
+
+（`VoxelMesherUtilities`: `Step = 1 << LOD`；本关卡体素 100 厘米。三者块数同量级。）
+
+**本设计取 `LODToSet = 0`、两个范围都取 2.4e4 厘米（240 米）** —— 1 米网格，回到分支之前
+那个「正常」的量级（当时是 200 米）。按上面的公式：叶块边长 32 体素 = 32 米，盒子直径
+480 米 → 每条边 15 块 → LOD 与碰撞各 15³ ≈ 3.4e3 叶块，加父块约 8e3。先确认跑得动，再按
+上表往上加档。
+
+`LODToSet = 0` 不是「贴地 Pawn 的约定值」，是 4 GB 显存逼出来的；角色那份
+（`PlanetCharacter.cpp`）配 `LODToSet = 0` + 200 米盒子，同理 —— 盒子小才用得起。
+
+**`CollisionsRange` 不能单独放大**：它锁死在 `Height 0`，是块数大头。可见区块本来就带碰撞
+（`VoxelWorld` 的 `bComputeVisibleChunksCollisions` 默认 true、
+`VisibleChunksCollisionsMaxLOD = 5`），调用器这一份只是把飞船附近升级到最细。这些
+`Height 0` 块**不参与渲染**（`ByOthers` 的子块 `bChildrenVisible = false`），只买碰撞精度。
+
+**范围与 `PredictionTime` 是同一组参数，改一个要重算另一个。** 调用器位置 = 组件位置 +
+速度 × `PredictionTime`，所以每个范围都必须 ≥ 最大速度 × `PredictionTime`，否则飞船落在
+自己的盒子外、碰撞**直接消失**（不是变粗）。最大速度含 `BoostMultiplier`：3.6e5 cm/s。
+取 `PredictionTime = 0.05` 秒 → 偏移 1.8e4 厘米 < 2.4e4，各留 6e3 厘米余量。
 
 ### 5.7 诊断措辞
 
@@ -315,6 +367,42 @@ UE_LOG(LogTemp, Log, TEXT("能量漂移  : %.6e  （辛积分应 < 1e-5）%s"),
 
 `bHasForcedBodies` 由 `ApplyControlledBodyForces` 顺带置位（有任何天体
 `ExternalAcceleration` 或 `LinearDamping` 非零即为真），每帧重置。
+
+### 5.8 制动（S 键）
+
+**语义变了。** S 原来 = 沿机头反推（`ThrustInput = -1` 直接进方向向量），后果是阻尼模式下
+把飞船推到 −1.2 km/s 倒着飞、巡航模式下无上限地倒着加速。现在 S = **制动**：推力方向取
+**速度的反方向**（与机头无关），速度归零即止，不倒车。
+
+方向向量里的前后输入因此只取正向：`机头 × max(ThrustInput, 0)` —— 按 S 时正推力让位
+（同时按 W 与 S 的净效果是停住），升降（Space / LeftControl）不受影响。
+
+大小按「本帧满推力能改变的速度」收敛：
+
+```
+|a| = A · min(1, |v| / (A·Δt))      A = ThrustAcceleration（Shift 时乘 BoostMultiplier）
+```
+
+于是本帧减速量 = `min(A·Δt, |v|) ≤ |v|`：一帧内恰好停住，**绝不会把速度推过头翻成反向**。
+
+**刻度为什么是 `A·Δt` 而不是某个固定速度。** 外力是**整帧恒定**的 —— 求解器只在帧首读
+一次 `ExternalAcceleration`，整帧所有子步都用同一个值，所以一帧能改变多少速度就是 `A·Δt`。
+本关卡 `A = 1.2e7` cm/s²，60 fps 下一帧就是 2e5 cm/s，比飞船整条速度尺度（阻尼极速
+`1.2e5`）还大。固定刻度会在低帧率下先过冲，再被逐帧修正成来回翻符号的抖动；3 fps
+（编辑器不在前台时的实际帧率）下直接发散。
+
+`Δt` 由 `UCosmosSimulationSubsystem::ApplyControlledBodyForces(float DeltaSeconds)` 传入，
+**不是**飞船自己 Tick 里抄一份存着：两个 Tick 谁先谁后不保证，抄的那份在编辑器切到后台
+掉到 3 fps 的那一帧会拿旧的小 Δt 去算 —— 制动量按 60 fps 估、实际整帧推 0.33 秒，速度
+直接翻成反向的几十 km/s（飞船还会瞬移几公里）。
+
+**已知代价（不修）：**
+
+1. **制动只削速度、不抗重力。** 低速时比例因子 `|v| / (A·Δt)` 已经很小，制动力比当地重力
+   小三个数量级 —— 贴地悬停仍归 W / 升降键。这是「按速度比例收敛」的固有性质：任何速度
+   比例的减速律都在 `|v| → 0` 时失去力量（给一个不随速度衰减的下限，就会在零速附近过冲）。
+2. **制动作用在惯性系速度上**，与阻尼同一条口径（见 §7）—— 贴着行星按 S 是让飞船在惯性系
+   里停下，不是「相对行星停住」。
 
 ## 6. 参数清单：删 / 改 / 加
 
@@ -332,12 +420,12 @@ UE_LOG(LogTemp, Log, TEXT("能量漂移  : %.6e  （辛积分应 < 1e-5）%s"),
 | `BoostAcceleration = 12000` | **改成 `BoostMultiplier = 3.0`** |
 | `bPreserveVelocity = false` | **保留**，语义改为「关掉阻尼」 |
 | `ForwardSpeed` | **删**（只服务保底速度判断） |
-| `ThrustInput` / `VerticalInput` / `RollInput` | 保留，语义不变 |
+| `ThrustInput` / `VerticalInput` / `RollInput` | 保留；`ThrustInput < 0` 改为**制动**（§5.8），不再沿机头反推 |
 | — | **加** `ThrustAcceleration = 1.2e7f` |
 | — | **加** `BoostMultiplier = 3.0f` |
 | — | **加** `DampingTime = 0.01f` |
 | — | **加** `CosmosVelocity` 成员 + `SetCosmosVelocity` + `GetVelocity()` 覆写 |
-| — | **加** `GetThrustAccelerationWorld()` / `GetDampingTime()` |
+| — | **加** `GetThrustAccelerationWorld(float DeltaSeconds)` / `GetDampingTime()` |
 
 ### `FSpaceshipStatus`
 
@@ -349,7 +437,7 @@ UE_LOG(LogTemp, Log, TEXT("能量漂移  : %.6e  （辛积分应 < 1e-5）%s"),
 | 其余字段 | 不变 |
 
 `AStellarEraHUD::DrawStatusPanel` 跟着改：删掉 `bThrustLocked` 那个分支
-（推力标签只剩 `W 加速` / `S 反推` / `无`），速度那一行按 `MaxSpeed > 0` 分两种印法。
+（推力标签只剩 `W 加速` / `S 减速` / `无`），速度那一行按 `MaxSpeed > 0` 分两种印法。
 
 ### 被这两处改动带出来的过时注释（一并修）
 

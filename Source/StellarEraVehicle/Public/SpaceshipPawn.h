@@ -26,15 +26,20 @@ class UVoxelInvokerWithPredictionComponent;
  */
 struct FSpaceshipStatus
 {
-	/** 速度大小（厘米/秒）。取自求解器写回的速度（见 ASpaceshipPawn::GetVelocity）。 */
-	float Speed = 0.f;
+	/**
+	 * 速度大小（**世界 km/s**）。取自求解器写回的速度，再除以 1e5。
+	 *
+	 * 世界速度 ≠ 编辑器里填的物理速度：物理 1 AU/年 = 4.74047 km/s，
+	 * 世界 1 AU/年 = CentimetersPerAu × TimeScale 厘米/秒 = 0.0333 km/s（默认）。
+	 */
+	float SpeedKmPerSecond = 0.f;
 
 	/**
-	 * 阻尼极速（厘米/秒）= 推力加速度 × 阻尼时间常数。
+	 * 阻尼极速（**世界 km/s**）= ThrustAccelerationKmPerS2 × τ × 加速倍率。
 	 *
 	 * 0 表示**没有上限**（巡航开着，阻尼关掉了），不是「不能动」。
 	 */
-	float MaxSpeed = 0.f;
+	float MaxSpeedKmPerSecond = 0.f;
 
 	/** 主推力输入，-1 ~ +1。 */
 	float ThrustInput = 0.f;
@@ -53,7 +58,7 @@ struct FSpaceshipStatus
  * 街机式太空飞船。
  *
  * **位移完全归 N 体求解器**：本类不自己搬自己，只把「这一帧想施加多少推力加速度」
- * 暴露出去（GetThrustAccelerationWorld / GetDampingTime），由
+ * 暴露出去（GetThrustAccelerationWorldCmPerS2 / GetDampingTime），由
  * UCosmosSimulationSubsystem 每帧下来读走、换算成 AU/年² 写进它那个 FCosmosBodyState。
  * 位置与速度都由求解器写回（SetActorLocation + SetCosmosVelocity）。
  *
@@ -76,7 +81,7 @@ public:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
 
-	/** 主推力输入（-1 = 反推，+1 = 前进）。 */
+	/** 主推力输入（-1 = 制动，+1 = 前进）。 */
 	void SetThrust(float Value);
 
 	/** 横滚输入（-1 / +1）。 */
@@ -147,16 +152,32 @@ public:
 	float GetContactRadiusCm() const;
 
 	/**
-	 * 本帧要施加在自己那个 N 体上的推力加速度（厘米/秒²，世界坐标）。零 = 无推力。
+	 * 本帧要施加在自己那个 N 体上的推力加速度（**厘米/秒²**，世界坐标）。零 = 无推力。
 	 *
-	 * 由 UCosmosSimulationSubsystem 每帧下来读走（依赖方向见类注释）。
+	 * 输入单位是 ThrustAccelerationKmPerS2（km/s²），这里乘 1e5 换成厘米/秒²。
+	 * 由 UCosmosSimulationSubsystem 每帧下来读走（依赖方向见类注释）。DeltaSeconds
+	 * 是**调用方那一帧的帧时长**，只被制动用到 —— 制动要按「本帧满推力能改变多少
+	 * 速度」收敛，必须知道这一帧有多长。用调用方的值而不是自己 Tick 里抄一份存起来：
+	 * 两个 Tick 谁先谁后不保证，抄的那份在帧率突变时会让制动过冲一整帧。
 	 *
-	 * 方向 = 机头 × ThrustInput + 机身上 × VerticalInput，合成向量夹到长度 1 ——
-	 * 与 UFloatingPawnMovement 原来的 GetClampedToMaxSize(1) 同规则：斜着同时按
-	 * W 和 Space 不该比单按一个多出 41% 的推力。再乘 ThrustAcceleration，
-	 * Shift 时乘 BoostMultiplier。
+	 * 方向 = 机头 × max(ThrustInput, 0) + 机身上 × VerticalInput，合成向量夹到
+	 * 长度 1 —— 与 UFloatingPawnMovement 原来的 GetClampedToMaxSize(1) 同规则：
+	 * 斜着同时按 W 和 Space 不该比单按一个多出 41% 的推力。再乘
+	 * ThrustAccelerationKmPerS2 × 1e5，Shift 时乘 BoostMultiplier。
+	 *
+	 * ThrustInput < 0（S）不产生机头方向的推力，而是**制动**：方向取速度的反方向
+	 * （与机头无关），大小按「本帧满推力能改变的速度」收敛 ——
+	 *
+	 *     |a| = A · min(1, |v| / (A·Δt))      A = 推力（厘米/秒²，Shift 时乘倍率）
+	 *
+	 * 于是本帧的减速量 = min(A·Δt, |v|) ≤ |v|：一帧内恰好停住，**绝不会把速度推
+	 * 过头翻成反向**。刻度必须是 A·Δt 而不是某个固定速度：外力是整帧恒定的
+	 * （求解器只在帧首读一次），帧率越低 A·Δt 越大，固定刻度会先过冲、再被逐帧
+	 * 修正成来回翻符号的抖动 —— 3 fps（编辑器不在前台时的实际帧率）下直接发散。
+	 *
+	 * 制动只削速度、不抗重力：低速时它给不出托住飞船的力，悬停仍归 W / 升降键。
 	 */
-	FVector GetThrustAccelerationWorld() const;
+	FVector GetThrustAccelerationWorldCmPerS2(float DeltaSeconds) const;
 
 	/**
 	 * 阻尼时间常数（秒）。0 = 不阻尼。
@@ -176,7 +197,7 @@ public:
 	/**
 	 * 覆写：让引擎侧所有问「这艘船多快」的地方拿到求解器给的真值。
 	 *
-	 * 单点收口，替掉三个散落的改点：IsLanded() 的第一道判断、GetStatus().Speed、
+	 * 单点收口，替掉三个散落的改点：IsLanded() 的第一道判断、GetStatus().SpeedKmPerSecond、
 	 * 以及体素调用器的预测（UVoxelInvokerWithPredictionComponent::
 	 * GetInvokerGlobalPosition 读的是 GetOwner()->GetVelocity()）。删掉移动组件后
 	 * 根组件的速度不再有人写，不覆写的话预测会静默失效 —— 高速飞行时地形就追不上了。
@@ -235,7 +256,7 @@ protected:
 	 * 按住 W（不按 Shift）时相机沿机身后方后缩的距离（厘米）。
 	 *
 	 * 由推力输入驱动（见 Tick 第 5 段）：按住 W 就缩到这个距离，松开平滑收回，与
-	 * 当前速度无关。按 S 反推不后缩。0 = 关闭。
+	 * 当前速度无关。按 S 制动不后缩。0 = 关闭。
 	 *
 	 * 名字里的 AtFullThrust 是历史遗留（当时由加速度驱动），改 UPROPERTY 名有让关卡
 	 * 实例里已设的值丢失的风险，故保留。
@@ -308,23 +329,23 @@ protected:
 	float AngularDamping = 3.5f;
 
 	/**
-	 * 主推力加速度（厘米/秒²）。**本轮唯一被调大的量。**
+	 * 主推力加速度（**km/s²**，世界层）。默认 120 km/s² = 1.2e7 厘米/秒²。
 	 *
-	 * 下限被当地重力锁死：本关卡中心天体 100 M☉、飞船在 r = 0.07425 AU，
-	 * 表面重力 = G·M/r² = 716,089 AU/年² = 7.94e6 cm/s²。推力必须大于它，否则
-	 * 飞船一步都升不起来 —— 这跟怎么接线无关，是物理。改动前飞船的最大推力是
-	 * 4000 + 12000 = 16000 cm/s²，只有重力的 0.20 %。
+	 * 这是**游戏手感值**，不是真实飞船的加速度：它必须大于飞船所在处的局部重力
+	 * 加速度，否则一步都升不起来。局部重力 = G·M/r²，随所在天体与距离变化，
+	 * 要看具体值就开 PIE 看开局日志（质量与位置都在那里）。
 	 *
-	 * 1.2e7 = 1.51 × 表面重力，留 51% 净余量。
+	 * 极速 = 本值 × DampingTime = 120 × 0.01 = 1.2 km/s（**世界速度**，HUD 显示的
+	 * 就是它）。世界速度与物理速度不是一回事，见
+	 * UCosmosOrbitComponent::InitialVelocityKmPerSecond 的注释。
 	 *
-	 * 极速 = 本值 × DampingTime = 1.2e7 × 0.01 = 1.2e5 cm/s = 1.2 km/s，只有该处
-	 * 圆轨道速度（7.678e5 cm/s）的 0.156 倍 —— 光按 W 飞不出行星，只能悬停、
-	 * 爬升、绕圈。要进轨道得开巡航（关阻尼）持续加速。
+	 * 换算是本模块内的一行（× 1e5），因为 StellarEraVehicle 不能依赖 StellarEraCore。
 	 */
-	UPROPERTY(EditAnywhere, Category = "Spaceship|Thrust")
-	float ThrustAcceleration = 1.2e7f;
+	UPROPERTY(EditAnywhere, Category = "Spaceship|Thrust",
+		meta = (DisplayName = "推力加速度（km/s²，世界）"))
+	float ThrustAccelerationKmPerS2 = 120.0f;
 
-	/** 按 Shift 时乘在 ThrustAcceleration 上的倍数。松开即回到 1。 */
+	/** 按 Shift 时乘在 ThrustAccelerationKmPerS2 上的倍数。松开即回到 1。 */
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Thrust")
 	float BoostMultiplier = 3.0f;
 
@@ -339,7 +360,8 @@ protected:
 	 * 到极速（60 fps 下两帧）。旧的「2 秒加到 80 m/s」是旧尺度（飞船不参与引力）
 	 * 的产物，回不去了。
 	 */
-	UPROPERTY(EditAnywhere, Category = "Spaceship|Thrust")
+	UPROPERTY(EditAnywhere, Category = "Spaceship|Thrust",
+		meta = (DisplayName = "阻尼时间（秒）"))
 	float DampingTime = 0.01f;
 
 	/**
@@ -353,7 +375,7 @@ protected:
 	 * 运行时按 Tab 切换（见 TogglePreserveVelocity），细节面板里改的是**初始状态**，
 	 * 每帧生效，PIE 里也能直接勾。
 	 *
-	 * 刹车按 S：反向推力会先把速度减到零再反向，不需要额外的刹车键。
+	 * 制动按 S：沿速度反方向把速度削到零，不倒车（见 GetThrustAccelerationWorldCmPerS2）。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spaceship|Thrust")
 	bool bPreserveVelocity = false;

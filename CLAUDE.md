@@ -47,7 +47,7 @@ Content/
 
 ## 关键架构约束
 - **N 体只有一个驱动**：`UCosmosSimulationSubsystem`（TickableWorldSubsystem）每帧推进求解器、把位置/速度写回 Actor、再搬运骑乘者。天体不要各自 Tick。
-- `UCosmosOrbitComponent` **只存参数**（`MassSolar`、`InitialVelocity`）；天体初态位置就是关卡里 Actor 的摆放位置。
+- `UCosmosOrbitComponent` **只存参数**（`MassEarth`、`InitialVelocityKmPerSecond`）；天体初态位置就是关卡里 Actor 的摆放位置。
 - `ASpaceshipPawn` **不自己位移**：只暴露推力加速度与阻尼，位移由子系统送进求解器。
 - `UPlanetCharacterMovementComponent` 关掉 CMC 自带的“底座移动我”，骑乘搬运统一交给 `CarryRiders`。
 - 大气：球外看 `UPlanetAtmosphereComponent` 的壳；球内天空由子系统逐帧重定位引擎 `SkyAtmosphere`。
@@ -101,6 +101,28 @@ VibeUE 自带的 `Plugins/VibeUE/BuildAndLaunchGame.ps1` 最终也是调 `Build.
 - 自动启动在 `Config/DefaultEditorPerProjectUserSettings.ini`。
 - 优先用 `execute_python_code` 批量操作编辑器；结构化工具在 OFPA 保存、渲染刷新上有已知限制。
 - 该端点无鉴权、仅本机回环，等价于编辑器内任意代码执行。
+
+## 单位约定（2026-10-19）
+
+N 体数据分四层，**编辑器里只填人类单位**：
+
+| 层 | 质量 | 速度 | 距离 / 时间 | 出现在哪 |
+|---|---|---|---|---|
+| 设计层（手填） | 地球质量 M⊕ | km/s（物理速度） | AU / 年 | `UCosmosOrbitComponent`、`ASpaceshipPawn` |
+| 求解器层 | M☉ | AU/年 | AU / 年 | `FNBodySimulator`、`FCosmosBodyState` |
+| 世界层 | — | 厘米/秒 | 厘米 / 秒 | Actor 位置、碰撞、体素、HUD 换算 |
+| 换算层 | — | — | — | 只允许 `CosmosUnits::`（`CosmosTypes.h`）；`StellarEraVehicle` 不能依赖 Core，本地保留 `1e5` 一项 |
+
+- `MassEarth` 单位 M⊕；`InitialVelocityKmPerSecond` 单位 km/s；`ThrustAccelerationKmPerS2` 单位 km/s²。
+- **物理速度 ≠ 世界速度**：1 AU/年 = 4.74047 km/s = 3330 厘米/秒（默认标定）。
+  编辑器初速是物理速度，HUD 显示的是世界速度（`GetVelocity().Size() / 1e5`）。
+- 调用点禁止手写 `× CentimetersPerAu × TimeScale`：速度用
+  `GameVelocityToWorldCmPerSecond` / `WorldCmPerSecondToGameVelocity`，
+  加速度用 `GameAccelerationToWorldCmPerS2` / `WorldCmPerS2ToGameAcceleration`。
+- `UCosmosOrbitComponent` 有一个 `TG_PostPhysics` 的 **只读回显 Tick**：只刷新
+  `PositionAu` / `SolverVelocityKmPerSecond` / `MassSolarReadout`，不推进、不修改求解器、
+  不写位置 —— 它不违反「N 体只有一个驱动」。
+- 旧字段 `MassSolar` / `InitialVelocity` 只保留序列化与 `PostLoad` 迁移，代码不再消费。
 
 ## 编码约定
 - Epic 命名：`A`/`U`/`F`/`E`/`I`/`T` 前缀，布尔 `bXxx`，UObject 指针 `TObjectPtr<>`。

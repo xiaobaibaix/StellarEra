@@ -32,7 +32,7 @@
 - **推力下限被当地重力锁死**：本关卡中心天体 M = 100 M☉、飞船在 r = 0.07425 AU，表面重力 = G·M/r² = 716,089 AU/年² = **7.94e6 cm/s²**。推力加速度必须大于它，否则飞船一步都升不起来。
 - **换算常数**：`CentimetersPerAu = 1e6`、`TimeScale = 0.00333` 时，`1 AU/年² = CentimetersPerAu × TimeScale² = 11.089 厘米/秒²`，`1 AU/年 = CentimetersPerAu × TimeScale = 3330 厘米/秒`。
 - **模块依赖无环**：`StellarEra → StellarEraVehicle → StellarEraPlanet`、`StellarEra → StellarEraCore`。`StellarEraVehicle` **不能**依赖 `StellarEra`。飞船里不许 include `CosmosOrbitComponent.h` 或 `CosmosSimulationSubsystem.h`。
-- **数值标定**（照抄，不要「优化」）：`ThrustAcceleration = 1.2e7f`、`BoostMultiplier = 3.0f`、`DampingTime = 0.01f`、体素 `LODRange` / `CollisionsRange = 450000.f`（原稿写 `300000.f`，漏算了 `BoostMultiplier`；见 Task 2 Step 2 (c) 末尾那条订正）。
+- **数值标定**（照抄，不要「优化」）：`ThrustAcceleration = 1.2e7f`、`BoostMultiplier = 3.0f`、`DampingTime = 0.01f`、体素 `LODRange = 24000.f`、`CollisionsRange = 24000.f`、`PredictionTime = 0.05f`、`LODToSet = 0`。（体素那四项是**一组**，改一个要重算其余：范围 ≥ 最大速度 3.6e5 cm/s × `PredictionTime`；块数按盒子体积涨，**上限由显存定，不是插件的块数阀** —— 4 GB 卡上实测 3.3e5 块就报显存耗尽。历史与推导见 spec §5.6。）
 - **求解器里的等价量**：推力 1.082e6 AU/年²、`LinearDamping` k = 3.0e4 /年。稳定性 `k·dt ≪ 2`（`dt` 逐关卡派生、约 `1e-7` 年量级，`k·dt` 落在 `1e-3` 量级），**积分器不用改**。
 
 ---
@@ -695,55 +695,26 @@ struct FSpaceshipStatus
 	// —— 而且「不喂它输入」也挡不住，它照样按残留速度搬人。
 ```
 
-(c) 第 39–54 行，`VoxelInvoker` 的那整段注释。**只改其中两个数所在的句子，末段「数值与角色一致…」原样保留**（它记着 `LODToSet = 0` 的约定和「两个旋钮必须一起调」——那条信息与本次改动无关，别丢）。
+(c) `VoxelInvoker` 的那整段注释 —— **整段重写**，不要「只改两个数」。终态见 `SpaceshipPawn.cpp`。
 
-改后（整段替换，注意末段被保留了）：
-
-```cpp
-	// --- 体素调用器 ---
-	//
-	// 挂在根节点而不是机头：调用器的位置同时决定 LOD 范围和碰撞范围，碰撞范围
-	// 必须罩住飞船自身的物理体，否则飞机会撞进还没生成碰撞体的地形里。
-	//
-	// 用带预测的版本，而不是角色那种 UVoxelSimpleInvokerComponent：极速
-	// 1.2e5 cm/s（= 推力 1.2e7 × 阻尼时间常数 0.01，见 ThrustAcceleration），
-	// 而范围只有 200 m 的话不预测就只剩 0.17 秒的提前量，地形还没网格化完人已经
-	// 撞上去了。预测把采样点沿速度方向前移 PredictionTime 秒
-	// （UVoxelInvokerWithPredictionComponent::GetInvokerGlobalPosition），凭空
-	// 多出 1.2 公里预警，且不额外扩大细分区域。停稳时速度为零，退化成普通调用器。
-	//
-	// ⚠ 调用器的位置是**搬到预测点**去的（同上：Position = 组件位置 + 速度 ×
-	// PredictionTime），不是「两个点都罩住」—— 所以范围必须自己罩得住那个偏移量：
-	// 硬约束是「范围 ≥ 最大速度 × PredictionTime」。最大速度**含** BoostMultiplier
-	// （1.2e5 × 3 = 3.6e5 厘米/秒），PredictionTime 保持 1 秒 → 预测点超前 3.6e5
-	// 厘米。两个范围因此取 4.5e5 厘米 = 3.6e5 × 1.25。
-	//
-	// 巡航（关阻尼）下速度无上界，任何有限范围都盖不住 —— 这是已知上限，不是调
-	// 参数能解决的：届时预测点跑到范围外，调用器就盖不到飞船本体了。
-	//
-	// 数值与角色一致（见 PlanetCharacter.cpp）：LODToSet = 0 是插件对「贴着表面的
-	// Pawn」的约定用法。范围留在组件面板上可调 —— 嫌地形追不上就同时调大
-	// LODRange 与 CollisionsRange（两个都要，LOD 只影响画质，碰撞由
-	// CollisionsRange 单独驱动），或把 bUseForPriorities 打开让飞船附近的区块
-	// 优先网格化。
-	//
-	// 代价未知：本关卡行星半径只有 750 米，4.5 公里的范围等于整颗行星全程满精度 +
-	// 带碰撞。这一项要实测；嫌贵就往回收，改完把上面的推导一起改掉。
-```
-
-> 三处与原文的差别，都是有意的：`8000 cm/s → 2.5 秒` 变成 `1.2e5 cm/s → 0.17 秒`（速度涨了 15 倍，20000 厘米 ÷ 1.2e5 = 0.167 秒，同样的范围下提前量就缩短 15 倍）；末段里「200 m 是本项目已经在跑的量级」删掉了，因为范围已经不是 200 m。
+> ⚠ **这条指示连同下面 (d) 的数值，在 2026-10-18 实测之后被连着推翻过两次。下面保留原稿只为记录推导路径；终态一律以 `SpaceshipPawn.cpp` 里现在写的那段注释为准**，完整推导见 spec `2026-10-18-spaceship-nbody-thrust-design.md` §5.6。
 >
-> 第三处是**整条分支复审时的订正**（F2）：上面那段 ⚠ 的推导原本只用了极速 `1.2e5 cm/s`、据此把范围写成 3 公里，**漏了 `BoostMultiplier`** —— 按 Shift 时极速是 `3.6e5 cm/s`，而调用器的位置是搬到预测点去的（偏移 = 速度 × `PredictionTime` = 3.6e5 厘米），3e5 厘米的范围罩不住飞船本体。订正后的推导与数值就是上面这份，范围取 4.5 公里。这里如实记下，免得下一轮再从「3 公里」反推一遍。
+> 1. **原稿那条「`LODToSet = 0` 是贴地 Pawn 的约定值」是错的** —— 但把它改成 1 之后**实测毫无效果**，因为爆块的主因不在这条路径上。
+> 2. **真正的主因是 `CollisionsRange`。** 碰撞路径（`ShouldSubdivideByOthers` → `IsInvokerInRange`）与 LOD 路径**互相独立**，它把盒内所有块一路细到 `Height 0`，**根本不读 `LODToSet`**（只做一次包围盒相交测试）。两个范围当时都写着 4.5e5 → 128³ ≈ 2.1e6 叶块，超插件 1e6 上限一倍，地形 LOD 静默失效。
+> 3. **把 `CollisionsRange` 收到 6e4 让八叉树通过了 —— 然后显存炸了。** 请求约 3.3e5 个区块，GTX 1650（4 GB）报「Video memory has been exhausted (52,945 MB over budget)」，星球整片渲染不出来。**插件的 1e6 上限从来不是有用的护栏，真正的上限是显存。**
+> 4. **终态（本设计的取值）**：`LODToSet = 0`、`LODRange = 24000.f`、`CollisionsRange = 24000.f`、`PredictionTime = 0.05f` —— 1 米网格、240 米覆盖，回到分支之前的量级。嫌覆盖小就把 `LODToSet` 加一档、同时把 `LODRange` 翻倍（块数不变，但网格变粗）。
 
-(d) 第 59 行与第 61 行，范围改大（**原稿写 `300000.f`，因漏算 `BoostMultiplier` 复审时上调到 `450000.f`**）：
+(d) 两个范围**改成相等**，都收到 240 米：
 
 ```cpp
-	VoxelInvoker->LODRange = 450000.f;
+	VoxelInvoker->LODRange = 24000.f;
 ```
 
 ```cpp
-	VoxelInvoker->CollisionsRange = 450000.f;
+	VoxelInvoker->CollisionsRange = 24000.f;
 ```
+
+> ⚠ **`PredictionTime` 必须跟着改成 `0.05f`**：否则助推时预测点跑到碰撞盒外，碰撞**直接消失**（不是变粗）。硬约束是「每个范围 ≥ 最大速度 × `PredictionTime`」，最大速度含 `BoostMultiplier` = 3.6e5 cm/s → 偏移 1.8e4 厘米 < 2.4e4，各留 6e3 厘米余量。范围留在组件面板上可调，但**每调一次都要按这个约束和块数公式重算一遍**。
 
 - [ ] **Step 3: 改实现 —— BeginPlay**
 
@@ -1194,7 +1165,7 @@ spec §8.7 / §8.8 / §8.9 / §8.10。这四条 probe 做不到（`-game -nullrh
 1. 飞船能起飞、能悬停、能落地；HUD 的「速度」显示的是真实速度。
 2. 按住 W 时高度在若干帧内单调上升，**净上升加速度约 0.5 g**（推力 1.51 g − 重力 1 g）。
 3. **松开 W 后速度按 τ ≈ 10 毫秒衰减**（不是旧尺度那种 2 秒）。这条是阻尼真的接上了的判据 —— 只看「飞得起来」分不出「阻尼生效」和「阻尼被漏掉、只是推力大」。
-4. 高速飞行时地形跟得上（不穿模）—— 这是 `LODRange` / `CollisionsRange` 那 4.5 公里是否够的判据。嫌贵就往回收，收的时候把 `SpaceshipPawn.cpp` 里那段推导一起改掉。
+4. 高速飞行时地形跟得上（不穿模）—— 这是 `LODRange`（240 米）是否够的判据。嫌覆盖小就往上涨，涨的时候把 `SpaceshipPawn.cpp` 里那段推导一起改掉，并**按块数公式估一遍**：先看游戏里 HUD 的 `Total tasks remaining`，到几万就要警惕、几十万必炸显存（4 GB 卡上实测 3.3e5 块就报显存耗尽）。**`CollisionsRange` 不能单独放大**：它锁死在 `Height 0`，是八叉树块数的大头，且下限被 `速度 × PredictionTime` 卡着（见 spec §5.6）。
 
 另外记住 spec §7 的已知后果，别把它们当 bug 查：
 

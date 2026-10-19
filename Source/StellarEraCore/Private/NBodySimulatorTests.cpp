@@ -5,9 +5,10 @@
 // 这几组断言挡的是同一类错误：功能看起来像那么回事、其实是错的。
 // 全是纯数学 —— 不依赖世界、不依赖编辑器，这是本项目唯一能自动验证的地方。
 //
-// 跑法：用 UnrealEditor-Cmd 跑自动化测试 StellarEra.Core（三个用例：
+// 跑法：用 UnrealEditor-Cmd 跑自动化测试 StellarEra.Core（五个用例：
 // StellarEra.Core.NBodyPrediction、StellarEra.Core.NBodyContact、
-// StellarEra.Core.NBodyExternalForce）。
+// StellarEra.Core.NBodyExternalForce、StellarEra.Core.NBodyTestParticle、
+// StellarEra.Core.Units）。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -583,6 +584,207 @@ bool FStellarEraNBodyExternalForceTest::RunTest(const FString& Parameters)
 		}
 		TestEqual(TEXT("预测点逐位相同：外力没有渗进预测副本"), Mismatched, 0);
 	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraNBodyTestParticleTest,
+	"StellarEra.Core.NBodyTestParticle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraNBodyTestParticleTest::RunTest(const FString& Parameters)
+{
+	const double G = CosmosUnits::GravitationalConstant_Game;
+
+	// 两体系统：中心天体 + 一颗候选测试粒子，距离 1 AU、质量都是 1 M☉。
+	// 质量取这么大是为了让「粒子仍然施力」时的后果一眼可见 —— 若它还在拽中心
+	// 天体，0.04 年里中心天体就移动约 0.03 AU，不可能被容差吃掉。
+	auto MakePair = [](bool bTestParticle)
+	{
+		FNBodySimulator Simulator;
+		Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
+		Simulator.SetIntegrator(ECosmosIntegrator::VelocityVerlet);
+		Simulator.SetSofteningLength(1.0e-5);
+
+		FCosmosBodyState Central;
+		Central.Mass = 1.0;
+		Simulator.AddBody(Central);
+
+		FCosmosBodyState Particle;
+		Particle.Mass = 1.0;
+		Particle.Position = FVector3d(1.0, 0.0, 0.0);
+		Particle.bTestParticle = bTestParticle;
+		Simulator.AddBody(Particle);
+
+		return Simulator;
+	};
+
+	// ── 1. 加速度：粒子仍被吸引，中心天体不受它吸引 ──
+	// 这条挡的是「把测试粒子的引力整条关掉」—— 那会让粒子也不动，功能看起来
+	// 一样是「不拽别人」，但飞船就不受行星引力了。
+	{
+		FNBodySimulator Simulator = MakePair(true);
+
+		TestEqual(TEXT("测试粒子仍被中心天体吸引（−G·M/r²）"),
+			Simulator.GetBody(1).Acceleration.X, -G, 1.0e-6);
+		TestTrue(TEXT("测试粒子的加速度确实不为零"),
+			FMath::Abs(Simulator.GetBody(1).Acceleration.X) > 1.0);
+		TestTrue(TEXT("中心天体完全不受测试粒子吸引（逐位为零）"),
+			Simulator.GetBody(0).Acceleration == FVector3d::ZeroVector);
+
+		// 对照：同一初态、不标测试粒子时中心天体确实被拉向 +X。
+		FNBodySimulator Control = MakePair(false);
+		TestEqual(TEXT("对照：普通粒子会吸引中心天体"),
+			Control.GetBody(0).Acceleration.X, G, 1.0e-6);
+	}
+
+	// ── 2. 积分 0.04 年：中心天体逐位不动，测试粒子照常下落 ──
+	{
+		FNBodySimulator Simulator = MakePair(true);
+		FNBodySimulator Control = MakePair(false);
+
+		for (int32 Step = 0; Step < 400; ++Step)
+		{
+			Simulator.StepExact(1.0e-4);
+			Control.StepExact(1.0e-4);
+		}
+
+		TestTrue(TEXT("0.04 年后中心天体位置逐位仍在原点"),
+			Simulator.GetBody(0).Position == FVector3d::ZeroVector);
+		TestTrue(TEXT("测试粒子照常掉向中心天体"),
+			Simulator.GetBody(1).Position.X < 0.99);
+
+		// 同一段积分在对照组里必须把中心天体拉开 —— 否则上面那条「不动」可能只是
+		// 因为两体问题本身就不动，而测试粒子标志根本没参与。
+		TestTrue(TEXT("对照：普通粒子把中心天体拉离原点"),
+			Control.GetBody(0).Position.X > 1.0e-3);
+	}
+
+	// ── 3. 单向不进入能量诊断：不贡献幻影势能 ──
+	// 两个天体都静止，动能项为 0。测试粒子作为引力源质量 0，于是势能项也为 0：
+	// 总能量必须是 0，而不是普通两体的 −G·M·m/r。
+	{
+		FNBodySimulator Simulator = MakePair(true);
+		TestEqual(TEXT("总能量不含测试粒子的幻影势能"),
+			Simulator.GetTotalEnergy(), 0.0, 1.0e-15);
+
+		FNBodySimulator Control = MakePair(false);
+		TestEqual(TEXT("对照：普通两体能量 = −G·M·m/r"),
+			Control.GetTotalEnergy(), -G, 1.0e-6);
+	}
+
+	// ── 4. 预测副本继承标志 ──
+	// PredictTrajectory 是值拷贝，bTestParticle 会跟着过去；这里钉住「中心天体的
+	// 预测线不被测试粒子拉动」，同时钉住预测本身仍在推进（粒子确实下落）。
+	{
+		FNBodySimulator Simulator = MakePair(true);
+		FNBodySimulator Control = MakePair(false);
+
+		TArray<FVector3d> PredictedCentral;
+		TArray<FVector3d> PredictedCentralControl;
+		TArray<FVector3d> PredictedParticle;
+
+		TestTrue(TEXT("预测中心天体成功"),
+			Simulator.PredictTrajectory(0, 0.1, 32, PredictedCentral));
+		TestTrue(TEXT("预测中心天体成功（对照）"),
+			Control.PredictTrajectory(0, 0.1, 32, PredictedCentralControl));
+		TestTrue(TEXT("预测测试粒子成功"),
+			Simulator.PredictTrajectory(1, 0.1, 32, PredictedParticle));
+
+		bool bCentralStayedAtOrigin = true;
+		for (const FVector3d& Point : PredictedCentral)
+		{
+			if (Point != FVector3d::ZeroVector)
+			{
+				bCentralStayedAtOrigin = false;
+				break;
+			}
+		}
+		TestTrue(TEXT("预测线里中心天体始终在原点"), bCentralStayedAtOrigin);
+		TestTrue(TEXT("对照：预测线里中心天体被拽走"),
+			PredictedCentralControl.Last().SizeSquared() > 0.0);
+		TestTrue(TEXT("预测线里测试粒子确实在动"),
+			(PredictedParticle.Last() - PredictedParticle[0]).SizeSquared() > 0.0);
+	}
+
+	return true;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// 单位换算
+//
+// 这些断言挡的是「换算写反/写错一个量级」：solve 和编辑器边界都靠它们。
+// 容差取到能分辨最后几位有效数字，但不会被浮点噪声误伤。
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraUnitsTest,
+	"StellarEra.Core.Units",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraUnitsTest::RunTest(const FString& Parameters)
+{
+	constexpr double KmsPerAuPerYear = 4.740470463533348;
+	constexpr double AuPerYearPerKms = 0.21094952656969873;
+
+	// ── 1. 物理速度：AU/年 ↔ km/s ──
+	TestEqual(TEXT("1 AU/年 = 4.740470463533348 km/s"),
+		CosmosUnits::KilometerPerSecondPerAuPerYear, KmsPerAuPerYear, 1.0e-12);
+	TestEqual(TEXT("1 km/s = 0.21094952656969873 AU/年"),
+		CosmosUnits::AuPerYearPerKilometerPerSecond, AuPerYearPerKms, 1.0e-15);
+
+	const FVector3d EarthVelocity =
+		CosmosUnits::AuPerYearToKilometerPerSecond(FVector3d(0.0, 2.0 * UE_DOUBLE_PI, 0.0));
+	TestEqual(TEXT("地球圆轨道 2π AU/年 = 29.785254365591534 km/s"),
+		EarthVelocity.Y, 29.785254365591534, 1.0e-12);
+
+	const FVector3d PlanetVelocity =
+		CosmosUnits::AuPerYearToKilometerPerSecond(FVector3d(0.0, 50.0, 0.0));
+	TestEqual(TEXT("50 AU/年 = 237.0235231766674 km/s"),
+		PlanetVelocity.Y, 237.0235231766674, 1.0e-12);
+
+	const FVector3d BackToSolver = CosmosUnits::KilometerPerSecondToAuPerYear(PlanetVelocity);
+	TestEqual(TEXT("km/s 往返 AU/年：X"), BackToSolver.X, 0.0, 1.0e-12);
+	TestEqual(TEXT("km/s 往返 AU/年：Y"), BackToSolver.Y, 50.0, 1.0e-12);
+
+	// ── 2. 质量：M⊕ ↔ M☉ ──
+	TestEqual(TEXT("1 M⊕ = 3.0034893e-6 M☉"),
+		CosmosUnits::EarthMassToSolarMass(1.0), 3.0034893e-6, 1.0e-20);
+	TestEqual(TEXT("1 M☉ = 332946.0837433315 M⊕"),
+		CosmosUnits::SolarMassToEarthMass(1.0), 332946.0837433315, 1.0e-9);
+	TestEqual(TEXT("行星 0.873237 M☉ = 290740.8393297756 M⊕"),
+		CosmosUnits::SolarMassToEarthMass(0.873237), 290740.8393297756, 1.0e-9);
+	TestEqual(TEXT("中心 10000 M☉ = 3329460837.433315 M⊕"),
+		CosmosUnits::SolarMassToEarthMass(10000.0), 3329460837.433315, 1.0e-3);
+	TestEqual(TEXT("飞船 1e-6 M☉ = 0.33294608374333146 M⊕"),
+		CosmosUnits::SolarMassToEarthMass(1.0e-6), 0.33294608374333146, 1.0e-15);
+
+	// ── 3. 世界速度：AU/年 ↔ 厘米/秒（默认标定 1e6 / 0.00333） ──
+	TestEqual(TEXT("1 AU/年 = 3330 厘米/秒"),
+		CosmosUnits::GameVelocityToWorldCmPerSecond(1.0, 1.0e6, 0.00333), 3330.0, 1.0e-9);
+	TestEqual(TEXT("50 AU/年 = 166500 厘米/秒"),
+		CosmosUnits::GameVelocityToWorldCmPerSecond(50.0, 1.0e6, 0.00333), 166500.0, 1.0e-9);
+	TestEqual(TEXT("世界速度往返"),
+		CosmosUnits::WorldCmPerSecondToGameVelocity(166500.0, 1.0e6, 0.00333), 50.0, 1.0e-12);
+	TestEqual(TEXT("标定值无效时速度换算返回 0，而不是 inf/nan"),
+		CosmosUnits::WorldCmPerSecondToGameVelocity(1.0, 0.0, 0.0), 0.0, 0.0);
+
+	// ── 4. 世界加速度：AU/年² ↔ 厘米/秒² ──
+	TestEqual(TEXT("1 AU/年² = 11.0889 厘米/秒²"),
+		CosmosUnits::GameAccelerationToWorldCmPerS2(1.0, 1.0e6, 0.00333), 11.0889, 1.0e-9);
+	TestEqual(TEXT("1.2e7 厘米/秒² = 1082163.2443254064 AU/年²"),
+		CosmosUnits::WorldCmPerS2ToGameAcceleration(1.2e7, 1.0e6, 0.00333),
+		1082163.2443254064, 1.0e-6);
+	TestEqual(TEXT("标定值无效时加速度换算返回 0"),
+		CosmosUnits::WorldCmPerS2ToGameAcceleration(1.0, 0.0, 0.0), 0.0, 0.0);
+
+	// ── 5. 向量重载与标量同口径 ──
+	const FVector3d WorldVelocity = CosmosUnits::GameVelocityToWorldCmPerSecond(
+		FVector3d(0.0, 50.0, 0.0), 1.0e6, 0.00333);
+	TestEqual(TEXT("向量速度换算：Y"), WorldVelocity.Y, 166500.0, 1.0e-9);
+
+	const FVector3d GameAcceleration = CosmosUnits::WorldCmPerS2ToGameAcceleration(
+		FVector3d(0.0, 0.0, 1.2e7), 1.0e6, 0.00333);
+	TestEqual(TEXT("向量加速度换算：Z"),
+		GameAcceleration.Z, 1082163.2443254064, 1.0e-6);
 
 	return true;
 }

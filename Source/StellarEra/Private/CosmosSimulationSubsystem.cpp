@@ -105,14 +105,32 @@ void UCosmosSimulationSubsystem::AddBodyToSimulator(UCosmosOrbitComponent* Compo
 		return;
 	}
 
-	// ── 初态 = 关卡里的摆放 + 组件上的 InitialVelocity ──
-	// 这一段只**读**，不写：位置取 Actor 当前所在，速度取 InitialVelocity，
+	// ── 初态 = 关卡里的摆放 + 组件上的 InitialVelocityKmPerSecond ──
+	// 这一段只**读**，不写：位置取 Actor 当前所在，速度取组件上的初速，
 	// 组件不搬运任何东西。关卡里怎么摆，运行后就从什么样开始跑。
+	//
+	// 单位边界就在下面几行：设计层是 M⊕ / km/s，求解器是 M☉ / AU每年。
+	// 换算只走 CosmosUnits，调用点不写常数（见 spec §3.1）。
+	if (!FMath::IsFinite(Component->MassEarth) || Component->MassEarth <= 0.0)
+	{
+		UE_LOG(LogTemp, Error,
+			TEXT("[Cosmos] 天体 %s 的 MassEarth = %g 无效（必须 > 0），跳过注册。"),
+			*GetNameSafe(BodyActor), Component->MassEarth);
+		return;
+	}
+
 	FCosmosBodyState State;
 	State.Position = Simulator.ToGameUnitPosition(BodyActor->GetActorLocation());
-	State.Velocity = FVector3d(Component->InitialVelocity);
-	State.Mass = Component->MassSolar;
+	State.Velocity = CosmosUnits::KilometerPerSecondToAuPerYear(
+		FVector3d(Component->InitialVelocityKmPerSecond));
+	State.Mass = CosmosUnits::EarthMassToSolarMass(Component->MassEarth);
 	State.OwnerActor = BodyActor;
+
+	// ── 单向引力 ──
+	// 关掉 bExertsGravity 的天体是「测试粒子」：作为引力源质量为 0（不拽别人），
+	// 但自己仍被所有天体吸引。求解器那边的判定在 GravitationalSourceMass。
+	// Mass 保持真实值 —— 接触解算与惯性诊断用的是它，不是引力源质量。
+	State.bTestParticle = !Component->bExertsGravity;
 
 	// 半径只对**有「地表」这个概念的天体**有意义 —— 就是下面这两个分支：星球
 	// 与飞船。其余天体留 0 即可（点质量、永不接触）。携带判定走的是
@@ -195,14 +213,10 @@ void UCosmosSimulationSubsystem::ApplyControlledBodyForces(float DeltaSeconds)
 {
 	bHasForcedBodies = false;
 
-	// 1 AU/年² 等于多少厘米/秒²。与速度那条是同一个换算族：
-	// 1 AU/年² = CentimetersPerAu × TimeScale²，默认 1e6 × 0.00333² = 11.089。
-	//
-	// 这道守卫挡的是 ini 里把 TimeScale 改成 0：那时 AdvanceAccumulator 每帧只加 0，
-	// 求解器根本不推进，所以留下上一帧的力也无所谓；但不守卫的话除零会得到 inf，
-	// 而 inf 一旦进了天体状态，GetEnergyDriftRatio 会变成 nan 把日志打花。
-	const double CmPerS2PerAuPerY2 = CentimetersPerAu * TimeScale * TimeScale;
-	if (CmPerS2PerAuPerY2 <= 0.0)
+	// 换算集中在 CosmosUnits。这里只检查标定值合法性：
+	// TimeScale = 0 时 AdvanceAccumulator 每帧只加 0，求解器根本不推进，跳过外力无所谓；
+	// CentimetersPerAu = 0 会让换算除零，必须挡。
+	if (CentimetersPerAu <= 0.0 || TimeScale <= 0.0)
 	{
 		return;
 	}
@@ -230,9 +244,10 @@ void UCosmosSimulationSubsystem::ApplyControlledBodyForces(float DeltaSeconds)
 		FCosmosBodyState& Body = Simulator.GetBodyMutable(Component->SimulatorIndex);
 
 		// 帧时长原样转给飞船：它的制动要按「本帧满推力能改变多少速度」收敛，
-		// 见 ASpaceshipPawn::GetThrustAccelerationWorld。
-		Body.ExternalAcceleration =
-			FVector3d(Ship->GetThrustAccelerationWorld(DeltaSeconds)) / CmPerS2PerAuPerY2;
+		// 见 ASpaceshipPawn::GetThrustAccelerationWorldCmPerS2。
+		Body.ExternalAcceleration = FVector3d(CosmosUnits::WorldCmPerS2ToGameAcceleration(
+			FVector3d(Ship->GetThrustAccelerationWorldCmPerS2(DeltaSeconds)),
+			CentimetersPerAu, TimeScale));
 
 		// τ 是真实秒，求解器的时间单位是模拟年，所以除一个 TimeScale。
 		//
@@ -264,10 +279,10 @@ void UCosmosSimulationSubsystem::FinalizeRegistration()
 	// N 体是同时求解的，顺序不影响结果，这样只是让日志更好读。
 	Bodies.Sort([](const UCosmosOrbitComponent& A, const UCosmosOrbitComponent& B)
 	{
-		return A.MassSolar > B.MassSolar;
+		return A.MassEarth > B.MassEarth;
 	});
 
-	// 注册完就完事：位置取自关卡摆放、速度取自 InitialVelocity，**不需要（也不该）
+	// 注册完就完事：位置取自关卡摆放、速度取自 InitialVelocityKmPerSecond，**不需要（也不该）
 	// 在开局写回一次位置**。
 	//
 	// 早先这里有一次「立即同步」，那是为了掩盖轨道根数算出的位置与摆放位置对不上
@@ -361,10 +376,11 @@ void UCosmosSimulationSubsystem::FinalizeRegistration()
 		}
 
 		UE_LOG(LogTemp, Log,
-			TEXT("[Cosmos]   天体 %d：质量 %.6g M☉，半径 %.4f AU，位置 (%.4f, %.4f, %.4f) AU，速度 (%.4f, %.4f, %.4f) AU/年，最近邻 %d（%.4f AU），最短周期 %.6f 年"),
-			Index, Body.Mass, Body.Radius,
+			TEXT("[Cosmos]   天体 %d：质量 %.6g M☉（%.6g M⊕），半径 %.4f AU，位置 (%.4f, %.4f, %.4f) AU，速度 (%.4f, %.4f, %.4f) AU/年（%.4f km/s），最近邻 %d（%.4f AU），最短周期 %.6f 年"),
+			Index, Body.Mass, CosmosUnits::SolarMassToEarthMass(Body.Mass), Body.Radius,
 			Body.Position.X, Body.Position.Y, Body.Position.Z,
 			Body.Velocity.X, Body.Velocity.Y, Body.Velocity.Z,
+			CosmosUnits::AuPerYearToKilometerPerSecond(Body.Velocity).Size(),
 			NearestIndex, NearestDistance,
 			Simulator.EstimateOrbitalPeriod(Index));
 	}
@@ -585,7 +601,8 @@ FVector3d UCosmosSimulationSubsystem::GetBodyGravityGameUnits(int32 SimulatorInd
 
 FVector UCosmosSimulationSubsystem::ToWorldVelocityScaled(const FVector3d& GameUnitVelocity) const
 {
-	return FVector(GameUnitVelocity) * (CentimetersPerAu * TimeScale);
+	return FVector(CosmosUnits::GameVelocityToWorldCmPerSecond(
+		GameUnitVelocity, CentimetersPerAu, TimeScale));
 }
 
 void UCosmosSimulationSubsystem::SetSelectedBody(AActor* Body)

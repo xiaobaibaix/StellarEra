@@ -102,7 +102,9 @@ void FNBodySimulator::ComputeAccelerations()
 			const double InvR = 1.0 / FMath::Sqrt(R2);
 			const double InvR3 = InvR * InvR * InvR;
 
-			Sum += Bodies[j].Mass * InvR3 * Delta;
+			// 用「引力源质量」而非 Mass：测试粒子（飞船）作为源不吸引别人，
+			// 但它自己被别的天体吸引这一项不受影响（i 的加速度只看 j 的源质量）。
+			Sum += GravitationalSourceMass(Bodies[j]) * InvR3 * Delta;
 		}
 
 		// 外力与阻尼都是**逐子步**求值的：阻尼那一项用的是本步此刻的 Velocity，
@@ -188,8 +190,9 @@ void FNBodySimulator::ComputeContactShares(double MassI, double MassJ,
 	// m_j/(m_i+m_j)** —— 那样在 m_i = 0 时会让对方承担 100%（正好反了），
 	// 两个都 ≤ 0 时还是 0/0。
 	//
-	// 本项目的飞船**不是**测试粒子（MassSolar = 1e-6）：它按质量比让路，
-	// 但 1e-6 相对行星的 0.873237 等于让全部，行为上仍是「行星纹丝不动」。
+	// 本项目的飞船**是**测试粒子（UCosmosOrbitComponent::bExertsGravity = false），
+	// 但这里不看那个标志：它仍按真实质量比让路。MassEarth = 0.332946 相对行星的
+	// 290740.84 等于让全部，行为上仍是「行星纹丝不动」。
 	const bool bRealI = MassI > 0.0;
 	const bool bRealJ = MassJ > 0.0;
 
@@ -362,8 +365,10 @@ double FNBodySimulator::GetTotalEnergy() const
 				: SofteningLength;
 			R2 += Soft * Soft;
 
-			// 势能 −Gm_im_j / r
-			Potential -= G * Bodies[i].Mass * Bodies[j].Mass / FMath::Sqrt(R2);
+			// 势能 −Gm_im_j / r —— 也用引力源质量，与 ComputeAccelerations 口径一致，
+			// 否则测试粒子（飞船）会贡献一份实际不存在的势能，能量漂移读数失真。
+			Potential -= G * GravitationalSourceMass(Bodies[i])
+				* GravitationalSourceMass(Bodies[j]) / FMath::Sqrt(R2);
 		}
 	}
 

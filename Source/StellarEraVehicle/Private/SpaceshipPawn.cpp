@@ -22,6 +22,9 @@ namespace
 	// 才像个机身。这个比例只对占位立方体有意义 —— 蓝图里覆盖过 Hull 的缩放后
 	// 以蓝图为准（子蓝图的覆盖值在构造函数之后才套用）。
 	const FVector FallbackHullScale(6.f, 2.f, 1.f);
+
+	/** 1 千米 = 1e5 厘米。本模块不能依赖 StellarEraCore（会成环），所以本地留一份。 */
+	constexpr float CentimetersPerKilometer = 1.0e5f;
 }
 
 ASpaceshipPawn::ASpaceshipPawn()
@@ -40,42 +43,68 @@ ASpaceshipPawn::ASpaceshipPawn()
 	// 挂在根节点而不是机头：调用器的位置同时决定 LOD 范围和碰撞范围，碰撞范围
 	// 必须罩住飞船自身的物理体，否则飞机会撞进还没生成碰撞体的地形里。
 	//
-	// 用带预测的版本，而不是角色那种 UVoxelSimpleInvokerComponent：极速
-	// 1.2e5 cm/s（= 推力 1.2e7 × 阻尼时间常数 0.01，见 ThrustAcceleration），
-	// 而范围只有 200 m 的话不预测就只剩 0.17 秒的提前量，地形还没网格化完人已经
-	// 撞上去了。预测把采样点沿速度方向前移 PredictionTime 秒
-	// （UVoxelInvokerWithPredictionComponent::GetInvokerGlobalPosition），凭空
-	// 多出 1.2 公里预警，且不额外扩大细分区域。停稳时速度为零，退化成普通调用器。
+	// 用带预测的版本，而不是角色那种 UVoxelSimpleInvokerComponent：预测把采样点
+	// 沿速度方向前移 PredictionTime 秒
+	// （UVoxelInvokerWithPredictionComponent::GetInvokerGlobalPosition），凭空多出
+	// 预警，且不额外扩大细分区域。停稳时速度为零，退化成普通调用器。
 	//
 	// ⚠ 调用器的位置是**搬到预测点**去的（同上：Position = 组件位置 + 速度 ×
-	// PredictionTime），不是「两个点都罩住」—— 所以范围必须自己罩得住那个偏移量：
-	// 硬约束是「范围 ≥ 最大速度 × PredictionTime」。最大速度**含** BoostMultiplier
-	// （1.2e5 × 3 = 3.6e5 厘米/秒），PredictionTime 保持 1 秒 → 预测点超前 3.6e5
-	// 厘米。两个范围因此取 4.5e5 厘米 = 3.6e5 × 1.25。
+	// PredictionTime），不是「两个点都罩住」—— 所以**每一个范围**都必须自己罩得住
+	// 那个偏移量：硬约束是「范围 ≥ 最大速度 × PredictionTime」。最大速度**含**
+	// BoostMultiplier（1.2e5 × 3 = 3.6e5 厘米/秒）。LODRange 与 CollisionsRange 用的是
+	// **同一个**预测点，所以这条约束对两者**分别**成立。巡航（关阻尼）下速度无上界，
+	// 任何有限范围都盖不住 —— 这是已知上限，不是调参数能解决的。
 	//
-	// 巡航（关阻尼）下速度无上界，任何有限范围都盖不住 —— 这是已知上限，不是调
-	// 参数能解决的：届时预测点跑到范围外，调用器就盖不到飞船本体了。
+	// ⚠⚠ **真正卡住上限的不是插件的块数安全阀，是显存。** 插件那个
+	// voxel.renderer.MaxRenderOctreeChunks（默认 1e6）只在超限时把整棵八叉树作废
+	// （静默失效、地形 LOD 冻结），它**不保证**上限以内的配置跑得动。2026-10-18 实测：
+	// 本关卡世界边长 4096 体素、RENDER_CHUNK_SIZE = 32，取 LODRange = 4.5e5 时八叉树
+	// 是**通过**的，却请求了约 3.3e5 个区块 —— 在 GTX 1650（4 GB）上直接报
+	// 「Video memory has been exhausted (52,945 MB over budget)」，星球整片渲染不出来。
+	// **范围要按显卡的显存反推，不能只按「别撞插件上限」反推。**
 	//
-	// 数值与角色一致（见 PlanetCharacter.cpp）：LODToSet = 0 是插件对「贴着表面的
-	// Pawn」的约定用法。范围留在组件面板上可调 —— 嫌地形追不上就同时调大
-	// LODRange 与 CollisionsRange（两个都要，LOD 只影响画质，碰撞由
-	// CollisionsRange 单独驱动），或把 bUseForPriorities 打开让飞船附近的区块
-	// 优先网格化。
+	// 两条细分路径互相独立，块数各按自己盒子的**体积**涨，且**都不看盒子里有没有
+	// 地形**：
 	//
-	// 代价未知：本关卡行星半径只有 750 米，4.5 公里的范围等于整颗行星全程满精度 +
-	// 带碰撞。这一项要实测；嫌贵就往回收，改完把上面的推导一起改掉。
+	//   (1) LOD —— FVoxelRenderOctree::ShouldSubdivideByDistance。与 ±LODRange 盒子
+	//       相交的块细到 LODToSet 为止。叶块边长 32 · 2^LODToSet 体素。
+	//   (2) 碰撞 —— ShouldSubdivideByOthers → IsInvokerInRange。与 ±CollisionsRange
+	//       盒子相交的块**一路细到 Height 0**，**完全不经过 LODToSet**：
+	//       IsInvokerInRange 只做一次包围盒相交测试，没有任何 LOD 判断。
+	//
+	// 块数都 ≈ (min(2·范围, 世界边长) / 叶块边长)³，父块再加约 14%
+	// （1/8 + 1/64 + … = 1/7）。
+	//
+	// 关键取舍：**LODToSet 每加一档，叶块边长翻倍、块数少 8 倍。** 所以「覆盖半径」
+	// 与「网格精度」是在**固定块数**下互换的 —— 想看得远就得让网格变粗：
+	//
+	//     LODToSet = 0 → 1 米网格（本关卡体素 100 厘米）；= 1 → 2 米；= 2 → 4 米
+	//
+	// 现在取 LODToSet = 0（1 米），覆盖半径因此只能到 240 米。**这不是「贴地 Pawn 的
+	// 约定值」，是 4 GB 显存逼出来的。** 想要更大覆盖，就把 LODToSet 加一档、同时把
+	// LODRange 翻倍（块数不变），或者换显卡。
+	//
+	// 碰撞那份**锁死在 Height 0，不能跟着 LODRange 一起放大**，否则它单独就把块数顶爆。
+	// 可见区块本来就带碰撞（VoxelWorld 的 bComputeVisibleChunksCollisions 默认 true、
+	// VisibleChunksCollisionsMaxLOD = 5），调用器这一份只是把飞船附近升级到最细。注意
+	// 这些 Height-0 块**不参与渲染**（ByOthers 的子块 bChildrenVisible = false），所以
+	// 它们只买碰撞精度，不买画质。
+	//
+	// **调参后要看游戏里的「Total tasks remaining」**（HUD 上直接显示）—— 那是当前待
+	// 网格化的区块数，是唯一可靠的实测口径。它到几万就要警惕，几十万必炸显存。
+	// 角色那份（PlanetCharacter.cpp）配 LODToSet = 0 + 200 米盒子，同理：盒子小才用得起。
 	VoxelInvoker = CreateDefaultSubobject<UVoxelInvokerWithPredictionComponent>(TEXT("VoxelInvoker"));
 	VoxelInvoker->SetupAttachment(Collision);
 	VoxelInvoker->bUseForLOD = true;
 	VoxelInvoker->LODToSet = 0;
-	VoxelInvoker->LODRange = 450000.f;
+	VoxelInvoker->LODRange = 24000.f;
 	VoxelInvoker->bUseForCollisions = true;
-	VoxelInvoker->CollisionsRange = 450000.f;
+	VoxelInvoker->CollisionsRange = 24000.f;
 	VoxelInvoker->bUseForNavmesh = false;
 	VoxelInvoker->bUseForEvents = false;
 	VoxelInvoker->bUseForPriorities = false;
 	VoxelInvoker->bEnablePrediction = true;
-	VoxelInvoker->PredictionTime = 1.f;
+	VoxelInvoker->PredictionTime = 0.05f;
 
 	// 没有移动组件：位移完全归 N 体求解器（见类注释）。曾经的 UFloatingPawnMovement
 	// 会每帧 MoveUpdatedComponent(Velocity * dt)，留着它就和求解器的写回抢着改位置
@@ -294,7 +323,7 @@ void ASpaceshipPawn::Tick(float DeltaSeconds)
 	// --- 4. 推力 ---
 	//
 	// 推力不再由这里施加 —— 本类只把「想施加多少」暴露出去
-	// （GetThrustAccelerationWorld / GetDampingTime），由 UCosmosSimulationSubsystem
+	// （GetThrustAccelerationWorldCmPerS2 / GetDampingTime），由 UCosmosSimulationSubsystem
 	// 每帧下来读走、换算、写进求解器。
 	//
 	// 本段只剩相机后缩要用的 ThrustInput，见第 5 段。
@@ -309,7 +338,7 @@ void ASpaceshipPawn::Tick(float DeltaSeconds)
 	//
 	// 用 FInterpTo 而不是直接赋值：松手时是平滑收回，不是瞬间弹回。
 	//
-	// 只认正向输入，按 S 反推不后缩。
+	// 只认正向输入：按 S 制动，不后缩。
 	const float TargetPullback = ThrustInput > 0.f
 		? CameraPullbackAtFullThrust * (bBoosting ? BoostPullbackMultiplier : 1.f)
 		: 0.f;
@@ -418,12 +447,13 @@ FSpaceshipStatus ASpaceshipPawn::GetStatus() const
 	FSpaceshipStatus Status;
 
 	// 速度取自求解器写回的值（GetVelocity 的覆写读的就是它）。
-	Status.Speed = GetVelocity().Size();
+	// 世界厘米/秒 → 世界 km/s。
+	Status.SpeedKmPerSecond = GetVelocity().Size() / CentimetersPerKilometer;
 
-	// 阻尼极速 = 推力 × τ。巡航（无阻尼）时为 0，表示「没有上限」。
+	// 阻尼极速（世界 km/s）= 推力（km/s²）× τ。巡航（无阻尼）时为 0，表示「没有上限」。
 	const float Damping = GetDampingTime();
-	Status.MaxSpeed = Damping > 0.f
-		? (ThrustAcceleration * (bBoosting ? BoostMultiplier : 1.f)) * Damping
+	Status.MaxSpeedKmPerSecond = Damping > 0.f
+		? ThrustAccelerationKmPerS2 * (bBoosting ? BoostMultiplier : 1.f) * Damping
 		: 0.f;
 
 	Status.ThrustInput = ThrustInput;
@@ -485,19 +515,57 @@ float ASpaceshipPawn::GetContactRadiusCm() const
 	return Collision ? Collision->GetScaledSphereRadius() : 0.f;
 }
 
-FVector ASpaceshipPawn::GetThrustAccelerationWorld() const
+FVector ASpaceshipPawn::GetThrustAccelerationWorldCmPerS2(float DeltaSeconds) const
 {
-	// 方向 = 机头 × 前后输入 + 机身上 × 升降输入，合成向量夹到长度 1 ——
-	// 与**原来的** UFloatingPawnMovement::AddInputVector 的 GetClampedToMaxSize(1) 同规则：
+	// 机头 / 机身上这一族只认**正向**输入：ThrustInput < 0（S）不是「沿机头反推」，
+	// 而是制动，方向由速度决定（见下），与机头无关。
+	//
+	// 方向 = 机头 × 前推 + 机身上 × 升降，合成向量夹到长度 1 —— 与**原来的**
+	// UFloatingPawnMovement::AddInputVector 的 GetClampedToMaxSize(1) 同规则：
 	// 斜着同时按 W 和 Space 不该比单按一个多出 41% 的推力。
-	const FVector Direction =
-		(GetActorForwardVector() * ThrustInput + GetActorUpVector() * VerticalInput)
-			.GetClampedToMaxSize(1.0);
+	FVector Direction =
+		GetActorForwardVector() * FMath::Max(ThrustInput, 0.f)
+		+ GetActorUpVector() * VerticalInput;
 
 	// Shift 乘在**大小**上而不是方向分量上：这样斜着按 W+Space+Shift 时，
 	// 总量仍然只有单按一个的 1 倍（而不是 1.41 倍）。
-	const float Magnitude = ThrustAcceleration * (bBoosting ? BoostMultiplier : 1.f);
-	return Direction * Magnitude;
+	// km/s² → 厘米/秒²。1e5 是本地常数：本模块不能依赖 StellarEraCore。
+	const float Magnitude = ThrustAccelerationKmPerS2 * CentimetersPerKilometer
+		* (bBoosting ? BoostMultiplier : 1.f);
+
+	if (ThrustInput < 0.f)
+	{
+		// 制动：沿速度反方向，大小按「本帧满推力能改变的速度」收敛 ——
+		//
+		//     |a| = A · min(1, |v| / (A·Δt))
+		//
+		// 本帧减速量 = min(A·Δt, |v|) ≤ |v|：一帧内恰好停住，绝不会推过头翻成反向。
+		//
+		// 刻度是 A·Δt 而不是某个固定速度，因为外力**整帧恒定** —— 求解器只在帧首
+		// 读一次 ExternalAcceleration，整帧所有子步都用同一个值，所以一帧能改变多少
+		// 速度就是 A·Δt。本关卡 A = 1.2e7 cm/s²，60 fps 下一帧 2e5 cm/s，比飞船整条
+		// 速度尺度（阻尼极速 1.2e5）还大；固定刻度会在低帧率下先过冲，再被逐帧修正
+		// 成来回翻符号的抖动，3 fps（编辑器不在前台时的实际帧率）下直接发散。
+		//
+		// Δt 用**调用方**那一帧的：与它真正要推进的那一帧对齐。本类自己 Tick 里抄
+		// 一份的话，两个 Tick 谁先谁后不保证，编辑器切到后台掉到 3 fps 的那一帧会拿
+		// 旧的小 Δt 去算 —— 制动量按 60 fps 估，实际却整帧推 0.33 秒，速度直接翻成
+		// 反向的几十 km/s。
+		//
+		// 代价：制动只削速度、不抗重力 —— 低速时它给不出托住飞船的力，贴地悬停仍归
+		// W / 升降键。另外它和阻尼一样作用在**惯性系**速度上，贴着行星按 S 是让飞船
+		// 在惯性系里停下，不是「相对行星停住」（同 GetDampingTime 那条口径）。
+		const FVector Velocity = GetVelocity();
+		const double Speed = Velocity.Size();
+		const double DeltaVPerFrame = double(Magnitude) * double(DeltaSeconds);
+		if (Speed > 0.0 && DeltaVPerFrame > 0.0)
+		{
+			const double Taper = FMath::Min(1.0, Speed / DeltaVPerFrame);
+			Direction += (-Velocity / Speed) * float(-ThrustInput * Taper);
+		}
+	}
+
+	return Direction.GetClampedToMaxSize(1.0) * Magnitude;
 }
 
 float ASpaceshipPawn::GetDampingTime() const

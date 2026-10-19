@@ -86,8 +86,9 @@ public:
 	/**
 	 * 天体 i **当前**的游戏单位速度（AU/年），即求解器里那一刻的值。
 	 *
-	 * 与 `UCosmosOrbitComponent::InitialVelocity` 的区别：那个是配置的**开局**速度，
-	 * 运行期不变；这个是每帧都在变的状态。速度箭头读的是这个，不是那个 ——
+	 * 与 `UCosmosOrbitComponent::InitialVelocityKmPerSecond` 的区别：后者是配置的
+	 * **开局**速度（单位 km/s），运行期不变；这个返回的是求解器单位 AU/年、
+	 * 每帧都在变的状态。速度箭头读的是这个，不是那个 ——
 	 * 所以箭头才会跟着天体走、随实际速度变长变短。
 	 *
 	 * 下标无效（含 INDEX_NONE —— 轨迹组件注册还没轮到的那几帧）、或求解器里还没有
@@ -162,11 +163,13 @@ public:
 	 * 体素世界会抖成一团。若实测仍有抖动，把它降到 3e5（1 AU = 3 公里）——
 	 * 精度更宽松，代价是整个星系缩到三分之一。
 	 */
-	UPROPERTY(Config, EditAnywhere, Category = "Cosmos|Scale")
+	UPROPERTY(Config, EditAnywhere, Category = "Cosmos|Scale",
+		meta = (DisplayName = "世界标定（厘米/AU）"))
 	double CentimetersPerAu = 1.0e6;
 
 	/** 模拟年 / 真实秒。默认 0.00333，即公转一圈约 300 秒。 */
-	UPROPERTY(Config, EditAnywhere, Category = "Cosmos|Time")
+	UPROPERTY(Config, EditAnywhere, Category = "Cosmos|Time",
+		meta = (DisplayName = "时间流速（模拟年/真实秒）"))
 	double TimeScale = 0.00333;
 
 	/**
@@ -247,7 +250,8 @@ public:
 	 * [/Script/StellarEra.CosmosSimulationSubsystem] 段覆盖即可，不必重编。
 	 * 逐天体的覆盖走 FCosmosBodyState::SofteningOverride（该天体单独生效）。
 	 */
-	UPROPERTY(Config, EditAnywhere, Category = "Cosmos|Physics")
+	UPROPERTY(Config, EditAnywhere, Category = "Cosmos|Physics",
+		meta = (DisplayName = "引力软化长度（AU）"))
 	double SofteningLength = 0.02;
 
 	/**
@@ -292,7 +296,7 @@ private:
 	 * 飞船不能反过来调本子系统（见 ASpaceshipPawn 的类注释）。
 	 *
 	 * DeltaSeconds 是本帧的帧时长，原样转给飞船 —— 它的制动要按「本帧满推力能改变
-	 * 多少速度」收敛（见 ASpaceshipPawn::GetThrustAccelerationWorld），必须知道这一帧
+	 * 多少速度」收敛（见 ASpaceshipPawn::GetThrustAccelerationWorldCmPerS2），必须知道这一帧
 	 * 有多长。由本处传入而不是让飞船在自己 Tick 里抄一份：两个 Tick 谁先谁后不保证，
 	 * 抄的那份在帧率突变的那一帧会让制动过冲。
 	 *
