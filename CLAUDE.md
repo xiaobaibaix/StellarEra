@@ -28,6 +28,23 @@ Content/
 自定义代码不进第三方插件目录，一律写进上面四个模块并改对应 `Build.cs`。
 `StellarEraVehicle` **不能**依赖 `StellarEra`（会成环）。
 
+## 技能与 Agent 路由（强制）
+
+下列技能/Agent 已随仓库入库，每个会话都会加载。命中场景时先调用、再动手：
+
+- UE C++ 编写/修改/排错 → `unreal-engine-cpp-pro`
+- 新建工程、工程配置、生成/更新 CLAUDE.md → `ue5-project-setup`
+- 新功能或跨模块改动 → `superpowers:brainstorming` → `superpowers:writing-plans` → `superpowers:executing-plans`
+- 修 bug → `superpowers:systematic-debugging`（先复现，再改）
+- 声称完成或提交前 → `superpowers:verification-before-completion`（必须给出证据）
+- 架构/性能/跨模块问题可委派对应 agent（小改动不必）：
+  - C++/Blueprint 边界、性能、GAS → `unreal-systems-engineer`
+  - World Partition / Landscape / HLOD / 流送 → `unreal-world-builder`
+  - 材质 / Niagara / PCG → `unreal-technical-artist`
+  - 网络复制 / 多人 → `unreal-multiplayer-architect`
+
+用户明确指定技能或 Agent 时，以用户指定为准。任务完成后说明实际用了哪个技能/Agent。
+
 ## 关键架构约束
 - **N 体只有一个驱动**：`UCosmosSimulationSubsystem`（TickableWorldSubsystem）每帧推进求解器、把位置/速度写回 Actor、再搬运骑乘者。天体不要各自 Tick。
 - `UCosmosOrbitComponent` **只存参数**（`MassSolar`、`InitialVelocity`）；天体初态位置就是关卡里 Actor 的摆放位置。
