@@ -9,6 +9,8 @@
 #include "UObject/UObjectGlobals.h"
 #include "UObject/UObjectIterator.h"
 
+#include <limits>
+
 namespace
 {
 	/**
@@ -271,8 +273,11 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	const bool bWantPrediction = bInStarMapView && bDrawPrediction;
 	const bool bWantArrow = bInStarMapView && bDrawVelocityArrow;
 	const bool bWantGravityArrow = bInStarMapView && bDrawGravityArrow;
+	const bool bWantHillSphere = bInStarMapView && bDrawHillSphere;
+	const bool bWantDominance = bInStarMapView && bDrawDominancePartition;
 
-	if (!bWantTrail && !bWantPrediction && !bWantArrow && !bWantGravityArrow)
+	if (!bWantTrail && !bWantPrediction && !bWantArrow && !bWantGravityArrow
+		&& !bWantHillSphere && !bWantDominance)
 	{
 		ClearDrawnLines();
 		return;
@@ -316,6 +321,22 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	if (bWantGravityArrow)
 	{
 		AppendGravityArrow(*Subsystem, FLinearColor(GravityArrowColor));
+	}
+
+	// ── 希尔球：球心跟着天体走，半径按当前主导天体现算 ──
+	if (bWantHillSphere)
+	{
+		double HillRadiusCm = 0.0;
+		if (ResolveHillSphereRadiusCm(HillRadiusCm) && HillRadiusCm >= MinHillSphereRadiusCm)
+		{
+			AppendHillSphere(CurrentLocation, HillRadiusCm, FLinearColor(HillSphereColor));
+		}
+	}
+
+	// ── 瞬时引力主导剖分：逐帧按当前天体位置重算 ──
+	if (bWantDominance)
+	{
+		AppendDominancePartition(CurrentLocation, FLinearColor(DominanceColor));
 	}
 
 	LineBatch->Flush();
@@ -490,6 +511,532 @@ void UCosmosTrajectoryComponent::AppendGravityArrow(const UCosmosSimulationSubsy
 		Color, 0.0f, LineThickness, LineDepthPriority);
 }
 
+bool UCosmosTrajectoryComponent::ComputeHillRadiusCm(double BodyMass, double PrimaryMass,
+	double DistanceCm, double& OutRadiusCm)
+{
+	OutRadiusCm = 0.0;
+
+	if (!FMath::IsFinite(BodyMass) || !FMath::IsFinite(PrimaryMass)
+		|| !FMath::IsFinite(DistanceCm))
+	{
+		return false;
+	}
+	if (BodyMass <= 0.0 || PrimaryMass <= 0.0 || DistanceCm <= 0.0)
+	{
+		return false;
+	}
+	if (BodyMass >= PrimaryMass)
+	{
+		// 希尔近似的前提是次体远轻于主星；一样重或更重时这个公式没有意义。
+		return false;
+	}
+
+	const double MassRatio = BodyMass / (3.0 * PrimaryMass);
+	const double RadiusCm = DistanceCm * FMath::Pow(MassRatio, 1.0 / 3.0);
+	if (!FMath::IsFinite(RadiusCm) || RadiusCm <= 0.0)
+	{
+		return false;
+	}
+
+	OutRadiusCm = RadiusCm;
+	return true;
+}
+
+bool UCosmosTrajectoryComponent::ComputeDominanceBoundary(const FVector3d& PositionA,
+	double MassA, const FVector3d& PositionB, double MassB,
+	FVector3d& OutCenter, double& OutRadiusCm, FVector3d& OutNormal)
+{
+	OutCenter = FVector3d::ZeroVector;
+	OutRadiusCm = 0.0;
+	OutNormal = FVector3d::ZeroVector;
+
+	if (!FMath::IsFinite(PositionA.X) || !FMath::IsFinite(PositionA.Y)
+		|| !FMath::IsFinite(PositionA.Z) || !FMath::IsFinite(PositionB.X)
+		|| !FMath::IsFinite(PositionB.Y) || !FMath::IsFinite(PositionB.Z)
+		|| !FMath::IsFinite(MassA) || !FMath::IsFinite(MassB)
+		|| MassA <= 0.0 || MassB <= 0.0)
+	{
+		return false;
+	}
+
+	const FVector3d Delta = PositionB - PositionA;
+	const double Distance = Delta.Size();
+	if (!FMath::IsFinite(Distance) || Distance <= 0.0)
+	{
+		return false;
+	}
+	OutNormal = Delta / Distance;
+
+	// k = sqrt(mA/mB)：边界上 |P-A|/|P-B| = k。
+	const double K = FMath::Sqrt(MassA / MassB);
+	const double Denominator = 1.0 - K * K;
+
+	// 等质量：球半径发散，退化为中垂面。用 1e-9 把「数值上等重」也归进来，
+	// 否则会得到一个半径约 1/|1-k²| 倍间距的巨球，采样全在裁剪球外，什么都画不出。
+	if (FMath::Abs(Denominator) <= 1.0e-9)
+	{
+		OutCenter = (PositionA + PositionB) * 0.5;
+		return true;
+	}
+
+	OutCenter = (PositionA - PositionB * (K * K)) / Denominator;
+	OutRadiusCm = K * Distance / FMath::Abs(Denominator);
+
+	if (!FMath::IsFinite(OutCenter.X) || !FMath::IsFinite(OutCenter.Y)
+		|| !FMath::IsFinite(OutCenter.Z) || !FMath::IsFinite(OutRadiusCm))
+	{
+		OutCenter = FVector3d::ZeroVector;
+		OutRadiusCm = 0.0;
+		OutNormal = FVector3d::ZeroVector;
+		return false;
+	}
+	return true;
+}
+
+bool UCosmosTrajectoryComponent::ArePairDominantAt(const FVector3d& Point,
+	const TArray<FVector3d>& Positions, const TArray<double>& Masses,
+	int32 IndexA, int32 IndexB)
+{
+	if (IndexA == IndexB || Positions.Num() != Masses.Num()
+		|| !Positions.IsValidIndex(IndexA) || !Positions.IsValidIndex(IndexB))
+	{
+		return false;
+	}
+	if (Masses[IndexA] <= 0.0 || Masses[IndexB] <= 0.0)
+	{
+		return false;
+	}
+
+	const double DistanceA2 = (Point - Positions[IndexA]).SizeSquared();
+	const double DistanceB2 = (Point - Positions[IndexB]).SizeSquared();
+	if (DistanceA2 <= 0.0 || DistanceB2 <= 0.0)
+	{
+		return false;   // 采样点正好压在天体上，不在边界上。
+	}
+
+	const double PairPull = FMath::Max(Masses[IndexA] / DistanceA2,
+		Masses[IndexB] / DistanceB2);
+	if (!FMath::IsFinite(PairPull))
+	{
+		return false;
+	}
+
+	// 其余天体只需和 PairPull 比：两人都不输给第三名 ⇔ 两人就是前两名。
+	constexpr double Tolerance = 1.0e-9;
+	for (int32 Index = 0; Index < Positions.Num(); ++Index)
+	{
+		if (Index == IndexA || Index == IndexB || Masses[Index] <= 0.0)
+		{
+			continue;
+		}
+		const double Distance2 = (Point - Positions[Index]).SizeSquared();
+		const double OtherPull = Distance2 > 0.0
+			? Masses[Index] / Distance2
+			: std::numeric_limits<double>::infinity();
+		if (OtherPull > PairPull * (1.0 + Tolerance))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+bool UCosmosTrajectoryComponent::ResolveHillSphereRadiusCm(double& OutRadiusCm)
+{
+	OutRadiusCm = 0.0;
+
+	const AActor* SelfActor = GetOwner();
+	UCosmosOrbitComponent* SelfOrbit = GetOrbitComponent();
+	const UWorld* World = GetWorld();
+	if (!SelfActor || !SelfOrbit || !World)
+	{
+		return false;
+	}
+	if (!SelfOrbit->bExertsGravity)
+	{
+		return false;   // 不产生引力的天体（飞船）没有「引力主导范围」
+	}
+
+	const FVector SelfLocation = SelfActor->GetActorLocation();
+	const UCosmosOrbitComponent* Primary = nullptr;
+	double BestPull = 0.0;
+	double PrimaryDistanceCm = 0.0;
+
+	for (TObjectIterator<UCosmosOrbitComponent> It; It; ++It)
+	{
+		const UCosmosOrbitComponent* Candidate = *It;
+		if (!Candidate || Candidate == SelfOrbit || !Candidate->bExertsGravity)
+		{
+			continue;
+		}
+
+		const AActor* CandidateActor = Candidate->GetOwner();
+		if (!CandidateActor || CandidateActor->GetWorld() != World)
+		{
+			continue;   // 只收本关卡的天体
+		}
+		if (!FMath::IsFinite(Candidate->MassEarth) || Candidate->MassEarth <= 0.0)
+		{
+			continue;
+		}
+
+		const double DistanceCm = FVector::Dist(SelfLocation, CandidateActor->GetActorLocation());
+		if (DistanceCm <= 0.0)
+		{
+			continue;
+		}
+
+		// 引力强度 ∝ M / d²：只取最强的一颗当主星。
+		const double Pull = Candidate->MassEarth / (DistanceCm * DistanceCm);
+		if (Pull > BestPull)
+		{
+			BestPull = Pull;
+			Primary = Candidate;
+			PrimaryDistanceCm = DistanceCm;
+		}
+	}
+
+	if (!Primary)
+	{
+		return false;
+	}
+
+	return ComputeHillRadiusCm(SelfOrbit->MassEarth, Primary->MassEarth,
+		PrimaryDistanceCm, OutRadiusCm);
+}
+
+void UCosmosTrajectoryComponent::AppendHillSphere(const FVector& Center, double RadiusCm,
+	const FLinearColor& Color)
+{
+	if (!FMath::IsFinite(RadiusCm) || RadiusCm <= 0.0)
+	{
+		return;
+	}
+
+	const FVector3d CenterD(Center);
+	const int32 Segments = FMath::Clamp(HillSphereSegments, 3, 128);
+
+	auto AppendCircle = [this, &CenterD, RadiusCm, Segments, &Color](
+		const FVector3d& AxisU, const FVector3d& AxisV)
+	{
+		FVector3d Previous = CenterD + AxisU * RadiusCm;
+		for (int32 Segment = 1; Segment <= Segments; ++Segment)
+		{
+			const double Angle = 2.0 * UE_DOUBLE_PI * double(Segment) / double(Segments);
+			const FVector3d Point = CenterD
+				+ (AxisU * FMath::Cos(Angle) + AxisV * FMath::Sin(Angle)) * RadiusCm;
+			Lines.Emplace(FVector(Previous), FVector(Point), Color,
+				0.0f, LineThickness, LineDepthPriority);
+			Previous = Point;
+		}
+	};
+
+	// 纬线：固定纬度的水平圆。不含两极（极点退化成一点，画不出线）。
+	const int32 LatitudeRings = FMath::Clamp(HillSphereLatitudeRings, 0, 16);
+	for (int32 Ring = 0; Ring < LatitudeRings; ++Ring)
+	{
+		const double Latitude = -0.5 * UE_DOUBLE_PI
+			+ UE_DOUBLE_PI * double(Ring + 1) / double(LatitudeRings + 1);
+		const double RingRadius = RadiusCm * FMath::Cos(Latitude);
+		const FVector3d RingCenter = CenterD
+			+ FVector3d(0.0, 0.0, RadiusCm * FMath::Sin(Latitude));
+
+		FVector3d Previous = RingCenter + FVector3d(RingRadius, 0.0, 0.0);
+		for (int32 Segment = 1; Segment <= Segments; ++Segment)
+		{
+			const double Angle = 2.0 * UE_DOUBLE_PI * double(Segment) / double(Segments);
+			const FVector3d Point = RingCenter + FVector3d(
+				RingRadius * FMath::Cos(Angle),
+				RingRadius * FMath::Sin(Angle),
+				0.0);
+			Lines.Emplace(FVector(Previous), FVector(Point), Color,
+				0.0f, LineThickness, LineDepthPriority);
+			Previous = Point;
+		}
+	}
+
+	// 赤道
+	AppendCircle(FVector3d::UnitX(), FVector3d::UnitY());
+
+	// 经线：每条都是过两极的大圆。
+	const int32 LongitudeRings = FMath::Clamp(HillSphereLongitudeRings, 3, 32);
+	for (int32 Ring = 0; Ring < LongitudeRings; ++Ring)
+	{
+		const double Angle = UE_DOUBLE_PI * double(Ring) / double(LongitudeRings);
+		const FVector3d Horizontal(FMath::Cos(Angle), FMath::Sin(Angle), 0.0);
+		AppendCircle(FVector3d::UnitZ(), Horizontal);
+	}
+}
+
+bool UCosmosTrajectoryComponent::ShouldDrawDominancePair(double SelfMassEarth,
+	double OtherMassEarth, const AActor& SelfActor, const AActor& OtherActor) const
+{
+	// 对方有没有开着的剖分组件：有就交给「较重者/名字」规则去重；
+	// 没有就本组件负责，否则只开一个组件时什么都画不出来。
+	const bool bEditorWorld = GetWorld() != nullptr && !GetWorld()->IsGameWorld();
+	bool bOtherEnabled = false;
+	TArray<UCosmosTrajectoryComponent*> OtherTrajectories;
+	OtherActor.GetComponents<UCosmosTrajectoryComponent>(OtherTrajectories);
+	for (const UCosmosTrajectoryComponent* OtherTrajectory : OtherTrajectories)
+	{
+		if (OtherTrajectory && OtherTrajectory != this
+			&& OtherTrajectory->bDrawDominancePartition
+			&& (!bEditorWorld || OtherTrajectory->bShowInEditor))
+		{
+			bOtherEnabled = true;
+			break;
+		}
+	}
+	if (!bOtherEnabled)
+	{
+		return true;
+	}
+
+	// 较重者画；等重按 Actor 名排序，保证全局只有一方画。
+	if (SelfMassEarth != OtherMassEarth)
+	{
+		return SelfMassEarth > OtherMassEarth;
+	}
+	return SelfActor.GetName() < OtherActor.GetName();
+}
+
+void UCosmosTrajectoryComponent::AppendDominancePartition(const FVector& Anchor,
+	const FLinearColor& Color)
+{
+	UWorld* World = GetWorld();
+	AActor* SelfActor = GetOwner();
+	UCosmosOrbitComponent* SelfOrbit = GetOrbitComponent();
+	if (!World || !SelfActor || !SelfOrbit || !SelfOrbit->bExertsGravity)
+	{
+		return;   // 飞船等不产生引力的天体没有主导区
+	}
+
+	// ── 收集本关卡所有产生引力的天体（每个 Actor 一个），按名字排序保证确定性 ──
+	TArray<AActor*> Actors;
+	for (TObjectIterator<UCosmosOrbitComponent> It; It; ++It)
+	{
+		UCosmosOrbitComponent* Candidate = *It;
+		if (!Candidate || Candidate->GetWorld() != World || !Candidate->bExertsGravity)
+		{
+			continue;
+		}
+		AActor* CandidateActor = Candidate->GetOwner();
+		if (!CandidateActor || Actors.Contains(CandidateActor))
+		{
+			continue;
+		}
+		if (!FMath::IsFinite(Candidate->MassEarth) || Candidate->MassEarth <= 0.0)
+		{
+			continue;   // 与求解器同口径：无效质量不参与
+		}
+		Actors.Add(CandidateActor);
+	}
+	if (Actors.Num() < 2)
+	{
+		return;
+	}
+	// TArray<AActor*>::Sort 会用 TDereferenceWrapper 解引用元素，谓词收到的是 Actor 引用。
+	Actors.Sort([](const AActor& A, const AActor& B)
+	{
+		return A.GetName() < B.GetName();
+	});
+
+	TArray<FVector3d> Positions;
+	TArray<double> Masses;
+	Positions.Reserve(Actors.Num());
+	Masses.Reserve(Actors.Num());
+
+	int32 SelfIndex = INDEX_NONE;
+	for (int32 Index = 0; Index < Actors.Num(); ++Index)
+	{
+		AActor* CandidateActor = Actors[Index];
+		Positions.Add(FVector3d(CandidateActor->GetActorLocation()));
+		Masses.Add(0.0);
+
+		if (CandidateActor == SelfActor)
+		{
+			SelfIndex = Index;
+			Masses[Index] = SelfOrbit->MassEarth;
+			continue;
+		}
+
+		// 每个 Actor 取第一个产生引力的 Orbit 组件的质量（正常情况下只有一个）。
+		TArray<UCosmosOrbitComponent*> CandidateOrbits;
+		CandidateActor->GetComponents<UCosmosOrbitComponent>(CandidateOrbits);
+		for (const UCosmosOrbitComponent* CandidateOrbit : CandidateOrbits)
+		{
+			if (CandidateOrbit && CandidateOrbit->bExertsGravity
+				&& FMath::IsFinite(CandidateOrbit->MassEarth)
+				&& CandidateOrbit->MassEarth > 0.0)
+			{
+				Masses[Index] = CandidateOrbit->MassEarth;
+				break;
+			}
+		}
+	}
+
+	if (SelfIndex == INDEX_NONE || Masses[SelfIndex] <= 0.0)
+	{
+		return;
+	}
+
+	const double ClipRadiusCm = FMath::Max(DominanceClipRadiusCm, 1.0);
+	const FVector3d AnchorD(Anchor);
+
+	for (int32 OtherIndex = 0; OtherIndex < Actors.Num(); ++OtherIndex)
+	{
+		if (OtherIndex == SelfIndex)
+		{
+			continue;
+		}
+
+		AActor* OtherActor = Actors[OtherIndex];
+		if (!ShouldDrawDominancePair(Masses[SelfIndex], Masses[OtherIndex],
+			*SelfActor, *OtherActor))
+		{
+			continue;
+		}
+
+		FVector3d Center;
+		double RadiusCm = 0.0;
+		FVector3d Normal;
+		if (!ComputeDominanceBoundary(Positions[SelfIndex], Masses[SelfIndex],
+			Positions[OtherIndex], Masses[OtherIndex], Center, RadiusCm, Normal))
+		{
+			continue;
+		}
+
+		auto Keep = [&](const FVector3d& Point)
+		{
+			if ((Point - AnchorD).SizeSquared() > ClipRadiusCm * ClipRadiusCm)
+			{
+				return false;   // 无界区域按本天体为中心的半径裁剪
+			}
+			return ArePairDominantAt(Point, Positions, Masses, SelfIndex, OtherIndex);
+		};
+		auto AddSegment = [&](const FVector3d& From, const FVector3d& To)
+		{
+			Lines.Emplace(FVector(From), FVector(To), Color,
+				0.0f, LineThickness, LineDepthPriority);
+		};
+
+		// 等质量：中垂面上的正交网格（半径 0）。球半径过小时跳过。
+		if (RadiusCm < MinDominanceRadiusCm)
+		{
+			if (RadiusCm > 0.0)
+			{
+				continue;
+			}
+
+			const FVector3d AxisU = Normal.GetSafeNormal();
+			const FVector3d Reference = FMath::Abs(AxisU.Z) < 0.9
+				? FVector3d(0.0, 0.0, 1.0)
+				: FVector3d(1.0, 0.0, 0.0);
+			const FVector3d AxisV = (Reference ^ AxisU).GetSafeNormal();
+			const FVector3d AxisW = AxisU ^ AxisV;
+
+			const int32 Segments = FMath::Max(DominancePlaneSegments, 2);
+			const double CellSize = 2.0 * ClipRadiusCm / double(Segments);
+			const double Half = 0.5 * double(Segments) * CellSize;
+			const int32 Stride = Segments + 1;
+
+			TArray<uint8> KeepFlags;
+			KeepFlags.SetNumZeroed(Stride * Stride);
+			auto PointAt = [&](int32 U, int32 V)
+			{
+				return Center + AxisV * (-Half + double(U) * CellSize)
+					+ AxisW * (-Half + double(V) * CellSize);
+			};
+			auto FlagAt = [&](int32 U, int32 V)
+			{
+				return KeepFlags[V * Stride + U] != 0;
+			};
+
+			for (int32 V = 0; V <= Segments; ++V)
+			{
+				for (int32 U = 0; U <= Segments; ++U)
+				{
+					KeepFlags[V * Stride + U] = Keep(PointAt(U, V)) ? 1 : 0;
+				}
+			}
+			for (int32 V = 0; V <= Segments; ++V)
+			{
+				for (int32 U = 0; U <= Segments; ++U)
+				{
+					if (!FlagAt(U, V))
+					{
+						continue;
+					}
+					if (U < Segments && FlagAt(U + 1, V))
+					{
+						AddSegment(PointAt(U, V), PointAt(U + 1, V));
+					}
+					if (V < Segments && FlagAt(U, V + 1))
+					{
+						AddSegment(PointAt(U, V), PointAt(U, V + 1));
+					}
+				}
+			}
+			continue;
+		}
+
+		// 球面：以边界轴为极轴的经纬网格，只连两端都保留的相邻点。
+		const FVector3d AxisU = Normal.GetSafeNormal();
+		const FVector3d Reference = FMath::Abs(AxisU.Z) < 0.9
+			? FVector3d(0.0, 0.0, 1.0)
+			: FVector3d(1.0, 0.0, 0.0);
+		const FVector3d AxisV = (Reference ^ AxisU).GetSafeNormal();
+		const FVector3d AxisW = AxisU ^ AxisV;
+
+		const int32 Longitude = FMath::Max(DominanceSphereSegments, 3);
+		const int32 LatitudeCount = FMath::Clamp(DominanceSphereRings, 1, 32) + 1;
+
+		TArray<uint8> RingKeep;
+		RingKeep.SetNumZeroed(Longitude * LatitudeCount);
+		TArray<FVector3d> Points;
+		Points.SetNumUninitialized(Longitude * LatitudeCount);
+
+		for (int32 Ring = 0; Ring < LatitudeCount; ++Ring)
+		{
+			const double Phi = UE_DOUBLE_PI * double(Ring) / double(LatitudeCount);
+			const double SinPhi = FMath::Sin(Phi);
+			const double CosPhi = FMath::Cos(Phi);
+			for (int32 Segment = 0; Segment < Longitude; ++Segment)
+			{
+				const double Theta = 2.0 * UE_DOUBLE_PI * double(Segment) / double(Longitude);
+				const FVector3d Unit = AxisU * CosPhi
+					+ AxisV * (SinPhi * FMath::Cos(Theta))
+					+ AxisW * (SinPhi * FMath::Sin(Theta));
+				const int32 PointIndex = Ring * Longitude + Segment;
+				Points[PointIndex] = Center + Unit * RadiusCm;
+				RingKeep[PointIndex] = Keep(Points[PointIndex]) ? 1 : 0;
+			}
+		}
+
+		for (int32 Ring = 0; Ring < LatitudeCount; ++Ring)
+		{
+			for (int32 Segment = 0; Segment < Longitude; ++Segment)
+			{
+				const int32 Index = Ring * Longitude + Segment;
+				if (!RingKeep[Index])
+				{
+					continue;
+				}
+				const int32 NextSegment = (Segment + 1) % Longitude;
+				if (RingKeep[Ring * Longitude + NextSegment])
+				{
+					AddSegment(Points[Index], Points[Ring * Longitude + NextSegment]);
+				}
+				if (Ring + 1 < LatitudeCount
+					&& RingKeep[(Ring + 1) * Longitude + Segment])
+				{
+					AddSegment(Points[Index], Points[(Ring + 1) * Longitude + Segment]);
+				}
+			}
+		}
+	}
+}
+
 void UCosmosTrajectoryComponent::DrawInEditor()
 {
 	if (!GetWorld() || !IsValid(LineBatch))
@@ -651,6 +1198,22 @@ void UCosmosTrajectoryComponent::DrawInEditor()
 		AppendEditorGravityArrow(Anchor,
 			EditorSimulator.GetBody(SelfIndex).GravitationalAcceleration,
 			FLinearColor(GravityArrowColor));
+	}
+
+	// ── 希尔球：只用质量与摆放位置，不需要求解器状态 ──
+	if (bDrawHillSphere)
+	{
+		double HillRadiusCm = 0.0;
+		if (ResolveHillSphereRadiusCm(HillRadiusCm) && HillRadiusCm >= MinHillSphereRadiusCm)
+		{
+			AppendHillSphere(Anchor, HillRadiusCm, FLinearColor(HillSphereColor));
+		}
+	}
+
+	// ── 瞬时引力主导剖分：编辑器态只用摆放位置与质量 ──
+	if (bDrawDominancePartition)
+	{
+		AppendDominancePartition(Anchor, FLinearColor(DominanceColor));
 	}
 
 	LineBatch->Flush();

@@ -19,6 +19,7 @@
 #include "CosmosTrajectoryComponent.generated.h"
 
 class UCosmosOrbitComponent;
+class AActor;
 class UCosmosSimulationSubsystem;
 
 /**
@@ -57,6 +58,44 @@ public:
 	 * 那条路径只能人眼验，不值得为一个高亮引入一个只能靠肉眼发现的失败面。
 	 */
 	static FColor BrightenTowardWhite(const FColor& In, float Amount);
+
+	/**
+	 * 希尔球半径：r_H = a · (m / 3M)^(1/3)，长度单位与 DistanceCm 相同。
+	 *
+	 * 「引力主导范围」的严格解是过 L1 的零速面（泪滴形，朝主星一侧收成尖点）；
+	 * 希尔球是它的球形近似，m ≪ M 时两者只差 (m/3M)^(1/3) 的量级。
+	 *
+	 * 无效输入（非有限、非正、次体不轻于主星）返回 false，并把 OutRadiusCm 置 0。
+	 * 纯函数，自动化测试直接调用。
+	 */
+	static bool ComputeHillRadiusCm(double BodyMass, double PrimaryMass,
+		double DistanceCm, double& OutRadiusCm);
+
+	/**
+	 * 两颗天体的瞬时引力主导边界：m_i/|P-r_i|² = m_j/|P-r_j|²，
+	 * 即 |P-r_i|/|P-r_j| = sqrt(m_i/m_j)。
+	 *
+	 * 该轨迹是空间的 Apollonius 球：质量不等时是球（OutNormal 为轴方向），
+	 * 等质量时退化为过中点的中垂面（OutRadiusCm == 0）。
+	 * 不假设 m_i ≪ m_j，也不假设天体共线。
+	 *
+	 * 无效输入（非有限、非正质量、两点重合）返回 false，输出清零。
+	 * 纯函数，自动化测试直接调用。
+	 */
+	static bool ComputeDominanceBoundary(const FVector3d& PositionA, double MassA,
+		const FVector3d& PositionB, double MassB,
+		FVector3d& OutCenter, double& OutRadiusCm, FVector3d& OutNormal);
+
+	/**
+	 * 点 Point 处，Positions/Masses 里的 i、j 是不是**拉得最狠的两颗**（并列算通过）。
+	 *
+	 * 只和 PairPull = max(g_i, g_j) 比即可：max(g_i, g_j) = PairPull 是恒等式，
+	 * 所以「两人都不输给第三名」等价于「两人就是前两名」。
+	 * 允许 1e-9 相对误差，避免采样点落在边界上时抖动。
+	 */
+	static bool ArePairDominantAt(const FVector3d& Point,
+		const TArray<FVector3d>& Positions, const TArray<double>& Masses,
+		int32 IndexA, int32 IndexB);
 
 	//~ Begin UActorComponent Interface
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType,
@@ -98,6 +137,26 @@ public:
 	bool bDrawGravityArrow = true;
 
 	/**
+	 * 是否画希尔球（引力主导范围）的经纬网格。默认开。
+	 *
+	 * 球心在本天体，半径取「对它引力最强的另一颗」算出的希尔半径。只给有资格的
+	 * 天体画：自身产生引力，且存在比它更重的主星。中心星与飞船都会被跳过。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
+	bool bDrawHillSphere = true;
+
+	/**
+	 * 是否画**瞬时引力主导剖分**：任意天体数、任意质量比都成立的
+	 * 「此刻谁的引力最强」边界。默认关。
+	 *
+	 * 与希尔球并存、回答不同问题：希尔球回答小质量比下的归属范围，
+	 * 剖分回答这一瞬间的拉力归属。三星等质量系统里后者仍有定义，前者没有。
+	 * 无界区域按 DominanceClipRadiusCm 裁剪。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
+	bool bDrawDominancePartition = false;
+
+	/**
 	 * 是否在**星图模式之外**也画轨迹。默认关。
 	 * 关 = 只在星图模式里显示；开 = 普通游戏画面里也画。
 	 */
@@ -122,6 +181,14 @@ public:
 	/** 引力矢量的颜色。默认取暖橙，与速度矢量的黄色区分开。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
 	FColor GravityArrowColor = FColor(255, 120, 60);
+
+	/** 希尔球网格的颜色。默认偏青，与轨迹蓝、箭头黄/橙区分开。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
+	FColor HillSphereColor = FColor(80, 210, 200);
+
+	/** 瞬时引力主导剖分的网格颜色。默认偏蓝紫，与希尔球青色区分。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
+	FColor DominanceColor = FColor(150, 190, 255);
 
 	//////////////////////////////////////////////////////////////////////////
 	// 预测窗口
@@ -158,6 +225,57 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
 	double GravityArrowScaleCm = 100.0;
 
+	//////////////////////////////////////////////////////////////////////////
+	// 希尔球
+
+	/** 每条纬线/经线的折线段数。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory",
+		meta = (ClampMin = "3", ClampMax = "128"))
+	int32 HillSphereSegments = 48;
+
+	/** 纬线圈数（不含赤道）。0 = 只画赤道。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory",
+		meta = (ClampMin = "0", ClampMax = "16"))
+	int32 HillSphereLatitudeRings = 4;
+
+	/** 经线圈数（每条都是过两极的大圆）。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory",
+		meta = (ClampMin = "3", ClampMax = "32"))
+	int32 HillSphereLongitudeRings = 12;
+
+	/** 半径小于这个值（厘米）就不画 —— 算出来小到看不见的球没有意义。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory",
+		meta = (ClampMin = "0.0"))
+	double MinHillSphereRadiusCm = 100.0;
+
+	//////////////////////////////////////////////////////////////////////////
+	// 瞬时引力主导剖分
+
+	/** 以本天体为圆心的裁剪半径（厘米）。最重天体的主导区无界，必须裁。默认 150 AU。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory",
+		meta = (ClampMin = "1.0"))
+	double DominanceClipRadiusCm = 1.5e8;
+
+	/** 球面边界的经向段数。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory",
+		meta = (ClampMin = "3", ClampMax = "128"))
+	int32 DominanceSphereSegments = 32;
+
+	/** 球面边界的纬向圈数（不含两极）。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory",
+		meta = (ClampMin = "1", ClampMax = "32"))
+	int32 DominanceSphereRings = 8;
+
+	/** 平面边界（等质量）每个方向的格数。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory",
+		meta = (ClampMin = "2", ClampMax = "128"))
+	int32 DominancePlaneSegments = 32;
+
+	/** 球面半径小于这个值（厘米）就不画 —— 飞船这种微小主导区没有意义。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory",
+		meta = (ClampMin = "0.0"))
+	double MinDominanceRadiusCm = 100.0;
+
 private:
 	/**
 	 * 实际的预测窗口（年）：
@@ -179,6 +297,24 @@ private:
 
 	/** 引力箭头（运行期，读求解器当前纯引力）。 */
 	void AppendGravityArrow(const UCosmosSimulationSubsystem& Subsystem, const FLinearColor& Color);
+
+	/** 找对本天体引力最强的另一颗（max M/d²），算希尔半径。不产生引力的天体返回 false。 */
+	bool ResolveHillSphereRadiusCm(double& OutRadiusCm);
+
+	/** 以 Center 为球心、RadiusCm 为半径，把经纬网格追加进 Lines。 */
+	void AppendHillSphere(const FVector& Center, double RadiusCm, const FLinearColor& Color);
+
+	/**
+	 * 这一对本天体与 OtherActor 是否由本组件负责画。
+	 *
+	 * 规则：对方也有开着的剖分组件时，较重者画；等重按 Actor 名排序去重。
+	 * 对方没有开着的组件时本组件负责 —— 避免「只有一个组件开了开关却什么都画不出」。
+	 */
+	bool ShouldDrawDominancePair(double SelfMassEarth, double OtherMassEarth,
+		const AActor& SelfActor, const AActor& OtherActor) const;
+
+	/** 画出本天体参与的、裁剪后的 Apollonius 边界（球面或中垂面）。 */
+	void AppendDominancePartition(const FVector& Anchor, const FLinearColor& Color);
 
 	/** 编辑器态速度箭头：读 InitialVelocityKmPerSecond，换算回 AU/年；比例系数仍按 AU/年 定义。 */
 	void AppendEditorVelocityArrow(const FVector& Anchor, const FVector3d& Velocity,
