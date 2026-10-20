@@ -4,6 +4,8 @@
 #include "VoxelPlanetActor.h"
 
 #include "VoxelWorldCreateInfo.h"
+// 世界线程池：多颗行星共用同一个池，必须在任何 CreateWorld 之前建好。
+#include "VoxelTools/VoxelBlueprintLibrary.h"
 // 基类只前置声明了 UVoxelWorldRootComponent，修正组件树要调它的方法，这里要完整类型。
 #include "VoxelWorldRootComponent.h"
 #include "VoxelGenerators/VoxelGeneratorPicker.h"
@@ -25,6 +27,13 @@ AVoxelPlanetActor::AVoxelPlanetActor()
 	// 那会和我们自己那次撞成建两次（第二次因 already created 被静默忽略，保留
 	// 第一次的生成器快照）。显式关掉，不依赖默认值。
 	bCreateWorldAutomatically = false;
+
+	// 世界线程池由 RebuildPlanet 在 CreateWorld 之前显式建一次（见那里）。
+	// 基类默认 true 会让每颗行星各自抢着建池：先建的那颗定下线程数，后建的就刷
+	// 「already created, NumberOfThreads will be ignored」；若某个实例被改成
+	// false，第一颗反而刷「global pool isn't created」。统一 false，只复用。
+	// （运行时还会在 CreateWorld 前再压一次，防止蓝图实例覆盖。）
+	bCreateGlobalPool = false;
 
 	// 这两个是我们的策展默认值，基类的默认不适合本项目：
 	//   - 线程：基类 2 个，喂不饱大行星的流送，背面区块比正面晚到很久，表现为
@@ -343,6 +352,40 @@ void AVoxelPlanetActor::RebuildPlanet()
 		return;
 	}
 #endif
+
+	// --- 5. 先统一建世界线程池，再建世界 ---
+	//
+	// 本关卡有多颗行星，每颗都会走到这里 CreateWorld → CreatePool。插件对
+	// 「多体素世界」的约定是：**先由外部建好一个世界池**，各世界把
+	// bCreateGlobalPool 设 false 只复用（VoxelWorld.cpp:838-856）。没人先建时：
+	//   - bCreateGlobalPool=true 的那颗会建池，后面的每颗都刷
+	//     「already created, NumberOfThreads will be ignored」；
+	//   - 被实例改成 false 的那颗若排在前面，则刷
+	//     「global pool isn't created」，池的线程数由它顺手决定。
+	// 两条警告是同一个根因：建池的责任落到了「第一个跑到的行星」身上。
+	//
+	// 放在 CreateWorld 之前而不是 BeginPlay：游戏世界的首次建世发生在
+	// OnConstruction（PIE 里也会跑），BeginPlay 已经太晚。这里是非编辑器
+	// 世界建池的唯一入口 —— 编辑器走上面的 Toggle()（Preview 自建池）已返回。
+	//
+	// 再压一次 bCreateGlobalPool 是因为蓝图实例可能把它覆盖回 true：只改
+	// 构造函数默认值管不到已摆放的实例。
+	// 只对 game / PIE 世界建池：编辑器世界的预览池由 Toggle() 自己按 Preview
+	// 创建，EditorPreview 世界也不该留下一个没人复用的世界池。
+	UWorld* const World = GetWorld();
+	if (World && World->IsGameWorld())
+	{
+		bCreateGlobalPool = false;
+		if (!UVoxelBlueprintLibrary::IsWorldVoxelPoolCreated(World))
+		{
+			UVoxelBlueprintLibrary::CreateWorldVoxelThreadPool(
+				World,
+				PriorityCategories,
+				PriorityOffsets,
+				NumberOfThreads,
+				bConstantPriorities);
+		}
+	}
 
 	CreateWorld(FVoxelWorldCreateInfo());
 }
