@@ -789,4 +789,107 @@ bool FStellarEraUnitsTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraNBodyProbeContactTest,
+	"StellarEra.Core.NBodyProbeContact",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraNBodyProbeContactTest::RunTest(const FString& Parameters)
+{
+	// 几何：球体半径 0.1 在原点（质量 3），探针体质量 1 在 x=0.15。
+	// 探针偏移 -0.06 落在 x=0.09，穿进球内 0.01；偏移 -0.08 落在 x=0.07，穿 0.03。
+	// 深者胜：位移必须由 -0.08 那个探针决定。
+	{
+		FNBodySimulator Simulator;
+		Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
+		Simulator.SetIntegrator(ECosmosIntegrator::VelocityVerlet);
+		Simulator.SetSofteningLength(1.0e-5);
+
+		FCosmosBodyState Sphere;
+		Sphere.Mass = 3.0;
+		Sphere.Radius = 0.1;
+		Sphere.Position = FVector3d::ZeroVector;
+		Simulator.AddBody(Sphere);
+
+		FCosmosBodyState ProbeBody;
+		ProbeBody.Mass = 1.0;
+		ProbeBody.Position = FVector3d(0.15, 0.0, 0.0);
+		TArray<FVector3d> Probes;
+		Probes.Add(FVector3d(-0.06, 0.0, 0.0));
+		Probes.Add(FVector3d(-0.08, 0.0, 0.0));
+		ProbeBody.SetContactProbes(MoveTemp(Probes));
+		Simulator.AddBody(ProbeBody);
+
+		TestEqual(TEXT("ContactProbeRadius = 0.08"),
+			Simulator.GetBody(1).ContactProbeRadius, 0.08, 1.0e-15);
+
+		Simulator.StepExact(0.0);
+
+		// 穿透 0.03，让路比例：探针体 3/4、球体 1/4。
+		TestEqual(TEXT("探针体让 3/4 的穿透量"),
+			Simulator.GetBody(1).Position.X, 0.1725, 1.0e-15);
+		TestEqual(TEXT("球体反向让 1/4"),
+			Simulator.GetBody(0).Position.X, -0.0075, 1.0e-15);
+		TestEqual(TEXT("最深探针恰好落在球面上"),
+			(Simulator.GetBody(1).Position + FVector3d(-0.08, 0.0, 0.0)
+				- Simulator.GetBody(0).Position).Size(), 0.1, 1.0e-15);
+	}
+
+	// 空探针 = 退回球-球：半径 0 的点质量即便中心距 0.15 > 0.1 也不会接触。
+	{
+		FNBodySimulator Simulator;
+		Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
+		Simulator.SetIntegrator(ECosmosIntegrator::VelocityVerlet);
+		Simulator.SetSofteningLength(1.0e-5);
+
+		FCosmosBodyState Sphere;
+		Sphere.Mass = 3.0;
+		Sphere.Radius = 0.1;
+		Simulator.AddBody(Sphere);
+
+		FCosmosBodyState PointMass;
+		PointMass.Mass = 1.0;
+		PointMass.Position = FVector3d(0.15, 0.0, 0.0);
+		Simulator.AddBody(PointMass);
+
+		Simulator.StepExact(0.0);
+
+		TestEqual(TEXT("无探针、半径为 0：不接触"),
+			Simulator.GetBody(1).Position.X, 0.15, 1.0e-15);
+		TestEqual(TEXT("球体也不动"), Simulator.GetBody(0).Position.X, 0.0, 1.0e-15);
+	}
+
+	// 撞上即停：探针体带 bZeroVelocityOnContact 时，整条速度钉到球体上。
+	{
+		FNBodySimulator Simulator;
+		Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
+		Simulator.SetIntegrator(ECosmosIntegrator::VelocityVerlet);
+		Simulator.SetSofteningLength(1.0e-5);
+
+		FCosmosBodyState Sphere;
+		Sphere.Mass = 3.0;
+		Sphere.Radius = 0.1;
+		Sphere.Velocity = FVector3d(0.0, 0.002, 0.0);
+		Simulator.AddBody(Sphere);
+
+		FCosmosBodyState ProbeBody;
+		ProbeBody.Mass = 1.0;
+		ProbeBody.Position = FVector3d(0.15, 0.0, 0.0);
+		ProbeBody.Velocity = FVector3d(-0.01, 0.0, 0.0);
+		ProbeBody.bZeroVelocityOnContact = true;
+		TArray<FVector3d> Probes;
+		Probes.Add(FVector3d(-0.06, 0.0, 0.0));
+		ProbeBody.SetContactProbes(MoveTemp(Probes));
+		Simulator.AddBody(ProbeBody);
+
+		Simulator.StepExact(0.0);
+
+		TestEqual(TEXT("撞上即停：速度 = 球体速度（X）"),
+			Simulator.GetBody(1).Velocity.X, 0.0, 1.0e-15);
+		TestEqual(TEXT("撞上即停：速度 = 球体速度（Y）"),
+			Simulator.GetBody(1).Velocity.Y, 0.002, 1.0e-15);
+	}
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

@@ -60,8 +60,37 @@ struct FCosmosBodyState
 	 * （RefreshPlanetContactRadii），飞船取碰撞球半径 300 厘米
 	 * （ASpaceshipPawn::GetContactRadiusCm）。飞船的半径**不是 0**，否则它的
 	 * **中心点**会被钳在地表上、机身下半截埋进地形里。
+	 *
+	 * 带接触探针（ContactProbes）的天体**不用**这一项做接触形状：探针非空时
+	 * 走 ResolveProbeContact，Radius 应同时置 0，否则球体会抢在探针之前触发。
 	 */
 	double Radius = 0.0;
+
+	/**
+	 * 接触探针（相对天体中心，求解器单位）。非空时**取代** Radius 的球-球接触：
+	 * 每个探针按一个点与对方球体求穿透，取最深的一个把天体推出去。
+	 *
+	 * 用途是飞船：整船若只用一个半径 300 cm 的球，机头/机尾与地形的接触位置
+	 * 全是错的。探针由 ASpaceshipPawn 从 Hull 的 Simple Collision 凸包顶点生成，
+	 * 子系统每帧转成求解器坐标写入。
+	 *
+	 * 空数组 = 按 Radius 做球-球接触（行星与所有非飞船天体都走这一支）。
+	 */
+	TArray<FVector3d> ContactProbes;
+
+	/** 最远探针到中心的距离。由 SetContactProbes 维护，用于接触前的快速排除。 */
+	double ContactProbeRadius = 0.0;
+
+	/** 写入探针并同步 ContactProbeRadius。传空数组即退回球-球接触。 */
+	void SetContactProbes(TArray<FVector3d> InProbes)
+	{
+		ContactProbes = MoveTemp(InProbes);
+		ContactProbeRadius = 0.0;
+		for (const FVector3d& Probe : ContactProbes)
+		{
+			ContactProbeRadius = FMath::Max(ContactProbeRadius, Probe.Size());
+		}
+	}
 
 	/** 软化半径。等于 0 时使用求解器的全局设置。 */
 	double SofteningOverride = 0.0;
@@ -323,6 +352,12 @@ private:
 	 * 因此不受这一项影响。
 	 */
 	void ResolveContacts();
+
+	/**
+	 * 探针接触：ProbeIndex 天体带凸包探针，SphereIndex 天体按半径 Radius 当球体。
+	 * 取「最深探针」做穿透解算，让路比例与速度规则和球-球分支完全一致。
+	 */
+	void ResolveProbeContact(int32 ProbeIndex, int32 SphereIndex);
 
 	/**
 	 * 接触时两个天体各让多少位移，按「谁轻谁让路」分配，两者之和恒为 1。

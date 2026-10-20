@@ -228,6 +228,23 @@ void FNBodySimulator::ResolveContacts()
 	{
 		for (int32 j = i + 1; j < N; ++j)
 		{
+			const bool bProbeI = Bodies[i].ContactProbes.Num() > 0;
+			const bool bProbeJ = Bodies[j].ContactProbes.Num() > 0;
+
+			// 探针接触：一方是凸包探针、另一方是球体。双方都带探针（凸包 vs 凸包）
+			// 目前不存在，退回球-球分支 —— 那时 Radius 必须由调用方给对。
+			if (bProbeI != bProbeJ)
+			{
+				const int32 ProbeIndex = bProbeI ? i : j;
+				const int32 SphereIndex = bProbeI ? j : i;
+				if (Bodies[SphereIndex].Radius > 0.0)
+				{
+					ResolveProbeContact(ProbeIndex, SphereIndex);
+				}
+				// 对方是点质量：没有任何可接触的表面，跳过。
+				continue;
+			}
+
 			const double ContactDistance = Bodies[i].Radius + Bodies[j].Radius;
 			if (ContactDistance <= 0.0)
 			{
@@ -297,6 +314,80 @@ void FNBodySimulator::ResolveContacts()
 				Bodies[j].Velocity -= Normal * (Approach * ShareJ);
 			}
 		}
+	}
+}
+
+void FNBodySimulator::ResolveProbeContact(int32 ProbeIndex, int32 SphereIndex)
+{
+	FCosmosBodyState& ProbeBody = Bodies[ProbeIndex];
+	FCosmosBodyState& SphereBody = Bodies[SphereIndex];
+
+	const double SphereRadius = SphereBody.Radius;
+
+	// 快速排除：中心距 ≥ 球半径 + 最远探针时，不可能有探针进入球内。
+	const double CenterDistance = (ProbeBody.Position - SphereBody.Position).Size();
+	if (CenterDistance >= SphereRadius + ProbeBody.ContactProbeRadius)
+	{
+		return;
+	}
+
+	// 找最深穿透的探针。法线取「球心 → 探针」，即从对方表面朝外。
+	double DeepestPenetration = 0.0;
+	FVector3d Normal = FVector3d(1.0, 0.0, 0.0);
+
+	for (const FVector3d& Probe : ProbeBody.ContactProbes)
+	{
+		const FVector3d ProbeDelta = ProbeBody.Position + Probe - SphereBody.Position;
+		const double Distance = ProbeDelta.Size();
+		const double Penetration = SphereRadius - Distance;
+		if (Penetration > DeepestPenetration)
+		{
+			DeepestPenetration = Penetration;
+			// 探针正好落在球心时方向无定义，沿用上一个法线。
+			if (Distance > 1e-12)
+			{
+				Normal = ProbeDelta / Distance;
+			}
+		}
+	}
+
+	if (DeepestPenetration <= 0.0)
+	{
+		return;
+	}
+
+	double ShareProbe = 0.0;
+	double ShareSphere = 0.0;
+	ComputeContactShares(ProbeBody.Mass, SphereBody.Mass, ShareProbe, ShareSphere);
+
+	// ① 位置：推开到最深探针刚好落在球面上。与球-球分支同样的让路比例。
+	ProbeBody.Position += Normal * (DeepestPenetration * ShareProbe);
+	SphereBody.Position -= Normal * (DeepestPenetration * ShareSphere);
+
+	// ② 速度：与球-球分支同一套规则（「撞上即停」特例 + 默认抹法向）。
+	const bool bZeroProbe = ProbeBody.bZeroVelocityOnContact;
+	const bool bZeroSphere = SphereBody.bZeroVelocityOnContact;
+
+	if (bZeroProbe != bZeroSphere)
+	{
+		if (bZeroProbe)
+		{
+			ProbeBody.Velocity = SphereBody.Velocity;
+		}
+		else
+		{
+			SphereBody.Velocity = ProbeBody.Velocity;
+		}
+		return;
+	}
+
+	const double Approach = FVector3d::DotProduct(
+		SphereBody.Velocity - ProbeBody.Velocity, Normal);
+
+	if (Approach < 0.0)
+	{
+		ProbeBody.Velocity += Normal * (Approach * ShareProbe);
+		SphereBody.Velocity -= Normal * (Approach * ShareSphere);
 	}
 }
 
