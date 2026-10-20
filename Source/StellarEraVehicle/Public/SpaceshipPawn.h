@@ -141,16 +141,32 @@ public:
 	APlanetCharacter* GetBoardedCharacter() const { return BoardedCharacter; }
 
 	/**
-	 * 接触半径（厘米）—— N 体求解器把飞船当球体解接触时用的那个半径。
+	 * 接触半径（厘米）—— 求解器的**兜底**接触形状：没有凸包探针时才用。
 	 *
 	 * 取根球 Collision 的缩放后半径（默认 300 厘米）。**不能返回 0**：半径 0 的
 	 * 点质量在求解器里会让飞船的**中心**被钳在地表上，机身下半截埋进地形里。
 	 *
-	 * 这个值与碰撞形状**已经解耦**：Collision 现在不参与碰撞，Hull 的凸包才是
-	 * 实际碰撞体。这里读的是「求解器认为飞船占多大」，改它只改离地高度，
-	 * 不改别人撞船时的形状。
+	 * 正常情况下求解器用的是 BuildContactProbes 产出的凸包探针（见
+	 * GetContactProbesLocalCm）；这个半径只在网格没导 Simple Collision 时生效。
+	 * 它与其他碰撞形状**已经解耦**：根球不参与碰撞，改它只改兜底的离地高度。
 	 */
 	float GetContactRadiusCm() const;
+
+	/**
+	 * 从 Hull 当前的网格算出接触探针（Actor 本地坐标，厘米）。
+	 *
+	 * 取网格 Simple Collision 里每个凸包的顶点，按「凸包元素变换 × Hull 相对变换」
+	 * 搬到 Actor 本地，再按 10 cm 网格去重。不写成员 —— 测试可以直接调它。
+	 *
+	 * @return false 表示 Hull 没有网格或网格没有 Simple Collision。
+	 */
+	bool BuildContactProbes(TArray<FVector>& OutProbes) const;
+
+	/**
+	 * 接触探针（Actor 本地，厘米）。空数组 = 没有可用的凸包，求解器退回 300 cm 球。
+	 * 由 BeginPlay / OnConstruction 在套用 HullMesh 之后重建。
+	 */
+	const TArray<FVector>& GetContactProbesLocalCm() const { return ContactProbesLocalCm; }
 
 	/**
 	 * 本帧要施加在自己那个 N 体上的推力加速度（**厘米/秒²**，世界坐标）。零 = 无推力。
@@ -255,6 +271,15 @@ protected:
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spaceship")
 	TObjectPtr<UStaticMeshComponent> Hull;
+
+	/** 重建 ContactProbesLocalCm。Hull 网格或变换变化后调用。 */
+	void RebuildContactProbes();
+
+	/**
+	 * BuildContactProbes 的结果缓存（Actor 本地，厘米）。
+	 * 每帧由子系统读走；为空时求解器退回 GetContactRadiusCm 的球。
+	 */
+	TArray<FVector> ContactProbesLocalCm;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
 	TObjectPtr<USpringArmComponent> SpringArm;

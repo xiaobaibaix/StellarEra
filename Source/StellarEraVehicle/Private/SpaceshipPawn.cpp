@@ -10,6 +10,9 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "UObject/ConstructorHelpers.h"
 #include "EngineUtils.h"
+#include "Engine/StaticMesh.h"
+#include "PhysicsEngine/BodySetup.h"
+#include "PhysicsEngine/ConvexElem.h"
 #include "VoxelComponents/VoxelInvokerComponent.h"
 
 namespace
@@ -205,6 +208,7 @@ void ASpaceshipPawn::OnConstruction(const FTransform& Transform)
 	// 覆盖值的第一个时机，在蓝图 Class Defaults 里改 HullMesh 立刻能在视口看到。
 	// 这里只换网格 —— 位置/朝向/缩放归蓝图，见 ApplyHullMesh 的注释。
 	ApplyHullMesh();
+	RebuildContactProbes();
 
 #if WITH_EDITOR
 	// 让飞船退出 World Partition 的空间加载。
@@ -231,6 +235,7 @@ void ASpaceshipPawn::BeginPlay()
 	// 再套一次：关卡里实例化出来的蓝图可能覆盖过 HullMesh，而实例的
 	// OnConstruction 未必在属性就位之后跑过。重复调用是幂等的（只换网格）。
 	ApplyHullMesh();
+	RebuildContactProbes();
 
 	// 自动回正需要一个重力参考：贴着行星时对齐到球面法线，太空中对齐到世界 Z。
 	// 注意 AutoLevelSpeed 默认已为 0（自动回正关闭），这里查出来的 PlanetActor 因此
@@ -523,9 +528,84 @@ float ASpaceshipPawn::GetContactRadiusCm() const
 {
 	// GetScaledSphereRadius 而不是 GetUnscaledSphereRadius：飞船在关卡里可能被
 	// 整体缩放，N 体那边要的是**世界尺度**的半径（跟 CentimetersPerAu 同一套单位）。
-	// 只读半径，不看碰撞开关：根球现在是 NoCollision，但它仍是接触半径的来源。
+	// 只读半径，不看碰撞开关：根球现在是 NoCollision，但它仍是兜底接触形状的来源。
 	// Collision 为空只会出现在 CDO 构造的中途，返回 0 即退回点质量行为。
 	return Collision ? Collision->GetScaledSphereRadius() : 0.f;
+}
+
+bool ASpaceshipPawn::BuildContactProbes(TArray<FVector>& OutProbes) const
+{
+	OutProbes.Reset();
+
+	const UStaticMesh* Mesh = Hull ? Hull->GetStaticMesh() : nullptr;
+	const UBodySetup* BodySetup = Mesh ? Mesh->GetBodySetup() : nullptr;
+	if (!BodySetup)
+	{
+		return false;
+	}
+
+	// 凸包顶点存的是元素空间坐标，每个元素还可能带自己的变换；再乘 Hull 相对根组件
+	// 的变换（含蓝图里拖的缩放），才是 Actor 本地坐标。
+	//
+	// FTransform 的 operator* 是「先 A 后 B」：C = A * B 先应用 A 再应用 B
+	// （见 TransformNonVectorized.h 里 Multiply 的注释）。所以写在左边的是 Elem。
+	const FTransform HullToLocal = Hull->GetRelativeTransform();
+
+	for (const FKConvexElem& Elem : BodySetup->AggGeom.ConvexElems)
+	{
+		const FTransform ElemToLocal = Elem.GetTransform() * HullToLocal;
+		for (const FVector& Vertex : Elem.VertexData)
+		{
+			OutProbes.Add(ElemToLocal.TransformPosition(Vertex));
+		}
+	}
+
+	if (OutProbes.Num() == 0)
+	{
+		return false;
+	}
+
+	// 12 个凸包共几百个顶点，接触只需要形状：按 10 cm 网格去重。
+	// 船体 50 m 量级下 10 cm 的误差远小于地形体素边长。
+	constexpr double BucketCm = 10.0;
+	TSet<FIntVector> Seen;
+	TArray<FVector> Unique;
+	Unique.Reserve(OutProbes.Num());
+
+	for (const FVector& Probe : OutProbes)
+	{
+		const FIntVector Key(
+			FMath::RoundToInt(Probe.X / BucketCm),
+			FMath::RoundToInt(Probe.Y / BucketCm),
+			FMath::RoundToInt(Probe.Z / BucketCm));
+
+		if (Seen.Contains(Key))
+		{
+			continue;
+		}
+		Seen.Add(Key);
+		Unique.Add(Probe);
+	}
+
+	OutProbes = MoveTemp(Unique);
+	return true;
+}
+
+void ASpaceshipPawn::RebuildContactProbes()
+{
+	TArray<FVector> Probes;
+	if (BuildContactProbes(Probes))
+	{
+		ContactProbesLocalCm = MoveTemp(Probes);
+		UE_LOG(LogTemp, Display, TEXT("[Ship] 接触探针 %d 个"),
+			ContactProbesLocalCm.Num());
+	}
+	else
+	{
+		ContactProbesLocalCm.Reset();
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Ship] Hull 没有 Simple Collision，接触退回 300 cm 球"));
+	}
 }
 
 FVector ASpaceshipPawn::GetThrustAccelerationWorldCmPerS2(float DeltaSeconds) const
