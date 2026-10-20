@@ -33,7 +33,12 @@ ASpaceshipPawn::ASpaceshipPawn()
 
 	Collision = CreateDefaultSubobject<USphereComponent>(TEXT("Collision"));
 	Collision->InitSphereRadius(300.f);
-	Collision->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	// 根球不参与碰撞：船体形状交给 Hull 的简单碰撞（导入时生成的凸包）。
+	// 它保留两个职责：
+	//   - Actor 的变换锚点（根组件）；
+	//   - N 体求解器的接触半径数据源（GetContactRadiusCm 读这个半径，不看碰撞开关）。
+	// 半径仍是 300，所以离地高度与改动前一致 —— 换碰撞形状不改变飞行手感。
+	Collision->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Collision->SetCollisionObjectType(ECC_Pawn);
 	Collision->SetCollisionResponseToAllChannels(ECR_Block);
 	SetRootComponent(Collision);
@@ -138,8 +143,15 @@ ASpaceshipPawn::ASpaceshipPawn()
 
 	Hull = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Hull"));
 	Hull->SetupAttachment(Collision);
-	// 外壳只负责好看，碰撞交给根部的球体。
-	Hull->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	// 碰撞形状 = 船体网格自身的 Simple Collision（导入时生成的 UCX 凸包）。
+	// 不再用根球：3 m 的球罩不住 55 m × 83 m 的航天飞机，挡人/挡射线的位置全是错的。
+	// 注意：这**不会**让飞船自己被地形挡住 —— 它的位移由 N 体求解器每帧
+	// SetActorLocation(bSweep=false) 瞬移写入，接触高度由求解器半径 300 决定。
+	// 凸包只负责「别人撞船」、射线/重叠查询与相机弹簧臂。
+	// 网格若没有 Simple Collision，这里不会有任何阻挡（物理需要简单碰撞）。
+	Hull->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	Hull->SetCollisionObjectType(ECC_Pawn);
+	Hull->SetCollisionResponseToAllChannels(ECR_Block);
 
 	// C++ 只给一个引擎立方体兜底，让裸放的 ASpaceshipPawn 不至于隐形。
 	//
@@ -511,6 +523,7 @@ float ASpaceshipPawn::GetContactRadiusCm() const
 {
 	// GetScaledSphereRadius 而不是 GetUnscaledSphereRadius：飞船在关卡里可能被
 	// 整体缩放，N 体那边要的是**世界尺度**的半径（跟 CentimetersPerAu 同一套单位）。
+	// 只读半径，不看碰撞开关：根球现在是 NoCollision，但它仍是接触半径的来源。
 	// Collision 为空只会出现在 CDO 构造的中途，返回 0 即退回点质量行为。
 	return Collision ? Collision->GetScaledSphereRadius() : 0.f;
 }

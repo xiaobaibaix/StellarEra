@@ -143,11 +143,12 @@ public:
 	/**
 	 * 接触半径（厘米）—— N 体求解器把飞船当球体解接触时用的那个半径。
 	 *
-	 * 取碰撞球的缩放后半径（默认 300 厘米）。**不能返回 0**：半径 0 的点质量
-	 * 在求解器里会让飞船的**中心**被钳在地表上，机身下半截埋进地形里。
+	 * 取根球 Collision 的缩放后半径（默认 300 厘米）。**不能返回 0**：半径 0 的
+	 * 点质量在求解器里会让飞船的**中心**被钳在地表上，机身下半截埋进地形里。
 	 *
-	 * 读的是 Collision 而不是 Hull：Collision 本来就是「飞船占多大地方」的那个
-	 * 形状（它同时是根组件），Hull 是纯外观（CollisionEnabled 为 NoCollision）。
+	 * 这个值与碰撞形状**已经解耦**：Collision 现在不参与碰撞，Hull 的凸包才是
+	 * 实际碰撞体。这里读的是「求解器认为飞船占多大」，改它只改离地高度，
+	 * 不改别人撞船时的形状。
 	 */
 	float GetContactRadiusCm() const;
 
@@ -205,7 +206,13 @@ public:
 	virtual FVector GetVelocity() const override { return CosmosVelocity; }
 
 protected:
-	/** 碰撞球：根组件，也是飞船「占多大地方」的那个形状（接触半径取自它）。 */
+	/**
+	 * 接触半径球：根组件与变换锚点。
+	 *
+	 * **不参与碰撞** —— 实际碰撞形状是 Hull 网格上的 Simple Collision（凸包）。
+	 * 保留这个组件和 300 cm 半径，只因为 N 体求解器要用它算飞船的接触距离
+	 * （GetContactRadiusCm）；改半径会改离地高度，与「别人撞船」的形状无关。
+	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spaceship")
 	TObjectPtr<USphereComponent> Collision;
 
@@ -238,6 +245,9 @@ protected:
 	 *   - 换模型：用 HullMesh 属性（推荐），或直接在子蓝图里覆盖本组件的静态网格体；
 	 *   - 摆位置/朝向/缩放：在子蓝图（BP_SpaceshipPawn）的视口里选中 Hull 拖 Gizmo，
 	 *     值存在蓝图资产里，重编译不会被清掉；关卡实例上也能单独调。
+	 *
+	 * 碰撞也归这个组件：构造函数打开它的 QueryAndPhysics，形状取网格的
+	 * Simple Collision（凸包）；根球 Collision 不参与碰撞。
 	 *
 	 * C++ 只在构造期塞一个引擎立方体兜底，让裸放的 ASpaceshipPawn 不至于隐形，
 	 * 之后不再写这里的任何变换 —— 一旦在这里写，蓝图里拖出来的值每次重编译都会
