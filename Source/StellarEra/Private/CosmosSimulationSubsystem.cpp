@@ -144,9 +144,9 @@ void UCosmosSimulationSubsystem::AddBodyToSimulator(UCosmosOrbitComponent* Compo
 	}
 	else if (const ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(BodyActor))
 	{
-		// 飞船的接触半径取碰撞球半径，让**机身外壳**贴地而不是**球心**贴地。
-		// 留 0 的话求解器把中心钳在地表上，机身下半截埋进地形里 —— 300 厘米的
-		// 球埋掉 3 米，正是 PIE 里看到的那一幕。
+		// 这里先给 300 cm 球当**兜底**：第一次 Tick 就会由 RefreshShipContactProbes
+		// 换成船体凸包生成的接触探针（Radius 同时置 0）。只有网格没导 Simple
+		// Collision 时才真的用这个球。
 		State.Radius = double(Ship->GetContactRadiusCm()) / CentimetersPerAu;
 
 		// 撞上行星时**整条速度归零**（相对速度归零、随行星一起动），而不是默认的
@@ -206,6 +206,49 @@ void UCosmosSimulationSubsystem::RefreshPlanetContactRadii()
 		{
 			Simulator.GetBodyMutable(Index).Radius = SurfaceRadiusCm / CentimetersPerAu;
 		}
+	}
+}
+
+void UCosmosSimulationSubsystem::RefreshShipContactProbes()
+{
+	for (UCosmosOrbitComponent* Component : Bodies)
+	{
+		ASpaceshipPawn* Ship = Component ? Cast<ASpaceshipPawn>(Component->GetOwner()) : nullptr;
+		if (!Ship || Component->SimulatorIndex == INDEX_NONE)
+		{
+			continue;
+		}
+
+		// 与 ApplyControlledBodyForces 同一个理由：GetBodyMutable 越界不报错，只能在这里查。
+		if (Component->SimulatorIndex >= Simulator.GetNumBodies())
+		{
+			continue;
+		}
+
+		FCosmosBodyState& State = Simulator.GetBodyMutable(Component->SimulatorIndex);
+
+		// 没有探针（网格没导 Simple Collision）时退回 300 cm 球 —— 行为与加探针前一致。
+		const TArray<FVector>& LocalProbes = Ship->GetContactProbesLocalCm();
+		if (LocalProbes.Num() == 0)
+		{
+			State.SetContactProbes({});
+			State.Radius = double(Ship->GetContactRadiusCm()) / CentimetersPerAu;
+			continue;
+		}
+
+		// 本地厘米 → 世界厘米（只取旋转+缩放，不加 Actor 位置：探针相对船心）→ AU。
+		// 每帧重算是为了跟上船的转向：横着贴地和倒着贴地，碰到的探针不是同一批。
+		const FTransform ShipTransform = Ship->GetActorTransform();
+		TArray<FVector3d> Probes;
+		Probes.Reserve(LocalProbes.Num());
+		for (const FVector& LocalProbe : LocalProbes)
+		{
+			const FVector RelativeCm = ShipTransform.TransformVector(LocalProbe);
+			Probes.Add(FVector3d(RelativeCm) / CentimetersPerAu);
+		}
+
+		State.SetContactProbes(MoveTemp(Probes));
+		State.Radius = 0.0;
 	}
 }
 
@@ -400,14 +443,16 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 		return;
 	}
 
-	// ── 0. 刷新行星的接触半径 + 施加受控天体的外力 ──
-	// 两者都是「推进之前把引擎侧状态喂给求解器」。
+	// ── 0. 刷新接触形状 + 施加受控天体的外力 ──
+	// 三者都是「推进之前把引擎侧状态喂给求解器」。
 	//
-	// 接触半径必须在推进之前：接触解算发生在 StepExact 内部，读的就是这一刻的
-	// Radius。放到推进之后，这一帧的接触用的还是上一帧的地形高度。
+	// 接触形状必须在推进之前：接触解算发生在 StepExact 内部，读的就是这一刻的
+	// Radius / ContactProbes。放到推进之后，这一帧的接触用的还是上一帧的地形高度
+	// 和上一帧的船头朝向。
 	//
 	// 外力同理：本帧推进读的就是这一刻写进去的值。
 	RefreshPlanetContactRadii();
+	RefreshShipContactProbes();
 	ApplyControlledBodyForces(DeltaTime);
 
 	// ── 1. 时间推进 ──

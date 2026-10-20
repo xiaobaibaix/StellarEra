@@ -290,6 +290,15 @@ private:
 	void RefreshPlanetContactRadii();
 
 	/**
+	 * 把飞船的接触探针（Actor 本地厘米）转成求解器坐标写进天体状态。
+	 *
+	 * 探针来自 Hull 的 Simple Collision 凸包，取代 300 cm 的球体接触。
+	 * 没有探针（网格没导碰撞）时退回 300 cm 球 —— Radius 回到旧值。
+	 * 与 RefreshPlanetContactRadii 一样，必须在推进之前调用。
+	 */
+	void RefreshShipContactProbes();
+
+	/**
 	 * 每帧推进之前，把**受控天体**（飞船）想施加的力写进求解器。
 	 *
 	 * 方向只能是「子系统下来读飞船」：StellarEraVehicle 不能依赖 StellarEra，
