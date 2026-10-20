@@ -6,7 +6,11 @@
 #include "CosmosSimulationSubsystem.h"
 #include "CosmosTypes.h"
 #include "StellarEraHUD.h"
+#include "StellarEraPlayerController.h"
 #include "VoxelPlanetActor.h"
+#include "Engine/Canvas.h"
+#include "Engine/Engine.h"
+#include "Engine/Font.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 
@@ -171,4 +175,151 @@ FStarMapPanelRect UStarMapUISystem::PlacePanelBesideAnchor(
 	Rect.X = FMath::Clamp(Rect.X, MarginPx, MaxX);
 	Rect.Y = FMath::Clamp(float(AnchorPx.Y) - Rect.H * 0.5f, MarginPx, MaxY);
 	return Rect;
+}
+
+void UStarMapUISystem::Draw(AStellarEraHUD& Hud)
+{
+	const FVector2D ViewportSize = Hud.GetViewportSize();
+	if (ViewportSize.X <= 0.0 || ViewportSize.Y <= 0.0)
+	{
+		return;
+	}
+
+	AStellarEraPlayerController* PlayerController =
+		Cast<AStellarEraPlayerController>(Hud.GetOwningPlayerController());
+	if (!PlayerController)
+	{
+		return;
+	}
+
+	const UWorld* World = Hud.GetWorld();
+	UCosmosSimulationSubsystem* Subsystem = World
+		? World->GetSubsystem<UCosmosSimulationSubsystem>()
+		: nullptr;
+	if (!Subsystem)
+	{
+		return;
+	}
+
+	AActor* Selected = Subsystem->GetSelectedBody();
+
+	double MouseX = 0.0;
+	double MouseY = 0.0;
+	const bool bHasMouse = PlayerController->GetMousePosition(MouseX, MouseY);
+	const FVector2D MousePosition(MouseX, MouseY);
+	const bool bMouseInside = bHasMouse &&
+		MousePosition.X >= 0.0 && MousePosition.Y >= 0.0 &&
+		MousePosition.X <= ViewportSize.X && MousePosition.Y <= ViewportSize.Y;
+
+	AActor* Hovered = bMouseInside
+		? PlayerController->PickBodyUnderScreenPosition(MousePosition)
+		: nullptr;
+
+	// 选中面板：贴天体投影中心右侧。中心不在视口内就不画。
+	if (IsValid(Selected))
+	{
+		FVector2D Center = FVector2D::ZeroVector;
+		float RadiusPx = 0.f;
+		const bool bProjected =
+			PlayerController->ProjectBodyToScreen(Selected, Center, RadiusPx);
+		const bool bCenterInside =
+			Center.X >= 0.0 && Center.Y >= 0.0 &&
+			Center.X <= ViewportSize.X && Center.Y <= ViewportSize.Y;
+
+		if (bProjected && bCenterInside)
+		{
+			FStarMapBodyInfo Info;
+			if (BuildBodyInfo(Selected, Info))
+			{
+				DrawBodyPanel(Hud, Info, Center, RadiusPx, ViewportSize);
+			}
+		}
+	}
+
+	// 悬停面板：贴鼠标右侧；悬停的正是选中天体时不重复弹。
+	if (bMouseInside && IsValid(Hovered) && Hovered != Selected)
+	{
+		FStarMapBodyInfo Info;
+		if (BuildBodyInfo(Hovered, Info))
+		{
+			DrawBodyPanel(Hud, Info, MousePosition, 0.f, ViewportSize);
+		}
+	}
+}
+
+void UStarMapUISystem::DrawBodyPanel(
+	AStellarEraHUD& Hud,
+	const FStarMapBodyInfo& Info,
+	const FVector2D& AnchorPx,
+	float AnchorRadiusPx,
+	const FVector2D& ViewportSizePx)
+{
+	UFont* Font = GEngine ? GEngine->GetMediumFont() : nullptr;
+	if (!Font)
+	{
+		return;
+	}
+
+	const TArray<FString> Lines = FormatBodyInfoLines(Info);
+	if (Lines.Num() == 0)
+	{
+		return;
+	}
+
+	constexpr float TextScale = 1.f;
+	constexpr float Padding = 10.f;
+	constexpr float LineSpacing = 4.f;
+	constexpr float SeparatorSpacing = 6.f;
+	constexpr float Gap = 12.f;
+	constexpr float Margin = 8.f;
+
+	const FString& Title = Lines[0];
+
+	float TitleWidth = 0.f;
+	float TitleHeight = 0.f;
+	Hud.GetTextSize(Title, TitleWidth, TitleHeight, Font, TextScale);
+
+	float ContentWidth = TitleWidth;
+	float LineHeight = 0.f;
+	for (int32 Index = 1; Index < Lines.Num(); ++Index)
+	{
+		float LineWidth = 0.f;
+		float ThisHeight = 0.f;
+		Hud.GetTextSize(Lines[Index], LineWidth, ThisHeight, Font, TextScale);
+		ContentWidth = FMath::Max(ContentWidth, LineWidth);
+		LineHeight = FMath::Max(LineHeight, ThisHeight);
+	}
+
+	const int32 BodyLineCount = Lines.Num() - 1;
+	const float PanelWidth = ContentWidth + Padding * 2.f;
+	const float PanelHeight = Padding * 2.f + TitleHeight
+		+ SeparatorSpacing * 2.f + 1.f
+		+ BodyLineCount * (LineHeight + LineSpacing);
+
+	const FStarMapPanelRect Rect = PlacePanelBesideAnchor(
+		AnchorPx, AnchorRadiusPx,
+		FVector2D(PanelWidth, PanelHeight), ViewportSizePx, Gap, Margin);
+
+	const FLinearColor Background(0.f, 0.f, 0.f, 0.65f);
+	const FLinearColor Gold(1.f, 0.85f, 0.30f, 1.f);
+	const FLinearColor White(1.f, 1.f, 1.f, 1.f);
+
+	Hud.DrawRect(Background, Rect.X, Rect.Y, Rect.W, Rect.H);
+	Hud.DrawRect(Gold, Rect.X, Rect.Y, Rect.W, 1.f);
+	Hud.DrawRect(Gold, Rect.X, Rect.Y + Rect.H - 1.f, Rect.W, 1.f);
+	Hud.DrawRect(Gold, Rect.X, Rect.Y, 1.f, Rect.H);
+	Hud.DrawRect(Gold, Rect.X + Rect.W - 1.f, Rect.Y, 1.f, Rect.H);
+
+	float CursorY = Rect.Y + Padding;
+	Hud.DrawText(Title, Gold, Rect.X + Padding, CursorY, Font, TextScale);
+	CursorY += TitleHeight + SeparatorSpacing;
+
+	Hud.DrawRect(Gold, Rect.X + Padding, CursorY, Rect.W - Padding * 2.f, 1.f);
+	CursorY += 1.f + SeparatorSpacing;
+
+	for (int32 Index = 1; Index < Lines.Num(); ++Index)
+	{
+		Hud.DrawText(Lines[Index], White, Rect.X + Padding, CursorY, Font, TextScale);
+		CursorY += LineHeight + LineSpacing;
+	}
 }

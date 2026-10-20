@@ -8,6 +8,7 @@
 #include "StellarEraHUD.generated.h"
 
 class ASpaceshipPawn;
+class UStarMapUISystem;
 struct FSpaceshipStatus;
 
 /**
@@ -39,6 +40,9 @@ public:
 	 * 重复调用会替换掉上一条，不排队。
 	 */
 	void ShowNotice(const FString& Text);
+
+	/** 当前画布尺寸（像素）；没有 Canvas 时返回零向量。 */
+	FVector2D GetViewportSize() const;
 
 protected:
 	/** 提示停留时长（秒），之后开始淡出。 */
@@ -80,4 +84,8 @@ private:
 
 	/** 提示出现的时刻（世界时间，秒）。 */
 	float NoticeStartTime = 0.f;
+
+	/** 星图模式的信息面板。第一次进星图时惰性创建。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UStarMapUISystem> StarMapUI;
 };

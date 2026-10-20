@@ -3,6 +3,8 @@
 #include "StellarEraHUD.h"
 
 #include "SpaceshipPawn.h"
+#include "StarMapCameraPawn.h"
+#include "StarMapUISystem.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 #include "Engine/Font.h"
@@ -56,7 +58,25 @@ void AStellarEraHUD::DrawHUD()
 		DrawStatusPanel(Ship->GetStatus());
 	}
 
+	// 星图模式的信息面板：只在当前 Pawn 是星图相机时画。
+	if (const APlayerController* PlayerController = GetOwningPlayerController())
+	{
+		if (Cast<AStarMapCameraPawn>(PlayerController->GetPawn()))
+		{
+			if (!StarMapUI)
+			{
+				StarMapUI = NewObject<UStarMapUISystem>(this);
+			}
+			StarMapUI->Draw(*this);
+		}
+	}
+
 	DrawNotice();
+}
+
+FVector2D AStellarEraHUD::GetViewportSize() const
+{
+	return Canvas ? FVector2D(Canvas->SizeX, Canvas->SizeY) : FVector2D::ZeroVector;
 }
 
 void AStellarEraHUD::ShowNotice(const FString& Text)
