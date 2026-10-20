@@ -1076,7 +1076,7 @@ sh "C:/Users/23080/AppData/Local/Temp/se_starmap_tests.sh" "StellarEra"
 
 ```bash
 grep -c "Result={Fail}" "C:/Users/23080/AppData/Local/Temp/se_starmap_automation.log" || true
-grep -E "StellarEra\.StarMap\.UI\.(SurfaceGravity|Formatting|Placement).*Result=\{(Success|Fail)\}" \
+grep -E "Result=\{(Success|Fail)\}.*Path=\{StellarEra\.StarMap\.UI\.(SurfaceGravity|Formatting|Placement)\}" \
   "C:/Users/23080/AppData/Local/Temp/se_starmap_automation.log" || true
 ```
 
