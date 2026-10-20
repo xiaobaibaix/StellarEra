@@ -79,7 +79,10 @@ exec "D:/Application/Epic Games/UE_5.8/Engine/Binaries/Win64/UnrealEditor-Cmd.ex
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
+#include "CosmosTypes.h"
 #include "StarMapUISystem.h"
+
+#include <limits>
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -90,8 +93,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapUISurfaceGravityTest,
 bool FStellarEraStarMapUISurfaceGravityTest::RunTest(const FString& Parameters)
 {
 	const double EarthGravity = UStarMapUISystem::ComputeSurfaceGravityMps2(1.0, 6371.0);
-	TestTrue(TEXT("地球表面重力约 9.822 m/s²"),
-		FMath::IsNearlyEqual(EarthGravity, 9.822, 0.05));
+	TestTrue(TEXT("地球表面重力约 9.823 m/s²"),
+		FMath::IsNearlyEqual(EarthGravity, 9.823, 0.05));
 
 	const double DoubleMass = UStarMapUISystem::ComputeSurfaceGravityMps2(2.0, 6371.0);
 	TestTrue(TEXT("质量翻倍，重力翻倍"),
@@ -103,7 +106,7 @@ bool FStellarEraStarMapUISurfaceGravityTest::RunTest(const FString& Parameters)
 		UStarMapUISystem::ComputeSurfaceGravityMps2(1.0, 0.0), 0.0);
 	TestEqual(TEXT("质量为 NaN 返回 0"),
 		UStarMapUISystem::ComputeSurfaceGravityMps2(
-			TNumericLimits<double>::QuietNaN(), 6371.0), 0.0);
+			std::numeric_limits<double>::quiet_NaN(), 6371.0), 0.0);
 
 	return true;
 }
@@ -137,8 +140,11 @@ bool FStellarEraStarMapUIFormattingTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("含速度"), Joined.Contains(TEXT("29.790 km/s")));
 	TestTrue(TEXT("含轨道周期"), Joined.Contains(TEXT("1.000 年")));
 	TestTrue(TEXT("含半径"), Joined.Contains(TEXT("6371.0 km")));
-	TestTrue(TEXT("含表面引力"), Joined.Contains(TEXT("9.822 m/s²")));
-	TestTrue(TEXT("含 g 倍数"), Joined.Contains(TEXT("1.002 g")));
+	// 不写死 9.822/9.823：用同一个值生成期望串，只锁「格式与数值来源一致」。
+	TestTrue(TEXT("含表面引力"), Joined.Contains(FString::Printf(
+		TEXT("%.3f m/s²"), Info.SurfaceGravityMps2)));
+	TestTrue(TEXT("含 g 倍数"), Joined.Contains(FString::Printf(
+		TEXT("%.3f g"), Info.SurfaceGravityMps2 / 9.80665)));
 	TestTrue(TEXT("含 Simulator 下标"), Joined.Contains(TEXT("#0")));
 	TestTrue(TEXT("含模拟与引力源"), Joined.Contains(TEXT("模拟")) &&
 		Joined.Contains(TEXT("引力源")));
@@ -844,7 +850,11 @@ FVector2D AStellarEraHUD::GetViewportSize() const
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 #include "Engine/Font.h"
+#include "StellarEraPlayerController.h"
 ```
+
+投影与拾取是 `AStellarEraPlayerController` 的方法，`APlayerController` 上没有，
+所以取到 PC 之后要 `Cast`。
 
 在文件末尾加：
 
@@ -857,7 +867,8 @@ void UStarMapUISystem::Draw(AStellarEraHUD& Hud)
 		return;
 	}
 
-	APlayerController* PlayerController = Hud.GetOwningPlayerController();
+	AStellarEraPlayerController* PlayerController =
+		Cast<AStellarEraPlayerController>(Hud.GetOwningPlayerController());
 	if (!PlayerController)
 	{
 		return;

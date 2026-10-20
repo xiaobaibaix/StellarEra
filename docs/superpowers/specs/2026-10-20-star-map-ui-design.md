@@ -93,7 +93,7 @@ struct FStarMapBodyInfo
 速度        29.790 km/s
 轨道周期    1.000 年
 半径        6371.0 km
-表面引力    9.822 m/s²（1.002 g）
+表面引力    9.823 m/s²（1.002 g）
 Simulator   #0
 模拟        是    引力源    是
 ```
@@ -120,7 +120,7 @@ g    = CosmosUnits::GravitationalConstant_SI × M_kg / r_cm² / 100
 ```
 
 其中 `GravitationalConstant_SI = 6.67430e-5` 的单位是 `cm³/(kg·s²)`，除以 100 得 `m/s²`。
-地球参数（1 M⊕、6371 km）应得约 `9.822 m/s²` —— 这就是自动化测试的锚点。
+地球参数（1 M⊕、6371 km）应得约 `9.823 m/s²` —— 这就是自动化测试的锚点。
 
 ## 5. 布局、锚定与边界
 
@@ -215,8 +215,9 @@ if (APlayerController* PC = GetOwningPlayerController())
 ```
 
 `UStarMapUISystem::Draw(AStellarEraHUD& Hud)` 内部通过 `Hud.GetOwningPlayerController()`
-与 `Hud.GetWorld()` 取 PC / 子系统，再调用 `Hud.DrawRect` / `Hud.DrawText` /
-`Hud.GetTextSize`。
+与 `Hud.GetWorld()` 取 PC / 子系统；投影与拾取是项目控制器的方法，所以要
+`Cast<AStellarEraPlayerController>`（`APlayerController` 上没有这两个入口）。
+绘制走 `Hud.DrawRect` / `Hud.DrawText` / `Hud.GetTextSize`。
 
 ## 8. 测试
 
@@ -225,7 +226,7 @@ if (APlayerController* PC = GetOwningPlayerController())
 
 **8.1 `StellarEra.StarMap.UI.SurfaceGravity`**
 
-- 1 M⊕ + 6371 km → `9.822 ± 0.05 m/s²`。
+- 1 M⊕ + 6371 km → `9.823 ± 0.05 m/s²`。
 - 质量 `<= 0`、半径 `<= 0`、NaN → 返回 `0`（面板据此显示 `—`）。
 - 质量翻倍、半径不变 → 引力翻倍。
 
@@ -233,7 +234,8 @@ if (APlayerController* PC = GetOwningPlayerController())
 
 - 构造地球样板数据，断言输出行包含：
   名称、`1 M⊕`、`3.003e-06 M☉`、`29.790 km/s`、`1.000 年`、
-  `6371.0 km`、`9.822 m/s²`、`1.002 g`、`#0`、`模拟`。
+  `6371.0 km`、表面引力行（`%.3f m/s²（%.3f g）`；期望串由同一个计算值生成，
+  不写死舍入结果）、`#0`、`模拟`。
 - 周期 `<= 0` → 含 `未知`；半径 `<= 0` → 半径与引力两行都含 `—`。
 - `SimulatorIndex == INDEX_NONE` → 含 `未注册`。
 - `bSimulated = false` / `bExertsGravity = false` → 对应行显示 `否`。
