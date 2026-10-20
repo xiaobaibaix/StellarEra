@@ -93,4 +93,52 @@ bool FStellarEraStarMapUIFormattingTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapUIPlacementTest,
+	"StellarEra.StarMap.UI.Placement",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraStarMapUIPlacementTest::RunTest(const FString& Parameters)
+{
+	const FVector2D Viewport(1000.f, 800.f);
+	const FVector2D Panel(200.f, 100.f);
+
+	{
+		const FStarMapPanelRect Rect = UStarMapUISystem::PlacePanelBesideAnchor(
+			FVector2D(500.f, 400.f), 0.f, Panel, Viewport, 12.f, 8.f);
+		TestEqual(TEXT("右侧放得下：X 贴锚点"), Rect.X, 512.f);
+		TestEqual(TEXT("右侧放得下：Y 居中"), Rect.Y, 350.f);
+	}
+
+	{
+		const FStarMapPanelRect Rect = UStarMapUISystem::PlacePanelBesideAnchor(
+			FVector2D(900.f, 400.f), 0.f, Panel, Viewport, 12.f, 8.f);
+		TestEqual(TEXT("右侧溢出：翻到左侧"), Rect.X, 688.f);
+	}
+
+	{
+		const FStarMapPanelRect Rect = UStarMapUISystem::PlacePanelBesideAnchor(
+			FVector2D(200.f, 400.f), 50.f, Panel, Viewport, 12.f, 8.f);
+		TestEqual(TEXT("天体轮廓半径参与锚定"), Rect.X, 262.f);
+	}
+
+	{
+		const FStarMapPanelRect Top = UStarMapUISystem::PlacePanelBesideAnchor(
+			FVector2D(500.f, 20.f), 0.f, Panel, Viewport, 12.f, 8.f);
+		TestEqual(TEXT("顶部夹到边距"), Top.Y, 8.f);
+
+		const FStarMapPanelRect Bottom = UStarMapUISystem::PlacePanelBesideAnchor(
+			FVector2D(500.f, 790.f), 0.f, Panel, Viewport, 12.f, 8.f);
+		TestEqual(TEXT("底部夹到边距"), Bottom.Y, 692.f);
+	}
+
+	{
+		const FStarMapPanelRect Rect = UStarMapUISystem::PlacePanelBesideAnchor(
+			FVector2D(50.f, 25.f), 0.f, Panel, FVector2D(100.f, 50.f), 12.f, 8.f);
+		TestEqual(TEXT("小视口：X 钉在左边距"), Rect.X, 8.f);
+		TestEqual(TEXT("小视口：Y 钉在顶边距"), Rect.Y, 8.f);
+	}
+
+	return true;
+}
+
 #endif
