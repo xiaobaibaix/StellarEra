@@ -12,6 +12,7 @@ class ASpaceshipPawn;
 class UInputAction;
 class UInputMappingContext;
 struct FInputActionValue;
+struct FStarMapScreenCandidate;
 
 /**
  * 本项目的玩家控制器。
@@ -45,6 +46,12 @@ public:
 	 *         飞船时为 false。
 	 */
 	bool EnterNearestShip();
+
+	/** 把一颗天体投到屏幕；成功时 OutCenter 为中心、OutRadiusPx 为轮廓半径（像素）。 */
+	bool ProjectBodyToScreen(AActor* Body, FVector2D& OutCenter, float& OutRadiusPx) const;
+
+	/** 任意屏幕点下的已注册天体。悬停与点击共用。 */
+	AActor* PickBodyUnderScreenPosition(const FVector2D& ScreenPosition) const;
 
 protected:
 	/** 构造 IMC 与全部 IA。幂等：重复调用会直接返回。 */
@@ -100,8 +107,8 @@ protected:
 	/** 左键松开：位移小于阈值算点击（拾取），否则算拖拽结束（不改变选中）。 */
 	void OnStarMapSelectCompleted(const FInputActionValue& Value);
 
-	/** 把已注册天体投到屏幕，交给纯函数挑出光标下的那颗。没有就是 nullptr。 */
-	AActor* PickBodyUnderCursor() const;
+	/** 投影单颗天体。拾取与选中面板锚点共用这一条路径。 */
+	bool MakeScreenCandidate(AActor* Body, FStarMapScreenCandidate& Out) const;
 
 	/**
 	 * 调试用：直接在角色与飞船之间切换 Possess，跳过登船流程。

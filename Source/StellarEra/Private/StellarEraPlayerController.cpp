@@ -748,7 +748,7 @@ void AStellarEraPlayerController::OnStarMapSelectCompleted(const FInputActionVal
 
 	// 点空白什么都不做（spec §5.2：取消选中会让相机停止跟随、丢失目标，
 	// 绑在误点很容易触发的动作上不划算）。要取消就明确地点回它自己。
-	AActor* Picked = PickBodyUnderCursor();
+	AActor* Picked = PickBodyUnderScreenPosition(FVector2D(MouseX, MouseY));
 	if (!Picked)
 	{
 		return;
@@ -778,7 +778,65 @@ static double ResolveBodyRadiusCm(const AActor* Body)
 	return Body ? double(Body->GetSimpleCollisionRadius()) : 0.0;
 }
 
-AActor* AStellarEraPlayerController::PickBodyUnderCursor() const
+bool AStellarEraPlayerController::MakeScreenCandidate(
+	AActor* Body, FStarMapScreenCandidate& Out) const
+{
+	Out = FStarMapScreenCandidate();
+	if (!IsValid(Body))
+	{
+		return false;
+	}
+
+	const FVector Center = Body->GetActorLocation();
+	if (!ProjectWorldLocationToScreen(Center, Out.ScreenPosition))
+	{
+		return false;
+	}
+
+	// 视线右向：算「与视线垂直」的半径必须用它，不能用固定世界轴。
+	FVector ViewLocation;
+	FRotator ViewRotation;
+	GetPlayerViewPoint(ViewLocation, ViewRotation);
+	const FVector ViewRight = FRotationMatrix(ViewRotation).GetUnitAxis(EAxis::Y);
+
+	// 盘面半径 = |投影(中心) − 投影(中心 + 右向 × 世界半径)|。
+	// 边缘点投不出来（越过后平面等）就留 0，退回固定像素容差。
+	const double WorldRadiusCm = ResolveBodyRadiusCm(Body);
+	if (WorldRadiusCm > 0.0)
+	{
+		FVector2D EdgePosition;
+		if (ProjectWorldLocationToScreen(Center + ViewRight * WorldRadiusCm, EdgePosition))
+		{
+			// 直接投影「中心 + 右向 × R」量到的是 f·R/d，比切线决定的真实轮廓半径
+			// 小一个 cos α（见 SilhouetteRadiusScale）。系数为 0 表示相机在球内
+			// 或贴着球面，此时留 0、退回固定像素容差。
+			const double CameraDistanceCm = FVector::Dist(ViewLocation, Center);
+			Out.ScreenRadiusPx = float(
+				FVector2D::Distance(Out.ScreenPosition, EdgePosition)
+				* AStarMapCameraPawn::SilhouetteRadiusScale(CameraDistanceCm, WorldRadiusCm));
+		}
+	}
+
+	Out.Actor = Body;
+	return true;
+}
+
+bool AStellarEraPlayerController::ProjectBodyToScreen(
+	AActor* Body, FVector2D& OutCenter, float& OutRadiusPx) const
+{
+	FStarMapScreenCandidate Candidate;
+	if (!MakeScreenCandidate(Body, Candidate))
+	{
+		return false;
+	}
+
+	OutCenter = Candidate.ScreenPosition;
+	OutRadiusPx = Candidate.ScreenRadiusPx;
+	return true;
+}
+
+AActor* AStellarEraPlayerController::PickBodyUnderScreenPosition(
+	const FVector2D& ScreenPosition) const
 {
 	UCosmosSimulationSubsystem* Subsystem =
 		GetWorld() ? GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>() : nullptr;
@@ -790,60 +848,20 @@ AActor* AStellarEraPlayerController::PickBodyUnderCursor() const
 	TArray<AActor*> Bodies;
 	Subsystem->GetRegisteredBodies(Bodies);
 
-	// 视线右向：算「与视线垂直」的半径必须用它，不能用固定世界轴。
-	FVector ViewLocation;
-	FRotator ViewRotation;
-	GetPlayerViewPoint(ViewLocation, ViewRotation);
-	const FVector ViewRight = FRotationMatrix(ViewRotation).GetUnitAxis(EAxis::Y);
-
 	// 投影留在调用方，拾取函数才能是纯函数、才能无头测。
 	TArray<FStarMapScreenCandidate> Candidates;
 	Candidates.Reserve(Bodies.Num());
 	for (AActor* Body : Bodies)
 	{
-		if (!Body)
+		FStarMapScreenCandidate Candidate;
+		if (MakeScreenCandidate(Body, Candidate))
 		{
-			continue;
+			Candidates.Add(Candidate);
 		}
-
-		const FVector Center = Body->GetActorLocation();
-		FVector2D ScreenPosition;
-		if (!ProjectWorldLocationToScreen(Center, ScreenPosition))
-		{
-			continue;
-		}
-
-		// 盘面半径 = |投影(中心) − 投影(中心 + 右向 × 世界半径)|。
-		// 边缘点投不出来（越过后平面等）就留 0，退回固定像素容差。
-		float ScreenRadiusPx = 0.f;
-		const double WorldRadiusCm = ResolveBodyRadiusCm(Body);
-		if (WorldRadiusCm > 0.0)
-		{
-			FVector2D EdgePosition;
-			if (ProjectWorldLocationToScreen(Center + ViewRight * WorldRadiusCm, EdgePosition))
-			{
-				// 直接投影「中心 + 右向 × R」量到的是 f·R/d，比切线决定的真实轮廓半径
-				// 小一个 cos α（见 SilhouetteRadiusScale）。系数为 0 表示相机在球内
-				// 或贴着球面，此时留 0、退回固定像素容差。
-				const double CameraDistanceCm = FVector::Dist(ViewLocation, Center);
-				ScreenRadiusPx = float(
-					FVector2D::Distance(ScreenPosition, EdgePosition)
-					* AStarMapCameraPawn::SilhouetteRadiusScale(CameraDistanceCm, WorldRadiusCm));
-			}
-		}
-
-		Candidates.Add({ Body, ScreenPosition, ScreenRadiusPx });
-	}
-
-	double MouseX = 0.0;
-	double MouseY = 0.0;
-	if (!GetMousePosition(MouseX, MouseY))
-	{
-		return nullptr;
 	}
 
 	return AStarMapCameraPawn::PickBodyAtScreenPosition(
-		Candidates, FVector2D(MouseX, MouseY), SelectionPixelRadius);
+		Candidates, ScreenPosition, SelectionPixelRadius);
 }
 
 void AStellarEraPlayerController::ShowPrompt(const FString& Text)
