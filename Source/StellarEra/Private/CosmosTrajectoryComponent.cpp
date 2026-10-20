@@ -4,6 +4,8 @@
 
 #include "CosmosOrbitComponent.h"
 #include "CosmosSimulationSubsystem.h"
+#include "SpaceshipPawn.h"
+#include "VoxelPlanetActor.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "UObject/UObjectGlobals.h"
@@ -356,6 +358,25 @@ void UCosmosTrajectoryComponent::ClearDrawnLines()
 	bDrewLastFrame = false;
 }
 
+double UCosmosTrajectoryComponent::ClampPredictionHorizonYears(
+	double RequestedYears, double OwnPeriodYears, double MaxPeriods)
+{
+	// 非正 / 非有限 = 调用方没有有效值，原样返回（0 在本组件里表示「自动」）。
+	if (!(RequestedYears > 0.0) || !FMath::IsFinite(RequestedYears))
+	{
+		return RequestedYears;
+	}
+
+	// MaxPeriods = 0 表示不设限；周期算不出来（单天体 / 退化配对）时也无从钳起。
+	if (!(MaxPeriods > 0.0) || !(OwnPeriodYears > 0.0)
+		|| !FMath::IsFinite(OwnPeriodYears))
+	{
+		return RequestedYears;
+	}
+
+	return FMath::Min(RequestedYears, MaxPeriods * OwnPeriodYears);
+}
+
 double UCosmosTrajectoryComponent::ResolvePredictionHorizonYears(
 	const UCosmosSimulationSubsystem& Subsystem) const
 {
@@ -363,36 +384,40 @@ double UCosmosTrajectoryComponent::ResolvePredictionHorizonYears(
 		? GetOwner()->FindComponentByClass<UCosmosOrbitComponent>()
 		: nullptr;
 
+	const int32 SimulatorIndex = OrbitComponent
+		? OrbitComponent->SimulatorIndex
+		: INDEX_NONE;
+	const double OwnPeriod = SimulatorIndex != INDEX_NONE
+		? Subsystem.GetOrbitalPeriodYears(SimulatorIndex)
+		: 0.0;
+
 	// 手填优先，与估算完全无关。
+	double Horizon = FallbackPredictionYears;
+
 	if (PredictionYears > 0.0)
 	{
-		return PredictionYears;
+		Horizon = PredictionYears;
 	}
-
-	// 自动窗口只在第一次真的算出周期时解析一次，之后一直用缓存值。
-	if (!bAutoHorizonResolved && OrbitComponent
-		&& OrbitComponent->SimulatorIndex != INDEX_NONE)
+	else
 	{
-		const double Period = Subsystem.GetOrbitalPeriodYears(OrbitComponent->SimulatorIndex);
-		if (Period > 0.0 && FMath::IsFinite(Period))
+		// 自动窗口只在第一次真的算出周期时解析一次，之后一直用缓存值。
+		if (!bAutoHorizonResolved && OwnPeriod > 0.0 && FMath::IsFinite(OwnPeriod))
 		{
-			CachedAutoHorizonYears = Period * AutoHorizonPeriodFactor;
+			CachedAutoHorizonYears = OwnPeriod * AutoHorizonPeriodFactor;
 			bAutoHorizonResolved = true;
 		}
-	}
 
-	if (bAutoHorizonResolved)
-	{
-		const double ShortestPeriod = Subsystem.GetShortestPeriodYears();
-		if (MaxAutoPredictionPeriods > 0.0 && ShortestPeriod > 0.0)
+		if (bAutoHorizonResolved)
 		{
-			return FMath::Min(CachedAutoHorizonYears,
-				MaxAutoPredictionPeriods * ShortestPeriod);
+			Horizon = CachedAutoHorizonYears;
 		}
-		return CachedAutoHorizonYears;
 	}
 
-	return FallbackPredictionYears;
+	// 手填与自动吃同一个上限：窗口相对该天体自身的动力学时标太长时，预测副本的
+	// 固定步长会粗到把轨道画错（快天体直接画成一条飞出去的直线）。上限按**自身**
+	// 周期而不是全系统最短 —— 否则一艘悬在中心星上方的飞船会把所有行星的窗口
+	// 压到它的 0.03 年，椭圆只剩一小段。
+	return ClampPredictionHorizonYears(Horizon, OwnPeriod, MaxAutoPredictionPeriods);
 }
 
 void UCosmosTrajectoryComponent::AppendPolyline(TArrayView<const FVector> Points,
@@ -1092,6 +1117,27 @@ void UCosmosTrajectoryComponent::DrawInEditor()
 		// 与 AddBodyToSimulator 同口径：单向引力的天体在编辑器预览里也不拽别人，
 		// 否则不 Play 时看到的行星轨迹会被飞船拉偏，一进 PIE 又不动。
 		State.bTestParticle = !Component->bExertsGravity;
+
+		// 接触形状也必须跟运行期一致。不给半径时预览里全是点质量：
+		// 飞船初始就悬在中心星（半径 2 AU）表面上方，会直接穿过星体扎进软化核，
+		// 被数值踢成一条几十到几千 AU 的直线 —— 这正是「预测线乱画」的来源。
+		// PIE 里有接触（飞船停在表面），编辑器预览没有，两边画的不是一回事。
+		//
+		// 半径来源与 AddBodyToSimulator 相同：星球取平均球半径，飞船取根球半径。
+		// 运行期第一次 Tick 会把星球半径换成朝最近天体方向的地形半径，预览不做
+		// 那一步 —— 它每次重画都从零重建，拿不到那份缓存，用平均球半径即可。
+		if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(OwnerActor))
+		{
+			State.Radius = double(Planet->GetSurfaceRadiusCm()) / CmPerAu;
+		}
+		else if (const ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(OwnerActor))
+		{
+			State.Radius = double(Ship->GetContactRadiusCm()) / CmPerAu;
+
+			// 撞上即停，与运行期同口径；否则飞船会沿表面滑行，预测线贴着星球绕圈。
+			State.bZeroVelocityOnContact = true;
+		}
+
 		EditorSimulator.AddBody(State);
 	}
 
@@ -1126,41 +1172,16 @@ void UCosmosTrajectoryComponent::DrawInEditor()
 	// ── 预测折线 ──
 	if (bDrawPrediction)
 	{
-		double Horizon = FallbackPredictionYears;
-		if (PredictionYears > 0.0)
+		// 手填优先；自动 = 1.05 × **该天体自身**的最短周期（不是全系统最短 ——
+		// 一艘悬在中心星上方的飞船会把这个值压到 0.03 年，行星的椭圆就只剩一小段）。
+		// 两条路最后都吃同一个上限：窗口不得超过该天体自身最短周期的一部分。
+		double Horizon = PredictionYears > 0.0 ? PredictionYears : FallbackPredictionYears;
+		const double OwnPeriod = EditorSimulator.EstimateOrbitalPeriod(SelfIndex);
+		if (PredictionYears <= 0.0 && OwnPeriod > 0.0 && FMath::IsFinite(OwnPeriod))
 		{
-			Horizon = PredictionYears;
+			Horizon = OwnPeriod * AutoHorizonPeriodFactor;
 		}
-		else
-		{
-			const double OwnPeriod = EditorSimulator.EstimateOrbitalPeriod(SelfIndex);
-			if (OwnPeriod > 0.0 && FMath::IsFinite(OwnPeriod))
-			{
-				Horizon = OwnPeriod * AutoHorizonPeriodFactor;
-
-				double ShortestPeriod = TNumericLimits<double>::Max();
-				const TArray<FCosmosBodyState>& Bodies = EditorSimulator.GetBodies();
-				for (int32 I = 0; I < Bodies.Num(); ++I)
-				{
-					for (int32 J = I + 1; J < Bodies.Num(); ++J)
-					{
-						const double PairPeriod = FNBodySimulator::PairOrbitalPeriod(
-							Bodies[I], Bodies[J], CosmosUnits::GravitationalConstant_Game);
-						if (PairPeriod > 0.0)
-						{
-							ShortestPeriod = FMath::Min(ShortestPeriod, PairPeriod);
-						}
-					}
-				}
-
-				if (MaxAutoPredictionPeriods > 0.0
-					&& FMath::IsFinite(ShortestPeriod) && ShortestPeriod > 0.0)
-				{
-					Horizon = FMath::Min(Horizon,
-						MaxAutoPredictionPeriods * ShortestPeriod);
-				}
-			}
-		}
+		Horizon = ClampPredictionHorizonYears(Horizon, OwnPeriod, MaxAutoPredictionPeriods);
 
 		TArray<FVector3d> GameUnitPositions;
 		if (EditorSimulator.PredictTrajectory(SelfIndex, Horizon, PredictionSamples,

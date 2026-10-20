@@ -195,16 +195,24 @@ public:
 
 	/**
 	 * 预测多长，单位模拟年。0 = 自动。
-	 * 自动值 = 1.05 × 该天体参与的最短轨道周期，再钳到
-	 * MaxAutoPredictionPeriods × 系统最短周期；算不出时回退 1.0 年。
+	 * 自动值 = 1.05 × 该天体参与的最短轨道周期；算不出时回退 1.0 年。
+	 * 手填与自动最终都受 MaxAutoPredictionPeriods 的上限约束。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory",
 		meta = (ClampMin = "0.0", DisplayName = "预测窗口（年）"))
 	double PredictionYears = 0.0;
 
 	/**
-	 * 自动预测窗口的上限，单位是**系统最短周期**的倍数。0 = 不设限。只钳自动那条路。
-	 * 拐点在 0.5 附近，再往上误差按几十倍跳（三体近距离交会指数放大），默认 0.5。
+	 * 预测窗口上限，单位是**该天体自身最短轨道周期**的倍数。0 = 不设限。
+	 * **手填与自动两条路都受它限制**（属性名里的 Auto 是历史名 —— 它曾经只钳自动
+	 * 那条路，序列化名保留不改）。
+	 *
+	 * 为什么手填也要钳：预测副本按「窗口 / 采样数」定固定步长，窗口越长步长越粗；
+	 * 快天体（飞船穿过中心星只要千分之几年）一旦步长超过它自己的动力学时标，
+	 * 画出来的就不是轨道而是一条飞出去的直线。0.5 是误差开始按几十倍跳的拐点附近。
+	 *
+	 * 上限读**自身**周期而不是全系统最短：一艘悬在中心星上方的飞船会把全系统
+	 * 最短周期压到 0.03 年，行星的椭圆就只剩一小段。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory", meta = (ClampMin = "0.0"))
 	double MaxAutoPredictionPeriods = 0.5;
@@ -276,12 +284,22 @@ public:
 		meta = (ClampMin = "0.0"))
 	double MinDominanceRadiusCm = 100.0;
 
+	/**
+	 * 把请求的预测窗口钳到「MaxPeriods × 该天体自身最短周期」。
+	 *
+	 * 纯函数，运行期与编辑器预览共用同一份判定：
+	 *   - RequestedYears ≤ 0 或非有限 → 原样返回（0 = 自动，交给调用方另算）；
+	 *   - MaxPeriods ≤ 0 = 不设限；周期 ≤ 0 / 非有限（单天体、退化配对）也无从钳起。
+	 */
+	static double ClampPredictionHorizonYears(
+		double RequestedYears, double OwnPeriodYears, double MaxPeriods);
+
 private:
 	/**
 	 * 实际的预测窗口（年）：
 	 *     手填优先
-	 *     → 1.05 × 估算周期（**只解析一次**）
-	 *     → 再钳到「MaxAutoPredictionPeriods × 系统最短周期」
+	 *     → 1.05 × 该天体自身的估算周期（**只解析一次**）
+	 *     → 再钳到「MaxAutoPredictionPeriods × 该天体自身最短周期」
 	 *     → 都算不出时回退常量。
 	 *
 	 * 手填与上限都不缓存，每帧重判，运行期改了立刻生效；只有「1.05 × 估算周期」

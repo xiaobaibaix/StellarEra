@@ -74,12 +74,12 @@ public:
 	 * FinalizeRegistration 还没跑、或一对都算不出时返回 0。
 	 *
 	 * 与 GetOrbitalPeriodYears(i) 的区别：那个是「天体 i 参与的」最短，逐天体不同；
-	 * 这个是全系统的下界，**只有一个值**。它同时是自动积分步长的分母
+	 * 这个是全系统的下界，**只有一个值**。它是自动积分步长的分母
 	 * （BaseTimeStep = 该值 / StepsPerOrbit）。
 	 *
-	 * 预测窗口的上限读它 —— 理由见 UCosmosOrbitComponent::MaxAutoPredictionPeriods：
-	 * 预测副本用固定步长走完窗口，它能分辨的最快动力学就是这个周期，窗口相对它越长、
-	 * 副本自身的积分误差越大。
+	 * 预测窗口**不**读它：窗口上限按每个天体自身的周期算
+	 * （见 UCosmosTrajectoryComponent::MaxAutoPredictionPeriods），否则一艘快
+	 * 飞船会把全系统所有天体的窗口一起压短。
 	 */
 	double GetShortestPeriodYears() const { return ShortestPeriodYears; }
 

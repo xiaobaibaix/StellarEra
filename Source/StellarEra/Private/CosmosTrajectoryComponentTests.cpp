@@ -368,4 +368,39 @@ bool FStellarEraDominancePartitionTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraPredictionHorizonClampTest,
+	"StellarEra.Trajectory.PredictionHorizonClamp",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraPredictionHorizonClampTest::RunTest(const FString& Parameters)
+{
+	// 上限 = MaxPeriods × **该天体自身**最短周期；手填与自动共用同一条判定。
+	// 行星周期 3.53538 年、飞船 0.032512 年，都取自本关卡的开局日志。
+	TestEqual(TEXT("行星：手填 2.0 年 → 钳到 1.76769"),
+		UCosmosTrajectoryComponent::ClampPredictionHorizonYears(2.0, 3.53538, 0.5),
+		1.76769, 1.0e-5);
+
+	TestEqual(TEXT("飞船：手填 2.0 年 → 钳到 0.016256"),
+		UCosmosTrajectoryComponent::ClampPredictionHorizonYears(2.0, 0.032512, 0.5),
+		0.016256, 1.0e-7);
+
+	TestEqual(TEXT("上限为 0 表示不设限"),
+		UCosmosTrajectoryComponent::ClampPredictionHorizonYears(2.0, 0.032512, 0.0),
+		2.0, 0.0);
+
+	TestEqual(TEXT("周期算不出时不钳"),
+		UCosmosTrajectoryComponent::ClampPredictionHorizonYears(2.0, 0.0, 0.5),
+		2.0, 0.0);
+
+	TestEqual(TEXT("请求 0 = 自动，原样返回"),
+		UCosmosTrajectoryComponent::ClampPredictionHorizonYears(0.0, 3.53538, 0.5),
+		0.0, 0.0);
+
+	TestEqual(TEXT("未到上限时原样返回"),
+		UCosmosTrajectoryComponent::ClampPredictionHorizonYears(1.0, 3.53538, 0.5),
+		1.0, 0.0);
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

@@ -892,4 +892,58 @@ bool FStellarEraNBodyProbeContactTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraNBodyPredictionContactTest,
+	"StellarEra.Core.NBodyPredictionContact",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraNBodyPredictionContactTest::RunTest(const FString& Parameters)
+{
+	// 复现编辑器预览里「预测线飞出去」的机制：中心星半径 2 AU，飞船悬在
+	// 2.054 AU、初速为零。**不给半径**时飞船会穿过 2 AU 的星体扎进软化核，
+	// 被数值踢成一条几十 AU 的直线；给上半径 + 撞上即停，预测线就停在表面。
+	//
+	// 预览（DrawInEditor）以前只设质量/速度/引力源，不设半径 —— 它和运行期
+	// 用的是同一个求解器，所以这条测试锁的是「预览必须把半径传进来」。
+	FNBodySimulator Simulator;
+	Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
+	Simulator.SetIntegrator(ECosmosIntegrator::VelocityVerlet);
+	Simulator.SetSofteningLength(1.0e-4);
+	Simulator.SetCentimetersPerAu(1.0e6);
+
+	FCosmosBodyState Star;
+	Star.Mass = 10000.0;
+	Star.Radius = 2.0;
+	Simulator.AddBody(Star);
+
+	FCosmosBodyState Ship;
+	Ship.Mass = 1.0e-6;
+	Ship.Position = FVector3d(0.0, 0.0, 2.054);
+	Ship.Radius = 300.0 / 1.0e6;   // GetContactRadiusCm() / CentimetersPerAu
+	Ship.bZeroVelocityOnContact = true;
+	Simulator.AddBody(Ship);
+
+	constexpr double Horizon = 0.0162624;   // 0.5 × 飞船与中心星那一对的周期
+	TArray<FVector3d> Predicted;
+	TestTrue(TEXT("预测调用成功"),
+		Simulator.PredictTrajectory(1, Horizon, 256, Predicted));
+	TestEqual(TEXT("预测点数 = 采样数"), Predicted.Num(), 256);
+
+	double MaxAbsZ = 0.0;
+	bool bAllFinite = true;
+	for (const FVector3d& Point : Predicted)
+	{
+		bAllFinite &= FMath::IsFinite(Point.X) && FMath::IsFinite(Point.Y)
+			&& FMath::IsFinite(Point.Z);
+		MaxAbsZ = FMath::Max(MaxAbsZ, FMath::Abs(Point.Z));
+	}
+	TestTrue(TEXT("预测点全部有限"), bAllFinite);
+	TestTrue(TEXT("整条预测线留在中心星附近（不飞出去）"), MaxAbsZ < 2.1);
+
+	const double FinalRadius = Predicted.Last().Size();
+	TestTrue(TEXT("末点停在中心星表面"), FinalRadius <= 2.0 + 1.0e-3);
+	TestTrue(TEXT("末点没有被推离表面"), FinalRadius >= 2.0 - 1.0e-6);
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
