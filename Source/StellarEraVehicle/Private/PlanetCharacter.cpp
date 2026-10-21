@@ -504,6 +504,21 @@ void APlanetCharacter::SetBoarded(bool bBoarded)
 	GetCharacterMovement()->StopMovementImmediately();
 	GetCharacterMovement()->SetMovementMode(bBoarded ? MOVE_None : MOVE_Walking);
 
+	// 登船后角色只是被隐藏/禁撞，Actor 和调用器仍然挂在飞船上，会跟着飞船
+	// 一起高速平移：LODToSet = 0 + 200 米的盒子每帧都要重网格化，是飞船自己
+	// 那三档之外的一块大头。登船期间整份关掉，下船时再开。
+	if (VoxelInvoker && VoxelInvoker->IsRegistered())
+	{
+		if (bBoarded && VoxelInvoker->IsInvokerEnabled())
+		{
+			VoxelInvoker->DisableInvoker();
+		}
+		else if (!bBoarded && !VoxelInvoker->IsInvokerEnabled())
+		{
+			VoxelInvoker->EnableInvoker();
+		}
+	}
+
 	if (!bBoarded)
 	{
 		// 离船后重新踩上球面：碰撞体可能已经因为距离太远被回收了。
