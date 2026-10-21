@@ -17,6 +17,11 @@ class ADirectionalLight;
  * 两者天然不打架，不需要手工切可见性。
  *
  * 由 AVoxelPlanetActor 在构造时创建并挂到根组件上，每颗行星自动获得一个。
+ *
+ * **编辑器预览**：编辑器世界不执行 BeginPlay，而壳的材质、缩放、材质参数全都
+ * 依赖它。若不做处理，编辑视图里就只有一个半径 50cm 的默认球，埋在行星中心，
+ * 什么也看不到。因此材质在 OnRegister 里准备，并打开 bTickInEditor 让相机位置
+ * 与行星半径变化在编辑视图里实时跟上。
  */
 UCLASS(ClassGroup = (StellarEra), meta = (BlueprintSpawnableComponent))
 class STELLARERAPLANET_API UPlanetAtmosphereComponent : public UStaticMeshComponent
@@ -51,11 +56,30 @@ public:
 	void RefreshAtmosphereGeometry();
 
 protected:
+	/**
+	 * 注册时准备材质与几何。
+	 *
+	 * 编辑器世界没有 BeginPlay，但 OnRegister 一定执行 —— 这是编辑视图里唯一
+	 * 能把壳从"半径 50cm 的默认球"变成真正大气的地方。游戏世界也走这里，
+	 * 因此 BeginPlay 的后续调用必须是幂等的。
+	 */
+	virtual void OnRegister() override;
 	virtual void BeginPlay() override;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType,
 		FActorComponentTickFunction* ThisTickFunction) override;
 
+#if WITH_EDITOR
+	/** 编辑器里改本组件参数（厚度比、开关）时立即重算，不依赖 BeginPlay。 */
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
+
 private:
+	/**
+	 * 确保 AtmosphereMID 已创建（OnRegister / BeginPlay / 编辑器改参数都会调）。
+	 * 失败时按既有约定把自己设为不可见并返回 false。
+	 */
+	bool EnsureAtmosphereMaterial();
+
 	/** 解析太阳方向：取关卡里第一盏 ADirectionalLight 的朝向取反。找不到就保持上一次的值。 */
 	FVector ResolveSunDirection();
 
@@ -88,4 +112,13 @@ private:
 	 * 失败分支也置真，正是为了不让它们每帧重试。
 	 */
 	bool bGeometryApplied = false;
+
+	/**
+	 * `RefreshAtmosphereGeometry()` 上次应用时的**表面半径**（cm）。
+	 *
+	 * 只服务编辑器预览：拖动 gizmo 缩放或改 Radius 时不会重跑 BeginPlay，
+	 * 也没有可靠的 OnConstruction 时序。编辑器 Tick 比较这个值，变了才重算，
+	 * 值不变时不写世界缩放与材质参数。
+	 */
+	float AppliedSurfaceRadiusCm = 0.0f;
 };

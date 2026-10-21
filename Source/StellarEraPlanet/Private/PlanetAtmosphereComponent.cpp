@@ -15,6 +15,13 @@
 #include "UObject/ConstructorHelpers.h"
 #include "VoxelPlanetActor.h"
 
+#if WITH_EDITOR
+// 编辑器世界没有 PlayerController，相机位置只能从活动视口拿。
+// GEditor / FEditorViewportClient 都在 UnrealEd 模块（Build.cs 里按编辑器目标加依赖）。
+#include "Editor.h"
+#include "EditorViewportClient.h"
+#endif
+
 namespace
 {
 	/** /Engine/BasicShapes/Sphere 的半径是 50 cm。 */
@@ -33,12 +40,54 @@ namespace
 	const FName ParamPlanetCenter(TEXT("PlanetCenter"));
 	const FName ParamSunDirection(TEXT("SunDirection"));
 	const FName ParamSunIntensity(TEXT("SunIntensity"));
+
+	/**
+	 * 当前视图的相机位置（世界 cm）。
+	 *
+	 * 游戏世界取玩家相机；编辑器世界没有 PlayerController，取活动视口相机。
+	 * 编辑器里若拿不到视口（例如资产预览、后台），返回零向量，调用方保持上一次的值。
+	 */
+	FVector ResolveViewCameraLocation(const UWorld* World)
+	{
+		if (World->IsGameWorld())
+		{
+			if (const APlayerController* PC = World->GetFirstPlayerController())
+			{
+				if (const APlayerCameraManager* CamMgr = PC->PlayerCameraManager)
+				{
+					return CamMgr->GetCameraLocation();
+				}
+			}
+			return FVector::ZeroVector;
+		}
+
+#if WITH_EDITOR
+		if (GEditor)
+		{
+			if (const FViewport* Viewport = GEditor->GetActiveViewport())
+			{
+				if (const FEditorViewportClient* ViewClient =
+						static_cast<const FEditorViewportClient*>(Viewport->GetClient()))
+				{
+					return ViewClient->GetViewLocation();
+				}
+			}
+		}
+#endif
+
+		return FVector::ZeroVector;
+	}
 }
 
 UPlanetAtmosphereComponent::UPlanetAtmosphereComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.bStartWithTickEnabled = true;
+
+	// 编辑器视图也要 Tick：CameraPos / PlanetCenter 与行星半径变化全靠它更新。
+	// 引擎只在 LEVELTICK_ViewportsOnly 下 tick 带这个标记的组件
+	// （Actor.h 的 FActorComponentTickFunction::ExecuteTickHelper）。
+	bTickInEditor = true;
 
 	// 壳纯装饰：不参与碰撞、不投影、不接收贴花。
 	SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -69,14 +118,26 @@ UPlanetAtmosphereComponent::UPlanetAtmosphereComponent()
 	}
 }
 
-void UPlanetAtmosphereComponent::BeginPlay()
+void UPlanetAtmosphereComponent::OnRegister()
 {
-	Super::BeginPlay();
+	Super::OnRegister();
 
-	if (!bAtmosphereEnabled)
+	// 编辑器世界不执行 BeginPlay，而壳的材质与缩放全在 BeginPlay 里准备。
+	// 不在这里补一次，编辑视图里就只有一个半径 50cm 的默认球，埋进行星中心。
+	// 游戏世界同样走这条路径，因此 BeginPlay 的后续调用必须是幂等的。
+	EnsureAtmosphereMaterial();
+
+	if (bAtmosphereEnabled)
 	{
-		SetVisibility(false);
-		return;
+		RefreshAtmosphereGeometry();
+	}
+}
+
+bool UPlanetAtmosphereComponent::EnsureAtmosphereMaterial()
+{
+	if (AtmosphereMID)
+	{
+		return true;
 	}
 
 	UMaterialInterface* BaseMaterial = LoadObject<UMaterialInterface>(nullptr, AtmosphereMaterialPath);
@@ -87,7 +148,7 @@ void UPlanetAtmosphereComponent::BeginPlay()
 			TEXT("[大气] 找不到 %s —— 在编辑器里跑一次 StellarEra.BuildAtmosphereMaterial。壳将不可见。"),
 			AtmosphereMaterialPath);
 		SetVisibility(false);
-		return;
+		return false;
 	}
 
 	AtmosphereMID = CreateDynamicMaterialInstance(0, BaseMaterial);
@@ -95,11 +156,56 @@ void UPlanetAtmosphereComponent::BeginPlay()
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[大气] CreateDynamicMaterialInstance 失败，壳将不可见。"));
 		SetVisibility(false);
+		return false;
+	}
+
+	return true;
+}
+
+void UPlanetAtmosphereComponent::BeginPlay()
+{
+	Super::BeginPlay();
+
+	if (!bAtmosphereEnabled)
+	{
+		SetVisibility(false);
 		return;
 	}
 
-	RefreshAtmosphereGeometry();
+	// OnRegister 已经准备过一次；这里幂等。保留这一步是为了「组件在运行时才
+	// 注册」的情形，也保证 BeginPlay 之后一定按当前启用状态完整算过一遍。
+	if (EnsureAtmosphereMaterial())
+	{
+		RefreshAtmosphereGeometry();
+	}
 }
+
+#if WITH_EDITOR
+void UPlanetAtmosphereComponent::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+
+	if (!GetWorld() || GetWorld()->IsGameWorld())
+	{
+		return;
+	}
+
+	if (!bAtmosphereEnabled)
+	{
+		SetVisibility(false);
+		bGeometryApplied = false;
+		return;
+	}
+
+	if (EnsureAtmosphereMaterial())
+	{
+		// 厚度比之类的参数改了要重算缩放与 7 个材质参数；bGeometryApplied 先清假，
+		// 让 Refresh 的边沿语义保持一致（这次是显式调用，清不清都会算）。
+		bGeometryApplied = false;
+		RefreshAtmosphereGeometry();
+	}
+}
+#endif
 
 void UPlanetAtmosphereComponent::RefreshAtmosphereGeometry()
 {
@@ -118,10 +224,11 @@ void UPlanetAtmosphereComponent::RefreshAtmosphereGeometry()
 
 	if (!AtmosphereMID)
 	{
-		// 本函数是 BlueprintCallable，BeginPlay 之前调它会走到这里。
+		// 本函数是 BlueprintCallable，材质尚未就绪时调它会走到这里
+		// （OnRegister 里 EnsureAtmosphereMaterial 失败、还没到 BeginPlay 等）。
 		// 静默返回的话调用方拿不到任何反馈，只能看着壳没反应。
 		UE_LOG(LogTemp, Warning,
-			TEXT("[大气] RefreshAtmosphereGeometry 在 BeginPlay 之前被调用（AtmosphereMID 还是空），本次不做任何事。"));
+			TEXT("[大气] RefreshAtmosphereGeometry 在材质就绪之前被调用（AtmosphereMID 还是空），本次不做任何事。"));
 		return;
 	}
 
@@ -134,6 +241,9 @@ void UPlanetAtmosphereComponent::RefreshAtmosphereGeometry()
 	}
 
 	const float SurfaceRadiusCm = Planet->GetSurfaceRadiusCm();
+	// 先记下来再判断：半径非正时也要记，否则编辑器 Tick 会每帧发现"没算过"
+	// 而反复重入，把同一条警告刷满日志。
+	AppliedSurfaceRadiusCm = SurfaceRadiusCm;
 	if (SurfaceRadiusCm <= 0.0f)
 	{
 		UE_LOG(LogTemp, Warning,
@@ -231,22 +341,35 @@ void UPlanetAtmosphereComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	{
 		RefreshAtmosphereGeometry();
 	}
+#if WITH_EDITOR
+	else if (GetWorld() && !GetWorld()->IsGameWorld())
+	{
+		// 编辑器预览：gizmo 缩放 / 改 Radius 都不会重跑 BeginPlay，也没有可靠的
+		// OnConstruction 时序。按"表面半径变没变"重算一次，不变就不动。
+		if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(GetOwner()))
+		{
+			if (!FMath::IsNearlyEqual(Planet->GetSurfaceRadiusCm(), AppliedSurfaceRadiusCm))
+			{
+				RefreshAtmosphereGeometry();
+			}
+		}
+	}
+#endif
 
 	// 行星中心就是组件自己的世界位置（相对位置是零）。
 	const FVector PlanetCenter = GetComponentLocation();
 	AtmosphereMID->SetVectorParameterValue(ParamPlanetCenter,
 		FLinearColor(PlanetCenter.X, PlanetCenter.Y, PlanetCenter.Z, 1.0f));
 
-	// 相机位置。星图模式下 Possess 的是 AStarMapCameraPawn，GetCameraLocation 一样能取到。
+	// 相机位置。游戏世界取玩家相机（星图模式下 Possess 的是 AStarMapCameraPawn，
+	// GetCameraLocation 一样能取到）；编辑器世界没有 PlayerController，取视口相机。
 	FVector CameraPos = LastCameraPos;
 	if (const UWorld* World = GetWorld())
 	{
-		if (const APlayerController* PC = World->GetFirstPlayerController())
+		const FVector ResolvedCameraPos = ResolveViewCameraLocation(World);
+		if (!ResolvedCameraPos.IsNearlyZero())
 		{
-			if (const APlayerCameraManager* CamMgr = PC->PlayerCameraManager)
-			{
-				CameraPos = CamMgr->GetCameraLocation();
-			}
+			CameraPos = ResolvedCameraPos;
 		}
 	}
 	if (!CameraPos.Equals(LastCameraPos, 1.0f))
