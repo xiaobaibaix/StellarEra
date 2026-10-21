@@ -148,7 +148,13 @@ v_flt FVoxelPlanetNoiseTerrainInstance::GetValueImpl(v_flt X, v_flt Y, v_flt Z, 
 
 	const double Value = (Distance - SurfaceRadius) / DensityScale;
 
-	return v_flt(FMath::Clamp(Value, -1.0, 1.0));
+	// 不夹到 [-1, 1]。存储层（FVoxelValue）本来就会按 ±1 饱和，表面抽取只看
+	// 符号，夹不夹对几何没有影响；但 LOD > 0 的着色法线是插件用**生成器浮点值**
+	// 做中心差分算出来的，采样间距 = 2^LOD 体素（VoxelMesher.cpp 的 Step）。
+	// 先夹到 ±1 的话，间距一旦明显超过 DensityScale（LOD 3 起），6 个采样就会
+	// 全部饱和，法线只剩 ±1 分量，退化成 26 个轴向对角方向之一 —— 粗 LOD 的
+	// 大块明暗色块就是这么来的。
+	return v_flt(Value);
 }
 
 FVoxelMaterial FVoxelPlanetNoiseTerrainInstance::GetMaterialImpl(v_flt X, v_flt Y, v_flt Z, int32 LOD, const FVoxelItemStack& Items) const
@@ -250,10 +256,14 @@ TVoxelRange<v_flt> FVoxelPlanetNoiseTerrainInstance::GetValueRangeImpl(const FVo
 	const double MinOffset = FMath::Min(double(Params.SeaLevel), MaxOffset);
 
 	// 最小密度 ← 最近的距离 + 最大的地表半径；最大密度 ← 最远的距离 + 最小的。
-	const double MinValue = FMath::Clamp(
-		(MinDistance - double(Radius) - double(Params.Amplitude) * MaxOffset) / DensityScale, -1.0, 1.0);
-	const double MaxValue = FMath::Clamp(
-		(MaxDistance - double(Radius) - double(Params.Amplitude) * MinOffset) / DensityScale, -1.0, 1.0);
+	//
+	// 与 GetValueImpl 一样不夹到 ±1：契约要求区间**覆盖**取值，而取值已不再
+	// 夹断。下游把它换算成 FVoxelValue 时会自己饱和，只消费端点的符号，所以
+	// 这里放宽不影响空/实区块的判定。
+	const double MinValue =
+		(MinDistance - double(Radius) - double(Params.Amplitude) * MaxOffset) / DensityScale;
+	const double MaxValue =
+		(MaxDistance - double(Radius) - double(Params.Amplitude) * MinOffset) / DensityScale;
 
 	return TVoxelRange<v_flt>(v_flt(MinValue), v_flt(MaxValue));
 }

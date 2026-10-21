@@ -47,12 +47,17 @@ v_flt FVoxelPlanetSphereTerrainInstance::GetValueImpl(v_flt X, v_flt Y, v_flt Z,
 
 	// 基础有向距离场：球内为负，球外为正，零交叉面即半径为 Radius 的球面。
 	//
-	// 密度在下游会被夹到 [-1, 1]。除以常数会重新缩放梯度，着色法线正是由
-	// 该梯度导出的。除数太小会让梯度饱和成平板着色，太大则法线噪点明显。
-	// 5 是官方示例所用的值。
+	// 除以常数会重新缩放梯度，着色法线正是由该梯度导出的。除数太小会让法线
+	// 噪点明显；取 5 让密度在离地表 5 体素处到达 ±1。
+	//
+	// 但**不能**再把结果夹到 [-1, 1]：LOD > 0 的着色法线是插件对生成器浮点值
+	// 做中心差分算的，采样间距是 2^LOD 体素。夹住之后，间距一超过 5 体素
+	// （LOD 3 起），6 个采样就全都饱和，法线只剩 ±1 分量，退化成 26 个轴向
+	// 对角方向之一 —— 表现为粗 LOD 的大块明暗色块。存储层（FVoxelValue）自己
+	// 会按 ±1 饱和，表面抽取只看符号，所以不夹不影响几何。
 	const double Value = (Distance - double(Radius)) / DensityScale;
 
-	return v_flt(FMath::Clamp(Value, -1.0, 1.0));
+	return v_flt(Value);
 }
 
 FVoxelMaterial FVoxelPlanetSphereTerrainInstance::GetMaterialImpl(v_flt X, v_flt Y, v_flt Z, int32 LOD, const FVoxelItemStack& Items) const
@@ -105,9 +110,10 @@ TVoxelRange<v_flt> FVoxelPlanetSphereTerrainInstance::GetValueRangeImpl(const FV
 	const double FarZ = FarthestDelta(Bounds.Min.Z, Bounds.Max.Z, CZ);
 	const double MaxDistance = FMath::Sqrt(FarX * FarX + FarY * FarY + FarZ * FarZ);
 
-	// 与 GetValueImpl 完全相同的映射，再夹到密度域。
-	const double MinValue = FMath::Clamp((MinDistance - double(Radius)) / DensityScale, -1.0, 1.0);
-	const double MaxValue = FMath::Clamp((MaxDistance - double(Radius)) / DensityScale, -1.0, 1.0);
+	// 与 GetValueImpl 完全相同的映射。不夹到 ±1：契约要求区间覆盖取值，而
+	// 取值已不再夹断；下游换算成 FVoxelValue 时会自己饱和，只消费端点符号。
+	const double MinValue = (MinDistance - double(Radius)) / DensityScale;
+	const double MaxValue = (MaxDistance - double(Radius)) / DensityScale;
 
 	return TVoxelRange<v_flt>(v_flt(MinValue), v_flt(MaxValue));
 }
