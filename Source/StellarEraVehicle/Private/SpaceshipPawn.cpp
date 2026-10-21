@@ -3,9 +3,9 @@
 #include "SpaceshipPawn.h"
 
 #include "VoxelPlanetActor.h"
+#include "PlanetAtmosphereComponent.h"
 #include "PlanetCharacter.h"
 #include "Camera/CameraComponent.h"
-#include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "UObject/ConstructorHelpers.h"
@@ -21,9 +21,9 @@ namespace
 	// （没有蓝图填 HullMesh）也得看得见一个大致像机身的东西。
 	const TCHAR* FallbackHullPath = TEXT("/Engine/BasicShapes/Cube.Cube");
 
-	// 100cm 见方的立方体缩在 300cm 的碰撞球里几乎看不见，撑成 600×200×100
-	// 才像个机身。这个比例只对占位立方体有意义 —— 蓝图里覆盖过 Hull 的缩放后
-	// 以蓝图为准（子蓝图的覆盖值在构造函数之后才套用）。
+	// 100cm 见方的立方体太小，撑成 600×200×100 才像个机身。这个比例只对
+	// 占位立方体有意义 —— 蓝图里覆盖过 Hull 的缩放后以蓝图为准（子蓝图的
+	// 覆盖值在构造函数之后才套用）。
 	const FVector FallbackHullScale(6.f, 2.f, 1.f);
 
 	/** 1 千米 = 1e5 厘米。本模块不能依赖 StellarEraCore（会成环），所以本地留一份。 */
@@ -34,137 +34,19 @@ ASpaceshipPawn::ASpaceshipPawn()
 {
 	PrimaryActorTick.bCanEverTick = true;
 
-	Collision = CreateDefaultSubobject<USphereComponent>(TEXT("Collision"));
-	Collision->InitSphereRadius(300.f);
-	// 根球不参与碰撞：船体形状交给 Hull 的简单碰撞（导入时生成的凸包）。
-	// 它保留两个职责：
-	//   - Actor 的变换锚点（根组件）；
-	//   - N 体求解器的接触半径数据源（GetContactRadiusCm 读这个半径，不看碰撞开关）。
-	// 半径仍是 300，所以离地高度与改动前一致 —— 换碰撞形状不改变飞行手感。
-	Collision->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	Collision->SetCollisionObjectType(ECC_Pawn);
-	Collision->SetCollisionResponseToAllChannels(ECR_Block);
-	SetRootComponent(Collision);
-
-	// --- 体素调用器 ---
+	// --- 船体 ---
 	//
-	// 挂在根节点而不是机头：调用器的位置同时决定 LOD 范围和碰撞范围，碰撞范围
-	// 必须罩住飞船自身的物理体，否则飞机会撞进还没生成碰撞体的地形里。
+	// Hull 是根组件：Actor 的变换锚点、求解器写回位置的落点都在它身上，不再额外
+	// 套一个看不见的根球。相机的弹簧臂、体素调用器都挂在它下面。
 	//
-	// 用带预测的版本，而不是角色那种 UVoxelSimpleInvokerComponent：预测把采样点
-	// 沿速度方向前移 PredictionTime 秒
-	// （UVoxelInvokerWithPredictionComponent::GetInvokerGlobalPosition），凭空多出
-	// 预警，且不额外扩大细分区域。停稳时速度为零，退化成普通调用器。
-	//
-	// ⚠ 调用器的位置是**搬到预测点**去的（同上：Position = 组件位置 + 速度 ×
-	// PredictionTime），不是「两个点都罩住」—— 所以**每一个范围**都必须自己罩得住
-	// 那个偏移量：硬约束是「范围 ≥ 最大速度 × PredictionTime」。最大速度**含**
-	// BoostMultiplier（1.2e5 × 3 = 3.6e5 厘米/秒）；取 PredictionTime = 0.03 秒时
-	// 3.6e5 × 0.03 = 1.08e4 厘米 = 108 米，所以两个范围都必须 ≥ 108 米。LODRange 与
-	// CollisionsRange 用的是**同一个**预测点，所以这条约束对两者**分别**成立。
-	// 巡航（关阻尼）下速度无上界，任何有限范围都盖不住 —— 这是已知上限，不是调参数
-	// 能解决的。
-	//
-	// ⚠⚠ **真正卡住上限的不是插件的块数安全阀，是显存。** 插件那个
-	// voxel.renderer.MaxRenderOctreeChunks（默认 1e6）只在超限时把整棵八叉树作废
-	// （静默失效、地形 LOD 冻结），它**不保证**上限以内的配置跑得动。2026-10-18 实测：
-	// 本关卡世界边长 4096 体素、RENDER_CHUNK_SIZE = 32，取 LODRange = 4.5e5 时八叉树
-	// 是**通过**的，却请求了约 3.3e5 个区块 —— 在 GTX 1650（4 GB）上直接报
-	// 「Video memory has been exhausted (52,945 MB over budget)」，星球整片渲染不出来。
-	// **范围要按显卡的显存反推，不能只按「别撞插件上限」反推。**
-	//
-	// 两条细分路径互相独立，块数各按自己盒子的**体积**涨，且**都不看盒子里有没有
-	// 地形**：
-	//
-	//   (1) LOD —— FVoxelRenderOctree::ShouldSubdivideByDistance。与 ±LODRange 盒子
-	//       相交的块细到 LODToSet 为止。叶块边长 32 · 2^LODToSet 体素。
-	//   (2) 碰撞 —— ShouldSubdivideByOthers → IsInvokerInRange。与 ±CollisionsRange
-	//       盒子相交的块**一路细到 Height 0**，**完全不经过 LODToSet**：
-	//       IsInvokerInRange 只做一次包围盒相交测试，没有任何 LOD 判断。
-	//
-	// 块数都 ≈ (min(2·范围, 世界边长) / 叶块边长)³，父块再加约 14%
-	// （1/8 + 1/64 + … = 1/7）。
-	//
-	// 每次 LOD 更新（默认 MinDelayBetweenLODUpdates = 0.1 秒一次）都会把两个盒子里
-	// 新增的块整批丢进网格化队列。FVoxelDefaultRenderer::UpdateLODs 在游戏线程同步
-	// 跑，**不吃 MeshUpdatesBudget**（那个预算只盖 MeshHandler->Tick 与
-	// ProcessMeshUpdates），所以盒子越大、飞船越快，队列涨得越快、掉帧越狠。
-	// 2026-10-20 的飞行卡顿就是两个盒子各 ≈ 3.4e3 块、1.2 km/s 下每秒约 10 次更新
-	// 叠出来的；现在两份各 ≈ 4.2e2。
-	//
-	// 关键取舍：**LODToSet 每加一档，叶块边长翻倍、块数少 8 倍。** 所以「覆盖半径」
-	// 与「网格精度」是在**固定块数**下互换的 —— 想看得远就得让网格变粗：
-	//
-	//     LODToSet = 0 → 1 米网格（本关卡体素 100 厘米）；= 1 → 2 米；= 2 → 4 米
-	//
-	// 现在取 LODToSet = 1（2 米网格）+ LODRange = 240 米：叶块 64 米，
-	// 块数 ≈ (480/64)³ ≈ 4.2e2。同样的盒子在 LODToSet = 0 时要 ≈ 3.4e3 块 —— 8 倍。
-	// 4 GB 显存下这是可持续的取舍；飞船在空中高速掠过，脚下 2 米网格够用。真需要
-	// 1 米网格贴脸时由角色调用器接手（PlanetCharacter.cpp：LODToSet = 0 + 200 米）。
-	// 想要更大的 LOD 覆盖，就把 LODToSet 加一档、同时把 LODRange 翻倍（块数不变）。
-	//
-	// 碰撞那份**锁死在 Height 0，不能跟着 LODRange 一起放大**，否则它单独就把块数顶爆。
-	// 现在取 ±120 米（刚好罩住上面 108 米的预测偏移），块数 ≈ (240/32)³ ≈ 4.2e2，
-	// 与 LOD 那份同量级。
-	// 可见区块本来就带碰撞（VoxelWorld 的 bComputeVisibleChunksCollisions 默认 true、
-	// VisibleChunksCollisionsMaxLOD = 5），调用器这一份只是把飞船附近升级到最细。注意
-	// 这些 Height-0 块**不参与渲染**（ByOthers 的子块 bChildrenVisible = false），所以
-	// 它们只买碰撞精度，不买画质。
-	//
-	// **调参后要看游戏里的「Total tasks remaining」**（HUD 上直接显示）—— 那是当前待
-	// 网格化的区块数，是唯一可靠的实测口径。它到几万就要警惕，几十万必炸显存。
-	// 角色那份（PlanetCharacter.cpp）配 LODToSet = 0 + 200 米盒子，同理：盒子小才用得起。
-	VoxelInvoker = CreateDefaultSubobject<UVoxelInvokerWithPredictionComponent>(TEXT("VoxelInvoker"));
-	VoxelInvoker->SetupAttachment(Collision);
-	VoxelInvoker->bUseForLOD = true;
-	VoxelInvoker->LODToSet = 1;
-	VoxelInvoker->LODRange = 24000.f;
-	VoxelInvoker->bUseForCollisions = true;
-	VoxelInvoker->CollisionsRange = 12000.f;
-	VoxelInvoker->bUseForNavmesh = false;
-	VoxelInvoker->bUseForEvents = false;
-	VoxelInvoker->bUseForPriorities = false;
-	VoxelInvoker->bEnablePrediction = true;
-	VoxelInvoker->PredictionTime = 0.03f;
-
-	// 没有移动组件：位移完全归 N 体求解器（见类注释）。曾经的 UFloatingPawnMovement
-	// 会每帧 MoveUpdatedComponent(Velocity * dt)，留着它就和求解器的写回抢着改位置
-	// —— 而且「不喂它输入」也挡不住，它照样按残留速度搬人。
-
-	SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArm"));
-	SpringArm->SetupAttachment(Collision);
-	SpringArm->bUsePawnControlRotation = false;
-	SpringArm->bInheritPitch = true;
-	SpringArm->bInheritYaw = true;
-	// 继承横滚：相机与机身刚性绑定，按 A/D 压弯时画面跟着侧倾。
-	//
-	// 曾经是 false（"画面不该跟着倒过来"），代价是相机对机身姿态的响应不完整 ——
-	// 横滚是玩家唯一能直接看见的转弯反馈，剥掉它等于按 A/D 时画面纹丝不动。
-	//
-	// 另一个更隐蔽的问题：bInheritRoll 剥的是**世界坐标**的 roll 分量，而飞船的
-	// "水平"由 GetAutoLevelUp() 对齐到行星球面法线（见 Tick 第 3 段）。两者只在
-	// 赤道重合，于是飞船在赤道以外平飞、机身一点没滚时，相机的地平线却是歪的。
-	// 改成 true 后相机与机身完全一致，这个偏差自然消失。
-	//
-	// 横滚由玩家独占：AutoLevelSpeed 默认 0（关闭自动回正），按住 A/D 就是完整的
-	// MaxRollRate 120°/s，松手后也不再自动拉回 —— 转了就转了。
-	SpringArm->bInheritRoll = true;
-	SpringArm->TargetArmLength = 1800.f;
-	SpringArm->SocketOffset = FVector(0.f, 0.f, 400.f);
-	SpringArm->bDoCollisionTest = true;
-
-	Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("Camera"));
-	Camera->SetupAttachment(SpringArm, USpringArmComponent::SocketName);
-	Camera->bUsePawnControlRotation = false;
-
-	Hull = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Hull"));
-	Hull->SetupAttachment(Collision);
 	// 碰撞形状 = 船体网格自身的 Simple Collision（导入时生成的 UCX 凸包）。
-	// 不再用根球：3 m 的球罩不住 55 m × 83 m 的航天飞机，挡人/挡射线的位置全是错的。
+	// 3 m 的球罩不住 55 m × 83 m 的航天飞机，挡人/挡射线的位置全是错的。
 	// 注意：这**不会**让飞船自己被地形挡住 —— 它的位移由 N 体求解器每帧
-	// SetActorLocation(bSweep=false) 瞬移写入，接触高度由求解器半径 300 决定。
+	// SetActorLocation(bSweep=false) 瞬移写入，接触高度由凸包探针（或兜底半径）决定。
 	// 凸包只负责「别人撞船」、射线/重叠查询与相机弹簧臂。
 	// 网格若没有 Simple Collision，这里不会有任何阻挡（物理需要简单碰撞）。
+	Hull = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Hull"));
+	SetRootComponent(Hull);
 	Hull->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 	Hull->SetCollisionObjectType(ECC_Pawn);
 	Hull->SetCollisionResponseToAllChannels(ECR_Block);
@@ -192,6 +74,153 @@ ASpaceshipPawn::ASpaceshipPawn()
 		UE_LOG(LogTemp, Warning,
 			TEXT("ASpaceshipPawn: 找不到占位立方体 %s，Hull 将没有网格。"), FallbackHullPath);
 	}
+
+	// --- 体素调用器 ---
+	//
+	// 挂在根节点而不是机头：调用器的位置同时决定 LOD 范围和碰撞范围，碰撞范围
+	// 必须罩住飞船自身的物理体，否则飞机会撞进还没生成碰撞体的地形里。
+	//
+	// 用带预测的版本，而不是角色那种 UVoxelSimpleInvokerComponent：预测把采样点
+	// 沿速度方向前移 PredictionTime 秒
+	// （UVoxelInvokerWithPredictionComponent::GetInvokerGlobalPosition），凭空多出
+	// 预警，且不额外扩大细分区域。停稳时速度为零，退化成普通调用器。
+	//
+	// ⚠ 调用器的位置是**搬到预测点**去的（同上：Position = 组件位置 + 速度 ×
+	// PredictionTime），不是「两个点都罩住」—— 所以**每一个范围**都必须自己罩得住
+	// 那个偏移量：硬约束是「范围 ≥ 启用期间的最大速度 × PredictionTime」。
+	// 高速门控（VoxelInvokerSuspendSpeedKmPerSecond = 0.6 km/s = 6e4 厘米/秒）
+	// 保证调用器只在低速时开着，按这个速度算偏移：
+	//   细气泡 0.03 s → 1.8e3 厘米（18 米）≤ 两个范围（30 / 80 米）；
+	//   LOD3  0.1  s → 6e3 厘米（60 米）≤ 300 米；
+	//   LOD5  0.2  s → 1.2e4 厘米（120 米）≤ 1000 米。
+	// 不门控时最大速度含 BoostMultiplier（3.6e5 厘米/秒），0.03 s 就要 108 米；
+	// 巡航（关阻尼）下更是无上界 —— 任何有限范围都盖不住。那时只能把调用器关掉。
+	//
+	// ⚠⚠ **真正卡住上限的不是插件的块数安全阀，是显存。** 插件那个
+	// voxel.renderer.MaxRenderOctreeChunks（默认 1e6）只在超限时把整棵八叉树作废
+	// （静默失效、地形 LOD 冻结），它**不保证**上限以内的配置跑得动。2026-10-18 实测：
+	// 本关卡世界边长 4096 体素、RENDER_CHUNK_SIZE = 32，取 LODRange = 4.5e5 时八叉树
+	// 是**通过**的，却请求了约 3.3e5 个区块 —— 在 GTX 1650（4 GB）上直接报
+	// 「Video memory has been exhausted (52,945 MB over budget)」，星球整片渲染不出来。
+	// **范围要按显卡的显存反推，不能只按「别撞插件上限」反推。**
+	//
+	// 两条细分路径互相独立，块数各按自己盒子的**体积**涨，且**都不看盒子里有没有
+	// 地形**：
+	//
+	//   (1) LOD —— FVoxelRenderOctree::ShouldSubdivideByDistance。与 ±LODRange 盒子
+	//       相交的块细到 LODToSet 为止。叶块边长 32 · 2^LODToSet 体素。
+	//   (2) 碰撞 —— ShouldSubdivideByOthers → IsInvokerInRange。与 ±CollisionsRange
+	//       盒子相交的块**一路细到 Height 0**，**完全不经过 LODToSet**：
+	//       IsInvokerInRange 只做一次包围盒相交测试，没有任何 LOD 判断。
+	//
+	// 块数都 ≈ (min(2·范围, 世界边长) / 叶块边长)³，父块再加约 14%
+	// （1/8 + 1/64 + … = 1/7）。
+	//
+	// 每次 LOD 更新（默认 MinDelayBetweenLODUpdates = 0.1 秒一次）都会把两个盒子里
+	// 新增的块整批丢进网格化队列。FVoxelDefaultRenderer::UpdateLODs 在游戏线程同步
+	// 跑，**不吃 MeshUpdatesBudget**（那个预算只盖 MeshHandler->Tick 与
+	// ProcessMeshUpdates），所以盒子越大、飞船越快，队列涨得越快、掉帧越狠。
+	// 2026-10-21 定位：**远离行星照样卡，与地表距离无关** —— 飞船始终在行星的
+	// 65.5 km 体素世界内，盒子随飞船平移，速度越快、每次更新扫过的叶块越多。
+	// 现在细气泡两份各 ≈ 16 / 7 块，并加了速度门控（见 Tick 里的
+	// VoxelInvokerSuspendSpeedKmPerSecond）。
+	//
+	// 关键取舍：**LODToSet 每加一档，叶块边长翻倍、块数少 8 倍。** 所以「覆盖半径」
+	// 与「网格精度」是在**固定块数**下互换的 —— 想看得远就得让网格变粗：
+	//
+	//     LODToSet = 0 → 1 米网格（本关卡体素 100 厘米）；= 1 → 2 米；= 2 → 4 米
+	//
+	// 现在取 LODToSet = 1（2 米网格）+ LODRange = 80 米：叶块 64 米，
+	// 块数 ≈ (160/64)³ ≈ 16。同样的盒子在 LODToSet = 0 时要 ≈ 1.3e2 块 —— 8 倍。
+	// 4 GB 显存下这是可持续的取舍；飞船在空中高速掠过，脚下 2 米网格够用。真需要
+	// 1 米网格贴脸时由角色调用器接手（PlanetCharacter.cpp：LODToSet = 0 + 200 米）。
+	// 想要更大的 LOD 覆盖，就把 LODToSet 加一档、同时把 LODRange 翻倍（块数不变）。
+	//
+	// 碰撞那份**锁死在 Height 0，不能跟着 LODRange 一起放大**，否则它单独就把块数顶爆。
+	// 现在取 ±30 米（罩住 0.03 秒预测偏移 18 米），块数 ≈ (60/32)³ ≈ 7，
+	// 比 LOD 那份还小。
+	// 可见区块本来就带碰撞（VoxelWorld 的 bComputeVisibleChunksCollisions 默认 true、
+	// VisibleChunksCollisionsMaxLOD = 5），调用器这一份只是把飞船附近升级到最细。注意
+	// 这些 Height-0 块**不参与渲染**（ByOthers 的子块 bChildrenVisible = false），所以
+	// 它们只买碰撞精度，不买画质。
+	//
+	// **调参后要看游戏里的「Total tasks remaining」**（HUD 上直接显示）—— 那是当前待
+	// 网格化的区块数，是唯一可靠的实测口径。它到几万就要警惕，几十万必炸显存。
+	// 角色那份（PlanetCharacter.cpp）配 LODToSet = 0 + 200 米盒子，同理：盒子小才用得起。
+	VoxelInvoker = CreateDefaultSubobject<UVoxelInvokerWithPredictionComponent>(TEXT("VoxelInvoker"));
+	VoxelInvoker->SetupAttachment(Hull);
+	VoxelInvoker->bUseForLOD = true;
+	VoxelInvoker->LODToSet = 1;
+	VoxelInvoker->LODRange = 8000.f;
+	VoxelInvoker->bUseForCollisions = true;
+	VoxelInvoker->CollisionsRange = 3000.f;
+	VoxelInvoker->bUseForNavmesh = false;
+	VoxelInvoker->bUseForEvents = false;
+	VoxelInvoker->bUseForPriorities = false;
+	VoxelInvoker->bEnablePrediction = true;
+	VoxelInvoker->PredictionTime = 0.03f;
+
+	// ---- 中间 LOD 环：见头文件声明处的说明 ----
+	//
+	// 预测时间受硬约束「范围 ≥ 速度 × PredictionTime」。速度门控
+	// （VoxelInvokerSuspendSpeedKmPerSecond = 0.6 km/s = 6e4 厘米/秒）保证调用器
+	// 只在低速时开着，按这个上限算：
+	//   - 细气泡 @ 0.03 秒：偏移 1.8e3 厘米（18 米）≤ 碰撞 3e3 / LOD 8e3；
+	//   - LOD3 @ 0.1 秒：偏移 6e3 厘米（60 米）≤ 范围 3e4；
+	//   - LOD5 @ 0.2 秒：偏移 1.2e4 厘米（120 米）≤ 范围 1e5。
+	VoxelInvokerLOD3 = CreateDefaultSubobject<UVoxelInvokerWithPredictionComponent>(TEXT("VoxelInvokerLOD3"));
+	VoxelInvokerLOD3->SetupAttachment(Hull);
+	VoxelInvokerLOD3->bUseForLOD = true;
+	VoxelInvokerLOD3->LODToSet = 3;
+	VoxelInvokerLOD3->LODRange = 30000.f;
+	VoxelInvokerLOD3->bUseForCollisions = false;
+	VoxelInvokerLOD3->bUseForNavmesh = false;
+	VoxelInvokerLOD3->bUseForEvents = false;
+	VoxelInvokerLOD3->bUseForPriorities = false;
+	VoxelInvokerLOD3->bEnablePrediction = true;
+	VoxelInvokerLOD3->PredictionTime = 0.1f;
+
+	VoxelInvokerLOD5 = CreateDefaultSubobject<UVoxelInvokerWithPredictionComponent>(TEXT("VoxelInvokerLOD5"));
+	VoxelInvokerLOD5->SetupAttachment(Hull);
+	VoxelInvokerLOD5->bUseForLOD = true;
+	VoxelInvokerLOD5->LODToSet = 5;
+	VoxelInvokerLOD5->LODRange = 100000.f;
+	VoxelInvokerLOD5->bUseForCollisions = false;
+	VoxelInvokerLOD5->bUseForNavmesh = false;
+	VoxelInvokerLOD5->bUseForEvents = false;
+	VoxelInvokerLOD5->bUseForPriorities = false;
+	VoxelInvokerLOD5->bEnablePrediction = true;
+	VoxelInvokerLOD5->PredictionTime = 0.2f;
+
+	// 没有移动组件：位移完全归 N 体求解器（见类注释）。曾经的 UFloatingPawnMovement
+	// 会每帧 MoveUpdatedComponent(Velocity * dt)，留着它就和求解器的写回抢着改位置
+	// —— 而且「不喂它输入」也挡不住，它照样按残留速度搬人。
+
+	SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArm"));
+	SpringArm->SetupAttachment(Hull);
+	SpringArm->bUsePawnControlRotation = false;
+	SpringArm->bInheritPitch = true;
+	SpringArm->bInheritYaw = true;
+	// 继承横滚：相机与机身刚性绑定，按 A/D 压弯时画面跟着侧倾。
+	//
+	// 曾经是 false（"画面不该跟着倒过来"），代价是相机对机身姿态的响应不完整 ——
+	// 横滚是玩家唯一能直接看见的转弯反馈，剥掉它等于按 A/D 时画面纹丝不动。
+	//
+	// 另一个更隐蔽的问题：bInheritRoll 剥的是**世界坐标**的 roll 分量，而飞船的
+	// "水平"由 GetAutoLevelUp() 对齐到行星球面法线（见 Tick 第 3 段）。两者只在
+	// 赤道重合，于是飞船在赤道以外平飞、机身一点没滚时，相机的地平线却是歪的。
+	// 改成 true 后相机与机身完全一致，这个偏差自然消失。
+	//
+	// 横滚由玩家独占：AutoLevelSpeed 默认 0（关闭自动回正），按住 A/D 就是完整的
+	// MaxRollRate 120°/s，松手后也不再自动拉回 —— 转了就转了。
+	SpringArm->bInheritRoll = true;
+	SpringArm->TargetArmLength = 1800.f;
+	SpringArm->SocketOffset = FVector(0.f, 0.f, 400.f);
+	SpringArm->bDoCollisionTest = true;
+
+	Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("Camera"));
+	Camera->SetupAttachment(SpringArm, USpringArmComponent::SocketName);
+	Camera->bUsePawnControlRotation = false;
 }
 
 void ASpaceshipPawn::ApplyHullMesh()
@@ -323,6 +352,19 @@ FVector ASpaceshipPawn::ResolveVerticalThrustUp(
 	return BodyUp;
 }
 
+void ASpaceshipPawn::SetVoxelInvokerCollisionEnabled(const bool bEnabled)
+{
+	if (!VoxelInvoker)
+	{
+		return;
+	}
+
+	// 只改碰撞通道。bUseForLOD 必须保持 true —— 关掉 LOD 之后飞船身边只剩
+	// 行星球心调用器的轨道 LOD（约 LOD 8），星球会明显变糊。
+	// 插件在下一次 LOD 更新时比较新旧 bUseForCollisions，变化后自行重建。
+	VoxelInvoker->bUseForCollisions = bEnabled;
+}
+
 void ASpaceshipPawn::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
@@ -338,6 +380,67 @@ void ASpaceshipPawn::Tick(float DeltaSeconds)
 			PlanetActor = FindNearestPlanet();
 		}
 	}
+
+	// --- 0. 细气泡的碰撞通道按（行星系）速度启停 ---
+	//
+	// 远离行星仍卡的原因不是距离：飞船始终在行星的 65.5 km 体素世界内，调用器
+	// 的盒子随飞船平移，每个 LOD 更新周期（≥ 0.1 秒）都要把扫过的块网格化，
+	// 块数 × 速度 就是游戏线程上的无界开销。
+	//
+	// 只关碰撞，不关 LOD：碰撞路径会强制 Height 0（32 m 块），是两块开销里
+	// 更贵的一路；LOD 只细到 LODToSet，而且关掉后身边只剩行星球心调用器的
+	// 轨道 LOD（约 LOD 8），星球会变糊。速度超过阈值关碰撞，掉回低阈值再开
+	// （回差 + 冷却，避免在阈值上反复重建）。
+	//
+	// 阈值按 **相对行星** 的速度算：行星自己随求解器每秒走几十公里，船贴着
+	// 地面停着时 GetVelocity() 的绝对值也不小。逐帧位移相减即可，不必让
+	// StellarEraVehicle 反向依赖 StellarEra 去查求解器。
+	const AVoxelPlanetActor* const SamplePlanet = PlanetActor;
+	const FVector PlanetLocation = SamplePlanet ? SamplePlanet->GetActorLocation() : FVector::ZeroVector;
+	const FVector ShipLocation = GetActorLocation();
+
+	if (VoxelInvokerToggleTimer > 0.f)
+	{
+		VoxelInvokerToggleTimer = FMath::Max(0.f, VoxelInvokerToggleTimer - DeltaSeconds);
+	}
+	else if (VoxelInvokerSuspendSpeedKmPerSecond > 0.f
+		&& bHasVoxelInvokerSpeedSample
+		&& LastVoxelInvokerPlanet == SamplePlanet
+		&& DeltaSeconds > SMALL_NUMBER)
+	{
+		const FVector RelativeDisplacement =
+			(ShipLocation - LastVoxelInvokerShipLocation) - (PlanetLocation - LastVoxelInvokerPlanetLocation);
+		const float RelativeSpeedKmPerSecond =
+			RelativeDisplacement.Size() / DeltaSeconds / CentimetersPerKilometer;
+		const float ResumeSpeed =
+			FMath::Min(VoxelInvokerResumeSpeedKmPerSecond, VoxelInvokerSuspendSpeedKmPerSecond);
+
+		if (!bVoxelInvokerCollisionSuspended && RelativeSpeedKmPerSecond > VoxelInvokerSuspendSpeedKmPerSecond)
+		{
+			bVoxelInvokerCollisionSuspended = true;
+			VoxelInvokerToggleTimer = VoxelInvokerToggleCooldownSeconds;
+			SetVoxelInvokerCollisionEnabled(false);
+			UE_LOG(LogTemp, Display,
+				TEXT("[Ship] 细气泡碰撞关闭（LOD 保留）：相对行星 %.2f km/s > %.2f"),
+				RelativeSpeedKmPerSecond, VoxelInvokerSuspendSpeedKmPerSecond);
+		}
+		else if (bVoxelInvokerCollisionSuspended && RelativeSpeedKmPerSecond < ResumeSpeed)
+		{
+			bVoxelInvokerCollisionSuspended = false;
+			VoxelInvokerToggleTimer = VoxelInvokerToggleCooldownSeconds;
+			SetVoxelInvokerCollisionEnabled(true);
+			UE_LOG(LogTemp, Display,
+				TEXT("[Ship] 细气泡碰撞开启：相对行星 %.2f km/s < %.2f"),
+				RelativeSpeedKmPerSecond, ResumeSpeed);
+		}
+	}
+
+	// 采样每帧都更新，冷却期间也一样 —— 否则冷却结束后的第一帧会把 0.5 秒的
+	// 位移当成一帧，量出离谱的速度。
+	LastVoxelInvokerShipLocation = ShipLocation;
+	LastVoxelInvokerPlanetLocation = PlanetLocation;
+	LastVoxelInvokerPlanet = PlanetActor;
+	bHasVoxelInvokerSpeedSample = SamplePlanet != nullptr;
 
 	// --- 0. 落地自由视角判定 ---
 	//
@@ -554,16 +657,31 @@ FSpaceshipStatus ASpaceshipPawn::GetStatus() const
 	// 世界厘米/秒 → 世界 km/s。
 	Status.SpeedKmPerSecond = GetVelocity().Size() / CentimetersPerKilometer;
 
-	// 阻尼极速（世界 km/s）= 推力（km/s²）× τ。巡航（无阻尼）时为 0，表示「没有上限」。
+	// 实际极速（世界 km/s）= 阻尼极速（推力 × τ，巡航关着时有效）与硬上限里
+	// **较小且非 0** 的那个；两个都没设才是 0（无上限）。
 	const float Damping = GetDampingTime();
-	Status.MaxSpeedKmPerSecond = Damping > 0.f
+	const float DampingTopSpeed = Damping > 0.f
 		? ThrustAccelerationKmPerS2 * (bBoosting ? BoostMultiplier : 1.f) * Damping
 		: 0.f;
+
+	float EffectiveMaxSpeed = DampingTopSpeed;
+	if (MaxSpeedKmPerSecond > 0.f)
+	{
+		EffectiveMaxSpeed = EffectiveMaxSpeed > 0.f
+			? FMath::Min(EffectiveMaxSpeed, MaxSpeedKmPerSecond)
+			: MaxSpeedKmPerSecond;
+	}
+	Status.MaxSpeedKmPerSecond = EffectiveMaxSpeed;
 
 	Status.ThrustInput = ThrustInput;
 	Status.bBoosting = bBoosting;
 	Status.bPreserveVelocity = bPreserveVelocity;
 	Status.bLanded = IsLanded();
+
+	// 大气：密度比每帧都算（HUD 用它区分真空 / 大气），阻力大小只在有系数时非零。
+	Status.AtmosphereDensityRatio = GetAtmosphereDensityRatio();
+	Status.AtmosphereDragKmPerS2 =
+		GetAtmosphereDragAccelerationWorldCmPerS2().Size() / CentimetersPerKilometer;
 
 	return Status;
 }
@@ -602,6 +720,38 @@ void ASpaceshipPawn::Look(float DeltaYaw, float DeltaPitch)
 	PitchRate = FMath::Clamp(PitchRate + DeltaPitch * MouseImpulseScale, -MaxPitchRate, MaxPitchRate);
 }
 
+float ASpaceshipPawn::GetLandingQueryRadiusCm() const
+{
+	// 球心固定在机身中心（全向，不依赖机身横滚），但半径不能是常数：求解器的
+	// 接触形状是 Hull 凸包探针，飞船是**船底着地**，机身中心因此比船底高出一整个
+	// 船体深度（本资源约 1000 cm）。固定 600 cm 的球从机身中心出发根本够不到地面，
+	// IsLanded() 恒为假 —— 落地后鼠标仍在转飞船、按 E 也下不了船。
+	//
+	// 所以半径 = 船体沿**重力方向**的最低点到机身中心的距离 + LandingProbeDistance。
+	// 重力方向取 GetAutoLevelUp() 的反向（贴行星时是球心径向，太空中是世界 Z），
+	// 与机身横滚无关；探针先过机身变换，滚成什么样最低点都算得对。
+	const FVector Down = -GetAutoLevelUp();
+	const FVector ActorLocation = GetActorLocation();
+	const FTransform ActorTransform = GetActorTransform();
+
+	double HullDepthCm = 0.0;
+	for (const FVector& Probe : ContactProbesLocalCm)
+	{
+		const FVector WorldProbe = ActorTransform.TransformPosition(Probe);
+		HullDepthCm = FMath::Max(HullDepthCm,
+			double(FVector::DotProduct(WorldProbe - ActorLocation, Down)));
+	}
+
+	// 没有凸包探针时求解器退回 GetContactRadiusCm() 的球：球心在机身中心，
+	// 球面就是接触面，深度即半径。
+	if (ContactProbesLocalCm.Num() == 0)
+	{
+		HullDepthCm = GetContactRadiusCm();
+	}
+
+	return float(HullDepthCm + FMath::Max(LandingProbeDistance, 0.f));
+}
+
 bool ASpaceshipPawn::IsLanded() const
 {
 	if (GetVelocity().Size() > LandingSpeedThreshold)
@@ -609,7 +759,9 @@ bool ASpaceshipPawn::IsLanded() const
 		return false;
 	}
 
-	// 全向检测球，球心在机身中心，与机身朝向无关。
+	// 全向检测球，球心在机身中心，与机身横滚无关；半径按船体深度现算
+	// （见 GetLandingQueryRadiusCm）—— 船底着地时机身中心离地有一整个船体深度，
+	// 固定半径的球会够不到地面。
 	//
 	// 原本是沿机身"下"方的射线（而不是世界下方，因为飞船停在球体侧面时世界下方
 	// 是空的）。但自动回正已默认关闭，机身可以停在任何横滚角 —— 滚 90° 后"下方"
@@ -624,7 +776,7 @@ bool ASpaceshipPawn::IsLanded() const
 	}
 	return GetWorld()->OverlapAnyTestByChannel(
 		GetActorLocation(), FQuat::Identity, ECC_WorldStatic,
-		FCollisionShape::MakeSphere(LandingProbeDistance), Params);
+		FCollisionShape::MakeSphere(GetLandingQueryRadiusCm()), Params);
 }
 
 bool ASpaceshipPawn::CanBoardFrom(const FVector& CharacterLocation) const
@@ -639,11 +791,9 @@ void ASpaceshipPawn::SetBoardedCharacter(APlanetCharacter* Character)
 
 float ASpaceshipPawn::GetContactRadiusCm() const
 {
-	// GetScaledSphereRadius 而不是 GetUnscaledSphereRadius：飞船在关卡里可能被
-	// 整体缩放，N 体那边要的是**世界尺度**的半径（跟 CentimetersPerAu 同一套单位）。
-	// 只读半径，不看碰撞开关：根球现在是 NoCollision，但它仍是兜底接触形状的来源。
-	// Collision 为空只会出现在 CDO 构造的中途，返回 0 即退回点质量行为。
-	return Collision ? Collision->GetScaledSphereRadius() : 0.f;
+	// 兜底半径是世界尺度（厘米），与 CentimetersPerAu 同一套单位；属性本身就是
+	// 厘米，不乘任何缩放。钳到非负：负半径会让求解器的接触解算反向推开飞船。
+	return FMath::Max(ContactFallbackRadiusCm, 0.f);
 }
 
 bool ASpaceshipPawn::BuildContactProbes(TArray<FVector>& OutProbes) const
@@ -657,12 +807,20 @@ bool ASpaceshipPawn::BuildContactProbes(TArray<FVector>& OutProbes) const
 		return false;
 	}
 
-	// 凸包顶点存的是元素空间坐标，每个元素还可能带自己的变换；再乘 Hull 相对根组件
-	// 的变换（含蓝图里拖的缩放），才是 Actor 本地坐标。
+	// 凸包顶点存的是元素空间坐标，每个元素还可能带自己的变换；再乘 Hull 相对
+	// **Actor** 的变换（含蓝图里拖的缩放），才是 Actor 本地坐标。
+	//
+	// ⚠ 不能用 Hull->GetRelativeTransform()：Hull 是根组件，UE 对「没有 attach
+	// 父组件」的组件把 RelativeLocation 直接存在世界坐标里（SceneComponent.cpp
+	// 的 SetWorldLocation：「No parent, relative == world」）。于是
+	// GetRelativeTransform() 返回的是**世界变换**，探针会被整体平移一个飞船的
+	// 世界位置 —— 飞船飞了 2 AU，探针也跑 2 AU 外，接触永远检测不到。
+	// 这里显式求「Hull 世界变换 → Actor 世界变换」的相对变换，根/子组件都成立。
 	//
 	// FTransform 的 operator* 是「先 A 后 B」：C = A * B 先应用 A 再应用 B
 	// （见 TransformNonVectorized.h 里 Multiply 的注释）。所以写在左边的是 Elem。
-	const FTransform HullToLocal = Hull->GetRelativeTransform();
+	const FTransform HullToLocal =
+		Hull->GetComponentTransform().GetRelativeTransform(GetActorTransform());
 
 	for (const FKConvexElem& Elem : BodySetup->AggGeom.ConvexElems)
 	{
@@ -717,8 +875,115 @@ void ASpaceshipPawn::RebuildContactProbes()
 	{
 		ContactProbesLocalCm.Reset();
 		UE_LOG(LogTemp, Warning,
-			TEXT("[Ship] Hull 没有 Simple Collision，接触退回 300 cm 球"));
+			TEXT("[Ship] Hull 没有 Simple Collision，接触退回 %.0f cm 球"),
+			ContactFallbackRadiusCm);
 	}
+}
+
+float ASpaceshipPawn::ComputeSpeedLimitTaper(double SpeedCmPerSecond, double MaxSpeedCmPerSecond)
+{
+	// 上限 ≤ 0 = 不限。负值也按不限处理：ClampMin 只在编辑器里拦，运行时
+	// 被蓝图或控制台写成负数时不该把推力整个关死。
+	if (MaxSpeedCmPerSecond <= 0.0)
+	{
+		return 1.f;
+	}
+
+	// f = 1 − (v/vmax)²：v → vmax 时 f → 0，所以是渐近逼近。用平方而不是线性
+	// 是因为线性在贴近上限时会突然「掉力」—— 半程还有 50% 推力、九成只剩 10%，
+	// 手感上像被拽住；平方在半程还有 75%，到九成才明显收油。
+	const double Ratio = FMath::Clamp(SpeedCmPerSecond / MaxSpeedCmPerSecond, 0.0, 1.0);
+	return float(FMath::Clamp(1.0 - Ratio * Ratio, 0.0, 1.0));
+}
+
+float ASpaceshipPawn::ComputeAtmosphereDensityRatio(
+	double AltitudeCm, double SurfaceRadiusCm,
+	double ScaleHeightRatio, double AtmosphereHeightRatio)
+{
+	// 参数非法 = 这颗行星没有可用的大气模型：宁可不加阻力，也不要除零或
+	// exp 溢出把飞船弹飞。
+	if (SurfaceRadiusCm <= 0.0 || ScaleHeightRatio <= 0.0 || AtmosphereHeightRatio <= 0.0)
+	{
+		return 0.f;
+	}
+
+	// 壳顶以上是真空。用 >= 而不是 >：壳顶本身算界外，避免边界上残留一份阻力。
+	if (AltitudeCm >= SurfaceRadiusCm * AtmosphereHeightRatio)
+	{
+		return 0.f;
+	}
+
+	// 地面以下（撞进地形、或数值抖动给出负高度）按海平面密度处理。
+	const double ScaleHeightCm = SurfaceRadiusCm * ScaleHeightRatio;
+	const double NormalizedAltitude = FMath::Max(AltitudeCm, 0.0) / ScaleHeightCm;
+	return float(FMath::Exp(-NormalizedAltitude));
+}
+
+FVector ASpaceshipPawn::ComputeAtmosphereDragAccelerationWorldCmPerS2(
+	const FVector& VelocityCmPerSecond, double DensityRatio,
+	double DragAccelerationKmPerS2)
+{
+	const double SpeedCmPerSecond = VelocityCmPerSecond.Size();
+	if (SpeedCmPerSecond <= 0.0 || DensityRatio <= 0.0 || DragAccelerationKmPerS2 <= 0.0)
+	{
+		return FVector::ZeroVector;
+	}
+
+	// 速度换算成 km/s 代入 (v / 1 km/s)²，结果再乘回厘米/秒²。
+	const double SpeedKmPerSecond = SpeedCmPerSecond / double(CentimetersPerKilometer);
+	const double MagnitudeCmPerS2 = DragAccelerationKmPerS2 * DensityRatio
+		* SpeedKmPerSecond * SpeedKmPerSecond * double(CentimetersPerKilometer);
+
+	// 与速度严格反向：阻力只减速，不产生侧向力。
+	return -VelocityCmPerSecond / SpeedCmPerSecond * MagnitudeCmPerS2;
+}
+
+float ASpaceshipPawn::GetAtmosphereDensityRatio() const
+{
+	if (!PlanetActor)
+	{
+		return 0.f;
+	}
+
+	const UPlanetAtmosphereComponent* Atmosphere = PlanetActor->GetAtmosphereComponent();
+	if (!Atmosphere)
+	{
+		return 0.f;
+	}
+
+	const double SurfaceRadiusCm = double(PlanetActor->GetSurfaceRadiusCm());
+	if (SurfaceRadiusCm <= 0.0)
+	{
+		return 0.f;
+	}
+
+	// 高度取「到球心的距离 − 基准球面半径」，不含地形起伏：基准半径已经覆盖
+	// 绝大部分落体区间，为一次密度查询逐帧做体素地表查询不值得。
+	const double AltitudeCm =
+		double(FVector::Dist(GetActorLocation(), PlanetActor->GetActorLocation()))
+		- SurfaceRadiusCm;
+
+	return ComputeAtmosphereDensityRatio(AltitudeCm, SurfaceRadiusCm,
+		double(Atmosphere->RayleighScaleHeightRatio),
+		double(Atmosphere->AtmosphereHeightRatio));
+}
+
+FVector ASpaceshipPawn::GetAtmosphereDragAccelerationWorldCmPerS2() const
+{
+	if (!PlanetActor)
+	{
+		return FVector::ZeroVector;
+	}
+
+	const UPlanetAtmosphereComponent* Atmosphere = PlanetActor->GetAtmosphereComponent();
+	if (!Atmosphere || Atmosphere->DragAccelerationAtKmPerSecond <= 0.f)
+	{
+		return FVector::ZeroVector;
+	}
+
+	return ComputeAtmosphereDragAccelerationWorldCmPerS2(
+		GetVelocity(), double(GetAtmosphereDensityRatio()),
+		double(Atmosphere->DragAccelerationAtKmPerSecond));
 }
 
 FVector ASpaceshipPawn::GetThrustAccelerationWorldCmPerS2(float DeltaSeconds) const
@@ -782,7 +1047,42 @@ FVector ASpaceshipPawn::GetThrustAccelerationWorldCmPerS2(float DeltaSeconds) co
 		}
 	}
 
-	return Direction.GetClampedToMaxSize(1.0) * Magnitude;
+	// 速度上限：只削**沿速度方向的正向**分量，横向推力与制动原样保留。
+	//
+	//     a_along' = a_along · f      f = 1 − (v/vmax)²
+	//
+	// 于是 v → vmax 是渐近的，而不是撞上一堵墙。为什么只削这一个分量：直接缩放
+	// 整个推力向量的话，到顶后横向推力也没了 —— 转不了向、刹不住车，贴着行星
+	// 时连抬头抗重力的力都拿不到，玩家会感觉「油门整个死掉」。
+	//
+	// 速度取 GetVelocity()，与阻尼、制动同一个惯性系（贴着行星时含行星自身的
+	// 运动）。投影在**夹长度之前**做：夹长度只会缩短向量，不会把沿速分量放大回去。
+	const double MaxSpeedCmPerSecond =
+		double(MaxSpeedKmPerSecond) * double(CentimetersPerKilometer);
+	if (MaxSpeedCmPerSecond > 0.0)
+	{
+		const FVector Velocity = GetVelocity();
+		const double Speed = Velocity.Size();
+		if (Speed > KINDA_SMALL_NUMBER)
+		{
+			const FVector VelocityDirection = Velocity / Speed;
+			const double AlongSpeed =
+				FVector::DotProduct(Direction, VelocityDirection);
+			if (AlongSpeed > 0.0)
+			{
+				const double Taper =
+					ComputeSpeedLimitTaper(Speed, MaxSpeedCmPerSecond);
+				Direction -= VelocityDirection * float(AlongSpeed * (1.0 - Taper));
+			}
+		}
+	}
+
+	// 大气阻力在最后叠加：它是**环境力**，不是操纵输入。速度上限只衰减推力，
+	// 不该把阻力也一起衰减；推力为 0（松手）或巡航开着时阻力照样要有 ——
+	// 否则「巡航关阻尼」会连空气阻力一起关掉，落进大气层仍是自由落体。
+	FVector Acceleration = Direction.GetClampedToMaxSize(1.0) * Magnitude;
+	Acceleration += GetAtmosphereDragAccelerationWorldCmPerS2();
+	return Acceleration;
 }
 
 float ASpaceshipPawn::GetDampingTime() const

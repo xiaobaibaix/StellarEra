@@ -43,6 +43,22 @@ public:
 	UPROPERTY(EditAnywhere, Category = "StellarEra|Atmosphere", meta = (ClampMin = "0.0"))
 	float MieScaleHeightRatio = 0.003f;
 
+	/**
+	 * 大气阻力：海平面（ρ = 1）、相对速度 1 km/s 时的减速度（km/s²）。0 = 关闭。
+	 *
+	 * 阻力加速度按 a = 本值 × ρ(h) × (v / 1 km/s)² 反向于速度施加：与速度平方
+	 * 成正比，速度翻倍阻力四倍。终端速度 ≈ √(g / 本值) km/s（g 为当地重力加速度，
+	 * 单位 km/s²），所以调大本值 = 更快收敛到更低的落速。
+	 *
+	 * 密度 ρ(h) = exp(−h / 标高)，标高 = 表面半径 × RayleighScaleHeightRatio；
+	 * 壳顶以上（h ≥ 表面半径 × AtmosphereHeightRatio）恒为 0。
+	 *
+	 * 与 bAtmosphereEnabled 无关：那个开关只管渲染，本值管物理。只有本值为 0
+	 * 才意味着这颗行星没有大气阻力。
+	 */
+	UPROPERTY(EditAnywhere, Category = "StellarEra|Atmosphere", meta = (ClampMin = "0.0"))
+	float DragAccelerationAtKmPerSecond = 10.0f;
+
 	/** 太阳辐照度的线性 RGB 倍率。调到与地形被同一盏 DirectionalLight 照出来的亮度相称。 */
 	UPROPERTY(EditAnywhere, Category = "StellarEra|Atmosphere")
 	FLinearColor SunIntensity = FLinearColor::White;

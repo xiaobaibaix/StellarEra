@@ -10,7 +10,6 @@
 class APlanetCharacter;
 class AVoxelPlanetActor;
 class UCameraComponent;
-class USphereComponent;
 class USpringArmComponent;
 class UStaticMesh;
 class UStaticMeshComponent;
@@ -35,9 +34,10 @@ struct FSpaceshipStatus
 	float SpeedKmPerSecond = 0.f;
 
 	/**
-	 * 阻尼极速（**世界 km/s**）= ThrustAccelerationKmPerS2 × τ × 加速倍率。
+	 * 实际生效的速度上限（**世界 km/s**）：阻尼极速（= 推力 × τ × 加速倍率）与
+	 * 硬上限 MaxSpeedKmPerSecond 里较小且非 0 的那个，HUD 直接印它。
 	 *
-	 * 0 表示**没有上限**（巡航开着，阻尼关掉了），不是「不能动」。
+	 * 0 表示**没有上限**（巡航开着、硬上限也设成了 0），不是「不能动」。
 	 */
 	float MaxSpeedKmPerSecond = 0.f;
 
@@ -52,6 +52,15 @@ struct FSpaceshipStatus
 
 	/** 是否判定为已落地。 */
 	bool bLanded = false;
+
+	/**
+	 * 当前所在处的大气密度比（海平面 = 1，壳外 = 0）。没有参考行星时也为 0。
+	 * 显示层据此区分「在真空里」与「在大气里」。
+	 */
+	float AtmosphereDensityRatio = 0.f;
+
+	/** 当前大气阻力减速度的大小（**世界 km/s²**）。0 = 无阻力（真空或关掉了）。 */
+	float AtmosphereDragKmPerS2 = 0.f;
 };
 
 /**
@@ -160,6 +169,14 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Spaceship")
 	bool IsLanded() const;
 
+	/**
+	 * 落地检测球的实际半径（厘米）：球心在机身中心，球面覆盖「船体沿重力方向
+	 * 的最低点到机身中心的距离 + LandingProbeDistance」。
+	 *
+	 * 单点收口，测试摆参照物时直接用这个值，别在测试里重复算一遍船体深度。
+	 */
+	float GetLandingQueryRadiusCm() const;
+
 	/** 角色是否近到可以登船。 */
 	UFUNCTION(BlueprintPure, Category = "Spaceship")
 	bool CanBoardFrom(const FVector& CharacterLocation) const;
@@ -173,12 +190,11 @@ public:
 	/**
 	 * 接触半径（厘米）—— 求解器的**兜底**接触形状：没有凸包探针时才用。
 	 *
-	 * 取根球 Collision 的缩放后半径（默认 300 厘米）。**不能返回 0**：半径 0 的
+	 * 返回 ContactFallbackRadiusCm（默认 300 厘米）。**不能返回 0**：半径 0 的
 	 * 点质量在求解器里会让飞船的**中心**被钳在地表上，机身下半截埋进地形里。
 	 *
 	 * 正常情况下求解器用的是 BuildContactProbes 产出的凸包探针（见
 	 * GetContactProbesLocalCm）；这个半径只在网格没导 Simple Collision 时生效。
-	 * 它与其他碰撞形状**已经解耦**：根球不参与碰撞，改它只改兜底的离地高度。
 	 */
 	float GetContactRadiusCm() const;
 
@@ -191,6 +207,12 @@ public:
 	 * @return false 表示 Hull 没有网格或网格没有 Simple Collision。
 	 */
 	bool BuildContactProbes(TArray<FVector>& OutProbes) const;
+
+	/**
+	 * 重建 ContactProbesLocalCm。Hull 网格或变换变化后调用；OnConstruction 与
+	 * BeginPlay 会自动调用，测试也可以手动调。
+	 */
+	void RebuildContactProbes();
 
 	/**
 	 * 接触探针（Actor 本地，厘米）。空数组 = 没有可用的凸包，求解器退回 300 cm 球。
@@ -227,8 +249,61 @@ public:
 	 * 修正成来回翻符号的抖动 —— 3 fps（编辑器不在前台时的实际帧率）下直接发散。
 	 *
 	 * 制动只削速度、不抗重力：低速时它给不出托住飞船的力，悬停仍归 W / 升降键。
+	 *
+	 * 速度上限（MaxSpeedKmPerSecond > 0）只衰减**沿速度方向的正向**推力：
+	 * f = 1 − (v/vmax)²，v ≥ vmax 时 f = 0，所以速度是渐近逼近上限而不是撞墙。
+	 * 横向推力与制动不打折 —— 否则到顶后既转不了向也刹不住车，在重力井里连
+	 * 抬头抗重力的力都拿不到。
+	 *
+	 * 返回的是**合力**：推力 / 制动之后再叠加大气阻力（见
+	 * GetAtmosphereDragAccelerationWorldCmPerS2）。阻力与输入无关，推力为 0、
+	 * 巡航开着时照样生效；它也**不**受速度上限衰减。
 	 */
 	FVector GetThrustAccelerationWorldCmPerS2(float DeltaSeconds) const;
+
+	/**
+	 * 速度上限的衰减系数：f = 1 − (v/vmax)²，夹在 [0, 1]。
+	 *
+	 * @param SpeedCmPerSecond    当前速度（世界厘米/秒，与 GetVelocity 同刻度）
+	 * @param MaxSpeedCmPerSecond 速度上限（世界厘米/秒）；≤ 0 表示不限，恒返回 1
+	 */
+	static float ComputeSpeedLimitTaper(double SpeedCmPerSecond, double MaxSpeedCmPerSecond);
+
+	/**
+	 * 大气密度比 ρ(h)：海平面为 1，按标高指数衰减，壳外为 0。
+	 *
+	 *     ρ(h) = exp(−max(h, 0) / 标高)
+	 *     标高 = 表面半径 × ScaleHeightRatio
+	 *     壳顶 h = 表面半径 × AtmosphereHeightRatio，h ≥ 壳顶直接返回 0
+	 *
+	 * 参数非法（半径 / 标高比 / 壳厚比 ≤ 0）也返回 0 —— 宁可不加阻力，也不要
+	 * 除零或 exp 溢出把飞船弹飞。
+	 */
+	static float ComputeAtmosphereDensityRatio(double AltitudeCm, double SurfaceRadiusCm,
+		double ScaleHeightRatio, double AtmosphereHeightRatio);
+
+	/**
+	 * 二次大气阻力：a = −D · ρ · (v / 1 km/s)²，方向与速度相反。
+	 *
+	 * @param VelocityCmPerSecond    飞船速度（世界厘米/秒）
+	 * @param DensityRatio           密度比（0 ~ 1，见 ComputeAtmosphereDensityRatio）
+	 * @param DragAccelerationKmPerS2 海平面、1 km/s 时的减速度（km/s²）
+	 * @return 世界厘米/秒²；速度为零或任一系数为 0 时为零向量
+	 */
+	static FVector ComputeAtmosphereDragAccelerationWorldCmPerS2(
+		const FVector& VelocityCmPerSecond, double DensityRatio,
+		double DragAccelerationKmPerS2);
+
+	/** 当前参考行星大气里的密度比。没有参考行星 / 壳外时为 0。 */
+	float GetAtmosphereDensityRatio() const;
+
+	/**
+	 * 本帧的大气阻力加速度（世界厘米/秒²）。
+	 *
+	 * 取最近参考行星（PlanetActor）的大气组件：阻力系数、标高比、壳厚比都从
+	 * 那里读，所以每颗行星可以单独调。与巡航开关、速度上限都无关。
+	 */
+	FVector GetAtmosphereDragAccelerationWorldCmPerS2() const;
 
 	/**
 	 * 阻尼时间常数（秒）。0 = 不阻尼。
@@ -257,14 +332,14 @@ public:
 
 protected:
 	/**
-	 * 接触半径球：根组件与变换锚点。
+	 * 凸包探针不可用时的兜底接触半径（厘米）。默认 300。
 	 *
-	 * **不参与碰撞** —— 实际碰撞形状是 Hull 网格上的 Simple Collision（凸包）。
-	 * 保留这个组件和 300 cm 半径，只因为 N 体求解器要用它算飞船的接触距离
-	 * （GetContactRadiusCm）；改半径会改离地高度，与「别人撞船」的形状无关。
+	 * 只有 Hull 网格没有 Simple Collision 时才会用到 —— 正常情况下求解器走
+	 * BuildContactProbes 的凸包探针。**不要设成 0**：半径 0 的点质量会让飞船中心
+	 * 被钳在地表上，机身下半截埋进地形。
 	 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spaceship")
-	TObjectPtr<USphereComponent> Collision;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Spaceship")
+	float ContactFallbackRadiusCm = 300.f;
 
 	/**
 	 * 体素调用器：行星的 LOD 与碰撞都靠它驱动，没有它飞船就是瞎的。
@@ -290,6 +365,23 @@ protected:
 	TObjectPtr<UVoxelInvokerWithPredictionComponent> VoxelInvoker;
 
 	/**
+	 * 中间 LOD 环：把「LOD1 细气泡 → LOD8 全星」的 7 级落差拆成三级。
+	 *
+	 * 只有细气泡时，紧挨着细气泡的就是 8.2 公里的粗块；插件在
+	 * WaitingForNewChunks 阶段故意保留旧块直到替代块全部完成
+	 * （VoxelDefaultRenderer.cpp:464），再用 2 × ChunksDitheringDuration 淡出，
+	 * 于是 8 公里级面片会横穿细地形 —— 高速飞行的「大片白幕」就是这么来的。
+	 *
+	 * 只做 LOD。碰撞交给细气泡：碰撞细分不看 LODToSet，一路到 Height 0，
+	 * 600 米的盒子会请求约 5.5e4 个区块，足以顶爆显存。
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spaceship")
+	TObjectPtr<UVoxelInvokerWithPredictionComponent> VoxelInvokerLOD3;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spaceship")
+	TObjectPtr<UVoxelInvokerWithPredictionComponent> VoxelInvokerLOD5;
+
+	/**
 	 * 外壳网格。**网格与变换都归蓝图管**：
 	 *
 	 *   - 换模型：用 HullMesh 属性（推荐），或直接在子蓝图里覆盖本组件的静态网格体；
@@ -297,7 +389,8 @@ protected:
 	 *     值存在蓝图资产里，重编译不会被清掉；关卡实例上也能单独调。
 	 *
 	 * 碰撞也归这个组件：构造函数打开它的 QueryAndPhysics，形状取网格的
-	 * Simple Collision（凸包）；根球 Collision 不参与碰撞。
+	 * Simple Collision（凸包）。它同时是 Actor 的**根组件**，因此它的变换就是
+	 * 飞船的变换锚点（求解器写回的位置也落在这里）。
 	 *
 	 * C++ 只在构造期塞一个引擎立方体兜底，让裸放的 ASpaceshipPawn 不至于隐形，
 	 * 之后不再写这里的任何变换 —— 一旦在这里写，蓝图里拖出来的值每次重编译都会
@@ -305,9 +398,6 @@ protected:
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spaceship")
 	TObjectPtr<UStaticMeshComponent> Hull;
-
-	/** 重建 ContactProbesLocalCm。Hull 网格或变换变化后调用。 */
-	void RebuildContactProbes();
 
 	/**
 	 * BuildContactProbes 的结果缓存（Actor 本地，厘米）。
@@ -448,6 +538,23 @@ protected:
 	float DampingTime = 0.01f;
 
 	/**
+	 * 速度上限（**世界 km/s**，与 HUD 的速度同一刻度）。0 = 不限。
+	 *
+	 * 越接近上限，**沿速度方向的正向**推力越小（f = 1 − (v/vmax)²），到顶时 f = 0：
+	 * 速度渐近逼近上限，不是撞上一堵墙。横向推力与 S 制动不打折，到顶仍能转向、
+	 * 能刹车（见 GetThrustAccelerationWorldCmPerS2）。
+	 *
+	 * 默认 12 km/s：本关卡飞船所在处的圆轨道速度 7.678 km/s、逃逸速度约
+	 * 10.86 km/s，12 给逃逸留约 10% 余量；低于 7.678 就飞不上圆轨道。
+	 *
+	 * 体素调用器的预测范围是按阻尼极速（1.2 km/s）配的，上限调得越高，高速时
+	 * 地形越容易追不上 —— 改这个值要连 PredictionTime / 预测距离一起看。
+	 */
+	UPROPERTY(EditAnywhere, Category = "Spaceship|Thrust",
+		meta = (DisplayName = "速度上限（km/s，世界）", ClampMin = "0"))
+	float MaxSpeedKmPerSecond = 12.0f;
+
+	/**
 	 * 巡航开关。开 = 关掉阻尼（速度保持）；关 = 有阻尼，松手就按 τ 衰减停下。
 	 *
 	 * **只关阻尼，推力照给** —— 开着巡航按住 W 才能一路加速到圆轨道速度。
@@ -500,19 +607,66 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spaceship")
 	float PlanetReevaluateInterval = 0.5f;
 
+	/**
+	 * 体素调用器的高速门控：速度高于此值（世界 km/s）时，只关掉细气泡的
+	 * **碰撞**（bUseForCollisions = false），三档 LOD 全部保持开启。
+	 *
+	 * 为什么只关碰撞：两条路径的代价完全不同 ——
+	 *   - 碰撞走 ShouldSubdivideByOthers → IsInvokerInRange，强制 Height 0
+	 *     （32 m 块，32³ 采样），盒子扫过的每一块都是最细的；
+	 *   - LOD 只细到 LODToSet（细气泡是 LOD1，64 m 块），块数少 8 倍。
+	 * 13 km/s 时（每 0.1 秒扫过 1.3 km），±30 m 碰撞盒 ≈ 1.4e2 块 / 4.7e6
+	 * 采样；三档 LOD 合计 ≈ 5e6 采样，量级相同。关掉 LOD 会让高速下身边
+	 * 只剩行星球心调用器的轨道 LOD（本项目约 LOD 8），星球变糊 —— 2026-10-21
+	 * 实机反馈，所以 LOD 不能关。
+	 *
+	 * 默认 0.6：低于阻尼极速（1.2 km/s）的一半，只有落地/悬停才需要最细碰撞。
+	 * 与 VoxelInvokerResumeSpeedKmPerSecond 构成回差，避免在阈值上反复重建。
+	 * 0 = 关闭门控（碰撞始终开着）。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spaceship|Voxel",
+		meta = (DisplayName = "关碰撞 invoker 速度阈值（km/s，世界）", ClampMin = "0"))
+	float VoxelInvokerSuspendSpeedKmPerSecond = 0.6f;
+
+	/**
+	 * 速度低于此值（世界 km/s）时重新打开细气泡的碰撞。必须小于上面的阈值，
+	 * 两者之差就是回差。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spaceship|Voxel",
+		meta = (DisplayName = "开碰撞 invoker 速度阈值（km/s，世界）", ClampMin = "0"))
+	float VoxelInvokerResumeSpeedKmPerSecond = 0.2f;
+
+	/**
+	 * 两次启停之间的最小间隔（秒）。默认 0.5。
+	 *
+	 * 切换 bUseForCollisions 会让插件在下一次 LOD 更新（≤ MinDelayBetweenLODUpdates，
+	 * 默认 0.1 秒）重建整棵八叉树；在阈值附近抖动时反复重建会把省下来的开销
+	 * 加倍还回去。回差之外再加一道时间闸。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spaceship|Voxel",
+		meta = (ClampMin = "0"))
+	float VoxelInvokerToggleCooldownSeconds = 0.5f;
+
 	/** 判定“已落地”的速度阈值（厘米/秒）。 */
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Landing")
 	float LandingSpeedThreshold = 200.f;
 
 	/**
-	 * 落地检测球的半径（厘米）。球心在机身中心，与机身朝向无关。
+	 * 落地判定的**允许间距**（厘米）：船体沿重力方向的最低点到地面的距离小于它，
+	 * 才判为已落地。它**不再是检测球半径** —— 球半径由 GetLandingQueryRadiusCm()
+	 * 按船体深度现算。
 	 *
-	 * 曾经是一条沿机身"下"方的射线。自动回正关掉后机身可以停在任何横滚角，射线
-	 * 会指偏、永远打不到地面，人就被卡在船里下不来（IsLanded 恒为假，按 E 无效）。
-	 * 换成全向球后，滚成什么样都能判定落地。
+	 * 检测形状是球（球心在机身中心，与机身横滚无关）。曾经是一条沿机身"下"方的
+	 * 射线：自动回正关掉后机身可以停在任何横滚角，射线会指偏、永远打不到地面，
+	 * 人就被卡在船里下不来（IsLanded 恒为假，按 E 无效）。换成全向球后没有这个问题。
+	 *
+	 * 为什么半径不能是常数：求解器的接触形状是 Hull 凸包探针，飞船是**船底着地**，
+	 * 机身中心天然比船底高出一整个船体深度（本资源约 1000 cm）。固定 600 cm 的球
+	 * 够不到地面，IsLanded() 恒为假 —— 落地后鼠标仍在转飞船、按 E 也下不了船。
+	 * 半径改成「船体深度 + 本值」后，本值恢复它字面上的含义：船底离地多远算落地。
 	 *
 	 * 取舍：球是全向的，贴着悬崖侧面慢速悬停也会判为已落地。本判定唯一的用途是
-	 * 「能不能按 E 下船」，从几百厘米高处落到地面可以接受。
+	 * 「能不能按 E 下船」和「落地后鼠标只转相机」，从几百厘米高处落到地面可以接受。
 	 *
 	 * 名字里的 Distance 是历史遗留（当时是射线长度），改 UPROPERTY 名有让关卡
 	 * 实例里已设的值丢失的风险，故保留。
@@ -553,6 +707,14 @@ private:
 	 */
 	void ApplyHullMesh();
 
+	/**
+	 * 只开关细气泡的碰撞通道（bUseForCollisions），LOD 通道保持原样。
+	 *
+	 * 插件会在下一次 LOD 更新时发现该标志变化并重建八叉树，不需要手动
+	 * RefreshAllVoxelInvokers。
+	 */
+	void SetVoxelInvokerCollisionEnabled(bool bEnabled);
+
 	float ThrustInput = 0.f;
 	float RollInput = 0.f;
 	float VerticalInput = 0.f;
@@ -573,6 +735,28 @@ private:
 
 	/** 距离下次重新评估最近行星还剩多少秒。 */
 	float PlanetReevaluateTimer = 0.f;
+
+	/**
+	 * 细气泡的碰撞通道当前是否因为高速而被关掉（LOD 三档始终开着）。
+	 *
+	 * 记录的是「我们主动关的」，用来把高速门控做成对称的。
+	 */
+	bool bVoxelInvokerCollisionSuspended = false;
+
+	/** 距下次允许切换调用器还剩多少秒（回差之外的时间闸）。 */
+	float VoxelInvokerToggleTimer = 0.f;
+
+	/**
+	 * 上一帧采样，用来量 **行星参考系下** 的速度。
+	 *
+	 * 门控必须按相对速度：行星随求解器每秒走几十公里，船相对行星静止时
+	 * GetVelocity() 的绝对值并不小。这里用两个 Actor 的逐帧位移相减，
+	 * 免得让本模块反向依赖 StellarEra 去查求解器（会成环）。
+	 */
+	FVector LastVoxelInvokerShipLocation = FVector::ZeroVector;
+	FVector LastVoxelInvokerPlanetLocation = FVector::ZeroVector;
+	TObjectPtr<AVoxelPlanetActor> LastVoxelInvokerPlanet;
+	bool bHasVoxelInvokerSpeedSample = false;
 
 	/**
 	 * SpringArm 的基准臂长，BeginPlay 时从组件上抄下来。

@@ -117,13 +117,21 @@ void AStellarEraHUD::DrawStatusPanel(const FSpaceshipStatus& Status)
 		ThrustLabel = TEXT("无");
 	}
 
-	// 极速为 0 表示巡航开着（阻尼关掉了）—— 那是「没有上限」，不是「不能动」，
-	// 所以分两种印法而不是直接印 0。
+	// 极速为 0 表示**什么上限都没有**（巡航开着 = 阻尼关掉，且飞船的硬上限也
+	// 设成了 0）—— 那是「没有上限」，不是「不能动」，所以分两种印法而不是直接印 0。
+	// 巡航开着但设了硬上限时，飞船报上来的就是那个硬上限，照常印「x / y」。
 	const FString SpeedLine = Status.MaxSpeedKmPerSecond > 0.f
 		? FString::Printf(TEXT("速度      %.2f / %.2f km/s（世界速度）"),
 			Status.SpeedKmPerSecond, Status.MaxSpeedKmPerSecond)
 		: FString::Printf(TEXT("速度      %.2f km/s（世界速度，巡航无上限）"),
 			Status.SpeedKmPerSecond);
+
+	// 大气：密度为 0 就是真空（太空里、或在大气壳之外）。有密度时把阻力也印出来，
+	// 调阻力系数时不用另开日志。
+	const FString AtmosphereLine = Status.AtmosphereDensityRatio > 0.f
+		? FString::Printf(TEXT("大气      密度 %.1f%%  阻力 %.2f km/s²"),
+			Status.AtmosphereDensityRatio * 100.f, Status.AtmosphereDragKmPerS2)
+		: FString(TEXT("大气      真空"));
 
 	const TArray<FString> Lines =
 	{
@@ -132,6 +140,7 @@ void AStellarEraHUD::DrawStatusPanel(const FSpaceshipStatus& Status)
 		FString::Printf(TEXT("加速      %s"), Status.bBoosting ? TEXT("ON") : TEXT("OFF")),
 		FString::Printf(TEXT("巡航      %s"), Status.bPreserveVelocity ? TEXT("开") : TEXT("关")),
 		FString::Printf(TEXT("落地      %s"), Status.bLanded ? TEXT("是") : TEXT("否")),
+		AtmosphereLine,
 	};
 
 	const FString Title(TEXT("飞船状态"));
