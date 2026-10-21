@@ -8,12 +8,9 @@
 
 UCosmosOrbitComponent::UCosmosOrbitComponent()
 {
-	// 物理推进仍归 UCosmosSimulationSubsystem 统一做。本组件开 Tick 只为了刷新
-	// 三个只读回显（AU / km/s / M☉）—— 它在 PostPhysics 跑，读到的是本帧写回
-	// 之后的最终状态；它不碰求解器、不写物理。
-	PrimaryComponentTick.bCanEverTick = true;
-	PrimaryComponentTick.TickGroup = TG_PostPhysics;
-	bTickInEditor = true;   // 组件级开关：编辑器态也要刷新只读回显
+	// 组件只存参数，不 Tick：位置/速度由读取方（星图 UI）按需从 Actor 与
+	// 求解器换算，不再为了两个回显字段每帧跑一遍。
+	PrimaryComponentTick.bCanEverTick = false;
 }
 
 void UCosmosOrbitComponent::PostLoad()
@@ -39,46 +36,6 @@ void UCosmosOrbitComponent::PostLoad()
 				CosmosUnits::AuPerYearToKilometerPerSecond(InitialVelocity);
 		}
 		InitialVelocity = FVector::ZeroVector;
-	}
-}
-
-void UCosmosOrbitComponent::TickComponent(float DeltaTime, ELevelTick TickType,
-	FActorComponentTickFunction* ThisTickFunction)
-{
-	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-
-	MassSolarReadout = MassEarth * CosmosUnits::EarthMass;
-	SolverVelocityKmPerSecond = InitialVelocityKmPerSecond;
-
-	double CmPerAu = 0.0;
-	if (const UWorld* World = GetWorld())
-	{
-		if (const UCosmosSimulationSubsystem* Subsystem =
-			World->GetSubsystem<UCosmosSimulationSubsystem>())
-		{
-			CmPerAu = Subsystem->CentimetersPerAu;
-
-			if (SimulatorIndex != INDEX_NONE)
-			{
-				SolverVelocityKmPerSecond = CosmosUnits::AuPerYearToKilometerPerSecond(
-					Subsystem->GetBodyVelocityGameUnits(SimulatorIndex));
-			}
-		}
-	}
-
-	// 编辑器世界没有 Cosmos 子系统（DoesSupportWorldType 只放 Game/PIE），
-	// 退回同一份配置的 CDO —— 不猜标定值。
-	if (CmPerAu <= 0.0)
-	{
-		CmPerAu = GetDefault<UCosmosSimulationSubsystem>()->CentimetersPerAu;
-	}
-
-	if (const AActor* Owner = GetOwner())
-	{
-		if (CmPerAu > 0.0)
-		{
-			PositionAu = Owner->GetActorLocation() / CmPerAu;
-		}
 	}
 }
 

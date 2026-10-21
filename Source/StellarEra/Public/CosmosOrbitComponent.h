@@ -16,9 +16,9 @@
  *   - 行星也不需要 —— AVoxelPlanetActor 挂上它就是天体，不必让体素星球去继承
  *     一个 N 体的基类。
  *
- * 组件本身**不推进物理**：它只存参数，外加一个只刷新只读回显的 Tick（见
- * TickComponent）。注册、推进、写回位置全在 UCosmosSimulationSubsystem 里 ——
- * N 体是耦合系统（A 受 B 的力，B 也受 A 的力），必须有唯一的编排者。
+ * 组件本身**不推进物理**，也不 Tick：它只存参数。注册、推进、写回位置全在
+ * UCosmosSimulationSubsystem 里 —— N 体是耦合系统（A 受 B 的力，B 也受 A 的力），
+ * 必须有唯一的编排者。
  *
  * 它只负责**物理**（质量、初速、是否施力、是否模拟）。轨迹的渲染与显示参数在
  * UCosmosTrajectoryComponent 上 —— 想监控哪个天体，就给它的 Actor 挂一个轨迹
@@ -47,7 +47,7 @@ public:
 	 * 中心天体必须是这里面最大的那个，否则行星会直接飞出去。
 	 *
 	 * 单位换算：1 M☉ = 332946.0837 M⊕。中心恒星填 10000 M☉ 就是
-	 * 3.329460837e9 M⊕；只读回显 MassSolarReadout 会把它折回 M☉。
+	 * 3.329460837e9 M⊕（求解器内部仍用 M☉）。
 	 * 必须 > 0；<= 0（含 NaN）的天体在注册时会被跳过并报错。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Body",
@@ -112,35 +112,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Body")
 	bool bSimulated = true;
 
-	//////////////////////////////////////////////////////////////////////////
-	// 只读回显（不参与物理，不存盘）
-
-	/** 当前摆放位置，单位 AU。由 TickComponent 从 Actor 位置换算。 */
-	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "Cosmos|Readout",
-		meta = (DisplayName = "位置（AU）"))
-	FVector PositionAu = FVector::ZeroVector;
-
-	/**
-	 * 求解器里的当前速度，单位 km/s（物理速度）。
-	 * 已注册读求解器；未注册、或在编辑器世界里读 InitialVelocityKmPerSecond。
-	 */
-	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "Cosmos|Readout",
-		meta = (DisplayName = "求解器速度（km/s，物理速度）"))
-	FVector SolverVelocityKmPerSecond = FVector::ZeroVector;
-
-	/** MassEarth 折合回 M☉，方便和旧数据/日志对照。 */
-	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "Cosmos|Readout",
-		meta = (DisplayName = "质量（M☉）"))
-	double MassSolarReadout = 0.0;
-
 	/** 求解器里的索引。运行时由子系统填写，不要手改。 */
 	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "Cosmos")
 	int32 SimulatorIndex = INDEX_NONE;
 
 	//~ Begin UActorComponent Interface
 	virtual void PostLoad() override;
-	virtual void TickComponent(float DeltaTime, ELevelTick TickType,
-		FActorComponentTickFunction* ThisTickFunction) override;
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	//~ End UActorComponent Interface

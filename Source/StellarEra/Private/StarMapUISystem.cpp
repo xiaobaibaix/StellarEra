@@ -32,11 +32,37 @@ bool UStarMapUISystem::BuildBodyInfo(AActor* Body, FStarMapBodyInfo& OutInfo)
 	OutInfo.Name = Body->GetActorNameOrLabel();
 	OutInfo.MassEarth = Orbit->MassEarth;
 	OutInfo.MassSolar = CosmosUnits::EarthMassToSolarMass(Orbit->MassEarth);
-	OutInfo.PositionAu = Orbit->PositionAu;
-	OutInfo.VelocityKmPerSecond = Orbit->SolverVelocityKmPerSecond;
 	OutInfo.SimulatorIndex = Orbit->SimulatorIndex;
 	OutInfo.bSimulated = Orbit->bSimulated;
 	OutInfo.bExertsGravity = Orbit->bExertsGravity;
+
+	// 位置/速度按需换算：组件不再每帧回显。优先用运行期子系统的标定与求解器
+	// 速度；编辑器世界没有子系统，标定退回同一份 CDO 配置，速度退回初速。
+	const UCosmosSimulationSubsystem* CosmosSubsystem = nullptr;
+	double CmPerAu = 0.0;
+	if (const UWorld* World = Body->GetWorld())
+	{
+		CosmosSubsystem = World->GetSubsystem<UCosmosSimulationSubsystem>();
+		if (CosmosSubsystem)
+		{
+			CmPerAu = CosmosSubsystem->CentimetersPerAu;
+		}
+	}
+	if (CmPerAu <= 0.0)
+	{
+		CmPerAu = GetDefault<UCosmosSimulationSubsystem>()->CentimetersPerAu;
+	}
+
+	OutInfo.PositionAu = CmPerAu > 0.0
+		? Body->GetActorLocation() / CmPerAu
+		: FVector::ZeroVector;
+
+	OutInfo.VelocityKmPerSecond = Orbit->InitialVelocityKmPerSecond;
+	if (CosmosSubsystem && OutInfo.SimulatorIndex != INDEX_NONE)
+	{
+		OutInfo.VelocityKmPerSecond = CosmosUnits::AuPerYearToKilometerPerSecond(
+			CosmosSubsystem->GetBodyVelocityGameUnits(OutInfo.SimulatorIndex));
+	}
 
 	double RadiusCm = 0.0;
 	if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(Body))

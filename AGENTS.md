@@ -119,9 +119,8 @@ N 体数据分四层，**编辑器里只填人类单位**：
 - 调用点禁止手写 `× CentimetersPerAu × TimeScale`：速度用
   `GameVelocityToWorldCmPerSecond` / `WorldCmPerSecondToGameVelocity`，
   加速度用 `GameAccelerationToWorldCmPerS2` / `WorldCmPerS2ToGameAcceleration`。
-- `UCosmosOrbitComponent` 有一个 `TG_PostPhysics` 的 **只读回显 Tick**：只刷新
-  `PositionAu` / `SolverVelocityKmPerSecond` / `MassSolarReadout`，不推进、不修改求解器、
-  不写位置 —— 它不违反「N 体只有一个驱动」。
+- `UCosmosOrbitComponent` **不 Tick**，只存参数。星图需要的位置/速度由
+  `StarMapUISystem::BuildBodyInfo` 按需从 Actor 位置与求解器换算，不再有逐帧回显字段。
 - 旧字段 `MassSolar` / `InitialVelocity` 只保留序列化与 `PostLoad` 迁移，代码不再消费。
 
 ## 编码约定
