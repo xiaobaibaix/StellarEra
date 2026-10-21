@@ -93,6 +93,36 @@ public:
 	/** 鼠标输入（度）。以冲量形式累加进角速度，松手后衰减。 */
 	void Look(float DeltaYaw, float DeltaPitch);
 
+	/**
+	 * 落地自由视角的激活条件：已落地、且没有按 W（正向推力）或 Space（上升）。
+	 *
+	 * 输入约定见 StellarEraPlayerController：W / Space 给 +1，S / Ctrl 给 -1。
+	 * 所以负值只是制动 / 下降，**不**退出自由视角 —— 只有起飞方向的输入才把
+	 * 视角还给飞船。纯函数，测试直接调它。
+	 */
+	static bool ShouldUseFreeLook(bool bLanded, float InThrustInput, float InVerticalInput);
+
+	/**
+	 * 自由视角的鼠标累加：偏航归一化到 (-180, 180]，俯仰夹在 [MinPitch, MaxPitch]。
+	 *
+	 * 与 PlanetCharacter 的环绕相机同一套口径。纯函数，测试直接调它。
+	 */
+	static void ApplyFreeLookLookInput(
+		float DeltaYaw, float DeltaPitch, float MinPitch, float MaxPitch,
+		float& InOutYaw, float& InOutPitch);
+
+	/**
+	 * 升降推力的"上"方向：有参考行星时取**行星球心 → 飞船中心**的径向，
+	 * 否则退回机身本地 up。纯函数，测试直接调它。
+	 *
+	 * 船心与星心重合（退化）时径向为零，同样退回本地 up。
+	 */
+	static FVector ResolveVerticalThrustUp(
+		const FVector& ShipLocation,
+		const FVector& PlanetLocation,
+		bool bHasPlanet,
+		const FVector& BodyUp);
+
 	/** 加速键（Shift）。按下时推力加速度乘 BoostMultiplier。 */
 	void SetBoost(bool bValue);
 
@@ -177,10 +207,14 @@ public:
 	 * 速度」收敛，必须知道这一帧有多长。用调用方的值而不是自己 Tick 里抄一份存起来：
 	 * 两个 Tick 谁先谁后不保证，抄的那份在帧率突变时会让制动过冲一整帧。
 	 *
-	 * 方向 = 机头 × max(ThrustInput, 0) + 机身上 × VerticalInput，合成向量夹到
+	 * 方向 = 机头 × max(ThrustInput, 0) + 升降 up × VerticalInput，合成向量夹到
 	 * 长度 1 —— 与 UFloatingPawnMovement 原来的 GetClampedToMaxSize(1) 同规则：
 	 * 斜着同时按 W 和 Space 不该比单按一个多出 41% 的推力。再乘
 	 * ThrustAccelerationKmPerS2 × 1e5，Shift 时乘 BoostMultiplier。
+	 *
+	 * 升降 up 不是机身本地 up：有参考行星时取**行星球心 → 飞船中心**的径向，
+	 * 这样贴地时无论机身横滚 / 俯仰成什么样，Space 都是沿当地垂直离开球面；
+	 * 太空中（PlanetActor 为空）才退回机身本地 up。
 	 *
 	 * ThrustInput < 0（S）不产生机头方向的推力，而是**制动**：方向取速度的反方向
 	 * （与机头无关），大小按「本帧满推力能改变的速度」收敛 ——
@@ -343,6 +377,20 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Camera")
 	float CameraRollFollowSpeed = 8.f;
 
+	/**
+	 * 落地自由视角的俯仰下限 / 上限（度）。默认 ±75，与 PlanetCharacter 的环绕相机一致。
+	 * 0 = 正前方，负 = 低头看船底，正 = 抬头看天。
+	 */
+	UPROPERTY(EditAnywhere, Category = "Camera")
+	float MinFreeLookPitch = -75.f;
+
+	UPROPERTY(EditAnywhere, Category = "Camera")
+	float MaxFreeLookPitch = 75.f;
+
+	/** 退出自由视角后，镜头偏转回到船尾的插值速率（FInterpTo 速率）。越小回位越慢。 */
+	UPROPERTY(EditAnywhere, Category = "Camera")
+	float FreeLookReturnSpeed = 6.f;
+
 	/** 偏航角速度上限（度/秒）。 */
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Handling")
 	float MaxYawRate = 90.f;
@@ -422,9 +470,10 @@ protected:
 	 * A/D 抢方向盘（MaxRollRate 120 被顶掉 45，净滚转只剩 75°/s），松手后还会自动
 	 * 把机身拉回水平，玩家压出来的角度留不住。
 	 *
-	 * 关掉之后 PlanetActor / PlanetReevaluateInterval 那套参考行星的机制会空转
-	 * （GetAutoLevelUp() 只被这里用）。留着不动：代价是每 PlanetReevaluateInterval
-	 * 秒一次遍历几颗 Actor，可忽略；把本属性调回正数即可整体复活。
+	 * 关掉之后自动回正不再跑，但 PlanetActor / PlanetReevaluateInterval 那套
+	 * 参考行星机制并未空转：升降推力的"上"也取自这颗行星（见
+	 * GetThrustAccelerationWorldCmPerS2）。代价是每 PlanetReevaluateInterval
+	 * 秒一次遍历几颗 Actor，可忽略；把本属性调回正数即可恢复自动回正。
 	 *
 	 * 代价：贴着行星飞大圆时曲面往下走，机身不会自己跟，需要玩家压杆维持高度。
 	 */
@@ -559,6 +608,26 @@ private:
 	 * BeginPlay 时从组件上抄下来。
 	 */
 	FQuat CameraBaseRotation = FQuat::Identity;
+
+	/**
+	 * SpringArm 的基准相对朝向，BeginPlay 时从组件上抄下来。
+	 * 自由视角的偏移叠加在它上面，避免冲掉蓝图里调好的摇臂朝向。
+	 */
+	FQuat SpringArmBaseRotation = FQuat::Identity;
+
+	/**
+	 * 落地自由视角是否激活。每帧 Tick 开头由 ShouldUseFreeLook 重算。
+	 *
+	 * 激活时飞船整体冻结：Look() 不再给角速度，Tick 跳过旋转与自动回正，
+	 * 鼠标改去累加 FreeLookYaw / FreeLookPitch。
+	 */
+	bool bFreeLookActive = false;
+
+	/** 自由视角的偏航偏移（度，相对船尾正后方）。退出后平滑回 0。 */
+	float FreeLookYaw = 0.f;
+
+	/** 自由视角的俯仰偏移（度）。退出后平滑回 0。 */
+	float FreeLookPitch = 0.f;
 
 	/** 在关卡里找离飞船最近的一颗行星；找不到返回 nullptr。 */
 	AVoxelPlanetActor* FindNearestPlanet() const;

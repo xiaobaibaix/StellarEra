@@ -59,9 +59,11 @@ ASpaceshipPawn::ASpaceshipPawn()
 	// ⚠ 调用器的位置是**搬到预测点**去的（同上：Position = 组件位置 + 速度 ×
 	// PredictionTime），不是「两个点都罩住」—— 所以**每一个范围**都必须自己罩得住
 	// 那个偏移量：硬约束是「范围 ≥ 最大速度 × PredictionTime」。最大速度**含**
-	// BoostMultiplier（1.2e5 × 3 = 3.6e5 厘米/秒）。LODRange 与 CollisionsRange 用的是
-	// **同一个**预测点，所以这条约束对两者**分别**成立。巡航（关阻尼）下速度无上界，
-	// 任何有限范围都盖不住 —— 这是已知上限，不是调参数能解决的。
+	// BoostMultiplier（1.2e5 × 3 = 3.6e5 厘米/秒）；取 PredictionTime = 0.03 秒时
+	// 3.6e5 × 0.03 = 1.08e4 厘米 = 108 米，所以两个范围都必须 ≥ 108 米。LODRange 与
+	// CollisionsRange 用的是**同一个**预测点，所以这条约束对两者**分别**成立。
+	// 巡航（关阻尼）下速度无上界，任何有限范围都盖不住 —— 这是已知上限，不是调参数
+	// 能解决的。
 	//
 	// ⚠⚠ **真正卡住上限的不是插件的块数安全阀，是显存。** 插件那个
 	// voxel.renderer.MaxRenderOctreeChunks（默认 1e6）只在超限时把整棵八叉树作废
@@ -83,16 +85,27 @@ ASpaceshipPawn::ASpaceshipPawn()
 	// 块数都 ≈ (min(2·范围, 世界边长) / 叶块边长)³，父块再加约 14%
 	// （1/8 + 1/64 + … = 1/7）。
 	//
+	// 每次 LOD 更新（默认 MinDelayBetweenLODUpdates = 0.1 秒一次）都会把两个盒子里
+	// 新增的块整批丢进网格化队列。FVoxelDefaultRenderer::UpdateLODs 在游戏线程同步
+	// 跑，**不吃 MeshUpdatesBudget**（那个预算只盖 MeshHandler->Tick 与
+	// ProcessMeshUpdates），所以盒子越大、飞船越快，队列涨得越快、掉帧越狠。
+	// 2026-10-20 的飞行卡顿就是两个盒子各 ≈ 3.4e3 块、1.2 km/s 下每秒约 10 次更新
+	// 叠出来的；现在两份各 ≈ 4.2e2。
+	//
 	// 关键取舍：**LODToSet 每加一档，叶块边长翻倍、块数少 8 倍。** 所以「覆盖半径」
 	// 与「网格精度」是在**固定块数**下互换的 —— 想看得远就得让网格变粗：
 	//
 	//     LODToSet = 0 → 1 米网格（本关卡体素 100 厘米）；= 1 → 2 米；= 2 → 4 米
 	//
-	// 现在取 LODToSet = 0（1 米），覆盖半径因此只能到 240 米。**这不是「贴地 Pawn 的
-	// 约定值」，是 4 GB 显存逼出来的。** 想要更大覆盖，就把 LODToSet 加一档、同时把
-	// LODRange 翻倍（块数不变），或者换显卡。
+	// 现在取 LODToSet = 1（2 米网格）+ LODRange = 240 米：叶块 64 米，
+	// 块数 ≈ (480/64)³ ≈ 4.2e2。同样的盒子在 LODToSet = 0 时要 ≈ 3.4e3 块 —— 8 倍。
+	// 4 GB 显存下这是可持续的取舍；飞船在空中高速掠过，脚下 2 米网格够用。真需要
+	// 1 米网格贴脸时由角色调用器接手（PlanetCharacter.cpp：LODToSet = 0 + 200 米）。
+	// 想要更大的 LOD 覆盖，就把 LODToSet 加一档、同时把 LODRange 翻倍（块数不变）。
 	//
 	// 碰撞那份**锁死在 Height 0，不能跟着 LODRange 一起放大**，否则它单独就把块数顶爆。
+	// 现在取 ±120 米（刚好罩住上面 108 米的预测偏移），块数 ≈ (240/32)³ ≈ 4.2e2，
+	// 与 LOD 那份同量级。
 	// 可见区块本来就带碰撞（VoxelWorld 的 bComputeVisibleChunksCollisions 默认 true、
 	// VisibleChunksCollisionsMaxLOD = 5），调用器这一份只是把飞船附近升级到最细。注意
 	// 这些 Height-0 块**不参与渲染**（ByOthers 的子块 bChildrenVisible = false），所以
@@ -104,15 +117,15 @@ ASpaceshipPawn::ASpaceshipPawn()
 	VoxelInvoker = CreateDefaultSubobject<UVoxelInvokerWithPredictionComponent>(TEXT("VoxelInvoker"));
 	VoxelInvoker->SetupAttachment(Collision);
 	VoxelInvoker->bUseForLOD = true;
-	VoxelInvoker->LODToSet = 0;
+	VoxelInvoker->LODToSet = 1;
 	VoxelInvoker->LODRange = 24000.f;
 	VoxelInvoker->bUseForCollisions = true;
-	VoxelInvoker->CollisionsRange = 24000.f;
+	VoxelInvoker->CollisionsRange = 12000.f;
 	VoxelInvoker->bUseForNavmesh = false;
 	VoxelInvoker->bUseForEvents = false;
 	VoxelInvoker->bUseForPriorities = false;
 	VoxelInvoker->bEnablePrediction = true;
-	VoxelInvoker->PredictionTime = 0.05f;
+	VoxelInvoker->PredictionTime = 0.03f;
 
 	// 没有移动组件：位移完全归 N 体求解器（见类注释）。曾经的 UFloatingPawnMovement
 	// 会每帧 MoveUpdatedComponent(Velocity * dt)，留着它就和求解器的写回抢着改位置
@@ -254,6 +267,10 @@ void ASpaceshipPawn::BeginPlay()
 	//     差分从单位四元数起算，开局摆位那一次旋转会被算成一次巨大的横滚。
 	CameraBaseRotation = Camera ? Camera->GetRelativeRotation().Quaternion() : FQuat::Identity;
 	PreviousRotation = GetActorQuat();
+
+	// 落地自由视角绕着摇臂枢轴转，基准朝向同样抄一份：蓝图可能调过摇臂的相对朝向，
+	// 每帧叠加偏移而不是直接覆盖，才不会把那个值冲掉。
+	SpringArmBaseRotation = SpringArm ? SpringArm->GetRelativeRotation().Quaternion() : FQuat::Identity;
 }
 
 AVoxelPlanetActor* ASpaceshipPawn::FindNearestPlanet() const
@@ -287,12 +304,31 @@ FVector ASpaceshipPawn::GetAutoLevelUp() const
 	return FVector::UpVector;
 }
 
+FVector ASpaceshipPawn::ResolveVerticalThrustUp(
+	const FVector& ShipLocation,
+	const FVector& PlanetLocation,
+	bool bHasPlanet,
+	const FVector& BodyUp)
+{
+	// 与 GetAutoLevelUp 的区别只在退化回退：这里退回**机身本地 up**，
+	// 而不是世界 Z —— 太空中横滚 / 俯仰过的飞船，升降键应沿机身背向。
+	if (bHasPlanet)
+	{
+		const FVector Radial = (ShipLocation - PlanetLocation).GetSafeNormal();
+		if (!Radial.IsNearlyZero())
+		{
+			return Radial;
+		}
+	}
+	return BodyUp;
+}
+
 void ASpaceshipPawn::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
 	// 行星在动，最近的一颗会换人。飞船不需要像角色那样重新摆位 ——
-	// PlanetActor 只喂给 GetAutoLevelUp()，换个参考方向就行。
+	// PlanetActor 只喂给 GetAutoLevelUp() 和升降推力方向，换个参考方向就行。
 	if (PlanetReevaluateInterval > 0.f)
 	{
 		PlanetReevaluateTimer -= DeltaSeconds;
@@ -303,19 +339,40 @@ void ASpaceshipPawn::Tick(float DeltaSeconds)
 		}
 	}
 
+	// --- 0. 落地自由视角判定 ---
+	//
+	// 落地且没有起飞方向的输入时，鼠标改为环绕停住的飞船，而不是转飞船。
+	// IsLanded() 是一次全向球重叠（与按 E 下船同一口径），每帧一次，开销可忽略。
+	const bool bWasFreeLookActive = bFreeLookActive;
+	bFreeLookActive = ShouldUseFreeLook(IsLanded(), ThrustInput, VerticalInput);
+
+	// 刚进入：清掉残余角速度。否则落地那一刻的最后一甩会在自由视角里继续带着船转，
+	// 与「落地即冻结」矛盾。
+	if (bFreeLookActive && !bWasFreeLookActive)
+	{
+		YawRate = 0.f;
+		PitchRate = 0.f;
+	}
+
 	// --- 1. 角速度衰减 ---
 	// 鼠标给的是冲量（见 Look），这里让角速度平滑地衰减回 0。两者的平衡
 	// 就是“甩一下鼠标，飞船转一会儿再停下”的手感。
 	YawRate = FMath::FInterpTo(YawRate, 0.f, DeltaSeconds, AngularDamping);
 	PitchRate = FMath::FInterpTo(PitchRate, 0.f, DeltaSeconds, AngularDamping);
 
-	// --- 2. 应用旋转 ---
-	FRotator DeltaRotation(PitchRate * DeltaSeconds, YawRate * DeltaSeconds, 0.f);
-	DeltaRotation.Roll = RollInput * MaxRollRate * DeltaSeconds;
-	AddActorLocalRotation(DeltaRotation);
+	// --- 2. 应用旋转（落地自由视角时整体冻结） ---
+	//
+	// 自由视角里船是停着的：鼠标分给相机，A/D 横滚也不该把船带着滚。
+	// 起飞输入一出现（第 0 段判定为假），下一帧恢复。
+	if (!bFreeLookActive)
+	{
+		FRotator DeltaRotation(PitchRate * DeltaSeconds, YawRate * DeltaSeconds, 0.f);
+		DeltaRotation.Roll = RollInput * MaxRollRate * DeltaSeconds;
+		AddActorLocalRotation(DeltaRotation);
+	}
 
-	// --- 3. 自动回正：只把横滚拉回水平，俯仰留给玩家 ---
-	if (AutoLevelSpeed > 0.f)
+	// --- 3. 自动回正：只把横滚拉回水平，俯仰留给玩家（自由视角时同样冻结） ---
+	if (!bFreeLookActive && AutoLevelSpeed > 0.f)
 	{
 		const FQuat Current = GetActorQuat();
 		const FVector Forward = Current.GetForwardVector();
@@ -417,6 +474,36 @@ void ASpaceshipPawn::Tick(float DeltaSeconds)
 		Camera->SetRelativeRotation(
 			CameraBaseRotation * FQuat(FVector::ForwardVector, FMath::DegreesToRadians(-CameraRollLag)));
 	}
+
+	// --- 7. 落地自由视角：相机绕停住的飞船环绕 ---
+	//
+	// 偏移量在自由视角期间由 Look() 累加（见 ApplyFreeLookLookInput）。转的是摇臂
+	// 而不是相机：摇臂的枢轴就是飞船根节点，所以镜头绕船环绕；相机自身的相对朝向
+	// 仍留给第 6 段的横滚补偿。
+	//
+	// 退出（按 W / Space）后偏移量平滑回 0，镜头滑回船尾正后方。每帧写一次基准朝向
+	// 的叠加值：上一次写入可能还带着未归零的小偏移，这样退出后能精确回到基准。
+	if (!bFreeLookActive)
+	{
+		FreeLookYaw = FMath::FInterpTo(FreeLookYaw, 0.f, DeltaSeconds, FreeLookReturnSpeed);
+		FreeLookPitch = FMath::FInterpTo(FreeLookPitch, 0.f, DeltaSeconds, FreeLookReturnSpeed);
+
+		// FInterpTo 只会无限逼近 0，永远到不了；低于 0.01° 直接归零，让回位真正结束。
+		if (FMath::Abs(FreeLookYaw) < 0.01f)
+		{
+			FreeLookYaw = 0.f;
+		}
+		if (FMath::Abs(FreeLookPitch) < 0.01f)
+		{
+			FreeLookPitch = 0.f;
+		}
+	}
+
+	if (SpringArm)
+	{
+		SpringArm->SetRelativeRotation(
+			SpringArmBaseRotation * FRotator(FreeLookPitch, FreeLookYaw, 0.f).Quaternion());
+	}
 }
 
 void ASpaceshipPawn::SetThrust(float Value)
@@ -481,8 +568,34 @@ FSpaceshipStatus ASpaceshipPawn::GetStatus() const
 	return Status;
 }
 
+bool ASpaceshipPawn::ShouldUseFreeLook(bool bLanded, float InThrustInput, float InVerticalInput)
+{
+	// W（+1 推力）/ Space（+1 升降）是起飞方向；S / Ctrl 给负值，落地时只是
+	// 制动 / 下降，不退出自由视角。
+	return bLanded && InThrustInput <= 0.f && InVerticalInput <= 0.f;
+}
+
+void ASpaceshipPawn::ApplyFreeLookLookInput(
+	float DeltaYaw, float DeltaPitch, float MinPitch, float MaxPitch,
+	float& InOutYaw, float& InOutPitch)
+{
+	InOutYaw = FRotator::NormalizeAxis(InOutYaw + DeltaYaw);
+
+	// 防御 MinPitch > MaxPitch 的误配：Clamp 要求下限不大于上限。
+	InOutPitch = FMath::Clamp(InOutPitch + DeltaPitch,
+		FMath::Min(MinPitch, MaxPitch), FMath::Max(MinPitch, MaxPitch));
+}
+
 void ASpaceshipPawn::Look(float DeltaYaw, float DeltaPitch)
 {
+	// 落地自由视角：鼠标转的是相机，不是飞船。偏移量在第 7 段平滑回位。
+	if (bFreeLookActive)
+	{
+		ApplyFreeLookLookInput(DeltaYaw, DeltaPitch,
+			MinFreeLookPitch, MaxFreeLookPitch, FreeLookYaw, FreeLookPitch);
+		return;
+	}
+
 	// 冲量模型：鼠标位移直接累加进角速度。甩一下鼠标，飞船会转一会儿再
 	// 慢慢停下，而不是跟着鼠标立刻静止——这就是街机飞行的惯性感。
 	YawRate = FMath::Clamp(YawRate + DeltaYaw * MouseImpulseScale, -MaxYawRate, MaxYawRate);
@@ -610,15 +723,26 @@ void ASpaceshipPawn::RebuildContactProbes()
 
 FVector ASpaceshipPawn::GetThrustAccelerationWorldCmPerS2(float DeltaSeconds) const
 {
-	// 机头 / 机身上这一族只认**正向**输入：ThrustInput < 0（S）不是「沿机头反推」，
+	// 机头 / 升降这一族只认**正向**输入：ThrustInput < 0（S）不是「沿机头反推」，
 	// 而是制动，方向由速度决定（见下），与机头无关。
 	//
-	// 方向 = 机头 × 前推 + 机身上 × 升降，合成向量夹到长度 1 —— 与**原来的**
+	// 升降方向取**行星球心 → 飞船中心**的径向，而不是机身本地 up：
+	// 贴地时飞船可能带着横滚 / 俯仰，按 Space 会沿机身斜着擦地。取径向后，
+	// 不管落在球面哪一点、机身歪成什么样，升降键都是当地"垂直"。
+	// 太空中（没有参考行星）才退回机身本地 up。
+	//
+	// 方向 = 机头 × 前推 + 径向 up × 升降，合成向量夹到长度 1 —— 与**原来的**
 	// UFloatingPawnMovement::AddInputVector 的 GetClampedToMaxSize(1) 同规则：
 	// 斜着同时按 W 和 Space 不该比单按一个多出 41% 的推力。
+	const FVector UpDirection = ResolveVerticalThrustUp(
+		GetActorLocation(),
+		PlanetActor ? PlanetActor->GetActorLocation() : FVector::ZeroVector,
+		PlanetActor != nullptr,
+		GetActorUpVector());
+
 	FVector Direction =
 		GetActorForwardVector() * FMath::Max(ThrustInput, 0.f)
-		+ GetActorUpVector() * VerticalInput;
+		+ UpDirection * VerticalInput;
 
 	// Shift 乘在**大小**上而不是方向分量上：这样斜着按 W+Space+Shift 时，
 	// 总量仍然只有单按一个的 1 倍（而不是 1.41 倍）。
