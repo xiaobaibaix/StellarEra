@@ -1,4 +1,4 @@
-// Copyright Voxel Plugin SAS. All Rights Reserved.
+﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 // 将 UVoxelPlanetGenerator 封装为可直接摆放的 Actor。
 
 #include "VoxelPlanetActor.h"
@@ -45,6 +45,17 @@ AVoxelPlanetActor::AVoxelPlanetActor()
 	// 控件变成摆设。
 	NumberOfThreads = 4;
 	MaxLOD = 6;
+
+	// LOD 切换的过渡时长（基类默认 1 秒）：插件在旧块被新块完全替代后，要等
+	// 2 × 这个值才把旧块淡出（VoxelDefaultRenderer.cpp:900），期间两套不同 LOD
+	// 的网格同时可见。1 秒 ⇒ 2 秒的叠影窗口对高速飞行太长；0.3 秒压到 0.6 秒。
+	ChunksDitheringDuration = 0.3f;
+
+	// 每帧应用已完成块网格的时间预算（毫秒）。基类默认 1000 毫秒，意味着一批
+	// 块同时完成时游戏线程可以卡满一整秒 —— 高速飞行「卡一下」的直接来源。
+	// 8 毫秒把这一批分摊到多帧；代价是 LOD 收敛慢几帧。
+	// 只在 Game play type 生效；编辑器预览由插件固定为 1000。
+	MeshUpdatesBudget = 8.f;
 
 #if WITH_EDITOR
 	// 每颗行星默认使用项目的顶点色材质。仅编辑器有效：打包后的游戏里
