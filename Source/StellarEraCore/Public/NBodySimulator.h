@@ -57,7 +57,7 @@ struct FCosmosBodyState
 	 *
 	 * 为 0 表示点质量，永不接触 —— 没设半径的天体都是这样（AddBodyToSimulator
 	 * 只给 AVoxelPlanetActor 和飞船写半径）。星球取当前朝向下的地形地表高度
-	 * （RefreshPlanetContactRadii），飞船取碰撞球半径 300 厘米
+	 * （RefreshPlanetContactRadii），飞船取兜底接触半径 300 厘米
 	 * （ASpaceshipPawn::GetContactRadiusCm）。飞船的半径**不是 0**，否则它的
 	 * **中心点**会被钳在地表上、机身下半截埋进地形里。
 	 *

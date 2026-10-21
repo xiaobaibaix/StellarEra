@@ -1123,7 +1123,7 @@ void UCosmosTrajectoryComponent::DrawInEditor()
 		// 被数值踢成一条几十到几千 AU 的直线 —— 这正是「预测线乱画」的来源。
 		// PIE 里有接触（飞船停在表面），编辑器预览没有，两边画的不是一回事。
 		//
-		// 半径来源与 AddBodyToSimulator 相同：星球取平均球半径，飞船取根球半径。
+		// 半径来源与 AddBodyToSimulator 相同：星球取平均球半径，飞船取兜底接触半径。
 		// 运行期第一次 Tick 会把星球半径换成朝最近天体方向的地形半径，预览不做
 		// 那一步 —— 它每次重画都从零重建，拿不到那份缓存，用平均球半径即可。
 		if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(OwnerActor))

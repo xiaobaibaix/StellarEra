@@ -581,7 +581,7 @@ void AStellarEraPlayerController::LeaveShip(ASpaceshipPawn* Ship)
 	PawnCharacter->SetBoarded(false);
 	Ship->SetBoardedCharacter(nullptr);
 
-	// 摆到飞船旁边而不是原地：原地正好在飞船的碰撞球里，会立刻被挤开。
+	// 摆到飞船旁边而不是原地：原地正好在飞船的碰撞体里，会立刻被挤开。
 	const FVector ExitLocation = Ship->GetActorLocation() + Ship->GetActorRightVector() * 400.f;
 	PawnCharacter->SetActorLocation(ExitLocation, /*bSweep=*/false);
 
