@@ -130,6 +130,34 @@ struct FCosmosBodyState
 };
 
 /**
+ * 闭合轨道预测的结果（坐标在**主导天体参考系**里）。
+ *
+ * RelativePositions[i] = p_body(t_i) − p_primary(t_i)。想还原成绝对游戏坐标，
+ * 把 PrimaryPosition（主导天体在 t=0 的位置）加到每个点上：
+ *     absolute_i = RelativePositions[i] + PrimaryPosition
+ *
+ * 为什么不用世界坐标直接画：世界系里主导天体自己在动。飞船绕行星跑一圈的同时，
+ * 行星沿自己的轨道走了很远，绝对路径是摆线，首尾永远不会回到同一点。只有相对
+ * 主导天体的坐标才会闭合；绘制时把闭环锚在主导天体**当前**的位置上即可。
+ */
+struct FCosmosClosedOrbitPrediction
+{
+	/** 相对主导天体的位置（AU）。成功时首尾相接：Last() 与 [0] 逐位相等。 */
+	TArray<FVector3d> RelativePositions;
+
+	/** 主导天体在 t=0 的位置（AU）。 */
+	FVector3d PrimaryPosition = FVector3d::ZeroVector;
+
+	/**
+	 * 实测闭合时间，单位年：相对位置第一次回到起点容差内所用的时间。
+	 *
+	 * 不是密切周期。多体扰动会改变有效 μ，两者可以相差数倍 —— 按密切周期截断
+	 * 会把闭环画成半截（见 PredictClosedOrbit 的说明）。
+	 */
+	double PeriodYears = 0.0;
+};
+
+/**
  * N 体引力求解器。
  *
  * 实现牛顿万有引力：
@@ -323,6 +351,42 @@ public:
 	 */
 	bool PredictTrajectory(int32 BodyIndex, double Horizon, int32 NumSamples,
 	                       TArray<FVector3d>& OutPositions) const;
+
+	/**
+	 * 预测天体相对其引力主导天体的**闭合轨道**（整整一圈）。
+	 *
+	 * ── 怎么判定「理论上可以闭合」 ──
+	 * 主导天体 = 对本天体引力 M/r² 最大、且质量大于本天体的那一颗。用当前相对
+	 * 位置/速度算密切轨道（osculating orbit）：
+	 *     μ = G·(m_body + m_primary)
+	 *     ε = v²/2 − μ/r
+	 *     a = −μ/(2ε)
+	 *     T = 2π√(a³/μ)
+	 * ε < 0 且偏心率 e < 0.99（不是径向/抛物退化）才是椭圆，才继续预测一整圈。
+	 *
+	 * ── 怎么找「一圈」──
+	 * 密切周期只是 t=0 的局部线性化，别拿它当闭合时刻。其他天体在改变有效 μ，
+	 * 真实返回时间和密切周期可以差数倍：UniverseMap 的双行星 + 恒星里，接近
+	 * 近拱点时密切周期 0.63 年、实际一圈 1.55 年。照密切周期截断的话，末点会
+	 * 横向漂出 1.5 个半长轴，闭合判据几乎整圈都在失败。
+	 *
+	 * 所以按密切周期只定**步长**（保持采样密度），持续积分最多 3 个密切周期，
+	 * 取相对位置**第一次**回到起点容差（5% 半长轴）内的采样点作为闭合时刻。
+	 * 这个判据对三体扰动天然稳健：闭环是「实测回到原点」，不是「理论应该回到」。
+	 *
+	 * ── 输出 ──
+	 * 成功时 Out.RelativePositions 从 t=0 起，到实测闭合时刻为止，**并追加首点**，
+	 * 所以 Last() 与 [0] 逐位相等；Out.PrimaryPosition 是主导天体在 t=0 的位置，
+	 * Out.PeriodYears 是实测闭合时间。调用方把每个相对位置加上 PrimaryPosition
+	 * 再转世界坐标，就得到套在主导天体当前位置上的闭环。
+	 *
+	 * ── 失败（返回 false、清空输出）──
+	 * 索引无效、采样不足、找不到更重的主导天体、密切轨道非椭圆、偏心率过高，
+	 * 或 3 个密切周期内相对位置没有回到起点容差内（真双曲线 / 已经被拽走）。
+	 * 这些情况调用方应退回 PredictTrajectory 的有限窗口。
+	 */
+	bool PredictClosedOrbit(int32 BodyIndex, int32 NumSamplesPerOrbit,
+	                        FCosmosClosedOrbitPrediction& Out) const;
 
 private:
 	/** 当前单位制下的引力常数。ComputeAccelerations / GetTotalEnergy / 预测三处共用。 */

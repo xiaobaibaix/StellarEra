@@ -5,10 +5,10 @@
 // 这几组断言挡的是同一类错误：功能看起来像那么回事、其实是错的。
 // 全是纯数学 —— 不依赖世界、不依赖编辑器，这是本项目唯一能自动验证的地方。
 //
-// 跑法：用 UnrealEditor-Cmd 跑自动化测试 StellarEra.Core（五个用例：
-// StellarEra.Core.NBodyPrediction、StellarEra.Core.NBodyContact、
-// StellarEra.Core.NBodyExternalForce、StellarEra.Core.NBodyTestParticle、
-// StellarEra.Core.Units）。
+// 跑法：用 UnrealEditor-Cmd 跑自动化测试 StellarEra.Core（六个用例：
+// StellarEra.Core.NBodyPrediction、StellarEra.Core.ClosedOrbitPrediction、
+// StellarEra.Core.NBodyContact、StellarEra.Core.NBodyExternalForce、
+// StellarEra.Core.NBodyTestParticle、StellarEra.Core.Units）。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -942,6 +942,165 @@ bool FStellarEraNBodyPredictionContactTest::RunTest(const FString& Parameters)
 	const double FinalRadius = Predicted.Last().Size();
 	TestTrue(TEXT("末点停在中心星表面"), FinalRadius <= 2.0 + 1.0e-3);
 	TestTrue(TEXT("末点没有被推离表面"), FinalRadius >= 2.0 - 1.0e-6);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraClosedOrbitPredictionTest,
+	"StellarEra.Core.ClosedOrbitPrediction",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraClosedOrbitPredictionTest::RunTest(const FString& Parameters)
+{
+	// ── 1. 圆轨道：相对主导天体跑满一圈，首尾逐位相接 ──
+	{
+		FNBodySimulator Simulator = MakeCircularTwoBody(0.718, 1.0);
+
+		FCosmosClosedOrbitPrediction Closed;
+		TestTrue(TEXT("圆轨道能闭合"),
+			Simulator.PredictClosedOrbit(1, 256, Closed));
+		TestEqual(TEXT("点数 = 一圈采样数 + 尾点"), Closed.RelativePositions.Num(), 257);
+
+		// 首尾是同一个点（逐位相等，不是「接近」）。
+		TestTrue(TEXT("末点与首点逐位相等"),
+			Closed.RelativePositions.Last() == Closed.RelativePositions[0]);
+
+		// 中心星在原点且不动，主导天体位置就是零。
+		TestTrue(TEXT("主导天体位置 = 原点"),
+			Closed.PrimaryPosition == FVector3d::ZeroVector);
+
+		// 密切周期应与既有的配对周期估算一致。
+		TestEqual(TEXT("周期 = 估算周期"),
+			Closed.PeriodYears, Simulator.EstimateOrbitalPeriod(1), 1.0e-3);
+
+		// 圆轨道半径不变：相对主导天体的距离全程贴着 0.718 AU。
+		//
+		// 容差 1% 是积分误差，不是物理效应 —— 256 点/圈的 Velocity Verlet 在
+		// 这一步的闭合误差本来就在 1% 轨道半径以内（见 NBodyPrediction 第 3 节）。
+		double MinRadius = TNumericLimits<double>::Max();
+		double MaxRadius = 0.0;
+		for (const FVector3d& Point : Closed.RelativePositions)
+		{
+			const double Radius = Point.Size();
+			MinRadius = FMath::Min(MinRadius, Radius);
+			MaxRadius = FMath::Max(MaxRadius, Radius);
+		}
+		TestTrue(TEXT("全程半径贴近 0.718 AU（下限）"),
+			MinRadius > 0.99 * 0.718);
+		TestTrue(TEXT("全程半径贴近 0.718 AU（上限）"),
+			MaxRadius < 1.01 * 0.718);
+	}
+
+	// ── 2. 双曲线：ε ≥ 0，没有一圈可闭合 ──
+	{
+		FNBodySimulator Simulator = MakeCircularTwoBody(0.718, 1.0);
+		Simulator.GetBodyMutable(1).Velocity *= 1.5;
+
+		FCosmosClosedOrbitPrediction Closed;
+		TestFalse(TEXT("双曲线不闭合"), Simulator.PredictClosedOrbit(1, 64, Closed));
+		TestEqual(TEXT("失败时清空点集"), Closed.RelativePositions.Num(), 0);
+		TestEqual(TEXT("失败时周期为 0"), Closed.PeriodYears, 0.0);
+	}
+
+	// ── 3. 径向退化（速度为零）：e = 1，不是闭环 ──
+	{
+		FNBodySimulator Simulator = MakeCircularTwoBody(0.718, 1.0);
+		Simulator.GetBodyMutable(1).Velocity = FVector3d::ZeroVector;
+
+		FCosmosClosedOrbitPrediction Closed;
+		TestFalse(TEXT("径向退化不闭合"), Simulator.PredictClosedOrbit(1, 64, Closed));
+	}
+
+	// ── 4. 中心星本身：没有更重的主导天体 ──
+	{
+		FNBodySimulator Simulator = MakeCircularTwoBody(0.718, 1.0);
+
+		FCosmosClosedOrbitPrediction Closed;
+		TestFalse(TEXT("中心星不会被行星闭环"), Simulator.PredictClosedOrbit(0, 64, Closed));
+	}
+
+	// ── 5. 非法入参 ──
+	{
+		FNBodySimulator Simulator = MakeCircularTwoBody(0.718, 1.0);
+
+		FCosmosClosedOrbitPrediction Closed;
+		TestFalse(TEXT("索引越界返回 false"), Simulator.PredictClosedOrbit(99, 64, Closed));
+		TestFalse(TEXT("采样点不足返回 false"), Simulator.PredictClosedOrbit(1, 1, Closed));
+	}
+
+	// ── 6. 三体系统：密切周期 ≠ 真实一圈，仍必须闭合 ──
+	//
+	// 复刻 UniverseMap 的初始构型：1e4 M☉ 中心星，两颗 2500 M☉ 行星分居
+	// ±50 AU，处在 e≈0.75 椭圆轨道的远拱点（速度 50 AU/年）。两颗行星互相
+	// 拉扯，有效 μ 变大，真实一圈约 1.55 年，而密切周期只有 1.37 年。
+	// 旧实现按密切周期截断，末点横向漂出 0.32 个半长轴，闭合判据整圈失效 ——
+	// 玩家看到的就是「启动时闭合，跑一会儿预测线断成半截」。
+	{
+		FNBodySimulator Simulator;
+		Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
+		Simulator.SetIntegrator(ECosmosIntegrator::VelocityVerlet);
+		Simulator.SetSofteningLength(1.0e-5);
+		Simulator.SetCentimetersPerAu(1.0e6);
+
+		FCosmosBodyState Star;
+		Star.Mass = 1.0e4;
+		Simulator.AddBody(Star);
+
+		FCosmosBodyState PlanetA;
+		PlanetA.Mass = 2500.0;
+		PlanetA.Position = FVector3d(-50.0, 0.0, 0.0);
+		PlanetA.Velocity = FVector3d(0.0, 50.0, 0.0);
+		Simulator.AddBody(PlanetA);
+
+		FCosmosBodyState PlanetB;
+		PlanetB.Mass = 2500.0;
+		PlanetB.Position = FVector3d(50.0, 0.0, 0.0);
+		PlanetB.Velocity = FVector3d(0.0, -50.0, 0.0);
+		Simulator.AddBody(PlanetB);
+
+		// 注意不能用 EstimateOrbitalPeriod：它把当前距离当圆轨道半径（3.16 年），
+		// 而这里的密切轨道是 e≈0.75 的椭圆（a≈28.6 AU），密切周期 1.37 年。
+		// 两者不是同一个量，混用会把回归判据写反。
+		const FCosmosBodyState& Tracked = Simulator.GetBody(1);
+		const double Mu = CosmosUnits::GravitationalConstant_Game * (2500.0 + 1.0e4);
+		const double TrackedDistance = Tracked.Position.Size();
+		const double SpecificEnergy = 0.5 * Tracked.Velocity.SizeSquared()
+			- Mu / TrackedDistance;
+		const double TrackedSemiMajorAxis = -Mu / (2.0 * SpecificEnergy);
+		const double OsculatingPeriod = 2.0 * PI * FMath::Sqrt(
+			TrackedSemiMajorAxis * TrackedSemiMajorAxis * TrackedSemiMajorAxis / Mu);
+		TestTrue(TEXT("三体构型的密切周期约为 1.37 年"),
+			OsculatingPeriod > 1.2 && OsculatingPeriod < 1.5);
+
+		for (int32 PlanetIndex = 1; PlanetIndex <= 2; ++PlanetIndex)
+		{
+			FCosmosClosedOrbitPrediction Closed;
+			TestTrue(TEXT("三体构型仍能闭合成环"),
+				Simulator.PredictClosedOrbit(PlanetIndex, 512, Closed));
+
+			TestTrue(TEXT("首尾逐位相接"),
+				Closed.RelativePositions.Num() >= 2
+					&& Closed.RelativePositions.Last() == Closed.RelativePositions[0]);
+
+			// 实测闭合时间必须明显长于密切周期：这正是旧实现失败的地方。
+			TestTrue(TEXT("闭合时刻按实测（≈1.55 年），不是密切周期"),
+				Closed.PeriodYears > 1.05 * OsculatingPeriod);
+			TestTrue(TEXT("实测闭合时刻在 1.55 年附近"),
+				Closed.PeriodYears > 1.45 && Closed.PeriodYears < 1.65);
+
+			// 轨道形状：远拱点 ≈ 50 AU，近拱点 ≈ 7 AU。
+			double MinRadius = TNumericLimits<double>::Max();
+			double MaxRadius = 0.0;
+			for (const FVector3d& Point : Closed.RelativePositions)
+			{
+				const double Radius = Point.Size();
+				MinRadius = FMath::Min(MinRadius, Radius);
+				MaxRadius = FMath::Max(MaxRadius, Radius);
+			}
+			TestTrue(TEXT("远拱点 ≈ 50 AU"), MaxRadius > 49.0 && MaxRadius < 51.0);
+			TestTrue(TEXT("近拱点 ≈ 7 AU"), MinRadius > 6.0 && MinRadius < 9.0);
+		}
+	}
 
 	return true;
 }

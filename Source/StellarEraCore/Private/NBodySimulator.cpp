@@ -653,3 +653,189 @@ bool FNBodySimulator::PredictTrajectory(int32 BodyIndex, double Horizon, int32 N
 
 	return true;
 }
+
+bool FNBodySimulator::PredictClosedOrbit(int32 BodyIndex, int32 NumSamplesPerOrbit,
+                                         FCosmosClosedOrbitPrediction& Out) const
+{
+	Out.RelativePositions.Reset();
+	Out.PrimaryPosition = FVector3d::ZeroVector;
+	Out.PeriodYears = 0.0;
+
+	if (!Bodies.IsValidIndex(BodyIndex) || NumSamplesPerOrbit < 2)
+	{
+		return false;
+	}
+
+	const FCosmosBodyState& Body = Bodies[BodyIndex];
+
+	// ── 主导天体：引力 M/r² 最大，且必须比本天体重 ──
+	//
+	// 「更重」这一条不是形式主义：允许重天体去绕轻天体，相对坐标也能算出一条
+	// 椭圆，但画出来是一个套在轻天体上的巨环，和实际运动（重天体只在原位微动）
+	// 毫无关系。中心星因此不会被任何行星闭环。
+	//
+	// 用 GravitationalSourceMass 而不是 Mass：测试粒子（飞船）不该因为自己质量
+	// 大就成为别人的「主导天体」，它的引力源质量本来就是 0。
+	int32 PrimaryIndex = INDEX_NONE;
+	double BestPull = 0.0;
+	for (int32 Index = 0; Index < Bodies.Num(); ++Index)
+	{
+		if (Index == BodyIndex)
+		{
+			continue;
+		}
+
+		const FCosmosBodyState& Other = Bodies[Index];
+		const double SourceMass = GravitationalSourceMass(Other);
+		if (!(SourceMass > 0.0) || !(SourceMass > Body.Mass))
+		{
+			continue;
+		}
+
+		const double Distance = (Other.Position - Body.Position).Size();
+		if (!(Distance > 0.0) || !FMath::IsFinite(Distance))
+		{
+			continue;
+		}
+
+		const double Pull = SourceMass / (Distance * Distance);
+		if (Pull > BestPull)
+		{
+			BestPull = Pull;
+			PrimaryIndex = Index;
+		}
+	}
+
+	if (PrimaryIndex == INDEX_NONE)
+	{
+		return false;
+	}
+
+	const FCosmosBodyState& Primary = Bodies[PrimaryIndex];
+	const FVector3d RelativePosition = Body.Position - Primary.Position;
+	const FVector3d RelativeVelocity = Body.Velocity - Primary.Velocity;
+	const double Distance = RelativePosition.Size();
+	const double SpeedSquared = RelativeVelocity.SizeSquared();
+	const double Mu = GetG() * (Body.Mass + Primary.Mass);
+
+	if (!(Distance > 0.0) || !(Mu > 0.0)
+		|| !FMath::IsFinite(Distance) || !FMath::IsFinite(SpeedSquared) || !FMath::IsFinite(Mu))
+	{
+		return false;
+	}
+
+	// ── 密切轨道：ε < 0 才是椭圆 ──
+	// ε ≥ 0 是抛物线/双曲线，只该画未来一段，没有「一圈」可闭合。
+	const double SpecificEnergy = 0.5 * SpeedSquared - Mu / Distance;
+	if (!(SpecificEnergy < 0.0) || !FMath::IsFinite(SpecificEnergy))
+	{
+		return false;
+	}
+
+	const double SemiMajorAxis = -Mu / (2.0 * SpecificEnergy);
+	if (!(SemiMajorAxis > 0.0) || !FMath::IsFinite(SemiMajorAxis))
+	{
+		return false;
+	}
+
+	// 偏心率。e≈1 是径向/抛物退化（例如贴着行星静止的飞船）：它会「闭合」成
+	// 一条穿过主天体的直线，不是玩家直觉里的闭环。
+	const FVector3d EccentricityVector =
+		((SpeedSquared - Mu / Distance) * RelativePosition
+			- FVector3d::DotProduct(RelativePosition, RelativeVelocity) * RelativeVelocity) / Mu;
+	const double Eccentricity = EccentricityVector.Size();
+	if (!(Eccentricity < 0.99) || !FMath::IsFinite(Eccentricity))
+	{
+		return false;
+	}
+
+	const double Period = 2.0 * PI * FMath::Sqrt(
+		SemiMajorAxis * SemiMajorAxis * SemiMajorAxis / Mu);
+	if (!(Period > 0.0) || !FMath::IsFinite(Period))
+	{
+		return false;
+	}
+
+	// 与 PredictTrajectory 同口径：复制求解器，清零外力/阻尼，只算松手后的纯引力。
+	FNBodySimulator Copy = *this;
+	for (FCosmosBodyState& CopyBody : Copy.Bodies)
+	{
+		CopyBody.ExternalAcceleration = FVector3d::ZeroVector;
+		CopyBody.LinearDamping = 0.0;
+	}
+
+	// ── 用「真正转满一圈后离起点最近」找闭合时刻，而不是照密切周期截断 ──
+	//
+	// 密切周期只是 t=0 的局部线性化。多体系统里别的天体在改变有效 μ，真实返回
+	// 时间可以和密切周期差很多：UniverseMap 的双行星 + 恒星里，靠近近拱点时
+	// 密切周期 0.63 年、实际一圈 1.55 年，相差 2.5 倍。照密切周期截断的话，
+	// 末点会横向漂出 1.5 个半长轴 —— 闭合判据在几乎整圈时间上都失败，玩家看到的
+	// 就是「启动时闭合，跑一会儿预测线断成半截」。
+	//
+	// 所以：密切周期只用来定步长（保持采样密度），持续积分最多 3 个密切周期，
+	// 累计相对位置扫过的角度；转满 2π 之后取离起点最近的采样点作为闭合时刻。
+	// 只认「扫过一整圈」之后的最近点：圆轨道相邻采样点的间距可能本来就小于容差，
+	// 按纯距离找会在刚出发不久误判成闭合。
+	const double StepSize = Period / double(NumSamplesPerOrbit - 1);
+	const int32 SearchSamples = NumSamplesPerOrbit * 3;
+	const double ReturnTolerance = 0.05 * SemiMajorAxis;
+	constexpr double TwoPi = 2.0 * PI;
+	// 留一点角度余量：最近点可能落在「跨过 2π」那一采样点之前半个步长。
+	constexpr double AngleMargin = 0.1;
+
+	TArray<FVector3d> Samples;
+	Samples.Reserve(SearchSamples);
+
+	const FVector3d StartRelative =
+		Copy.GetBody(BodyIndex).Position - Copy.GetBody(PrimaryIndex).Position;
+	Samples.Add(StartRelative);
+
+	FVector3d PreviousRelative = StartRelative;
+	double SweptAngle = 0.0;
+	int32 ReturnSample = INDEX_NONE;
+	double BestReturnDistance = TNumericLimits<double>::Max();
+
+	for (int32 SampleIndex = 1; SampleIndex < SearchSamples; ++SampleIndex)
+	{
+		Copy.StepExact(StepSize);
+
+		const FVector3d Relative =
+			Copy.GetBody(BodyIndex).Position - Copy.GetBody(PrimaryIndex).Position;
+		Samples.Add(Relative);
+
+		// 步长很小，atan2(|a×b|, a·b) 就是这一步扫过的夹角（无符号，顺逆行都成立）。
+		SweptAngle += FMath::Atan2(
+			FVector3d::CrossProduct(PreviousRelative, Relative).Size(),
+			FVector3d::DotProduct(PreviousRelative, Relative));
+		PreviousRelative = Relative;
+
+		if (SweptAngle >= TwoPi - AngleMargin)
+		{
+			const double ReturnDistance = (Relative - StartRelative).Size();
+			if (ReturnDistance < BestReturnDistance)
+			{
+				BestReturnDistance = ReturnDistance;
+				ReturnSample = SampleIndex;
+			}
+		}
+	}
+
+	// 转满一圈后都回不到起点附近：不是闭环（被拽走 / 严重进动）。
+	if (ReturnSample == INDEX_NONE || BestReturnDistance > ReturnTolerance)
+	{
+		return false;
+	}
+
+	Out.RelativePositions.Reserve(ReturnSample + 2);
+	Out.RelativePositions.Append(Samples.GetData(), ReturnSample + 1);
+	Out.PrimaryPosition = Primary.Position;
+	Out.PeriodYears = double(ReturnSample) * StepSize;
+
+	// 首尾逐位相接：末点复制首点，而不是「接近」。
+	//
+	// 必须先拷到局部变量：直接 Add(Out.RelativePositions[0]) 会让 UE 的容器
+	// 别名校验误判为「在修改容器时使用其内部元素」并直接断言。
+	const FVector3d FirstPosition = Out.RelativePositions[0];
+	Out.RelativePositions.Add(FirstPosition);
+	return true;
+}
