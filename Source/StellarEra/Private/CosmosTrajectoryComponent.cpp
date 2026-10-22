@@ -33,8 +33,14 @@ namespace
 	/** 箭头段与杆的夹角。150° 即「从箭尖往回折 30°」。 */
 	constexpr double ArrowHeadAngleDegrees = 150.0;
 
-	/** 预测采样点数。步长 = 窗口 / (该值 - 1)。 */
+	/** 有限预测的采样点数。步长 = 窗口 / (该值 - 1)。 */
 	constexpr int32 PredictionSamples = 256;
+
+	/**
+	 * 闭合轨道每圈的采样点数。旧有限路径是「半圈 256 点」，这里用 512/圈
+	 * 保持同样的步长密度 —— 闭环跨整整一圈，点数太少会画出多边形的棱角。
+	 */
+	constexpr int32 ClosedOrbitSamples = 512;
 
 	/** 自动预测窗口 = 该系数 × 估算周期。略大于 1，让画出的椭圆首尾相接。 */
 	constexpr double AutoHorizonPeriodFactor = 1.05;
@@ -286,11 +292,25 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	}
 
 	// ── 预测：每帧重算 ──
+	//
+	// 自动模式（PredictionYears = 0）先试闭合轨道：能在主导天体参考系里跑满一圈，
+	// 就画闭环；密切轨道非椭圆 / 被三体扰动拽走时，退回有限窗口。
+	// 手填窗口（> 0）故意只画有限段 —— 那问的是「未来 N 年会去哪」，不是「轨道长啥样」。
 	PredictedWorld.Reset();
 	if (bWantPrediction && OrbitComponent->SimulatorIndex != INDEX_NONE)
 	{
-		Subsystem->PredictTrajectoryWorld(OrbitComponent->SimulatorIndex, Horizon,
-			PredictionSamples, PredictedWorld);
+		bool bUsedClosedOrbit = false;
+		if (PredictionYears <= 0.0)
+		{
+			bUsedClosedOrbit = Subsystem->PredictClosedOrbitWorld(
+				OrbitComponent->SimulatorIndex, ClosedOrbitSamples, PredictedWorld);
+		}
+
+		if (!bUsedClosedOrbit)
+		{
+			Subsystem->PredictTrajectoryWorld(OrbitComponent->SimulatorIndex, Horizon,
+				PredictionSamples, PredictedWorld);
+		}
 	}
 
 	// ── 高亮：选中的天体两种颜色都向白提 ──
@@ -1172,31 +1192,52 @@ void UCosmosTrajectoryComponent::DrawInEditor()
 	// ── 预测折线 ──
 	if (bDrawPrediction)
 	{
-		// 手填优先；自动 = 1.05 × **该天体自身**的最短周期（不是全系统最短 ——
-		// 一艘悬在中心星上方的飞船会把这个值压到 0.03 年，行星的椭圆就只剩一小段）。
-		// 两条路最后都吃同一个上限：窗口不得超过该天体自身最短周期的一部分。
-		double Horizon = PredictionYears > 0.0 ? PredictionYears : FallbackPredictionYears;
-		const double OwnPeriod = EditorSimulator.EstimateOrbitalPeriod(SelfIndex);
-		if (PredictionYears <= 0.0 && OwnPeriod > 0.0 && FMath::IsFinite(OwnPeriod))
-		{
-			Horizon = OwnPeriod * AutoHorizonPeriodFactor;
-		}
-		Horizon = ClampPredictionHorizonYears(Horizon, OwnPeriod, MaxAutoPredictionPeriods);
+		PredictedWorld.Reset();
 
-		TArray<FVector3d> GameUnitPositions;
-		if (EditorSimulator.PredictTrajectory(SelfIndex, Horizon, PredictionSamples,
-			GameUnitPositions))
+		// 自动模式先试闭合：在主导天体参考系里跑满一整圈，首尾逐位相接；再把
+		// 相对位置锚到主导天体 t=0 的位置转世界坐标。密切轨道非椭圆、或一圈内
+		// 被三体扰动拽走时，才退回有限窗口。
+		FCosmosClosedOrbitPrediction ClosedOrbit;
+		const bool bUsedClosedOrbit = PredictionYears <= 0.0
+			&& EditorSimulator.PredictClosedOrbit(SelfIndex, ClosedOrbitSamples, ClosedOrbit);
+
+		if (bUsedClosedOrbit)
 		{
-			PredictedWorld.Reset();
-			PredictedWorld.Reserve(GameUnitPositions.Num());
-			for (const FVector3d& Position : GameUnitPositions)
+			PredictedWorld.Reserve(ClosedOrbit.RelativePositions.Num());
+			for (const FVector3d& Relative : ClosedOrbit.RelativePositions)
 			{
-				PredictedWorld.Add(EditorSimulator.ToWorldLocation(Position));
+				PredictedWorld.Add(EditorSimulator.ToWorldLocation(
+					Relative + ClosedOrbit.PrimaryPosition));
 			}
-			if (PredictedWorld.Num() >= 2)
+		}
+		else
+		{
+			// 手填优先；自动 = 1.05 × **该天体自身**的最短周期（不是全系统最短 ——
+			// 一艘悬在中心星上方的飞船会把这个值压到 0.03 年，行星的椭圆就只剩一小段）。
+			// 有限回退窗口仍吃同一个上限：窗口不得超过该天体自身最短周期的一部分。
+			double Horizon = PredictionYears > 0.0 ? PredictionYears : FallbackPredictionYears;
+			const double OwnPeriod = EditorSimulator.EstimateOrbitalPeriod(SelfIndex);
+			if (PredictionYears <= 0.0 && OwnPeriod > 0.0 && FMath::IsFinite(OwnPeriod))
 			{
-				AppendPolyline(PredictedWorld, FLinearColor(PredictionColor));
+				Horizon = OwnPeriod * AutoHorizonPeriodFactor;
 			}
+			Horizon = ClampPredictionHorizonYears(Horizon, OwnPeriod, MaxAutoPredictionPeriods);
+
+			TArray<FVector3d> GameUnitPositions;
+			if (EditorSimulator.PredictTrajectory(SelfIndex, Horizon, PredictionSamples,
+				GameUnitPositions))
+			{
+				PredictedWorld.Reserve(GameUnitPositions.Num());
+				for (const FVector3d& Position : GameUnitPositions)
+				{
+					PredictedWorld.Add(EditorSimulator.ToWorldLocation(Position));
+				}
+			}
+		}
+
+		if (PredictedWorld.Num() >= 2)
+		{
+			AppendPolyline(PredictedWorld, FLinearColor(PredictionColor));
 		}
 	}
 

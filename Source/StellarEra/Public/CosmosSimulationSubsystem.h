@@ -63,6 +63,18 @@ public:
 	bool PredictTrajectoryWorld(int32 SimulatorIndex, double HorizonYears, int32 NumSamples,
 	                            TArray<FVector>& OutWorldPositions) const;
 
+	/**
+	 * 预测天体相对主导天体的**闭合轨道**，输出世界坐标（厘米）。
+	 *
+	 * 与 PredictTrajectoryWorld 的区别：那个是绝对世界坐标里的有限一段；这个在
+	 * 主导天体参考系里积到相对位置转满一圈、回到起点附近，首尾相接（输出末点与
+	 * 首点相同），用于把理论上可闭合的轨道画成闭环。若密切轨道非椭圆、或转满一圈
+	 * 仍回不到起点附近，返回 false 并清空输出 —— 调用方应退回 PredictTrajectoryWorld
+	 * 的有限窗口。
+	 */
+	bool PredictClosedOrbitWorld(int32 SimulatorIndex, int32 NumSamplesPerOrbit,
+	                             TArray<FVector>& OutWorldPositions) const;
+
 	/** 已模拟的天文时间（年）。拖尾按模拟时间采样，不按帧 —— 否则覆盖时长会随帧率漂移。 */
 	double GetSimulatedTimeYears() const;
 

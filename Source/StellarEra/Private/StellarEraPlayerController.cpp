@@ -515,19 +515,9 @@ void AStellarEraPlayerController::PlayerTick(float DeltaTime)
 			ShowPrompt(TEXT("按 E 离船"));
 		}
 	}
-	else if (AStarMapCameraPawn* StarMap = Cast<AStarMapCameraPawn>(GetPawn()))
-	{
-		if (AActor* Selected = StarMap->ResolveSelectedBody())
-		{
-			ShowPrompt(FString::Printf(
-				TEXT("%s　左键拖拽绕行　滚轮缩放　再点它取消选中　M 退出"),
-				*Selected->GetName()));
-		}
-		else
-		{
-			ShowPrompt(TEXT("左键点击选中天体　拖拽转视角　滚轮缩放　M 退出星图"));
-		}
-	}
+
+	// 星图模式不在这里刷操作提示：那是每帧一条 AddOnScreenDebugMessage（黄字），
+	// 看起来就是调试输出，而且和星图自己的 UI 重复。操作说明归星图 UI 管。
 }
 
 void AStellarEraPlayerController::OnInteract(const FInputActionValue& Value)
