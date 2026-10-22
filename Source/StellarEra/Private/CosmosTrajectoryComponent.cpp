@@ -293,18 +293,14 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 
 	// ── 预测：每帧重算 ──
 	//
-	// 自动模式（PredictionYears = 0）先试闭合轨道：能在主导天体参考系里跑满一圈，
-	// 就画闭环；密切轨道非椭圆 / 被三体扰动拽走时，退回有限窗口。
-	// 手填窗口（> 0）故意只画有限段 —— 那问的是「未来 N 年会去哪」，不是「轨道长啥样」。
+	// 先试闭合轨道：能在主导天体参考系里跑满一圈，就画闭环。这与 PredictionYears
+	// 无关 —— 闭合优先。密切轨道非椭圆 / 被三体扰动拽走时，才退回有限窗口；
+	// PredictionYears 只决定那个有限窗口的长度。
 	PredictedWorld.Reset();
 	if (bWantPrediction && OrbitComponent->SimulatorIndex != INDEX_NONE)
 	{
-		bool bUsedClosedOrbit = false;
-		if (PredictionYears <= 0.0)
-		{
-			bUsedClosedOrbit = Subsystem->PredictClosedOrbitWorld(
-				OrbitComponent->SimulatorIndex, ClosedOrbitSamples, PredictedWorld);
-		}
+		const bool bUsedClosedOrbit = Subsystem->PredictClosedOrbitWorld(
+			OrbitComponent->SimulatorIndex, ClosedOrbitSamples, PredictedWorld);
 
 		if (!bUsedClosedOrbit)
 		{
@@ -1194,12 +1190,12 @@ void UCosmosTrajectoryComponent::DrawInEditor()
 	{
 		PredictedWorld.Reset();
 
-		// 自动模式先试闭合：在主导天体参考系里跑满一整圈，首尾逐位相接；再把
-		// 相对位置锚到主导天体 t=0 的位置转世界坐标。密切轨道非椭圆、或一圈内
+		// 先试闭合（与 PredictionYears 无关）：在主导天体参考系里跑满一整圈，首尾逐位
+		// 相接；再把相对位置锚到主导天体 t=0 的位置转世界坐标。密切轨道非椭圆、或一圈内
 		// 被三体扰动拽走时，才退回有限窗口。
 		FCosmosClosedOrbitPrediction ClosedOrbit;
-		const bool bUsedClosedOrbit = PredictionYears <= 0.0
-			&& EditorSimulator.PredictClosedOrbit(SelfIndex, ClosedOrbitSamples, ClosedOrbit);
+		const bool bUsedClosedOrbit =
+			EditorSimulator.PredictClosedOrbit(SelfIndex, ClosedOrbitSamples, ClosedOrbit);
 
 		if (bUsedClosedOrbit)
 		{
