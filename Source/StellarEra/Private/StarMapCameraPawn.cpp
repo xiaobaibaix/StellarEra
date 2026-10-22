@@ -5,6 +5,7 @@
 #include "Camera/CameraComponent.h"
 #include "CosmosSimulationSubsystem.h"
 #include "Engine/World.h"
+#include "VoxelComponents/VoxelInvokerComponent.h"
 
 AStarMapCameraPawn::AStarMapCameraPawn()
 {
@@ -16,6 +17,42 @@ AStarMapCameraPawn::AStarMapCameraPawn()
 
 	// 视线方向由本 Pawn 自己管（OrbitRotation），不走控制器的旋转。
 	Camera->bUsePawnControlRotation = false;
+
+	// --- 体素调用器：三档 LOD，见头文件里的说明 ---
+	//
+	// 参数照抄飞船（SpaceshipPawn.cpp）：两者会在同一片地形上交替出现，
+	// 两套值不一致的话，切模式时 LOD 会抖一下。细气泡的碰撞盒只罩 ±30 米，
+	// 块数 ≈ (60/32)³ ≈ 7；LOD 两份分别 ≈ 16 / 7 块，是 4 GB 显存的取舍。
+	VoxelInvoker = CreateDefaultSubobject<UVoxelSimpleInvokerComponent>(TEXT("VoxelInvoker"));
+	VoxelInvoker->SetupAttachment(Camera);
+	VoxelInvoker->bUseForLOD = true;
+	VoxelInvoker->LODToSet = 1;
+	VoxelInvoker->LODRange = 8000.f;
+	VoxelInvoker->bUseForCollisions = true;
+	VoxelInvoker->CollisionsRange = 3000.f;
+	VoxelInvoker->bUseForNavmesh = false;
+	VoxelInvoker->bUseForEvents = false;
+	VoxelInvoker->bUseForPriorities = false;
+
+	VoxelInvokerLOD3 = CreateDefaultSubobject<UVoxelSimpleInvokerComponent>(TEXT("VoxelInvokerLOD3"));
+	VoxelInvokerLOD3->SetupAttachment(Camera);
+	VoxelInvokerLOD3->bUseForLOD = true;
+	VoxelInvokerLOD3->LODToSet = 3;
+	VoxelInvokerLOD3->LODRange = 30000.f;
+	VoxelInvokerLOD3->bUseForCollisions = false;
+	VoxelInvokerLOD3->bUseForNavmesh = false;
+	VoxelInvokerLOD3->bUseForEvents = false;
+	VoxelInvokerLOD3->bUseForPriorities = false;
+
+	VoxelInvokerLOD5 = CreateDefaultSubobject<UVoxelSimpleInvokerComponent>(TEXT("VoxelInvokerLOD5"));
+	VoxelInvokerLOD5->SetupAttachment(Camera);
+	VoxelInvokerLOD5->bUseForLOD = true;
+	VoxelInvokerLOD5->LODToSet = 5;
+	VoxelInvokerLOD5->LODRange = 100000.f;
+	VoxelInvokerLOD5->bUseForCollisions = false;
+	VoxelInvokerLOD5->bUseForNavmesh = false;
+	VoxelInvokerLOD5->bUseForEvents = false;
+	VoxelInvokerLOD5->bUseForPriorities = false;
 }
 
 void AStarMapCameraPawn::EnterFrom(const FVector& InCameraLocation, const FRotator& InCameraRotation)
@@ -120,6 +157,15 @@ void AStarMapCameraPawn::CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult
 			- OrbitRotation.Vector() * OrbitDistanceCm;
 	}
 	// 未选中：CameraLocation 保持不动 —— 这就是「冻结」。
+
+	// 体素调用器挂在 Actor 上，而 Actor 的变换只在 EnterFrom 里摆过一次。
+	// 不跟着相机走的话，调用器会永远停在「进星图时」的位置，把 LOD 细分到看不见
+	// 的地方去。相机本身由 OutResult 覆盖，所以这里搬 Actor 不改变观感。
+	// （不做 sweep：相机位置每帧现算，扫掠只会白白多一次检测。）
+	if (!GetActorLocation().Equals(CameraLocation))
+	{
+		SetActorLocation(CameraLocation, /*bSweep=*/false);
+	}
 
 	OutResult.Location = CameraLocation;
 	OutResult.Rotation = OrbitRotation;

@@ -29,6 +29,7 @@ public class StellarEra : ModuleRules
 			"StellarEraCore",
 			"StellarEraPlanet",
 			"StellarEraVehicle",
+			"Voxel",           // StarMapCameraPawn.cpp 的体素调用器（VoxelInvokerComponent.h）
 			"InputCore",
 			"EnhancedInput",   // 只有 StellarEraPlayerController.cpp 用到
 		});

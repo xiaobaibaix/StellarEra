@@ -8,6 +8,7 @@
 
 class UCameraComponent;
 class UCosmosSimulationSubsystem;
+class UVoxelSimpleInvokerComponent;
 
 /**
  * 一个屏幕空间候选：某个天体的 Actor 和它投影到屏幕上的位置。
@@ -114,6 +115,29 @@ protected:
 	/** 相机，同时是根组件。不挂 SpringArm —— 太空里没有东西要避。 */
 	UPROPERTY(VisibleAnywhere, Category = "StarMap")
 	TObjectPtr<UCameraComponent> Camera;
+
+	/**
+	 * 体素调用器：三档 LOD，配置与飞船（ASpaceshipPawn）同一套。
+	 *
+	 * 星图相机进入时会被控制器 Possess，所以它是 local invoker
+	 * （VoxelInvokerComponent.cpp 的 IsLocalInvoker 只认本地控制的 Pawn）——
+	 * 靠近行星时靠它把脚下的体素细分到最精，离开后由行星自己的调用器接手。
+	 *
+	 * 用 **Simple** 而不是飞船那种 WithPrediction：本 Pawn 不 Tick，位置在
+	 * CalcCamera 里现算，`GetVelocity()` 恒为零 —— 预测位移永远是 0，
+	 * 挂预测版只是多一层没有作用的计算。
+	 *
+	 * 三档只做 LOD；碰撞只开在细气泡上（碰撞细分路径不读 LODToSet，锁死
+	 * Height 0，开大了会顶爆显存，详见 SpaceshipPawn.cpp 构造函数的注释）。
+	 */
+	UPROPERTY(VisibleAnywhere, Category = "StarMap|Voxel")
+	TObjectPtr<UVoxelSimpleInvokerComponent> VoxelInvoker;
+
+	UPROPERTY(VisibleAnywhere, Category = "StarMap|Voxel")
+	TObjectPtr<UVoxelSimpleInvokerComponent> VoxelInvokerLOD3;
+
+	UPROPERTY(VisibleAnywhere, Category = "StarMap|Voxel")
+	TObjectPtr<UVoxelSimpleInvokerComponent> VoxelInvokerLOD5;
 
 	// ── 运行时状态 ──
 
