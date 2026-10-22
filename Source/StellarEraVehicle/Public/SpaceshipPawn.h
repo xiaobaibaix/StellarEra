@@ -26,16 +26,32 @@ class UVoxelInvokerWithPredictionComponent;
 struct FSpaceshipStatus
 {
 	/**
-	 * 速度大小（**世界 km/s**）。取自求解器写回的速度，再除以 1e5。
+	 * 速度大小（**世界 km/s**，**惯性系 / 绝对速度**）。取自求解器写回的速度，
+	 * 再除以 1e5。
 	 *
 	 * 世界速度 ≠ 编辑器里填的物理速度：物理 1 AU/年 = 4.74047 km/s，
 	 * 世界 1 AU/年 = CentimetersPerAu × TimeScale 厘米/秒 = 0.0333 km/s（默认）。
+	 *
+	 * 贴着一颗公转中的行星静止时，这个值不是 0，而是行星自己的速度 —— 要看
+	 * 「相对地表多快」请读 RelativeSpeedKmPerSecond。
 	 */
 	float SpeedKmPerSecond = 0.f;
 
 	/**
+	 * 相对参考行星（控制飞船的那颗，见 PlanetActor）的速度大小（**世界 km/s**）。
+	 *
+	 * 大气随行星平移、行星自身不自转，所以大气阻力与「是不是停在地表上」都该看
+	 * 这个值，而不是绝对速度。没有参考行星时等于 SpeedKmPerSecond。
+	 */
+	float RelativeSpeedKmPerSecond = 0.f;
+
+	/** 本帧是否有参考行星。没有时 HUD 的「相对速度」显示占位符。 */
+	bool bHasReferencePlanet = false;
+
+	/**
 	 * 实际生效的速度上限（**世界 km/s**）：阻尼极速（= 推力 × τ × 加速倍率）与
-	 * 硬上限 MaxSpeedKmPerSecond 里较小且非 0 的那个，HUD 直接印它。
+	 * **当前生效的**硬上限（按 Shift 时为 BoostMaxSpeedKmPerSecond，否则为
+	 * MaxSpeedKmPerSecond）里较小且非 0 的那个，HUD 直接印它。
 	 *
 	 * 0 表示**没有上限**（巡航开着、硬上限也设成了 0），不是「不能动」。
 	 */
@@ -61,6 +77,14 @@ struct FSpaceshipStatus
 
 	/** 当前大气阻力减速度的大小（**世界 km/s²**）。0 = 无阻力（真空或关掉了）。 */
 	float AtmosphereDragKmPerS2 = 0.f;
+
+	/**
+	 * 当前模式下能给出的最大推力（**世界 km/s²**，按住 Shift 时已乘 BoostMultiplier）。
+	 *
+	 * 这是**标称值**，不是本帧实际输出：速度上限会削掉沿速分量、大气阻力另算。
+	 * 显示层拿它和当地重力比较 —— 重力大于它时，飞船在物理上抬不起来。
+	 */
+	float MaxThrustAccelerationKmPerS2 = 0.f;
 };
 
 /**
@@ -250,8 +274,9 @@ public:
 	 *
 	 * 制动只削速度、不抗重力：低速时它给不出托住飞船的力，悬停仍归 W / 升降键。
 	 *
-	 * 速度上限（MaxSpeedKmPerSecond > 0）只衰减**沿速度方向的正向**推力：
-	 * f = 1 − (v/vmax)²，v ≥ vmax 时 f = 0，所以速度是渐近逼近上限而不是撞墙。
+	 * 速度上限只衰减**沿速度方向的正向**推力：f = 1 − (v/vmax)²，v ≥ vmax 时
+	 * f = 0，所以速度是渐近逼近上限而不是撞墙。上限按 Shift 分两档（按住用
+	 * BoostMaxSpeedKmPerSecond，松开用 MaxSpeedKmPerSecond），衰减规则相同。
 	 * 横向推力与制动不打折 —— 否则到顶后既转不了向也刹不住车，在重力井里连
 	 * 抬头抗重力的力都拿不到。
 	 *
@@ -302,6 +327,10 @@ public:
 	 *
 	 * 取最近参考行星（PlanetActor）的大气组件：阻力系数、标高比、壳厚比都从
 	 * 那里读，所以每颗行星可以单独调。与巡航开关、速度上限都无关。
+	 *
+	 * 阻力按**相对参考行星**的速度算（GetRelativeVelocity），不是惯性系绝对
+	 * 速度：大气随行星平移，贴着一颗公转中的行星静止时不该有迎面风。参考速度由
+	 * 子系统每帧经 SetReferencePlanetVelocity 推进来。
 	 */
 	FVector GetAtmosphereDragAccelerationWorldCmPerS2() const;
 
@@ -319,6 +348,22 @@ public:
 	 * （厘米/秒，世界坐标）。本类不自己算速度 —— 位移归求解器，速度也就该由它给。
 	 */
 	void SetCosmosVelocity(const FVector& InVelocity) { CosmosVelocity = InVelocity; }
+
+	/**
+	 * 由 UCosmosSimulationSubsystem 每帧写入的**参考行星中心速度**（世界厘米/秒）。
+	 *
+	 * 行星自身不自转，大气跟着行星中心平移，所以大气阻力必须按「飞船相对行星」
+	 * 的速度算；相对速度也是 HUD 要显示的第二条速度。方向只能是子系统下来推：
+	 * StellarEraVehicle 不能反向依赖 StellarEra 去查求解器（会成环）。
+	 * 没有参考行星时传零向量，相对速度退化为绝对速度。
+	 */
+	void SetReferencePlanetVelocity(const FVector& InVelocity) { ReferencePlanetVelocity = InVelocity; }
+
+	/** 相对参考行星的速度（世界厘米/秒）；没有参考行星时等于 GetVelocity()。 */
+	FVector GetRelativeVelocity() const { return GetVelocity() - ReferencePlanetVelocity; }
+
+	/** 当前参考行星（控制飞船的那颗，供子系统回查它的求解器速度）；可能为空。 */
+	AVoxelPlanetActor* GetPlanetActor() const { return PlanetActor; }
 
 	/**
 	 * 覆写：让引擎侧所有问「这艘船多快」的地方拿到求解器给的真值。
@@ -540,6 +585,8 @@ protected:
 	/**
 	 * 速度上限（**世界 km/s**，与 HUD 的速度同一刻度）。0 = 不限。
 	 *
+	 * **只在没按 Shift 时生效**；按 Shift 时改用 BoostMaxSpeedKmPerSecond。
+	 *
 	 * 越接近上限，**沿速度方向的正向**推力越小（f = 1 − (v/vmax)²），到顶时 f = 0：
 	 * 速度渐近逼近上限，不是撞上一堵墙。横向推力与 S 制动不打折，到顶仍能转向、
 	 * 能刹车（见 GetThrustAccelerationWorldCmPerS2）。
@@ -553,6 +600,22 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Thrust",
 		meta = (DisplayName = "速度上限（km/s，世界）", ClampMin = "0"))
 	float MaxSpeedKmPerSecond = 12.0f;
+
+	/**
+	 * Shift 加速时的速度上限（**世界 km/s**）。0 = 不限。
+	 *
+	 * 与 MaxSpeedKmPerSecond 相互独立：按住 Shift 时只认本值，松开后只认前者。
+	 * 衰减规则完全相同 —— f = 1 − (v/vmax)²，只削沿速度方向的正向推力，横向推力
+	 * 和 S 制动不打折；大气阻力同样不受上限影响。
+	 *
+	 * 默认 24（W 上限的 2 倍）：巡航关着时 Shift 的阻尼极速只有 3.6 km/s，本值
+	 * 不起作用；巡航开着（阻尼关掉）时才靠它让 Shift 比 W 飞得更快。
+	 *
+	 * 注意体素调用器的预测范围按阻尼极速配，本值调高后高速时地形更追不上。
+	 */
+	UPROPERTY(EditAnywhere, Category = "Spaceship|Thrust",
+		meta = (DisplayName = "加速速度上限（km/s，世界）", ClampMin = "0"))
+	float BoostMaxSpeedKmPerSecond = 24.0f;
 
 	/**
 	 * 巡航开关。开 = 关掉阻尼（速度保持）；关 = 有阻尼，松手就按 τ 衰减停下。
@@ -588,8 +651,11 @@ protected:
 	float AutoLevelSpeed = 0.f;
 
 	/**
-	 * 自动回正的重力参考行星。BeginPlay 时自动查找最近的一颗；找不到（纯太空关卡）
-	 * 时自动回正退回世界 Z。软依赖：缺了它飞船照常飞。
+	 * 参考行星（控制飞船的那颗）。BeginPlay 时自动查找最近的一颗；找不到（纯太空
+	 * 关卡）时自动回正退回世界 Z、相对速度退化为绝对速度。软依赖：缺了它飞船照常飞。
+	 *
+	 * 它同时喂给：自动回正（AutoLevelSpeed > 0 时）、升降推力方向、大气密度/阻力，
+	 * 以及子系统每帧写回的参考速度（SetReferencePlanetVelocity）。
 	 */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Spaceship")
 	TObjectPtr<AVoxelPlanetActor> PlanetActor;
@@ -732,6 +798,12 @@ private:
 	 * 「速度为零」判断，与旧行为一致。
 	 */
 	FVector CosmosVelocity = FVector::ZeroVector;
+
+	/**
+	 * 参考行星中心速度（厘米/秒，世界坐标）。由子系统每帧写入，本类只读。
+	 * 大气随行星平移（行星不自转），阻力与相对速度都用它当参考系。
+	 */
+	FVector ReferencePlanetVelocity = FVector::ZeroVector;
 
 	/** 距离下次重新评估最近行星还剩多少秒。 */
 	float PlanetReevaluateTimer = 0.f;

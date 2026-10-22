@@ -653,23 +653,31 @@ FSpaceshipStatus ASpaceshipPawn::GetStatus() const
 {
 	FSpaceshipStatus Status;
 
-	// 速度取自求解器写回的值（GetVelocity 的覆写读的就是它）。
+	// 绝对速度取自求解器写回的值（GetVelocity 的覆写读的就是它）。
+	// 相对速度减去参考行星的中心速度：大气与地表都以行星为参考系。
 	// 世界厘米/秒 → 世界 km/s。
 	Status.SpeedKmPerSecond = GetVelocity().Size() / CentimetersPerKilometer;
+	Status.RelativeSpeedKmPerSecond = GetRelativeVelocity().Size() / CentimetersPerKilometer;
+	Status.bHasReferencePlanet = PlanetActor != nullptr;
 
-	// 实际极速（世界 km/s）= 阻尼极速（推力 × τ，巡航关着时有效）与硬上限里
-	// **较小且非 0** 的那个；两个都没设才是 0（无上限）。
+	// 实际极速（世界 km/s）= 阻尼极速（推力 × τ，巡航关着时有效）与**当前生效的**
+	// 硬上限里较小且非 0 的那个；两个都没设才是 0（无上限）。
+	// 硬上限按 Shift 分两档：按住时用 BoostMaxSpeedKmPerSecond，松开用
+	// MaxSpeedKmPerSecond —— HUD 印的必须是玩家当前真正受着的那一条。
 	const float Damping = GetDampingTime();
 	const float DampingTopSpeed = Damping > 0.f
 		? ThrustAccelerationKmPerS2 * (bBoosting ? BoostMultiplier : 1.f) * Damping
 		: 0.f;
 
+	const float ActiveMaxSpeedKmPerSecond =
+		bBoosting ? BoostMaxSpeedKmPerSecond : MaxSpeedKmPerSecond;
+
 	float EffectiveMaxSpeed = DampingTopSpeed;
-	if (MaxSpeedKmPerSecond > 0.f)
+	if (ActiveMaxSpeedKmPerSecond > 0.f)
 	{
 		EffectiveMaxSpeed = EffectiveMaxSpeed > 0.f
-			? FMath::Min(EffectiveMaxSpeed, MaxSpeedKmPerSecond)
-			: MaxSpeedKmPerSecond;
+			? FMath::Min(EffectiveMaxSpeed, ActiveMaxSpeedKmPerSecond)
+			: ActiveMaxSpeedKmPerSecond;
 	}
 	Status.MaxSpeedKmPerSecond = EffectiveMaxSpeed;
 
@@ -677,6 +685,8 @@ FSpaceshipStatus ASpaceshipPawn::GetStatus() const
 	Status.bBoosting = bBoosting;
 	Status.bPreserveVelocity = bPreserveVelocity;
 	Status.bLanded = IsLanded();
+	Status.MaxThrustAccelerationKmPerS2 =
+		ThrustAccelerationKmPerS2 * (bBoosting ? BoostMultiplier : 1.f);
 
 	// 大气：密度比每帧都算（HUD 用它区分真空 / 大气），阻力大小只在有系数时非零。
 	Status.AtmosphereDensityRatio = GetAtmosphereDensityRatio();
@@ -981,8 +991,11 @@ FVector ASpaceshipPawn::GetAtmosphereDragAccelerationWorldCmPerS2() const
 		return FVector::ZeroVector;
 	}
 
+	// 用相对行星的速度：大气跟着行星平移。拿惯性系绝对速度的话，贴着一颗
+	// 公转中的行星静止时也会吃到「迎面风」（外圈行星约 27 km/s²），表现为
+	// 飞船在地表上持续滑行。参考速度由子系统每帧推进来。
 	return ComputeAtmosphereDragAccelerationWorldCmPerS2(
-		GetVelocity(), double(GetAtmosphereDensityRatio()),
+		GetRelativeVelocity(), double(GetAtmosphereDensityRatio()),
 		double(Atmosphere->DragAccelerationAtKmPerSecond));
 }
 
@@ -1055,10 +1068,16 @@ FVector ASpaceshipPawn::GetThrustAccelerationWorldCmPerS2(float DeltaSeconds) co
 	// 整个推力向量的话，到顶后横向推力也没了 —— 转不了向、刹不住车，贴着行星
 	// 时连抬头抗重力的力都拿不到，玩家会感觉「油门整个死掉」。
 	//
+	// 上限按 Shift 分两档：按住时用 BoostMaxSpeedKmPerSecond，松开用
+	// MaxSpeedKmPerSecond。除取哪个值以外，两档的衰减规则完全相同 —— Shift 只是
+	// 推得更快、上限更高，不是另一套操纵逻辑。
+	//
 	// 速度取 GetVelocity()，与阻尼、制动同一个惯性系（贴着行星时含行星自身的
 	// 运动）。投影在**夹长度之前**做：夹长度只会缩短向量，不会把沿速分量放大回去。
+	const float ActiveMaxSpeedKmPerSecond =
+		bBoosting ? BoostMaxSpeedKmPerSecond : MaxSpeedKmPerSecond;
 	const double MaxSpeedCmPerSecond =
-		double(MaxSpeedKmPerSecond) * double(CentimetersPerKilometer);
+		double(ActiveMaxSpeedKmPerSecond) * double(CentimetersPerKilometer);
 	if (MaxSpeedCmPerSecond > 0.0)
 	{
 		const FVector Velocity = GetVelocity();

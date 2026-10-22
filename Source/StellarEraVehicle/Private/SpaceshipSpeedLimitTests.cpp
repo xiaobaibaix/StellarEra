@@ -7,6 +7,8 @@
 //   2. GetThrustAccelerationWorldCmPerS2 的推力剖面：半程只剩 0.75 的沿速推力，
 //      到顶后正向推力归零；S 制动与横向（升降）推力不衰减 —— 否则到顶以后
 //      转不了向、刹不住车，在重力井里也抬不起头。
+//   3. Shift 有独立上限：按住时 W 的上限不再生效，松开后立刻回到 W 的上限；
+//      两档的衰减规则相同，0 都表示不限。
 //
 // 行为断言在独立编辑器世界里生成的真飞船上做（CDO 没有世界，GetStatus 里的
 // 落地查询会空指针），世界随测试销毁，不用手工还原状态。
@@ -44,6 +46,22 @@ namespace
 	{
 		if (const FFloatProperty* Property = FindFProperty<FFloatProperty>(
 			ASpaceshipPawn::StaticClass(), TEXT("MaxSpeedKmPerSecond")))
+		{
+			*Property->ContainerPtrToValuePtr<float>(Ship) = Value;
+		}
+	}
+
+	float ReadBoostMaxSpeedKmPerSecond(ASpaceshipPawn* Ship)
+	{
+		const FFloatProperty* Property = FindFProperty<FFloatProperty>(
+			ASpaceshipPawn::StaticClass(), TEXT("BoostMaxSpeedKmPerSecond"));
+		return Property ? *Property->ContainerPtrToValuePtr<float>(Ship) : 0.f;
+	}
+
+	void WriteBoostMaxSpeedKmPerSecond(ASpaceshipPawn* Ship, float Value)
+	{
+		if (const FFloatProperty* Property = FindFProperty<FFloatProperty>(
+			ASpaceshipPawn::StaticClass(), TEXT("BoostMaxSpeedKmPerSecond")))
 		{
 			*Property->ContainerPtrToValuePtr<float>(Ship) = Value;
 		}
@@ -196,6 +214,76 @@ bool FStellarEraSpeedLimitThrustTest::RunTest(const FString& Parameters)
 			FMath::IsNearlyEqual(
 				Ship->GetThrustAccelerationWorldCmPerS2(DeltaSeconds).Size(),
 				FullThrust, FullThrust * 1.0e-3));
+	}
+
+	// Shift 的独立上限：按住 Shift 时只认 BoostMaxSpeedKmPerSecond，松开后只认
+	// MaxSpeedKmPerSecond；衰减规则与 W 完全相同（1 − (v/vmax)²）。
+	//
+	// 上一段把 W 的上限填成了 0（不限），这里先恢复 —— 否则「松开 Shift 后回到
+	// W 的上限」测到的是「不限」，永远为满推力。
+	constexpr float TestBoostCapKmPerSecond = 20.f;
+	constexpr double TestBoostCapCmPerSecond = 2.0e6;
+	WriteMaxSpeedKmPerSecond(Ship, TestCapKmPerSecond);
+	WriteBoostMaxSpeedKmPerSecond(Ship, TestBoostCapKmPerSecond);
+	TestTrue(TEXT("测试恢复 W 上限成功"),
+		FMath::IsNearlyEqual(ReadMaxSpeedKmPerSecond(Ship), TestCapKmPerSecond));
+	TestTrue(TEXT("测试写入加速上限成功"),
+		FMath::IsNearlyEqual(
+			ReadBoostMaxSpeedKmPerSecond(Ship), TestBoostCapKmPerSecond));
+
+	{
+		Ship->SetThrust(1.f);
+		Ship->SetVertical(0.f);
+		Ship->SetCosmosVelocity(FVector::ZeroVector);
+		Ship->SetBoost(true);
+
+		// 静止时的基准推力：FullThrust × BoostMultiplier（默认 3 倍）。
+		const double BoostFullThrust =
+			Ship->GetThrustAccelerationWorldCmPerS2(DeltaSeconds).Size();
+		TestTrue(TEXT("按住 Shift 静止时有加速推力"),
+			BoostFullThrust > FullThrust * 1.5);
+
+		// 速度正好在 W 的上限（10 km/s）：按住 Shift 时 W 的上限不再生效，
+		// 只剩加速上限的衰减 f = 1 − (10/20)² = 0.75。
+		Ship->SetCosmosVelocity(Forward * TestCapCmPerSecond);
+		const FVector AtWCap =
+			Ship->GetThrustAccelerationWorldCmPerS2(DeltaSeconds);
+		TestTrue(TEXT("按住 Shift 时 W 的上限不再生效"),
+			FMath::IsNearlyEqual(AtWCap.Size(), BoostFullThrust * 0.75,
+				BoostFullThrust * 1.0e-3));
+
+		// 到加速上限（20 km/s）→ 正向推力归零。
+		Ship->SetCosmosVelocity(Forward * TestBoostCapCmPerSecond);
+		TestTrue(TEXT("到加速上限时正向推力归零"),
+			Ship->GetThrustAccelerationWorldCmPerS2(DeltaSeconds).Size()
+				< BoostFullThrust * 1.0e-3);
+
+		// 松开 Shift：同一速度下归 W 的上限管，正向推力仍为 0。
+		Ship->SetBoost(false);
+		TestTrue(TEXT("松开 Shift 后回到 W 的上限"),
+			Ship->GetThrustAccelerationWorldCmPerS2(DeltaSeconds).Size()
+				< FullThrust * 1.0e-3);
+
+		// 加速上限填 0 = 不限：按住 Shift 超速也照给满推力。
+		WriteBoostMaxSpeedKmPerSecond(Ship, 0.f);
+		Ship->SetBoost(true);
+		TestTrue(TEXT("加速上限为 0 时没有衰减"),
+			FMath::IsNearlyEqual(
+				Ship->GetThrustAccelerationWorldCmPerS2(DeltaSeconds).Size(),
+				BoostFullThrust, BoostFullThrust * 1.0e-3));
+
+		// GetStatus 也要报玩家当前真正受着的那条上限。先把加速上限从 0 恢复，
+		// 否则这里测的是「不限」而不是「加速上限」。
+		WriteBoostMaxSpeedKmPerSecond(Ship, TestBoostCapKmPerSecond);
+		Ship->TogglePreserveVelocity();
+		TestTrue(TEXT("巡航 + Shift 时极速是加速上限"),
+			FMath::IsNearlyEqual(Ship->GetStatus().MaxSpeedKmPerSecond,
+				TestBoostCapKmPerSecond));
+		Ship->TogglePreserveVelocity();
+
+		// 复位，后面的 HUD 断言按「不按 Shift」的口径跑。
+		Ship->SetBoost(false);
+		Ship->SetCosmosVelocity(FVector::ZeroVector);
 	}
 
 	// HUD 读的极速：巡航关着时是阻尼极速（比硬上限小）；巡航开着时才是硬上限。

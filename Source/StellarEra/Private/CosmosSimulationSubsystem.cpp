@@ -271,7 +271,7 @@ void UCosmosSimulationSubsystem::ApplyControlledBodyForces(float DeltaSeconds)
 			continue;
 		}
 
-		const ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(Component->GetOwner());
+		ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(Component->GetOwner());
 		if (!Ship)
 		{
 			continue;
@@ -285,6 +285,23 @@ void UCosmosSimulationSubsystem::ApplyControlledBodyForces(float DeltaSeconds)
 		}
 
 		FCosmosBodyState& Body = Simulator.GetBodyMutable(Component->SimulatorIndex);
+
+		// 大气随行星平移（行星自身不自转），阻力要按相对行星的速度算。飞船不能
+		// 反向依赖本子系统（会成环），所以由这里把参考行星的中心速度推进去。
+		// PlanetActor 为空或尚未注册时给零向量 —— 相对速度退化为绝对速度。
+		FVector ReferenceVelocity = FVector::ZeroVector;
+		if (const AVoxelPlanetActor* Planet = Ship->GetPlanetActor())
+		{
+			const UCosmosOrbitComponent* PlanetOrbit =
+				Planet->FindComponentByClass<UCosmosOrbitComponent>();
+			if (PlanetOrbit && PlanetOrbit->SimulatorIndex != INDEX_NONE
+				&& PlanetOrbit->SimulatorIndex < Simulator.GetNumBodies())
+			{
+				ReferenceVelocity = ToWorldVelocityScaled(
+					Simulator.GetBody(PlanetOrbit->SimulatorIndex).Velocity);
+			}
+		}
+		Ship->SetReferencePlanetVelocity(ReferenceVelocity);
 
 		// 帧时长原样转给飞船：它的制动要按「本帧满推力能改变多少速度」收敛，
 		// 见 ASpaceshipPawn::GetThrustAccelerationWorldCmPerS2。
@@ -607,6 +624,28 @@ bool UCosmosSimulationSubsystem::PredictTrajectoryWorld(int32 SimulatorIndex, do
 	for (const FVector3d& Position : GameUnitPositions)
 	{
 		OutWorldPositions.Add(Simulator.ToWorldLocation(Position));
+	}
+	return true;
+}
+
+bool UCosmosSimulationSubsystem::PredictClosedOrbitWorld(int32 SimulatorIndex,
+                                                        int32 NumSamplesPerOrbit,
+                                                        TArray<FVector>& OutWorldPositions) const
+{
+	OutWorldPositions.Reset();
+
+	FCosmosClosedOrbitPrediction Prediction;
+	if (!Simulator.PredictClosedOrbit(SimulatorIndex, NumSamplesPerOrbit, Prediction))
+	{
+		return false;
+	}
+
+	// 闭环是相对主导天体的：把它锚回主导天体 t=0 的位置，再转世界坐标。
+	// 不能直接用世界坐标去闭合 —— 主导天体自己也在动，绝对路径是摆线。
+	OutWorldPositions.Reserve(Prediction.RelativePositions.Num());
+	for (const FVector3d& Relative : Prediction.RelativePositions)
+	{
+		OutWorldPositions.Add(Simulator.ToWorldLocation(Relative + Prediction.PrimaryPosition));
 	}
 	return true;
 }

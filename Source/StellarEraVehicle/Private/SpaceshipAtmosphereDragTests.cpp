@@ -2,12 +2,18 @@
 //
 // 大气阻力的验收测试。
 //
-// 只测纯函数：密度剖面与二次阻力公式。真正挂到行星上的那条路径需要
+// 纯函数：密度剖面与二次阻力公式。真正挂到行星上的那条路径需要
 // AVoxelPlanetActor（构造即建体素世界），不适合在单元测试里生成；那部分在
-// UniverseMap PIE 里验证 —— HUD 会直接印出当前密度与阻力减速度。
+// UniverseMap PIE 里验证 —— HUD 会直接印出当前绝对/相对速度与阻力减速度。
+//
+// 相对速度的接入单独验：参考速度只是子系统每帧推进来的一个 FVector，生成一艘
+// 裸飞船就能断言绝对值/相对值/状态字段，不需要真的行星。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/ScopeExit.h"
+#include "Engine/Engine.h"
+#include "Engine/World.h"
 #include "SpaceshipPawn.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -96,6 +102,69 @@ bool FStellarEraAtmosphereDragTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("系数为零 = 无阻力"),
 		ASpaceshipPawn::ComputeAtmosphereDragAccelerationWorldCmPerS2(
 			Down, 1.0, 0.0).IsNearlyZero());
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraRelativeVelocityTest,
+	"StellarEra.Vehicle.RelativeVelocityToPlanet",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraRelativeVelocityTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = UWorld::CreateWorld(EWorldType::Editor, false);
+	if (!TestNotNull(TEXT("测试世界"), World))
+	{
+		return false;
+	}
+	FWorldContext& WorldContext = GEngine->CreateNewWorldContext(EWorldType::Editor);
+	WorldContext.SetCurrentWorld(World);
+	World->InitializeActorsForPlay(FURL());
+
+	ON_SCOPE_EXIT
+	{
+		GEngine->DestroyWorldContext(World);
+		World->DestroyWorld(false);
+	};
+
+	ASpaceshipPawn* Ship = World->SpawnActor<ASpaceshipPawn>(
+		ASpaceshipPawn::StaticClass(),
+		FTransform(FRotator::ZeroRotator, FVector(0.0, 0.0, 1.0e7)));
+	if (!TestNotNull(TEXT("能生成飞船"), Ship))
+	{
+		return false;
+	}
+
+	// 外圈行星的世界速度 1.665 km/s = 166500 cm/s。飞船跟着它走时，绝对速度
+	// 是 1.665 km/s，相对速度必须是 0 —— 这正是大气阻力该看到的数。
+	const FVector PlanetVelocity(1.665e5, 0.0, 0.0);
+	Ship->SetCosmosVelocity(PlanetVelocity);
+	Ship->SetReferencePlanetVelocity(PlanetVelocity);
+
+	TestTrue(TEXT("随行星一起运动时相对速度为零"),
+		Ship->GetRelativeVelocity().IsNearlyZero(1.0));
+
+	FSpaceshipStatus Status = Ship->GetStatus();
+	TestTrue(TEXT("绝对速度仍报 1.665 km/s"),
+		FMath::IsNearlyEqual(Status.SpeedKmPerSecond, 1.665f, 1.0e-3f));
+	TestTrue(TEXT("相对速度报 0"),
+		FMath::IsNearlyEqual(Status.RelativeSpeedKmPerSecond, 0.f, 1.0e-3f));
+
+	// 裸飞船没有 PlanetActor：HUD 据此把相对速度印成占位符。
+	TestFalse(TEXT("没有行星时 bHasReferencePlanet 为假"), Status.bHasReferencePlanet);
+
+	// 相对速度是矢量差：飞船沿 +Y 相对行星 0.333 km/s。
+	Ship->SetCosmosVelocity(PlanetVelocity + FVector(0.0, 3.33e4, 0.0));
+	TestTrue(TEXT("相对速度方向正确"),
+		Ship->GetRelativeVelocity().Equals(FVector(0.0, 3.33e4, 0.0), 1.0));
+	Status = Ship->GetStatus();
+	TestTrue(TEXT("相对速度大小 0.333 km/s"),
+		FMath::IsNearlyEqual(Status.RelativeSpeedKmPerSecond, 0.333f, 1.0e-3f));
+
+	// 参考速度清零 = 没有参考系：相对速度退化为绝对速度（与改动前一致）。
+	Ship->SetReferencePlanetVelocity(FVector::ZeroVector);
+	TestTrue(TEXT("没有参考时相对速度等于绝对速度"),
+		Ship->GetRelativeVelocity().Equals(Ship->GetVelocity(), 1.0));
 
 	return true;
 }
