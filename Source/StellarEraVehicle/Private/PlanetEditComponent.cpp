@@ -2,6 +2,7 @@
 
 #include "PlanetEditComponent.h"
 
+#include "PlanetBrushApplicator.h"
 #include "PlanetCharacter.h"
 #include "VoxelPlanetActor.h"
 #include "CollisionQueryParams.h"
@@ -9,9 +10,6 @@
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "SceneTypes.h"
-#include "VoxelIntBox.h"
-#include "VoxelTools/Gen/VoxelBoxTools.h"
-#include "VoxelTools/Gen/VoxelSphereTools.h"
 #include "VoxelVector.h"
 
 UPlanetEditComponent::UPlanetEditComponent()
@@ -116,66 +114,11 @@ bool UPlanetEditComponent::ApplyBrushAtScreenPosition(
 
 	const float VoxelSize = FMath::Max(Planet->VoxelSize, 1.f);
 	const FVector Center = PlanetEditBrush::GetEditCenterWorld(
-		Hit.Location, Hit.ImpactNormal, BrushSizeVoxels, VoxelSize, bPlace);
+		Hit.Location, Hit.ImpactNormal, BrushSizeVoxels, VoxelSize, bPlace,
+		MinBrushSizeVoxels, MaxBrushSizeVoxels);
 
-	// 工具的 OutModifiedValues 只记录**值真的变了**的体素（VoxelDataImpl::Set 里
-	// `OldValue != NewValue` 才追加），这正是「是否真的改到了体素」的判据。
-	// 插件的 OutEditedBounds 不能用：宏会无条件把它设成请求包围盒，即使在岩石里
-	// 放石头这种空操作也会被填上。
-	TArray<FModifiedVoxelValue> ModifiedValues;
-
-	if (BrushShape == EPlanetBrushShape::Sphere)
-	{
-		const float Radius = PlanetEditBrush::GetHalfExtentCm(BrushSizeVoxels, VoxelSize);
-		if (bPlace)
-		{
-			UVoxelSphereTools::AddSphere(Planet, Center, Radius,
-				/*OutModifiedValues=*/&ModifiedValues, /*OutEditedBounds=*/nullptr,
-				/*bMultiThreaded=*/false, /*bConvertToVoxelSpace=*/true,
-				/*bUpdateRender=*/true);
-		}
-		else
-		{
-			UVoxelSphereTools::RemoveSphere(Planet, Center, Radius,
-				/*OutModifiedValues=*/&ModifiedValues, /*OutEditedBounds=*/nullptr,
-				/*bMultiThreaded=*/false, /*bConvertToVoxelSpace=*/true,
-				/*bUpdateRender=*/true);
-		}
-	}
-	else
-	{
-		const FVoxelVector LocalCenter = Planet->GlobalToLocalFloat(Center);
-		const FPlanetEditBox Box = PlanetEditBrush::MakeBox(
-			FVector(LocalCenter.X, LocalCenter.Y, LocalCenter.Z), BrushSizeVoxels);
-		// FPlanetEditBox 的 Min / Max 两端都含（MakeBox 的尺寸就是 Max-Min+1），
-		// 而 FVoxelIntBox 的 Max 是开区间（"Max of the box. Exclusive"）。直接透传
-		// 会让方块笔刷少一格：尺寸 2 只挖 1 格。换算收在 MakeVoxelBox 里（有单测），
-		// 这里拿到的 MaxExclusive 已经加过 1。
-		const FPlanetEditVoxelBox VoxelBox = PlanetEditBrush::MakeVoxelBox(Box);
-		const FVoxelIntBox Bounds(VoxelBox.Min, VoxelBox.MaxExclusive);
-
-		if (bPlace)
-		{
-			UVoxelBoxTools::AddBox(Planet, Bounds,
-				/*OutModifiedValues=*/&ModifiedValues, /*OutEditedBounds=*/nullptr,
-				/*bMultiThreaded=*/false, /*bUpdateRender=*/true);
-		}
-		else
-		{
-			UVoxelBoxTools::RemoveBox(Planet, Bounds,
-				/*OutModifiedValues=*/&ModifiedValues, /*OutEditedBounds=*/nullptr,
-				/*bMultiThreaded=*/false, /*bUpdateRender=*/true);
-		}
-	}
-
-	// 空操作（在岩石里放石头、挖空气）不重建网格、也不触发保存。
-	if (ModifiedValues.Num() == 0)
-	{
-		return false;
-	}
-
-	Planet->NotifyVoxelEdited();
-	return true;
+	return PlanetBrushApplicator::Apply(*Planet, Center, BrushShape, BrushSizeVoxels,
+		MinBrushSizeVoxels, MaxBrushSizeVoxels, bPlace, bMultiThreadedEdits);
 }
 
 bool UPlanetEditComponent::TraceEditTarget(const FVector2D& ScreenPosition, FHitResult& OutHit) const

@@ -67,6 +67,17 @@ public:
 	UPROPERTY(EditAnywhere, Category = "PlanetEdit", meta = (ClampMin = "100.0"))
 	float MaxEditDistanceCm = 1.0e5f;
 
+	/** 笔刷尺寸下限 / 上限（体素数）。角色 1..8，星图 8..128。 */
+	UPROPERTY(EditAnywhere, Category = "PlanetEdit", meta = (ClampMin = "1", ClampMax = "128"))
+	int32 MinBrushSizeVoxels = 1;
+
+	UPROPERTY(EditAnywhere, Category = "PlanetEdit", meta = (ClampMin = "1", ClampMax = "128"))
+	int32 MaxBrushSizeVoxels = 8;
+
+	/** 体素工具是否并行。小笔刷单线程延迟更低，128 体素的大笔刷必须并行。 */
+	UPROPERTY(EditAnywhere, Category = "PlanetEdit")
+	bool bMultiThreadedEdits = false;
+
 private:
 	bool ApplyBrushAtScreenPosition(const FVector2D& ScreenPosition, bool bPlace);
 	AVoxelPlanetActor* ResolvePlanet() const;
@@ -103,6 +114,6 @@ private:
 	EPlanetBrushShape BrushShape = EPlanetBrushShape::Sphere;
 
 	/** 直径 / 边长（体素数）。 */
-	UPROPERTY(EditAnywhere, Category = "PlanetEdit", meta = (ClampMin = "1", ClampMax = "8"))
+	UPROPERTY(EditAnywhere, Category = "PlanetEdit", meta = (ClampMin = "1"))
 	int32 BrushSizeVoxels = 2;
 };
