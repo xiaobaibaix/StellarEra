@@ -555,3 +555,14 @@ void FPlanetGeologyField::Accumulate(const FVector& UnitDir, double Depth, bool 
 	OutWeightedColor = FLinearColor(
 		float(WeightedR), float(WeightedG), float(WeightedB), 1.f);
 }
+
+TArray<FPlanetGeologyElement> FPlanetGeologyField::GetElementDefinitions() const
+{
+	TArray<FPlanetGeologyElement> Out;
+	Out.Reserve(Elements.Num());
+	for (const FElementRuntime& Runtime : Elements)
+	{
+		Out.Add(Runtime.Definition);
+	}
+	return Out;
+}

@@ -14,6 +14,8 @@ class UPlanetSurfaceGridComponent;
 class UVoxelPlanetGenerator;
 class UVoxelPlanetTerrainModule;
 class UVoxelSimpleInvokerComponent;
+class FPlanetGeologyField;
+class UPlanetCutawayComponent;
 
 /**
  * 开箱即用的行星 Actor。
@@ -103,6 +105,9 @@ public:
 	 */
 	UFUNCTION(BlueprintPure, Category = "Planet")
 	float GetSurfaceRadiusCmAtDirection(const FVector& WorldDirection) const;
+
+	/** 行星的地质场。生成器还没建好时为 nullptr。 */
+	TSharedPtr<const FPlanetGeologyField> GetGeologyField();
 
 	/**
 	 * 世界空间射线 → 行星**体素表面**的命中点（LOD0 数据，与渲染 LOD 无关）。
@@ -222,6 +227,13 @@ public:
 	/** 编辑模式下的表面网格基线。构造时自动创建。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet|Edit")
 	TObjectPtr<UPlanetSurfaceGridComponent> EditGrid;
+
+	/** 矿物剖面视图组件。构造时自动创建；未激活时不 Tick、不建任何资产。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet|Cutaway")
+	TObjectPtr<UPlanetCutawayComponent> CutawayComponent;
+
+	UFUNCTION(BlueprintPure, Category = "Planet|Cutaway")
+	UPlanetCutawayComponent* GetCutawayComponent() const { return CutawayComponent; }
 
 	/** 编辑后多久写一次 SaveObject（秒，默认 2；0 = 只在 EndPlay 保存）。 */
 	UPROPERTY(EditAnywhere, Category = "Planet|Edit", meta = (ClampMin = "0.0"))

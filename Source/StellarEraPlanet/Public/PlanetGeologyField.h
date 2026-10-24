@@ -50,6 +50,9 @@ public:
 	int32 NumElements() const { return Elements.Num(); }
 	float GetTotalAbundance() const { return TotalAbundance; }
 
+	/** 元素定义的副本（元素表顺序），给矿物剖面图例用。 */
+	TArray<FPlanetGeologyElement> GetElementDefinitions() const;
+
 private:
 	struct FElementRuntime
 	{
