@@ -190,11 +190,19 @@ namespace
 		double GeometryAmplitude = 1.5;
 		if (Root->TryGetNumberField(TEXT("geometryAmplitude"), GeometryAmplitude))
 		{
-			if (GeometryAmplitude < 0.0)
+			// 内容 JSON 是人工编辑入口：非有限值或极端值会把地表推出世界、
+			// 让整颗行星变成实心。坏数据必须退化成「没有矿」，而不是毁掉行星。
+			if (!FMath::IsFinite(GeometryAmplitude))
 			{
-				Report.Warnings.Add(FString::Printf(
-					TEXT("geometryAmplitude %f < 0，按 0 处理"), GeometryAmplitude));
+				Report.Warnings.Add(TEXT("geometryAmplitude 不是有限数，按 0 处理"));
 				GeometryAmplitude = 0.0;
+			}
+			else if (GeometryAmplitude < 0.0 || GeometryAmplitude > 64.0)
+			{
+				const double Clamped = FMath::Clamp(GeometryAmplitude, 0.0, 64.0);
+				Report.Warnings.Add(FString::Printf(
+					TEXT("geometryAmplitude %f 越界，夹到 [0, 64]"), GeometryAmplitude));
+				GeometryAmplitude = Clamped;
 			}
 		}
 		OutGeometryAmplitude = float(GeometryAmplitude);
@@ -251,16 +259,51 @@ namespace
 				continue;
 			}
 
+			constexpr double MaxAbsPeakDepth = 10000.0;
+			constexpr double MaxLayerThickness = 10000.0;
+
 			double PeakDepth = 0.0;
-			ElementObject->TryGetNumberField(TEXT("peakDepth"), PeakDepth);
+			if (ElementObject->TryGetNumberField(TEXT("peakDepth"), PeakDepth))
+			{
+				// 负峰值在 schema 里合法（矿层位于基准球面之上），只限制量级，
+				// 避免 MaxReachDepth 被推到 inf、早退失效。
+				if (!FMath::IsFinite(PeakDepth))
+				{
+					Report.Warnings.Add(FString::Printf(
+						TEXT("行星 JSON: '%s' 的 peakDepth 不是有限数，按 0 处理"), *ElementId));
+					PeakDepth = 0.0;
+				}
+				else if (PeakDepth < -MaxAbsPeakDepth || PeakDepth > MaxAbsPeakDepth)
+				{
+					const double Clamped = FMath::Clamp(
+						PeakDepth, -MaxAbsPeakDepth, MaxAbsPeakDepth);
+					Report.Warnings.Add(FString::Printf(
+						TEXT("行星 JSON: '%s' 的 peakDepth %f 越界，夹到 [-%g, %g]"),
+						*ElementId, PeakDepth, MaxAbsPeakDepth, MaxAbsPeakDepth));
+					PeakDepth = Clamped;
+				}
+			}
 
 			double LayerThickness = 0.0;
-			if (!ElementObject->TryGetNumberField(TEXT("layerThickness"), LayerThickness)
-				|| LayerThickness <= 0.0)
+			if (!ElementObject->TryGetNumberField(TEXT("layerThickness"), LayerThickness))
 			{
 				Report.Warnings.Add(FString::Printf(
 					TEXT("行星 JSON: '%s' 的 layerThickness 必须 > 0，按不存在处理"), *ElementId));
 				continue;
+			}
+			if (!FMath::IsFinite(LayerThickness) || LayerThickness <= 0.0)
+			{
+				Report.Warnings.Add(FString::Printf(
+					TEXT("行星 JSON: '%s' 的 layerThickness 必须是有限正数，按不存在处理"),
+					*ElementId));
+				continue;
+			}
+			if (LayerThickness > MaxLayerThickness)
+			{
+				Report.Warnings.Add(FString::Printf(
+					TEXT("行星 JSON: '%s' 的 layerThickness %f > %g，夹到上界"),
+					*ElementId, LayerThickness, MaxLayerThickness));
+				LayerThickness = MaxLayerThickness;
 			}
 
 			FPlanetGeologyElement Element = *Definition;

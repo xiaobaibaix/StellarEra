@@ -9,7 +9,9 @@
 #include "VoxelItemStack.h"
 #include "VoxelMaterial.h"
 #include "PlanetGeologyField.h"
+#include "VoxelPlanetGenerator.h"
 #include "VoxelPlanetNoiseTerrain.h"
+#include "VoxelGenerators/VoxelGeneratorInstance.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -103,6 +105,52 @@ bool FPlanetGeologyParseTest::RunTest(const FString& Parameters)
 		FPlanetGeologyField::LoadFromString(TEXT("{"), PlanetJson, BadReport);
 	TestTrue(TEXT("语法错误有 error"), BadReport.HasErrors());
 	TestTrue(TEXT("坏数据退化为空场"), BadField.IsValid() && BadField->IsEmpty());
+
+	// 极端数值必须被夹取并留下警告，而不是把地表推出世界。
+	{
+		FPlanetGeologyLoadReport ClampReport;
+		const TSharedPtr<const FPlanetGeologyField> ClampedField =
+			FPlanetGeologyField::LoadFromString(ElementsJson, TEXT(R"JSON(
+{
+  "version": 1,
+  "geometryAmplitude": 1e6,
+  "elements": {
+    "iron": { "abundance": 1.0, "peakDepth": 0, "layerThickness": 10 }
+  }
+}
+)JSON"), ClampReport);
+
+		TestTrue(TEXT("极端 geometryAmplitude 仍产出有效场"),
+			ClampedField.IsValid() && !ClampedField->IsEmpty());
+		TestTrue(TEXT("geometryAmplitude 夹到 <= 64"),
+			ClampedField.IsValid() && ClampedField->GetMaxGeometryDelta() <= 64.f);
+
+		bool bSawAmplitudeWarning = false;
+		for (const FString& Warning : ClampReport.Warnings)
+		{
+			bSawAmplitudeWarning |= Warning.Contains(TEXT("geometryAmplitude"));
+		}
+		TestTrue(TEXT("geometryAmplitude 夹取有警告"), bSawAmplitudeWarning);
+
+		// peakDepth / layerThickness 的极端值同样要夹到有限上界，
+		// 否则 MaxReachDepth 会变成 inf，高斯剪枝早退失效。
+		FPlanetGeologyLoadReport DepthReport;
+		const TSharedPtr<const FPlanetGeologyField> DepthField =
+			FPlanetGeologyField::LoadFromString(ElementsJson, TEXT(R"JSON(
+{
+  "version": 1,
+  "elements": {
+    "iron": { "abundance": 1.0, "peakDepth": 1e9, "layerThickness": 1e9 }
+  }
+}
+)JSON"), DepthReport);
+		TestTrue(TEXT("极端 peakDepth/layerThickness 仍产出有效场"),
+			DepthField.IsValid() && !DepthField->IsEmpty());
+		TestTrue(TEXT("最大触达深度是有限值且被夹到 40000"),
+			DepthField.IsValid()
+				&& FMath::IsFinite(DepthField->GetMaxReachDepth())
+				&& DepthField->GetMaxReachDepth() <= 40000.f);
+	}
 
 	return true;
 }
@@ -461,6 +509,79 @@ bool FPlanetGeologyDefaultContentTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("默认 6 种元素"), Field->NumElements(), 6);
 	TestTrue(TEXT("预设列表包含 earth"),
 		FPlanetGeologyField::ListPresetNames().Contains(TEXT("earth")));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyPipelineTest,
+	"StellarEra.Planet.Geology.Pipeline",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyPipelineTest::RunTest(const FString& Parameters)
+{
+	// 1) 真正走生成器的「预设名 → 懒加载缓存 → 地形上下文」链路。
+	// 前面的测试都手工构造 Context，漏掉 Context.Geology 时它们仍然会绿。
+	UVoxelPlanetGenerator* Generator = NewObject<UVoxelPlanetGenerator>();
+	Generator->Radius = 1500.f;
+	Generator->GeologyPreset = TEXT("earth");
+
+	const FVoxelPlanetTerrainContext Context = Generator->MakeTerrainContext();
+	TestTrue(TEXT("MakeTerrainContext 带上非空地质场"),
+		Context.Geology.IsValid() && !Context.Geology->IsEmpty());
+	TestTrue(TEXT("earth 预设启用了几何外凸"),
+		Context.Geology.IsValid() && Context.Geology->GetMaxGeometryDelta() > 0.f);
+
+	// 缓存失效后必须真重新读盘，而不是永久返回空场。
+	Generator->InvalidateGeology();
+	const TSharedPtr<const FPlanetGeologyField> Reloaded = Generator->GetGeology();
+	TestTrue(TEXT("InvalidateGeology 后重新加载仍是非空场"),
+		Reloaded.IsValid() && !Reloaded->IsEmpty());
+	if (!Reloaded.IsValid())
+	{
+		return false;
+	}
+
+	// 2) 深度符号 pin：earth 的 iron 峰在 peakDepth=+30、层厚 20。
+	// 向内（depth=+30）是峰顶；基准球面以上（depth=-30）是 exp(-9)≈1e-4 的尾部，
+	// 即使考虑深处 titanium/uranium 的尾巴，总和也差两个数量级。
+	// 用 32 个 Fibonacci 方向取总和，避免单个噪声低谷让断言变成概率性的。
+	double SumPos = 0.0;
+	double SumNeg = 0.0;
+	float MaxPos = 0.f;
+	constexpr int32 NumDirections = 32;
+	for (int32 Index = 0; Index < NumDirections; ++Index)
+	{
+		const double Z = 1.0 - 2.0 * (double(Index) + 0.5) / double(NumDirections);
+		const double RadiusXY = FMath::Sqrt(FMath::Max(0.0, 1.0 - Z * Z));
+		const double Angle =
+			UE_DOUBLE_TWO_PI * double(Index) * 0.6180339887498949;
+		const FVector Direction(
+			RadiusXY * FMath::Cos(Angle), RadiusXY * FMath::Sin(Angle), Z);
+
+		const float Pos = Reloaded->Sample(Direction, 30.0).TotalNorm;
+		const float Neg = Reloaded->Sample(Direction, -30.0).TotalNorm;
+		SumPos += Pos;
+		SumNeg += Neg;
+		MaxPos = FMath::Max(MaxPos, Pos);
+	}
+
+	TestTrue(*FString::Printf(
+		TEXT("向内 +30 的总含量远高于向外 -30（%.3f vs %.3f）"), SumPos, SumNeg),
+		SumPos > 5.0 * SumNeg && SumPos > 0.0);
+	TestTrue(*FString::Printf(
+		TEXT("至少一个方向在 +30 有明显矿层（max=%.3f）"), MaxPos),
+		MaxPos > 0.2f);
+
+	// 3) 生成出的实例按行星半径分区：球内密度为负、球外为正。
+	// 默认没有挂地形模块，走的是纯球代理；这里验证的是 GetInstance() 这条
+	// 生产路径确实拿到了 MakeTerrainContext() 的 Radius，而不是手工构造的实例。
+	const TVoxelSharedRef<FVoxelGeneratorInstance> Instance = Generator->GetInstance();
+	const v_flt InsideValue = Instance->GetValue(
+		v_flt(Generator->Radius - 20.f), 0.f, 0.f, 0, FVoxelItemStack::Empty);
+	const v_flt OutsideValue = Instance->GetValue(
+		v_flt(Generator->Radius + 20.f), 0.f, 0.f, 0, FVoxelItemStack::Empty);
+	TestTrue(TEXT("半径以内密度为负"), InsideValue < 0.f);
+	TestTrue(TEXT("半径以外密度为正"), OutsideValue > 0.f);
 
 	return true;
 }
