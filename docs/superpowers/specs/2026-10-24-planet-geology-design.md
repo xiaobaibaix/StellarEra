@@ -114,7 +114,7 @@
 | `geometryAmplitude` | 1.5 | 矿脉让地表外凸的最大体素数；`0` = 不影响几何 |
 | `appearance.colorThreshold` | 0.22 | 归一化总含量的显现阈值 |
 | `appearance.fadeRange` | 0.15 | 从阈值到完全显现的过渡宽度 |
-| `appearance.purityForFullColor` | 0.7 | 纯度达到它时颜色完全用矿色 |
+| `appearance.purityForFullColor` | 0.7 | 纯度混合系数 `PurityMix = saturate((Purity - (1 - p)) / p)`：`Purity ≤ 1 - p` 时不用矿色，线性升高到 `Purity = 1` 才完全用矿色 |
 | `elements.<id>.abundance` | 0 | 全局丰度，0~1 |
 | `elements.<id>.peakDepth` | — | 峰值深度，体素；**正 = 基准球面以下（向行星内部为正）**，缺省 0 |
 | `elements.<id>.layerThickness` | — | 高斯层厚，体素，必须 > 0 |
