@@ -22,6 +22,9 @@ public class StellarEraPlanet : ModuleRules
 		// JSON 只在 PlanetGeologyField.cpp 里用，不需要向下游传递。
 		PrivateDependencyModuleNames.AddRange(new string[] { "Json" });
 
+		// RHI：FUpdateTextureRegion2D（RHITypes.h）是 UTexture2D::UpdateTextureRegions 的参数类型。
+		PrivateDependencyModuleNames.AddRange(new string[] { "RHI" });
+
 		// 没有 UnrealEd 依赖：编辑器里的大气材质重建（PlanetAtmosphereMaterialBuilder.cpp）
 		// 只用 Engine 模块的 UMaterial / 表达式节点 / SavePackage 接口。
 		// 早先这里有 UnrealEd，是为了从活动视口取相机位置（GEditor / FEditorViewportClient）；
