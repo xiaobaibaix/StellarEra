@@ -39,6 +39,13 @@ struct FPlanetEditVoxelBox
 	FIntVector GetSize() const { return MaxExclusive - Min; }
 };
 
+/** 笔刷预览的一条线。空间由生成函数说明。 */
+struct FPlanetEditSegment
+{
+	FVector Start = FVector::ZeroVector;
+	FVector End = FVector::ZeroVector;
+};
+
 namespace PlanetEditBrush
 {
 	/** 笔刷尺寸下限（体素数，直径 / 边长）。 */
@@ -76,4 +83,26 @@ namespace PlanetEditBrush
 	 * FVoxelIntBox 的 Max 是开区间（"Exclusive"）：直接透传会让方块少一格。
 	 */
 	STELLARERAVEHICLE_API FPlanetEditVoxelBox MakeVoxelBox(const FPlanetEditBox& Box);
+
+	/** 球体预览每条大圆的分段数。 */
+	constexpr int32 PreviewSegmentsPerCircle = 32;
+
+	/**
+	 * 球体笔刷预览：过球心的三个正交大圆（XY / XZ / YZ）。
+	 *
+	 * **世界空间**：Center 与 RadiusCm 都直接是调用方算好的世界坐标，
+	 * 球体对旋转不敏感，不需要行星变换。
+	 */
+	STELLARERAVEHICLE_API void BuildSpherePreviewSegments(const FVector& Center, float RadiusCm,
+		TArray<FPlanetEditSegment>& OutSegments);
+
+	/**
+	 * 正方体笔刷预览：盒子 Min..MaxExclusive 的 12 条棱。
+	 *
+	 * 输出是**行星体素空间**坐标（单位：体素）；调用方负责用
+	 * AVoxelWorld::LocalToGlobalFloat 换到世界空间。边界必须来自真正的
+	 * MakeVoxelBox 结果，预览才会与挖/放的格子逐格一致。
+	 */
+	STELLARERAVEHICLE_API void BuildBoxPreviewSegments(const FIntVector& MinVoxels,
+		const FIntVector& MaxExclusiveVoxels, TArray<FPlanetEditSegment>& OutSegments);
 }

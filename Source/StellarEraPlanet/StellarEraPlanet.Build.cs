@@ -15,6 +15,10 @@ public class StellarEraPlanet : ModuleRules
 
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "Voxel" });
 
+		// 编辑器里给每颗行星懒创建 / 加载 UVoxelWorldSaveObject 资产（VoxelPlanetActor.cpp
+		// 的 EnsureSaveObject），创建后要通知资产注册表，否则内容浏览器里看不到。
+		PrivateDependencyModuleNames.AddRange(new string[] { "AssetRegistry" });
+
 		// 没有 UnrealEd 依赖：编辑器里的大气材质重建（PlanetAtmosphereMaterialBuilder.cpp）
 		// 只用 Engine 模块的 UMaterial / 表达式节点 / SavePackage 接口。
 		// 早先这里有 UnrealEd，是为了从活动视口取相机位置（GEditor / FEditorViewportClient）；

@@ -422,4 +422,102 @@ bool FStellarEraPlanetEditComponentStateTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraEditBrushSpherePreviewTest,
+	"StellarEra.Planet.EditBrush.SpherePreview",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraEditBrushSpherePreviewTest::RunTest(const FString& Parameters)
+{
+	const FVector Center(1000.f, -200.f, 50.f);
+	constexpr float Radius = 250.f;
+
+	TArray<FPlanetEditSegment> Segments;
+	PlanetEditBrush::BuildSpherePreviewSegments(Center, Radius, Segments);
+
+	TestEqual(TEXT("三个大圆 × 每圆 32 段"),
+		Segments.Num(), 3 * PlanetEditBrush::PreviewSegmentsPerCircle);
+
+	for (const FPlanetEditSegment& Segment : Segments)
+	{
+		TestTrue(TEXT("起点在球面上"),
+			FMath::IsNearlyEqual(FVector::Dist(Center, Segment.Start), Radius, 0.01f));
+		TestTrue(TEXT("终点在球面上"),
+			FMath::IsNearlyEqual(FVector::Dist(Center, Segment.End), Radius, 0.01f));
+	}
+
+	// 半径 <= 0 时不应产生任何线。
+	TArray<FPlanetEditSegment> Empty;
+	PlanetEditBrush::BuildSpherePreviewSegments(Center, 0.f, Empty);
+	TestEqual(TEXT("零半径不画线"), Empty.Num(), 0);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraEditBrushBoxPreviewTest,
+	"StellarEra.Planet.EditBrush.BoxPreview",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraEditBrushBoxPreviewTest::RunTest(const FString& Parameters)
+{
+	auto CheckBox = [this](const FVector& LocalCenter, const int32 SizeVoxels)
+	{
+		const FPlanetEditBox Box = PlanetEditBrush::MakeBox(LocalCenter, SizeVoxels);
+		const FPlanetEditVoxelBox VoxelBox = PlanetEditBrush::MakeVoxelBox(Box);
+
+		TArray<FPlanetEditSegment> Segments;
+		PlanetEditBrush::BuildBoxPreviewSegments(VoxelBox.Min, VoxelBox.MaxExclusive, Segments);
+
+		TestEqual(TEXT("方块预览正好 12 条棱"), Segments.Num(), 12);
+
+		// 所有端点必须落在真正的体素盒范围内，且每个轴都用满两端 ——
+		// 否则预览会比实际挖/放的格子大或小。
+		FVector Min(FLT_MAX);
+		FVector Max(-FLT_MAX);
+		for (const FPlanetEditSegment& Segment : Segments)
+		{
+			for (const FVector& Point : { Segment.Start, Segment.End })
+			{
+				Min = FVector::Min(Min, Point);
+				Max = FVector::Max(Max, Point);
+			}
+		}
+
+		const FVector ExpectedMin(VoxelBox.Min.X, VoxelBox.Min.Y, VoxelBox.Min.Z);
+		const FVector ExpectedMax(
+			VoxelBox.MaxExclusive.X, VoxelBox.MaxExclusive.Y, VoxelBox.MaxExclusive.Z);
+		TestTrue(TEXT("预览下界等于体素盒下界"), Min.Equals(ExpectedMin));
+		TestTrue(TEXT("预览上界等于体素盒上界"), Max.Equals(ExpectedMax));
+	};
+
+	// 尺寸 1 / 2 / 8 都要覆盖：1 是退化盒（Min == Max + 1），2 曾因开闭区间
+	// 换算错少一格，8 是上限。
+	CheckBox(FVector(0.f), 1);
+	CheckBox(FVector(0.f), 2);
+	CheckBox(FVector(10.f, -3.f, 7.f), 8);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraPlanetSaveObjectPathTest,
+	"StellarEra.Planet.SaveObjectPath",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraPlanetSaveObjectPathTest::RunTest(const FString& Parameters)
+{
+	TestEqual(TEXT("常规路径"),
+		AVoxelPlanetActor::MakePlanetSaveObjectAssetPath(TEXT("UniverseMap"), TEXT("BP_VoxelPlanet2")),
+		FString(TEXT("/Game/Saves/PlanetVoxel/UniverseMap/BP_VoxelPlanet2")));
+
+	// PIE 前缀必须剥掉，否则同一条目每开一次 PIE 就换一个资产路径。
+	TestEqual(TEXT("剥掉 UEDPIE 前缀并清洗非法字符"),
+		AVoxelPlanetActor::MakePlanetSaveObjectAssetPath(TEXT("UEDPIE_0_UniverseMap"), TEXT("BP Planet:2")),
+		FString(TEXT("/Game/Saves/PlanetVoxel/UniverseMap/BP_Planet_2")));
+
+	TestEqual(TEXT("空输入有稳定回退"),
+		AVoxelPlanetActor::MakePlanetSaveObjectAssetPath(FString(), FString()),
+		FString(TEXT("/Game/Saves/PlanetVoxel/Untitled/Planet")));
+
+	return true;
+}
+
 #endif

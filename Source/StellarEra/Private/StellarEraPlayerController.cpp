@@ -353,11 +353,14 @@ void AStellarEraPlayerController::OnLookActivateStarted(const FInputActionValue&
 {
 	bLookHeld = true;
 
-	const UPlanetEditComponent* Edit = GetEditComponentInEditMode();
+	UPlanetEditComponent* Edit = GetEditComponentInEditMode();
 	if (!Edit)
 	{
 		return;
 	}
+
+	// 右键按住期间预览切到「放」，与松开右键时 PlaceAtScreenPosition 的中心一致。
+	Edit->SetPreviewPlacing(true);
 
 	double MouseX = 0.0;
 	double MouseY = 0.0;
@@ -372,13 +375,20 @@ void AStellarEraPlayerController::OnLookActivateCompleted(const FInputActionValu
 {
 	bLookHeld = false;
 
+	UPlanetEditComponent* Edit = GetEditComponentInEditMode();
+	// 松开右键后预览回到「挖」。必须在下面的早退**之前**复位：没记下按下位置
+	// （bEditRightPressValid 为 false）时也要复位，否则预览会一直停在「放」。
+	if (Edit)
+	{
+		Edit->SetPreviewPlacing(false);
+	}
+
 	if (!bEditRightPressValid)
 	{
 		return;
 	}
 	bEditRightPressValid = false;
 
-	UPlanetEditComponent* Edit = GetEditComponentInEditMode();
 	if (!Edit)
 	{
 		return;

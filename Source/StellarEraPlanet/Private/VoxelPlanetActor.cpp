@@ -22,6 +22,15 @@
 #include "VoxelData/VoxelSaveUtilities.h"
 #include "VoxelTools/VoxelDataTools.h"
 
+#if WITH_EDITOR
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "HAL/FileManager.h"
+#include "Misc/PackageName.h"
+#include "Misc/Paths.h"
+#include "UObject/Package.h"
+#include "UObject/SavePackage.h"
+#endif
+
 AVoxelPlanetActor::AVoxelPlanetActor()
 {
 	// 基类构造函数已经把 WorldRoot 建好并设成 RootComponent —— 体素世界就是本
@@ -210,11 +219,165 @@ void AVoxelPlanetActor::RepairLegacyRootComponent()
 	}
 }
 
+FString AVoxelPlanetActor::MakePlanetSaveObjectAssetPath(const FString& MapName, const FString& ActorLabel)
+{
+	// PIE 世界名形如 UEDPIE_0_UniverseMap。不剥前缀的话，每次开 PIE 路径都变，
+	// 编辑永远落不到同一个资产上。
+	FString Map = MapName;
+	FString PiePrefix;
+	FString PieRest;
+	if (Map.StartsWith(TEXT("UEDPIE_")) &&
+		Map.Split(TEXT("_"), &PiePrefix, &PieRest, ESearchCase::CaseSensitive, ESearchDir::FromStart))
+	{
+		FString PieIndex;
+		FString MapWithoutIndex;
+		if (PieRest.Split(TEXT("_"), &PieIndex, &MapWithoutIndex))
+		{
+			Map = MapWithoutIndex;
+		}
+	}
+
+	// 资产名只允许字母数字与下划线；地图名 / Actor 标签里的空格、冒号、斜杠
+	// 都会让 CreatePackage 失败。
+	auto Sanitize = [](const FString& In)
+	{
+		FString Out;
+		Out.Reserve(In.Len());
+		for (const TCHAR Char : In)
+		{
+			Out.AppendChar((FChar::IsAlnum(Char) || Char == TEXT('_')) ? Char : TEXT('_'));
+		}
+		return Out;
+	};
+
+	const FString SanitizedMap = Sanitize(Map);
+	const FString SanitizedLabel = Sanitize(ActorLabel);
+	const FString SafeMap = SanitizedMap.IsEmpty() ? FString(TEXT("Untitled")) : SanitizedMap;
+	const FString SafeLabel = SanitizedLabel.IsEmpty() ? FString(TEXT("Planet")) : SanitizedLabel;
+
+	return FString::Printf(TEXT("/Game/Saves/PlanetVoxel/%s/%s"), *SafeMap, *SafeLabel);
+}
+
+#if WITH_EDITOR
+void AVoxelPlanetActor::EnsureSaveObject()
+{
+	if (SaveObject)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	// PIE 世界里的 Actor 是从编辑器实例复制来的，SaveObject 会继承过来；
+	// 在这里再找一遍资产既没必要，也会让「编辑到底存在哪」变得不可预测。
+	if (!World || World->WorldType != EWorldType::Editor)
+	{
+		return;
+	}
+
+	const FString AssetPath = MakePlanetSaveObjectAssetPath(
+		World->GetMapName(), GetActorLabel(/*bIncludeFolder=*/false));
+
+	UVoxelWorldSaveObject* Loaded = nullptr;
+	bool bCreatedNew = false;
+	if (FPackageName::DoesPackageExist(AssetPath))
+	{
+		Loaded = LoadObject<UVoxelWorldSaveObject>(nullptr, *AssetPath);
+	}
+	else
+	{
+		UPackage* Package = CreatePackage(*AssetPath);
+		if (Package)
+		{
+			Loaded = NewObject<UVoxelWorldSaveObject>(Package, *FPaths::GetBaseFilename(AssetPath),
+				RF_Public | RF_Standalone | RF_Transactional);
+		}
+		if (Loaded)
+		{
+			bCreatedNew = true;
+			// 新建 SaveObject 的 Depth 是 0，而「还没存过任何体素」的压缩存档是 -1。
+			// 不补这一步，CreateWorld → LoadFromSaveObject 会把它当成 Invalid Save Object。
+			Loaded->CopyDepthFromSave();
+			FAssetRegistryModule::AssetCreated(Loaded);
+		}
+	}
+
+	if (!Loaded)
+	{
+		if (!bLoggedMissingSaveObject)
+		{
+			bLoggedMissingSaveObject = true;
+			UE_LOG(LogTemp, Warning,
+				TEXT("AVoxelPlanetActor %s: 创建 / 加载存档资产失败（%s），编辑仍只存在内存里。"),
+				*GetName(), *AssetPath);
+		}
+		return;
+	}
+
+	Modify();
+	SaveObject = Loaded;
+	bLoggedMissingSaveObject = false;
+
+	UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor %s: 绑定存档资产 %s"), *GetName(), *AssetPath);
+
+	// 新资产此刻只在内存包里；顺手写盘，否则重启编辑器它就不存在了。
+	// 已存在的资产不动：没编辑就重写一遍没有意义，还会平白改磁盘 mtime。
+	if (bCreatedNew)
+	{
+		SaveSaveObjectToDisk();
+	}
+}
+
+bool AVoxelPlanetActor::SaveSaveObjectToDisk()
+{
+	if (!SaveObject)
+	{
+		return false;
+	}
+
+	UPackage* Package = SaveObject->GetOutermost();
+	if (!Package || Package->HasAnyFlags(RF_Transient))
+	{
+		return false;
+	}
+
+	const FString FileName = FPackageName::LongPackageNameToFilename(
+		Package->GetName(), FPackageName::GetAssetPackageExtension());
+	IFileManager::Get().MakeDirectory(*FPaths::GetPath(FileName), /*Tree=*/true);
+
+	FSavePackageArgs SaveArgs;
+	SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+	// SAVE_NoError：自动化 / 无头跑不能弹「保存失败」对话框，失败由下面的日志暴露。
+	SaveArgs.SaveFlags = SAVE_NoError;
+
+	if (UPackage::SavePackage(Package, SaveObject, *FileName, SaveArgs))
+	{
+		bLoggedSaveDiskFailure = false;
+		return true;
+	}
+
+	if (!bLoggedSaveDiskFailure)
+	{
+		bLoggedSaveDiskFailure = true;
+		UE_LOG(LogTemp, Warning,
+			TEXT("AVoxelPlanetActor %s: 存档资产写盘失败（%s），本次运行的编辑只在内存里。"),
+			*GetName(), *FileName);
+	}
+	return false;
+}
+#endif
+
 void AVoxelPlanetActor::OnConstruction(const FTransform& Transform)
 {
 	// 先修组件树再让基类跑：基类的 OnConstruction 在 bIsToggled 为真时会当场
 	// 建出预览世界，用错误的根组件建出来的几何也是错的。
 	RepairLegacyRootComponent();
+
+#if WITH_EDITOR
+	// 必须排在 Super::OnConstruction / RebuildPlanet 之前：后者会 CreateWorld，
+	// 而 CreateWorld 当场就按 SaveObject 加载体素。晚一步赋值，这次运行仍从
+	// 空白世界开始，用户看起来就是「存档没生效」。
+	EnsureSaveObject();
+#endif
 
 	Super::OnConstruction(Transform);
 
@@ -497,6 +660,12 @@ void AVoxelPlanetActor::SaveEditsToSaveObject()
 	// Depth 不参与压缩，必须从 Save 补上；否则下次加载时世界尺寸对不上。
 	SaveObject->CopyDepthFromSave();
 	SaveObject->MarkPackageDirty();
+
+#if WITH_EDITOR
+	// MarkPackageDirty 只改内存里的脏标志：PIE 结束时那份资产副本直接丢弃，
+	// 用户看到的就是「编辑没存」。每次防抖保存都顺手落盘，编辑才真正活过重启。
+	SaveSaveObjectToDisk();
+#endif
 
 	// 到这里才算真的写进了 SaveObject，脏标志才能清。
 	bHasUnsavedEdits = false;

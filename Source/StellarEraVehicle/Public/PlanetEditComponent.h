@@ -10,6 +10,8 @@
 
 class APlanetCharacter;
 class AVoxelPlanetActor;
+class ULineBatchComponent;
+struct FHitResult;
 
 /**
  * 编辑模式的状态与执行。
@@ -30,6 +32,8 @@ public:
 
 	//~ Begin UActorComponent Interface
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void TickComponent(float DeltaTime, ELevelTick TickType,
+		FActorComponentTickFunction* ThisTickFunction) override;
 	//~ End UActorComponent Interface
 
 	bool IsEditMode() const { return bEditMode; }
@@ -51,6 +55,14 @@ public:
 	/** 屏幕位置放一次。返回是否真的改到了体素。 */
 	bool PlaceAtScreenPosition(const FVector2D& ScreenPosition);
 
+	/**
+	 * 预览切换到「放」还是「挖」的中心。
+	 *
+	 * 右键按住 = true（放，中心沿法线外移半个笔刷），松开 = false（挖，中心就是
+	 * 命中点）。只影响下一次 Tick 画出来的线框，不改任何体素。
+	 */
+	void SetPreviewPlacing(bool bPlacing);
+
 	/** 射线最远距离（厘米）。默认 1000 米：足够覆盖任意可瞄准的表面。 */
 	UPROPERTY(EditAnywhere, Category = "PlanetEdit", meta = (ClampMin = "100.0"))
 	float MaxEditDistanceCm = 1.0e5f;
@@ -58,6 +70,31 @@ public:
 private:
 	bool ApplyBrushAtScreenPosition(const FVector2D& ScreenPosition, bool bPlace);
 	AVoxelPlanetActor* ResolvePlanet() const;
+
+	/**
+	 * 屏幕位置 → 行星表面命中点。挖 / 放 / 预览共用同一条射线路径。
+	 *
+	 * 先打 Visibility；只有它**完全没有命中**时才补 WorldStatic（体素碰撞的
+	 * presets 由关卡决定，可能只在其中一条通道上响应）。两条通道的命中都要求
+	 * Actor 是当前行星，飞船 / 角色 / 其它 Actor 都能挡住编辑与预览。
+	 */
+	bool TraceEditTarget(const FVector2D& ScreenPosition, FHitResult& OutHit) const;
+
+	/** 每帧按鼠标位置重建线框。没在编辑 / 没有鼠标 / 没打到行星时清空。 */
+	void UpdateBrushPreview();
+
+	/** 懒创建预览用的 LineBatchComponent，挂在角色根组件下。 */
+	void EnsurePreviewLineBatch();
+
+	/** 清掉上一次画的线。 */
+	void HideBrushPreview();
+
+	/** 预览线框。Transient：运行时重建，不参与序列化。 */
+	UPROPERTY(Transient)
+	TObjectPtr<ULineBatchComponent> PreviewLineBatch;
+
+	/** 右键按住 = 预览放，否则预览挖。 */
+	bool bPreviewPlacing = false;
 
 	/** 是否在编辑模式。不进反射：这是运行时状态，不是可配置项。 */
 	bool bEditMode = false;

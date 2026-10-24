@@ -205,9 +205,9 @@ protected:
 	 * 按 M 进星图时，相机以焦点飞船为中心拉远到的距离（厘米）。
 	 * 驾驶中焦点就是当前飞船；步行时是角色最近的飞船。
 	 *
-	 * 世界尺度：1 AU = 1e6 厘米，默认体素行星半径约 1e4 厘米。取 5e5 = 0.5 AU，
-	 * 能同时看清飞船、附近的行星表面和一段轨道，又不会小到只看见飞船本身。
-	 * 最终会被 StarMapCameraPawn 的 MinOrbitDistanceCm / MaxOrbitDistanceCm 夹住。
+	 * 世界尺度：1 AU = 1e6 厘米。5e5 = 0.5 AU 只是**期望**距离，实际会被
+	 * AStarMapCameraPawn 的「不穿行星」区间夹住：视线上有行星时只能拉到命中点
+	 * 之前，玩家把视角抬离地面后才能继续拉远。
 	 */
 	UPROPERTY(EditAnywhere, Category = "StarMap", meta = (ClampMin = "0.0"))
 	double StarMapFocusDistanceCm = 5.0e5;

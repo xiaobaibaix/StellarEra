@@ -174,6 +174,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "StellarEra|Atmosphere")
 	UPlanetAtmosphereComponent* GetAtmosphereComponent() const { return AtmosphereComponent; }
 
+	/**
+	 * 行星存档资产的路径：`/Game/Saves/PlanetVoxel/<地图名>/<Actor 标签>`。
+	 *
+	 * 纯函数，便于无头测试。规则：
+	 * - 地图名剥掉 `UEDPIE_<n>_` 前缀 —— 否则每开一次 PIE 就换一个资产路径，
+	 *   编辑永远落不到同一个资产上；
+	 * - 地图名与标签里非字母数字的字符一律换成 `_`（资产名不允许 `/`、`:`、空格等）；
+	 * - 空地图 → `Untitled`，空标签 → `Planet`，保证路径恒定有效。
+	 */
+	static FString MakePlanetSaveObjectAssetPath(const FString& MapName, const FString& ActorLabel);
+
 	/** 编辑模式下的表面网格基线。构造时自动创建。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet|Edit")
 	TObjectPtr<UPlanetSurfaceGridComponent> EditGrid;
@@ -221,4 +232,32 @@ private:
 
 	/** 缺 SaveObject 的警告只刷一次，别让每次编辑都往日志里灌。 */
 	bool bLoggedMissingSaveObject = false;
+
+#if WITH_EDITOR
+	/**
+	 * 编辑器世界里懒创建 / 加载本行星的存档资产并绑定到 SaveObject。
+	 *
+	 * 只在编辑器世界执行：PIE 世界里的 Actor 是从编辑器实例复制来的，值会继承，
+	 * 不需要也不应该每开一次 PIE 就重新找资产。资产缺失（例如首次摆放）时用
+	 * MakePlanetSaveObjectAssetPath 的路径新建，创建后立刻落盘一次。
+	 *
+	 * **必须在 RebuildPlanet / CreateWorld 之前调用** —— 世界创建时会读
+	 * SaveObject；晚于它赋值，本次运行仍从空白世界开始。
+	 */
+	void EnsureSaveObject();
+
+	/**
+	 * 把 SaveObject 所在的资产包写到磁盘。
+	 *
+	 * 编辑器里的 PIE 只把编辑写进内存中的资产副本，不调用这个函数的话退出
+	 * 编辑器后编辑就没了（用户报的「第二次运行什么也没有」的另一半原因）。
+	 *
+	 * @return 真的写盘为 true；SaveObject 为空、包是瞬态的（PIE 临时副本）、
+	 *         或 SavePackage 失败时为 false。
+	 */
+	bool SaveSaveObjectToDisk();
+
+	/** 落盘失败的警告只刷一次。成功后复位，下次再失败仍能看见。 */
+	bool bLoggedSaveDiskFailure = false;
+#endif
 };
