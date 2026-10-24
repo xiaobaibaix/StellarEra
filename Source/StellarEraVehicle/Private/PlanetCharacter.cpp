@@ -17,12 +17,72 @@
 #include "Engine/SkeletalMesh.h"
 #include "UObject/ConstructorHelpers.h"
 #include "EngineUtils.h"
+#include "CollisionQueryParams.h"
+#include "Engine/World.h"
+#include "GameFramework/PlayerController.h"
+#include "SceneTypes.h"
 
 namespace
 {
 	// 占位网格的资产路径。构造函数和 ApplyCharacterMesh 都要用，写在一处，
 	// 免得两边的字符串对不上。
 	const TCHAR* FallbackMeshPath = TEXT("/Engine/EngineMeshes/SkeletalCube.SkeletalCube");
+
+	/**
+	 * 角色的「屏幕射线 → 编辑目标」：普通碰撞射线。
+	 *
+	 * 角色站在地表、射线只打一千米，LineTrace 最直接：它天然尊重体素碰撞，
+	 * 也天然被地形挡住。星图不能这么做 —— 那里离地表几千公里，碰撞范围只有
+	 * 几十米，射线什么也打不到。这正是把解析器做成可注入的原因。
+	 *
+	 * 逐字保留旧 TraceEditTarget 的语义：Visibility 优先，整条射线打空才退到
+	 * WorldStatic；命中的 Actor 必须是脚下那颗行星。
+	 */
+	bool TraceTargetForCharacter(
+		APlanetCharacter& Character,
+		AVoxelPlanetActor* Planet,
+		const FVector& RayOrigin,
+		const FVector& RayDirection,
+		const float MaxDistanceCm,
+		FPlanetEditTarget& OutTarget)
+	{
+		if (!IsValid(Planet) || !Planet->IsCreated())
+		{
+			return false;
+		}
+
+		const UWorld* World = Character.GetWorld();
+		if (!World)
+		{
+			return false;
+		}
+
+		FCollisionQueryParams Params(
+			SCENE_QUERY_STAT(PlanetEditBrush), /*bTraceComplex=*/true);
+		Params.AddIgnoredActor(&Character);
+
+		const FVector End = RayOrigin + RayDirection * MaxDistanceCm;
+
+		FHitResult Hit;
+		if (!World->LineTraceSingleByChannel(Hit, RayOrigin, End, ECC_Visibility, Params))
+		{
+			Hit = FHitResult();
+			if (!World->LineTraceSingleByChannel(Hit, RayOrigin, End, ECC_WorldStatic, Params))
+			{
+				return false;
+			}
+		}
+
+		if (Hit.GetActor() != Planet)
+		{
+			return false;
+		}
+
+		OutTarget.Planet = Planet;
+		OutTarget.HitLocation = Hit.Location;
+		OutTarget.HitNormal = Hit.ImpactNormal;
+		return true;
+	}
 }
 
 // SetDefaultSubobjectClass 必须写在初始化列表里：UObjectGlobals.h:1729 明确 assert
@@ -243,7 +303,28 @@ void APlanetCharacter::BeginPlay()
 		BaseCameraArmLength = CameraArmLength;
 	}
 
+	// 解析器必须在「找不到行星」的早退之前装好：它读的是 PlanetActor 的当前值，
+	// 而不是安装时的快照，所以先装后查没有时序问题；反过来（查到之后才装）
+	// 一旦此刻没找到行星，早退就把安装也跳过了，再也补不上。
+	if (PlanetEdit)
+	{
+		PlanetEdit->SetTargetResolver(
+			[this](const FVector& RayOrigin, const FVector& RayDirection,
+				const float MaxDistanceCm, FPlanetEditTarget& OutTarget)
+			{
+				return TraceTargetForCharacter(
+					*this, PlanetActor.Get(), RayOrigin, RayDirection, MaxDistanceCm, OutTarget);
+			});
+	}
+
 	PlanetActor = FindNearestPlanet();
+
+	if (PlanetEdit)
+	{
+		// 网格只跟角色走。星图 Pawn 从不调这个，所以星图里没有地表网格。
+		PlanetEdit->SetGridPlanet(PlanetActor);
+	}
+
 	if (!PlanetActor)
 	{
 		UE_LOG(LogTemp, Warning,
@@ -440,9 +521,8 @@ void APlanetCharacter::SnapToPlanetSurface()
 
 void APlanetCharacter::ReevaluatePlanet()
 {
-	AVoxelPlanetActor* const OldPlanet = PlanetActor;
 	AVoxelPlanetActor* Nearest = FindNearestPlanet();
-	if (Nearest == OldPlanet)
+	if (Nearest == PlanetActor)
 	{
 		return;
 	}
@@ -458,18 +538,10 @@ void APlanetCharacter::ReevaluatePlanet()
 		SnapToPlanetSurface();
 	}
 
-	// 编辑模式跟着角色走：网格是行星上的组件，换星时把可见性从旧星搬到新星。
-	// 不搬的话，站到另一颗星上按左键，网格还留在上一颗星上。
-	if (PlanetEdit && PlanetEdit->IsEditMode())
+	// 编辑网格跟着角色走：组件内部会先把旧星的网格收掉再点亮新星。
+	if (PlanetEdit)
 	{
-		if (OldPlanet)
-		{
-			OldPlanet->SetEditGridVisible(false);
-		}
-		if (PlanetActor)
-		{
-			PlanetActor->SetEditGridVisible(true);
-		}
+		PlanetEdit->SetGridPlanet(PlanetActor);
 	}
 }
 
