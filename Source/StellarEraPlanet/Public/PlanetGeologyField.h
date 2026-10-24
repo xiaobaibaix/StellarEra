@@ -78,4 +78,10 @@ private:
 	float TotalAbundance = 0.f;
 	float MaxReachDepth = 0.f;
 	TArray<FElementRuntime> Elements;
+
+	/**
+	 * Elements.json 数组里的 id 顺序；GetElementDefinitions 按它输出（spec §3.3）。
+	 * 运行期采样仍按 Elements 的现有顺序，不受影响。
+	 */
+	TArray<FString> ElementOrder;
 };

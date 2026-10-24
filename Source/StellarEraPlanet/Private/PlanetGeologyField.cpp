@@ -98,7 +98,8 @@ namespace
 	}
 
 	bool ParseElementTable(const TSharedPtr<FJsonObject>& Root,
-		TMap<FString, FPlanetGeologyElement>& OutTable, FPlanetGeologyLoadReport& Report)
+		TMap<FString, FPlanetGeologyElement>& OutTable,
+		TArray<FString>& OutOrder, FPlanetGeologyLoadReport& Report)
 	{
 		ReadVersion(Root, TEXT("Elements.json"), Report);
 
@@ -178,6 +179,7 @@ namespace
 			}
 
 			OutTable.Add(Id, Element);
+			OutOrder.Add(Id);
 		}
 		return true;
 	}
@@ -345,7 +347,8 @@ TSharedPtr<const FPlanetGeologyField> FPlanetGeologyField::LoadFromString(
 	}
 
 	TMap<FString, FPlanetGeologyElement> Table;
-	if (!ParseElementTable(ElementsRoot, Table, OutReport))
+	TArray<FString> ElementOrder;
+	if (!ParseElementTable(ElementsRoot, Table, ElementOrder, OutReport))
 	{
 		return Field;
 	}
@@ -366,6 +369,7 @@ TSharedPtr<const FPlanetGeologyField> FPlanetGeologyField::LoadFromString(
 
 	Field->Appearance = Appearance;
 	Field->GeometryAmplitude = FMath::Max(0.f, GeometryAmplitude);
+	Field->ElementOrder = ElementOrder;
 
 	for (const FPlanetGeologyElement& Definition : Definitions)
 	{
@@ -560,9 +564,29 @@ TArray<FPlanetGeologyElement> FPlanetGeologyField::GetElementDefinitions() const
 {
 	TArray<FPlanetGeologyElement> Out;
 	Out.Reserve(Elements.Num());
+
+	// 先按 Elements.json 的数组顺序输出：图例顺序要与元素表一致（spec §3.3）。
+	// Elements 本身（运行期采样顺序）刻意不动 —— DominantIndex 与地形都依赖它。
+	for (const FString& Id : ElementOrder)
+	{
+		for (const FElementRuntime& Runtime : Elements)
+		{
+			if (Runtime.Definition.Id == Id)
+			{
+				Out.Add(Runtime.Definition);
+				break;
+			}
+		}
+	}
+
+	// 防御：任何不在 ElementOrder 里的定义追加在后面，保证不丢数据。
 	for (const FElementRuntime& Runtime : Elements)
 	{
-		Out.Add(Runtime.Definition);
+		if (!ElementOrder.Contains(Runtime.Definition.Id))
+		{
+			Out.Add(Runtime.Definition);
+		}
 	}
+
 	return Out;
 }
