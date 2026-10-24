@@ -563,7 +563,7 @@ bool FStellarEraEditBrushBoxBounds128Test::RunTest(const FString& Parameters)
 		PlanetEditBrush::MinStarMapSizeVoxels, PlanetEditBrush::MaxStarMapSizeVoxels);
 	TestEqual(TEXT("32 X 方向宽度（含端点）"), Mid.Max.X - Mid.Min.X + 1, 32);
 
-	// 半边长 = 尺寸 × 体素尺寸 / 2。行星 3 的体素是 50 cm，128 格 = 6400 cm 直径。
+	// 半边长 = 尺寸 × 体素尺寸 / 2。128 × 50 cm = 6400 cm 直径，半边长 3200 cm。
 	TestEqual(TEXT("128 × 50cm 的半边长"),
 		PlanetEditBrush::GetHalfExtentCm(128, 50.f,
 			PlanetEditBrush::MinStarMapSizeVoxels, PlanetEditBrush::MaxStarMapSizeVoxels),

@@ -68,9 +68,7 @@ namespace PlanetEditBrush
 	/**
 	 * 夹到 [MinSize, MaxSize]。
 	 *
-	 * 下限被抬到至少 1（尺寸 0 会造出空盒）；MinSize > MaxSize 时以下限为准，
-	 * 而不是像 FMath::Clamp 那样断言 —— 这两个值是可配置项，写反了不该在
-	 * 运行时崩。
+	 * 下限被抬到至少 1（尺寸 0 会造出空盒）；MinSize > MaxSize 时以下限为准。
 	 */
 	STELLARERAVEHICLE_API int32 ClampSize(int32 SizeVoxels, int32 MinSize, int32 MaxSize);
 
@@ -103,7 +101,7 @@ namespace PlanetEditBrush
 	 */
 	STELLARERAVEHICLE_API FPlanetEditBox MakeBox(const FVector& LocalCenterVoxels, int32 SizeVoxels);
 
-	/** 区间版：盒宽 = 夹到 [MinSize, MaxSize] 之后的尺寸，每轴都是 Width 格。 */
+	/** 区间版：每轴跨度等于夹到 [MinSize, MaxSize] 之后的 SizeVoxels 格数。 */
 	STELLARERAVEHICLE_API FPlanetEditBox MakeBox(const FVector& LocalCenterVoxels, int32 SizeVoxels,
 		int32 MinSize, int32 MaxSize);
 
