@@ -68,9 +68,9 @@ void FPlanetSectionImage::Render(
 				float(DepthVoxels) * DepthShadeScale, 0.f, 1.f);
 
 			const FLinearColor Base = Params.SurfaceColor * 0.25f * DepthShade;
-			// 按 HSV 混合（测试钉住的口径）：暗底色与矿物色明度差大，直插会发灰。
-			const FLinearColor Color =
-				FLinearColor::LerpUsingHSV(Base, Sample.MineralColor, Presence * PurityMix);
+			// spec §3.1 用线性 lerp：HSV 会让暗绿底色插到红色时经过黄绿。
+			const float Mix = Presence * PurityMix;
+			const FLinearColor Color = Base + (Sample.MineralColor - Base) * Mix;
 
 			Pixel = Color.ToFColor(true);
 			Pixel.A = uint8(FMath::RoundToInt(Alpha * 255.f));

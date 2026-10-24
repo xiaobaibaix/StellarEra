@@ -370,11 +370,11 @@ bool FPlanetSectionImagePresenceTest::RunTest(const FString& Parameters)
 			&& ByteNear(Actual.B, Expected.B));
 	}
 
-	// C：纯度 0.35 / 0.7 = 0.5 → 底色与矿物色各一半。
+	// C：纯度 0.35 / 0.7 = 0.5 → 线性插值（spec §3.1），底色与矿物色各一半。
 	{
 		const FColor Actual = RenderCenter(0.50f, 0.35f, FLinearColor(1.f, 0.f, 0.f));
 		const FColor Expected =
-			FLinearColor::LerpUsingHSV(Base, FLinearColor(1.f, 0.f, 0.f), 0.5f).ToFColor(true);
+			(Base + (FLinearColor(1.f, 0.f, 0.f) - Base) * 0.5f).ToFColor(true);
 		TestTrue(TEXT("半纯度 = 半混合"),
 			ByteNear(Actual.R, Expected.R) && ByteNear(Actual.G, Expected.G)
 			&& ByteNear(Actual.B, Expected.B));
