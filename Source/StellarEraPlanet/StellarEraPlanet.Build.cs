@@ -19,9 +19,13 @@ public class StellarEraPlanet : ModuleRules
 		// 的 EnsureSaveObject），创建后要通知资产注册表，否则内容浏览器里看不到。
 		PrivateDependencyModuleNames.AddRange(new string[] { "AssetRegistry" });
 
+		// JSON 只在 PlanetGeologyField.cpp 里用，不需要向下游传递。
+		PrivateDependencyModuleNames.AddRange(new string[] { "Json" });
+
 		// 没有 UnrealEd 依赖：编辑器里的大气材质重建（PlanetAtmosphereMaterialBuilder.cpp）
 		// 只用 Engine 模块的 UMaterial / 表达式节点 / SavePackage 接口。
 		// 早先这里有 UnrealEd，是为了从活动视口取相机位置（GEditor / FEditorViewportClient）；
 		// 相机位置改由材质的视图 uniform 提供后，那两个符号不再被引用。
+		// 地质分支曾按旧代码加过编辑器态 UnrealEd 依赖，合并时以主线的新做法为准。
 	}
 }

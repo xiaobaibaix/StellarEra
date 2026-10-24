@@ -6,11 +6,14 @@
 #include "CoreMinimal.h"
 #include "VoxelMinimal.h"
 #include "VoxelGenerators/VoxelGeneratorHelpers.h"
+// FVoxelPlanetTerrainContext（MakeTerrainContext 的返回类型）需要完整定义。
+#include "VoxelPlanetTerrainModule.h"
 #include "VoxelPlanetGenerator.generated.h"
 
 class UVoxelPlanetGenerator;
 class UVoxelPlanetSphereTerrain;
 class UVoxelPlanetTerrainModule;
+class FPlanetGeologyField;
 
 /**
  * 行星生成器适配器。
@@ -36,6 +39,23 @@ public:
 	//~ End UVoxelGenerator Interface
 
 	/**
+	 * 当前行星的完整地形上下文。**唯一构造点**：密度场与地表查询都从这里拿，
+	 * 否则新增字段会出现第三份手工拷贝。
+	 */
+	FVoxelPlanetTerrainContext MakeTerrainContext();
+
+	/**
+	 * 按 GeologyPreset 懒加载并缓存。
+	 * - 预设为空 → 返回 nullptr；
+	 * - 加载失败 → 返回**有效空场**（IsValid() 且 IsEmpty()），错误写入日志；
+	 * - 缓存按预设名键控，失败结果同样被缓存，直到 InvalidateGeology()。
+	 */
+	TSharedPtr<const FPlanetGeologyField> GetGeology();
+
+	/** 丢弃缓存；下次 GetGeology 重新读盘。 */
+	void InvalidateGeology();
+
+	/**
 	 * 要用的地形模块。为空时退化成一颗光滑球（内部临时造一个纯球模块），
 	 * 因此「没挂地形」不是错误状态，只是最朴素的那种地形。
 	 */
@@ -54,7 +74,16 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet")
 	FLinearColor SurfaceColor = FLinearColor(0.18f, 0.42f, 0.16f);
 
+	/** 地质预设名：Content/Geology/Planets/<name>.json。空 = 关闭地质。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Geology")
+	FString GeologyPreset;
+
 private:
+	/** 地质场缓存。键是 GeologyPreset；失败也缓存，避免每个采样点都读盘。 */
+	TSharedPtr<const FPlanetGeologyField> GeologyCache;
+	FString GeologyCachePreset;
+	bool bGeologyCacheValid = false;
+
 	/**
 	 * Terrain 为空时代理的那个纯球模块。
 	 *

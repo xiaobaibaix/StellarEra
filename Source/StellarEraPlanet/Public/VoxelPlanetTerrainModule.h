@@ -1,4 +1,4 @@
-// Copyright Voxel Plugin SAS. All Rights Reserved.
+﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 // 行星地形模块的抽象基类：地形长什么样归模块，在哪、多大归行星。
 
 #pragma once
@@ -9,6 +9,7 @@
 #include "VoxelPlanetTerrainModule.generated.h"
 
 class FVoxelGeneratorInstance;
+class FPlanetGeologyField;
 
 /**
  * 行星交给地形模块的上下文。
@@ -32,6 +33,13 @@ struct FVoxelPlanetTerrainContext
 	 * 也可以完全忽略。
 	 */
 	FLinearColor BaseColor = FLinearColor(0.18f, 0.42f, 0.16f);
+
+	/**
+	 * 这颗行星的地质场；为空 = 没有矿。
+	 *
+	 * 只读指针，构造后不可变，因此可以安全地在后台体素线程上共享。
+	 */
+	TSharedPtr<const FPlanetGeologyField> Geology;
 };
 
 /**

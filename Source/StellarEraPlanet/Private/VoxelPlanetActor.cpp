@@ -14,6 +14,9 @@
 #include "VoxelPlanetTerrainModule.h"
 #include "PlanetAtmosphereComponent.h"
 #include "PlanetSurfaceGridComponent.h"
+#include "PlanetGeologyField.h"
+#include "HAL/IConsoleManager.h"
+#include "EngineUtils.h"
 #include "Materials/MaterialInterface.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
@@ -463,6 +466,8 @@ void AVoxelPlanetActor::RebuildPlanet()
 	// 地形模块也推给生成器：生成器是「这颗行星」的，模块是「这种地形」的。
 	// 模块本身不带位置和尺寸，同一份资产可以喂给任意多颗行星。
 	PlanetGenerator->Terrain = Terrain;
+	// 地质预设与地形模块一样，是「这颗行星」的参数。
+	PlanetGenerator->GeologyPreset = GeologyPreset;
 
 	// --- 2. 把世界边长收到刚好裹住星球 ---
 	// AVoxelWorld 的 RenderOctreeDepth 默认是 10，即世界边长 32768 体素，
@@ -684,6 +689,21 @@ void AVoxelPlanetActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	Super::EndPlay(EndPlayReason);
 }
 
+void AVoxelPlanetActor::ReloadGeology()
+{
+	// 生成器缓存必须在重建之前作废：重建会重新 GetInstance()，那时才读新 JSON。
+	if (PlanetGenerator)
+	{
+		PlanetGenerator->InvalidateGeology();
+	}
+	InvalidateAndRebuild();
+}
+
+TArray<FString> AVoxelPlanetActor::GetGeologyPresetOptions() const
+{
+	return FPlanetGeologyField::ListPresetNames();
+}
+
 float AVoxelPlanetActor::GetSurfaceRadiusCm() const
 {
 	// 半径以体素计，乘以单个体素的厘米尺寸才是世界单位。
@@ -705,12 +725,9 @@ float AVoxelPlanetActor::GetSurfaceRadiusCmAtDirection(const FVector& WorldDirec
 		return GetSurfaceRadiusCm();
 	}
 
-	// 上下文与生成器里那份保持一致：模块在两条路径（密度场、地表查询）上必须
-	// 拿到同一个半径和球心，否则角色脚下的地面和眼睛看到的地面会不是同一个面。
-	FVoxelPlanetTerrainContext Context;
-	Context.Radius = GetScaledRadiusVoxels();
-	Context.Center = FVector::ZeroVector;
-	Context.BaseColor = SurfaceColor;
+	// 上下文由生成器统一构造：地质场必须与密度场那份是同一个，
+	// 否则角色脚下的地面和眼睛看到的地面不是同一个面。
+	const FVoxelPlanetTerrainContext Context = PlanetGenerator->MakeTerrainContext();
 
 	// 体素空间与世界空间之间只差一个等比缩放，没有旋转，方向可以原样传递。
 	return PlanetGenerator->Terrain->GetSurfaceRadiusVoxels(Context, Direction) * VoxelSize;
@@ -754,5 +771,35 @@ uint64 AVoxelPlanetActor::ComputeParamsHash() const
 	const FString TerrainPath = Terrain ? Terrain->GetPathName() : FString();
 	Mix(*TerrainPath, TerrainPath.Len() * sizeof(TCHAR));
 
+	// 地质预设与地形模块同理：只混名字，不混地质场指针。
+	const FString GeologyPresetName = GeologyPreset;
+	Mix(*GeologyPresetName, GeologyPresetName.Len() * sizeof(TCHAR));
+
 	return Hash;
 }
+
+#if WITH_EDITOR
+namespace
+{
+	// 改完 Content/Geology/*.json 的快捷入口，省掉重启编辑器。
+	FAutoConsoleCommandWithWorld ReloadGeologyCommand(
+		TEXT("StellarEra.ReloadGeology"),
+		TEXT("重新读取 Content/Geology 下的 JSON，并重建场景中所有体素行星。"),
+		FConsoleCommandWithWorldDelegate::CreateLambda([](UWorld* World)
+		{
+			if (!World)
+			{
+				return;
+			}
+
+			int32 PlanetCount = 0;
+			for (TActorIterator<AVoxelPlanetActor> It(World); It; ++It)
+			{
+				It->ReloadGeology();
+				++PlanetCount;
+			}
+
+			UE_LOG(LogTemp, Log, TEXT("StellarEra.ReloadGeology: 重建了 %d 颗行星"), PlanetCount);
+		}));
+}
+#endif

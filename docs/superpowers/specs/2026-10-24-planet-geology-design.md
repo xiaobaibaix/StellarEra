@@ -78,7 +78,7 @@
 | 字段 | 类型 | 范围 | 说明 |
 |---|---|---|---|
 | `id` | string | 唯一、非空 | 行星 JSON 用它引用元素 |
-| `displayName` | string | — | 只用于日志/未来 UI |
+| `displayName` | string | — | 保留给未来 UI/日志；当前解析器读入但不消费 |
 | `color` | [r,g,b] | 0~1 | 高纯度时的本色 |
 | `noise.frequency` | number | > 0 | 单位方向上的噪声频率，越大矿脉越碎 |
 | `noise.octaves` | int | 1~6 | 分形层数，性能旋钮 |
@@ -99,12 +99,12 @@
     "purityForFullColor": 0.7
   },
   "elements": {
-    "iron":    { "abundance": 0.75, "peakDepth": -30,  "layerThickness": 20 },
-    "copper":  { "abundance": 0.45, "peakDepth": -65,  "layerThickness": 42 },
-    "silicon": { "abundance": 0.60, "peakDepth": -48,  "layerThickness": 31 },
-    "titanium":{ "abundance": 0.15, "peakDepth": -110, "layerThickness": 72 },
-    "uranium": { "abundance": 0.10, "peakDepth": -190, "layerThickness": 124 },
-    "water":   { "abundance": 0.30, "peakDepth": -12,  "layerThickness": 12 }
+    "iron":    { "abundance": 0.75, "peakDepth": 30,  "layerThickness": 20 },
+    "copper":  { "abundance": 0.45, "peakDepth": 65,  "layerThickness": 42 },
+    "silicon": { "abundance": 0.60, "peakDepth": 48,  "layerThickness": 31 },
+    "titanium":{ "abundance": 0.15, "peakDepth": 110, "layerThickness": 72 },
+    "uranium": { "abundance": 0.10, "peakDepth": 190, "layerThickness": 124 },
+    "water":   { "abundance": 0.30, "peakDepth": 12,  "layerThickness": 12 }
   }
 }
 ```
@@ -114,9 +114,9 @@
 | `geometryAmplitude` | 1.5 | 矿脉让地表外凸的最大体素数；`0` = 不影响几何 |
 | `appearance.colorThreshold` | 0.22 | 归一化总含量的显现阈值 |
 | `appearance.fadeRange` | 0.15 | 从阈值到完全显现的过渡宽度 |
-| `appearance.purityForFullColor` | 0.7 | 纯度达到它时颜色完全用矿色 |
+| `appearance.purityForFullColor` | 0.7 | 纯度混合系数 `PurityMix = saturate((Purity - (1 - p)) / p)`：`Purity ≤ 1 - p` 时不用矿色，线性升高到 `Purity = 1` 才完全用矿色 |
 | `elements.<id>.abundance` | 0 | 全局丰度，0~1 |
-| `elements.<id>.peakDepth` | — | 峰值深度，体素；负 = 地表以下 |
+| `elements.<id>.peakDepth` | — | 峰值深度，体素；**正 = 基准球面以下（向行星内部为正）**，缺省 0 |
 | `elements.<id>.layerThickness` | — | 高斯层厚，体素，必须 > 0 |
 
 **未在行星 JSON 中出现的元素 = 这颗行星没有该元素**，不需要 `bPresent` 字段。
@@ -433,7 +433,7 @@ UnrealEditor-Cmd StellarEra.uproject -ExecCmds="Automation RunTests StellarEra" 
 
 `GetMaterialImpl` 里的 `MakeVoxelMaterial(Sample, BaseColor)` 是唯一出口。未来版本：
 
-- 在 `FPlanetGeologySample` 上增加 `DominantIndex` 与混合权重（已有）；
+- 在 `FPlanetGeologySample` 上增加 `DominantIndex` 与混合权重（未来增加；当前未实现）；
 - 元素定义增加材质槽索引；
 - `MakeVoxelMaterial` 改为构造 `EVoxelMaterialConfig::MultiIndex`，并建立材质集合资产。
 
