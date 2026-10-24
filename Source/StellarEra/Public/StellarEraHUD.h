@@ -113,10 +113,14 @@ private:
 	/** 当前 Possess 的 Pawn 是飞船就返回它，否则返回空（此时不画状态条）。 */
 	ASpaceshipPawn* GetViewedShip() const;
 
-	/** 当前 Possess 的 Pawn 是角色就返回它，否则返回空。 */
-	APlanetCharacter* GetViewedCharacter() const;
+	/**
+	 * 当前视角下开着的编辑组件：角色或星图相机上的那个，没开着就 nullptr。
+	 *
+	 * 两种 Pawn 的组件类型相同，面板与提示行不需要分两套代码。
+	 */
+	const UPlanetEditComponent* GetViewedEditComponent() const;
 
-	/** 画底部居中的两个笔刷按钮与提示。只在角色的编辑模式下调用。 */
+	/** 画底部居中的两个笔刷按钮与提示。角色与星图的编辑模式下都会调用。 */
 	void DrawPlanetEditPanel(const UPlanetEditComponent& Edit);
 
 	/**

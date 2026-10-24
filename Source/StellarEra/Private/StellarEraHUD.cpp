@@ -95,16 +95,10 @@ void AStellarEraHUD::DrawHUD()
 		}
 	}
 
-	// 编辑模式面板：只有当前 Pawn 是角色且模式打开时画。
-	if (const APlanetCharacter* Character = GetViewedCharacter())
+	// 编辑模式面板：角色与星图相机共用同一个组件，谁开着就画谁的。
+	if (const UPlanetEditComponent* Edit = GetViewedEditComponent())
 	{
-		if (const UPlanetEditComponent* Edit = Character->GetPlanetEditComponent())
-		{
-			if (Edit->IsEditMode())
-			{
-				DrawPlanetEditPanel(*Edit);
-			}
-		}
+		DrawPlanetEditPanel(*Edit);
 	}
 
 	// 帧率面板：与当前 Pawn 无关，走路、开飞船、星图都画。
@@ -169,12 +163,26 @@ ASpaceshipPawn* AStellarEraHUD::GetViewedShip() const
 	return PlayerController ? Cast<ASpaceshipPawn>(PlayerController->GetPawn()) : nullptr;
 }
 
-APlanetCharacter* AStellarEraHUD::GetViewedCharacter() const
+const UPlanetEditComponent* AStellarEraHUD::GetViewedEditComponent() const
 {
 	const APlayerController* PlayerController = GetOwningPlayerController();
-	return PlayerController
-		? Cast<APlanetCharacter>(PlayerController->GetPawn())
-		: nullptr;
+	APawn* ViewedPawn = PlayerController ? PlayerController->GetPawn() : nullptr;
+	if (!ViewedPawn)
+	{
+		return nullptr;
+	}
+
+	const UPlanetEditComponent* Edit = nullptr;
+	if (APlanetCharacter* Character = Cast<APlanetCharacter>(ViewedPawn))
+	{
+		Edit = Character->GetPlanetEditComponent();
+	}
+	else if (AStarMapCameraPawn* StarMap = Cast<AStarMapCameraPawn>(ViewedPawn))
+	{
+		Edit = StarMap->GetPlanetEditComponent();
+	}
+
+	return Edit && Edit->IsEditMode() ? Edit : nullptr;
 }
 
 void AStellarEraHUD::DrawPlanetEditPanel(const UPlanetEditComponent& Edit)
@@ -263,9 +271,11 @@ void AStellarEraHUD::DrawPlanetEditPanel(const UPlanetEditComponent& Edit)
 		CubeCenterX, CubeCenterY + 14.f, CubeColor, 1.5f);
 
 	// ── 提示行 ──
+	// 「怎么放」由组件说：角色是右键点放，星图是 Shift+左键填。写死在 HUD 里
+	// 就等于把两种输入方案各抄一份，改一处忘一处。
 	const FString Hint = FString::Printf(
-		TEXT("笔刷 %d 体素 · 左键挖 / 右键点放 · G 退出"),
-		Edit.GetBrushSizeVoxels());
+		TEXT("笔刷 %d 体素 · 左键挖 / %s · G 退出"),
+		Edit.GetBrushSizeVoxels(), *Edit.GetPlaceActionHint());
 
 	float TextWidth = 0.f;
 	float TextHeight = 0.f;
