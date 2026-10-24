@@ -7,7 +7,6 @@
 #include "GameFramework/HUD.h"
 #include "StellarEraHUD.generated.h"
 
-class APlanetCharacter;
 class ASpaceshipPawn;
 class UPlanetEditComponent;
 class UStarMapUISystem;
