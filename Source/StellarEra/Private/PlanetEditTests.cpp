@@ -579,4 +579,40 @@ bool FStellarEraEditBrushBoxBounds128Test::RunTest(const FString& Parameters)
 	return true;
 }
 
+// 笔刷尺寸区间：角色 1..8、星图 8..128 共用同一份夹取逻辑。
+// 星图默认 32，而旧的 1 参 ClampSize 会把它悄悄夹成 8 —— 这就是本测试要钉的回归。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraEditComponentRangeTest,
+	"StellarEra.Planet.EditComponent.Range",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraEditComponentRangeTest::RunTest(const FString& Parameters)
+{
+	UPlanetEditComponent* Edit = NewObject<UPlanetEditComponent>();
+
+	// 默认就是角色的区间与提示：老组件不该因为新增配置项改变行为。
+	TestEqual(TEXT("默认下限 1"), Edit->GetMinBrushSizeVoxels(), 1);
+	TestEqual(TEXT("默认上限 8"), Edit->GetMaxBrushSizeVoxels(), 8);
+	TestEqual(TEXT("默认提示"), Edit->GetPlaceActionHint(), FString(TEXT("右键点放")));
+	Edit->AdjustBrushSize(100);
+	TestEqual(TEXT("+100 夹到 8"), Edit->GetBrushSizeVoxels(), 8);
+	Edit->AdjustBrushSize(-100);
+	TestEqual(TEXT("-100 夹到 1"), Edit->GetBrushSizeVoxels(), 1);
+
+	// 星图：8..128、默认 32。
+	Edit->ConfigureBrushRange(8, 128, 32);
+	TestEqual(TEXT("星图默认 32"), Edit->GetBrushSizeVoxels(), 32);
+	TestEqual(TEXT("星图下限 8"), Edit->GetMinBrushSizeVoxels(), 8);
+	TestEqual(TEXT("星图上限 128"), Edit->GetMaxBrushSizeVoxels(), 128);
+	Edit->AdjustBrushSize(1000);
+	TestEqual(TEXT("+1000 夹到 128"), Edit->GetBrushSizeVoxels(), 128);
+	Edit->AdjustBrushSize(-1000);
+	TestEqual(TEXT("−1000 夹到 8"), Edit->GetBrushSizeVoxels(), 8);
+
+	// 区间写反时不崩、保下限（与 PlanetEditBrush::ClampSize 的约定一致）。
+	Edit->ConfigureBrushRange(10, 2, 0);
+	TestEqual(TEXT("上下限写反保下限"), Edit->GetBrushSizeVoxels(), 10);
+	TestEqual(TEXT("上下限写反时上限被抬到下限"), Edit->GetMaxBrushSizeVoxels(), 10);
+	return true;
+}
+
 #endif

@@ -3,13 +3,10 @@
 #include "PlanetEditComponent.h"
 
 #include "PlanetBrushApplicator.h"
-#include "PlanetCharacter.h"
 #include "VoxelPlanetActor.h"
-#include "CollisionQueryParams.h"
 #include "Components/LineBatchComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
-#include "SceneTypes.h"
 #include "VoxelVector.h"
 
 UPlanetEditComponent::UPlanetEditComponent()
@@ -30,13 +27,63 @@ void UPlanetEditComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	{
 		SetEditMode(false);
 	}
+
+	// 解析器通常捕获 Owner 自己；Owner 正在销毁，留着就是悬空引用。
+	TargetResolver = nullptr;
+	GridPlanet.Reset();
+
 	Super::EndPlay(EndPlayReason);
 }
 
-AVoxelPlanetActor* UPlanetEditComponent::ResolvePlanet() const
+void UPlanetEditComponent::BeginPlay()
 {
-	const APlanetCharacter* Character = Cast<APlanetCharacter>(GetOwner());
-	return Character ? Character->PlanetActor.Get() : nullptr;
+	Super::BeginPlay();
+
+	// BrushSizeVoxels 是 EditAnywhere：蓝图或关卡实例里可能存着区间外的旧值
+	// （例如从 1..8 的组件改成 8..128 的星图 Pawn），进游戏时按区间夹一次。
+	BrushSizeVoxels = PlanetEditBrush::ClampSize(
+		BrushSizeVoxels, MinBrushSizeVoxels, MaxBrushSizeVoxels);
+}
+
+void UPlanetEditComponent::SetTargetResolver(FPlanetEditTargetResolver InResolver)
+{
+	TargetResolver = MoveTemp(InResolver);
+}
+
+void UPlanetEditComponent::SetGridPlanet(AVoxelPlanetActor* Planet)
+{
+	if (GridPlanet.Get() == Planet)
+	{
+		return;
+	}
+
+	// 换星时先把旧星上的网格收掉，再决定新星要不要亮。这条路径原先写在
+	// APlanetCharacter::ReevaluatePlanet 里，现在收进组件：角色调它，星图不调。
+	if (bEditMode)
+	{
+		if (AVoxelPlanetActor* Previous = GridPlanet.Get())
+		{
+			if (IsValid(Previous))
+			{
+				Previous->SetEditGridVisible(false);
+			}
+		}
+		if (IsValid(Planet))
+		{
+			Planet->SetEditGridVisible(true);
+		}
+	}
+
+	GridPlanet = Planet;
+}
+
+void UPlanetEditComponent::ConfigureBrushRange(
+	const int32 InMinSize, const int32 InMaxSize, const int32 InitialSize)
+{
+	MinBrushSizeVoxels = FMath::Max(InMinSize, 1);
+	MaxBrushSizeVoxels = FMath::Max(InMaxSize, MinBrushSizeVoxels);
+	BrushSizeVoxels = PlanetEditBrush::ClampSize(
+		InitialSize, MinBrushSizeVoxels, MaxBrushSizeVoxels);
 }
 
 void UPlanetEditComponent::SetEditMode(const bool bEnabled)
@@ -56,11 +103,14 @@ void UPlanetEditComponent::SetEditMode(const bool bEnabled)
 		HideBrushPreview();
 	}
 
-	// 缓存的行星指针在拆卸阶段可能已经失效（EndPlay 也会走到这里），先验一下。
-	AVoxelPlanetActor* Planet = ResolvePlanet();
-	if (IsValid(Planet))
+	// 网格归属由 SetGridPlanet 决定（角色 = 脚下行星，星图 = 空）。
+	// 缓存的行星在拆卸阶段可能已经失效，先验一下。
+	if (AVoxelPlanetActor* Planet = GridPlanet.Get())
 	{
-		Planet->SetEditGridVisible(bEditMode);
+		if (IsValid(Planet))
+		{
+			Planet->SetEditGridVisible(bEditMode);
+		}
 	}
 }
 
@@ -83,7 +133,8 @@ void UPlanetEditComponent::SetBrushShape(const EPlanetBrushShape NewShape)
 
 void UPlanetEditComponent::AdjustBrushSize(const int32 Delta)
 {
-	BrushSizeVoxels = PlanetEditBrush::ClampSize(BrushSizeVoxels + Delta);
+	BrushSizeVoxels = PlanetEditBrush::ClampSize(
+		BrushSizeVoxels + Delta, MinBrushSizeVoxels, MaxBrushSizeVoxels);
 }
 
 bool UPlanetEditComponent::DigAtScreenPosition(const FVector2D& ScreenPosition)
@@ -100,37 +151,31 @@ bool UPlanetEditComponent::ApplyBrushAtScreenPosition(
 	const FVector2D& ScreenPosition,
 	const bool bPlace)
 {
-	if (!bEditMode)
+	FPlanetEditTarget Target;
+	if (!TryResolveTarget(ScreenPosition, Target))
 	{
 		return false;
 	}
 
-	AVoxelPlanetActor* Planet = ResolvePlanet();
-	FHitResult Hit;
-	if (!Planet || !Planet->IsCreated() || !TraceEditTarget(ScreenPosition, Hit))
-	{
-		return false;
-	}
-
-	const float VoxelSize = FMath::Max(Planet->VoxelSize, 1.f);
+	const float VoxelSize = FMath::Max(Target.Planet->VoxelSize, 1.f);
 	const FVector Center = PlanetEditBrush::GetEditCenterWorld(
-		Hit.Location, Hit.ImpactNormal, BrushSizeVoxels, VoxelSize, bPlace,
+		Target.HitLocation, Target.HitNormal, BrushSizeVoxels, VoxelSize, bPlace,
 		MinBrushSizeVoxels, MaxBrushSizeVoxels);
 
-	return PlanetBrushApplicator::Apply(*Planet, Center, BrushShape, BrushSizeVoxels,
+	return PlanetBrushApplicator::Apply(*Target.Planet, Center, BrushShape, BrushSizeVoxels,
 		MinBrushSizeVoxels, MaxBrushSizeVoxels, bPlace, bMultiThreadedEdits);
 }
 
-bool UPlanetEditComponent::TraceEditTarget(const FVector2D& ScreenPosition, FHitResult& OutHit) const
+bool UPlanetEditComponent::TryResolveTarget(
+	const FVector2D& ScreenPosition, FPlanetEditTarget& OutTarget) const
 {
-	AVoxelPlanetActor* Planet = ResolvePlanet();
-	UWorld* World = GetWorld();
-	if (!Planet || !Planet->IsCreated() || !World)
+	if (!bEditMode || !TargetResolver)
 	{
 		return false;
 	}
 
-	const APlayerController* PlayerController = World->GetFirstPlayerController();
+	const UWorld* World = GetWorld();
+	const APlayerController* PlayerController = World ? World->GetFirstPlayerController() : nullptr;
 	if (!PlayerController)
 	{
 		return false;
@@ -138,7 +183,7 @@ bool UPlanetEditComponent::TraceEditTarget(const FVector2D& ScreenPosition, FHit
 
 	FVector WorldOrigin = FVector::ZeroVector;
 	FVector WorldDirection = FVector::ZeroVector;
-	// Deproject 的参数是 float；本项目警告即错误，double→float 必须显式转。
+	// Deproject 的参数是 float；本项目警告即错误，double → float 必须显式转。
 	if (!PlayerController->DeprojectScreenPositionToWorld(
 		static_cast<float>(ScreenPosition.X), static_cast<float>(ScreenPosition.Y),
 		WorldOrigin, WorldDirection))
@@ -150,27 +195,14 @@ bool UPlanetEditComponent::TraceEditTarget(const FVector2D& ScreenPosition, FHit
 		return false;
 	}
 
-	// 实际可达距离受角色体素 invoker 的 CollisionsRange（约 20000 厘米）限制：
-	// 更远的地形只画不碰撞，射线会穿过去，点击既不改体素也没有反馈 —— 这是
-	// 设计如此，不是丢事件。这里的 1e5 只是射线本身的上限。
-	const FVector End = WorldOrigin + WorldDirection * MaxEditDistanceCm;
-
-	// 体素碰撞的 presets 由关卡决定，可能只在 Visibility 或 WorldStatic 之一上响应。
-	// 先打 Visibility；只有它**完全没有命中**时才补 WorldStatic —— 一次点击至多
-	// 两条射线。两条通道的命中都按「Actor 必须是当前行星」过滤：飞船、角色、
-	// 其它 Actor 都能挡住编辑。
-	// 注意：Visibility 若先撞上一个挡 Visibility 的非行星 Actor，就不再补
-	// WorldStatic —— 否则第二条射线会穿过挡住视线的物体，直接编辑后面的行星。
-	FCollisionQueryParams Params(SCENE_QUERY_STAT(PlanetEditBrush), /*bTraceComplex=*/true);
-	Params.AddIgnoredActor(GetOwner());
-
-	if (World->LineTraceSingleByChannel(OutHit, WorldOrigin, End, ECC_Visibility, Params))
+	OutTarget = FPlanetEditTarget();
+	if (!TargetResolver(WorldOrigin, WorldDirection, MaxEditDistanceCm, OutTarget))
 	{
-		return OutHit.GetActor() == Planet;
+		return false;
 	}
 
-	return World->LineTraceSingleByChannel(OutHit, WorldOrigin, End, ECC_WorldStatic, Params) &&
-		OutHit.GetActor() == Planet;
+	// 解析器只负责「往哪打」，可编辑性在这里统一把关：行星必须还有体素世界。
+	return IsValid(OutTarget.Planet) && OutTarget.Planet->IsCreated();
 }
 
 void UPlanetEditComponent::UpdateBrushPreview()
@@ -191,23 +223,24 @@ void UPlanetEditComponent::UpdateBrushPreview()
 		return;
 	}
 
-	AVoxelPlanetActor* Planet = ResolvePlanet();
-	FHitResult Hit;
-	if (!Planet || !Planet->IsCreated() ||
-		!TraceEditTarget(FVector2D(MouseX, MouseY), Hit))
+	FPlanetEditTarget Target;
+	if (!TryResolveTarget(FVector2D(MouseX, MouseY), Target))
 	{
 		HideBrushPreview();
 		return;
 	}
 
+	AVoxelPlanetActor* const Planet = Target.Planet;
 	const float VoxelSize = FMath::Max(Planet->VoxelSize, 1.f);
 	const FVector Center = PlanetEditBrush::GetEditCenterWorld(
-		Hit.Location, Hit.ImpactNormal, BrushSizeVoxels, VoxelSize, bPreviewPlacing);
+		Target.HitLocation, Target.HitNormal, BrushSizeVoxels, VoxelSize, bPreviewPlacing,
+		MinBrushSizeVoxels, MaxBrushSizeVoxels);
 
 	TArray<FPlanetEditSegment> Segments;
 	if (BrushShape == EPlanetBrushShape::Sphere)
 	{
-		const float Radius = PlanetEditBrush::GetHalfExtentCm(BrushSizeVoxels, VoxelSize);
+		const float Radius = PlanetEditBrush::GetHalfExtentCm(
+			BrushSizeVoxels, VoxelSize, MinBrushSizeVoxels, MaxBrushSizeVoxels);
 		PlanetEditBrush::BuildSpherePreviewSegments(Center, Radius, Segments);
 	}
 	else
