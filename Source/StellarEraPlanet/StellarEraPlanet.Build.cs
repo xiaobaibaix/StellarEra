@@ -15,6 +15,9 @@ public class StellarEraPlanet : ModuleRules
 
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "Voxel" });
 
+		// JSON 只在 PlanetGeologyField.cpp 里用，不需要向下游传递。
+		PrivateDependencyModuleNames.AddRange(new string[] { "Json" });
+
 		// 大气壳的编辑器预览要取活动视口相机（GEditor / FEditorViewportClient），
 		// 这两个符号在 UnrealEd 模块里。只对编辑器目标加，运行时构建不受影响，
 		// 对应的代码也都在 #if WITH_EDITOR 里。
