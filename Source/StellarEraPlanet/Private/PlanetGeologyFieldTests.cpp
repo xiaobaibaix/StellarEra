@@ -438,4 +438,31 @@ bool FPlanetGeologyColorTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyDefaultContentTest,
+	"StellarEra.Planet.Geology.DefaultContent",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyDefaultContentTest::RunTest(const FString& Parameters)
+{
+	FPlanetGeologyLoadReport Report;
+	const TSharedPtr<const FPlanetGeologyField> Field =
+		FPlanetGeologyField::LoadFromFiles(TEXT("earth"), Report);
+
+	for (const FString& Error : Report.Errors)
+	{
+		AddError(Error);
+	}
+	for (const FString& Warning : Report.Warnings)
+	{
+		AddWarning(Warning);
+	}
+
+	TestTrue(TEXT("earth 预设加载成功"), Field.IsValid() && !Field->IsEmpty());
+	TestEqual(TEXT("默认 6 种元素"), Field->NumElements(), 6);
+	TestTrue(TEXT("预设列表包含 earth"),
+		FPlanetGeologyField::ListPresetNames().Contains(TEXT("earth")));
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
