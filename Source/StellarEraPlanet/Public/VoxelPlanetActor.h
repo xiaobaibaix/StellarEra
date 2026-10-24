@@ -104,6 +104,24 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Planet")
 	float GetSurfaceRadiusCmAtDirection(const FVector& WorldDirection) const;
 
+	/**
+	 * 世界空间射线 → 行星**体素表面**的命中点（LOD0 数据，与渲染 LOD 无关）。
+	 *
+	 * 星图用：那里摄像机离地表几千公里，体素碰撞只覆盖几十米，LineTrace 什么也打不到。
+	 * 两步：先用随方向变化的半径解析求交（PlanetSurfaceRay），再从该点沿射线做体素
+	 * 符号行进，找空/实翻转的格子。误差 ≤ 1 体素。
+	 *
+	 * 只在返回 true 时写 Out 参数。
+	 *
+	 * @param MaxDistanceCm        命中点超过这个距离就返回 false（调用方靠它做最近命中剪枝）。
+	 * @param OutHitLocationWorld  命中点（世界空间）。
+	 * @param OutHitNormalWorld    径向外法线（世界空间）。
+	 * @param OutDistanceCm        射线原点到命中点的距离（厘米）。
+	 */
+	bool RaycastSurfaceCm(const FVector& RayOriginWorld, const FVector& RayDirectionWorld,
+		float MaxDistanceCm, FVector& OutHitLocationWorld, FVector& OutHitNormalWorld,
+		float& OutDistanceCm) const;
+
 	//////////////////////////////////////////////////////////////////////////
 	// 基础
 

@@ -24,6 +24,12 @@
 #include "VoxelData/VoxelSave.h"
 #include "VoxelData/VoxelSaveUtilities.h"
 #include "VoxelTools/VoxelDataTools.h"
+#include "PlanetSurfaceRay.h"
+#include "VoxelData/VoxelData.h"
+#include "VoxelData/VoxelDataLock.h"
+#include "VoxelIntBox.h"
+#include "VoxelValue.h"
+#include "VoxelVector.h"
 
 #if WITH_EDITOR
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -731,6 +737,142 @@ float AVoxelPlanetActor::GetSurfaceRadiusCmAtDirection(const FVector& WorldDirec
 
 	// 体素空间与世界空间之间只差一个等比缩放，没有旋转，方向可以原样传递。
 	return PlanetGenerator->Terrain->GetSurfaceRadiusVoxels(Context, Direction) * VoxelSize;
+}
+
+bool AVoxelPlanetActor::RaycastSurfaceCm(
+	const FVector& RayOriginWorld,
+	const FVector& RayDirectionWorld,
+	const float MaxDistanceCm,
+	FVector& OutHitLocationWorld,
+	FVector& OutHitNormalWorld,
+	float& OutDistanceCm) const
+{
+	const FVector Direction = RayDirectionWorld.GetSafeNormal();
+	if (Direction.IsNearlyZero() || MaxDistanceCm <= 0.f || !IsCreated())
+	{
+		return false;
+	}
+
+	// 体素空间与世界空间只差一个等比缩放和行星位置，没有旋转 —— 与
+	// GetSurfaceRadiusCmAtDirection 里那条说明同源。解析这一步全程用厘米。
+	const FVector PlanetCenterWorld = GetActorLocation();
+	const FVector RelativeOrigin = RayOriginWorld - PlanetCenterWorld;
+	if (RelativeOrigin.IsNearlyZero())
+	{
+		return false;
+	}
+
+	constexpr int32 AnalyticIterations = 3;
+
+	double AnalyticDistanceCm = -1.0;
+	if (!PlanetSurfaceRay::SolveAnalyticHit(
+		RelativeOrigin, Direction, static_cast<double>(GetSurfaceRadiusCm()),
+		AnalyticIterations,
+		[this](const FVector& UnitDirection)
+		{
+			return static_cast<double>(GetSurfaceRadiusCmAtDirection(UnitDirection));
+		},
+		AnalyticDistanceCm))
+	{
+		return false;
+	}
+
+	if (AnalyticDistanceCm < 0.0 || AnalyticDistanceCm > MaxDistanceCm)
+	{
+		return false;
+	}
+
+	// 解析结果是「生成器的理想地表」，实际数据可能被挖低了整整一笔刷，也可能因为
+	// 量化差一格。从解析命中点出发沿射线找空/实翻转。窗口取 128 体素，与星图笔刷
+	// 的尺寸上限一致：一笔刷能挖多深，就能从多深的地面重新瞄回来。更深的竖井需要
+	// 从坑沿往下打第二次 —— 这是刻度，不是 bug。
+	constexpr int32 SurfaceRayWindowVoxels = 128;
+
+	// 解析点换算成体素坐标，之后的行进全在体素空间（单位 = 体素）。
+	const FVoxelVector HitLocalVoxels = GlobalToLocalFloat(
+		RayOriginWorld + Direction * AnalyticDistanceCm);
+	const FVector HitLocal(HitLocalVoxels.X, HitLocalVoxels.Y, HitLocalVoxels.Z);
+	const FVector LocalDir = GetActorTransform()
+		.InverseTransformVectorNoScale(Direction).GetSafeNormal();
+
+	// 锁只盖住行进窗口（±Window），不盖整条射线：星图的射线长 50 AU，按射线原点
+	// 与终点算锁会锁住整颗行星的大半个八叉树。
+	const FVector MarchPlus = HitLocal + LocalDir * SurfaceRayWindowVoxels;
+	const FVector MarchMinus = HitLocal - LocalDir * SurfaceRayWindowVoxels;
+	const auto FloorVoxel = [](const double Value)
+	{
+		return static_cast<int32>(FMath::FloorToDouble(Value));
+	};
+	const auto CeilVoxel = [](const double Value)
+	{
+		return static_cast<int32>(FMath::CeilToDouble(Value));
+	};
+
+	const FIntVector ScanMin(
+		FloorVoxel(FMath::Min3(HitLocal.X, MarchPlus.X, MarchMinus.X)) - 2,
+		FloorVoxel(FMath::Min3(HitLocal.Y, MarchPlus.Y, MarchMinus.Y)) - 2,
+		FloorVoxel(FMath::Min3(HitLocal.Z, MarchPlus.Z, MarchMinus.Z)) - 2);
+	const FIntVector ScanMax(
+		CeilVoxel(FMath::Max3(HitLocal.X, MarchPlus.X, MarchMinus.X)) + 2,
+		CeilVoxel(FMath::Max3(HitLocal.Y, MarchPlus.Y, MarchMinus.Y)) + 2,
+		CeilVoxel(FMath::Max3(HitLocal.Z, MarchPlus.Z, MarchMinus.Z)) + 2);
+
+	// FVoxelIntBox 的 Max 是开区间，所以 +1。
+	const FVoxelIntBox ScanBounds(ScanMin, ScanMax + FIntVector(1, 1, 1));
+
+	const FVoxelReadScopeLock Lock(GetData(), ScanBounds, TEXT("PlanetSurfaceRaycast"));
+
+	const auto SampleEmpty = [this, &HitLocal, &LocalDir](const int32 Step) -> bool
+	{
+		const FVector Sample = HitLocal + LocalDir * Step;
+		const FIntVector Voxel(
+			static_cast<int32>(FMath::FloorToInt(Sample.X)),
+			static_cast<int32>(FMath::FloorToInt(Sample.Y)),
+			static_cast<int32>(FMath::FloorToInt(Sample.Z)));
+		return GetData().GetValue(Voxel, /*LOD=*/0).IsEmpty();
+	};
+
+	// 从解析点往里走是「空 → 实」（正常俯视），往外走是「实 → 空」（估计高了一格）。
+	// 两个方向都试，失败面就只剩「窗口不够」这一种。
+	const bool bStartsEmpty = SampleEmpty(0);
+	const int32 StepSign = bStartsEmpty ? 1 : -1;
+
+	int32 BoundaryStep = 0;
+	for (int32 Step = 1; Step <= SurfaceRayWindowVoxels; ++Step)
+	{
+		if (SampleEmpty(StepSign * Step) != bStartsEmpty)
+		{
+			BoundaryStep = Step;
+			break;
+		}
+	}
+
+	if (BoundaryStep == 0)
+	{
+		return false;
+	}
+
+	// 边界取两个采样点的中点：真实表面一定在这两格之间，误差 ≤ 1 体素。
+	const FVector BoundaryLocal = HitLocal
+		+ LocalDir * (static_cast<double>(StepSign) * (BoundaryStep - 0.5));
+	const FVector BoundaryWorld = LocalToGlobalFloat(FVoxelVector(BoundaryLocal));
+	const float BoundaryDistanceCm =
+		static_cast<float>((BoundaryWorld - RayOriginWorld).Size());
+	if (BoundaryDistanceCm > MaxDistanceCm)
+	{
+		return false;
+	}
+
+	// **只在成功时写 Out 参数**：调用方拿上一次的最好距离做剪枝，失败时残留的
+	// 旧值会被当成命中距离。
+	OutHitLocationWorld = BoundaryWorld;
+	OutDistanceCm = BoundaryDistanceCm;
+	OutHitNormalWorld = (BoundaryWorld - PlanetCenterWorld).GetSafeNormal();
+	if (OutHitNormalWorld.IsNearlyZero())
+	{
+		OutHitNormalWorld = -Direction;
+	}
+	return true;
 }
 
 uint64 AVoxelPlanetActor::ComputeParamsHash() const
