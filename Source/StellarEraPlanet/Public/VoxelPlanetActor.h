@@ -1,4 +1,4 @@
-// Copyright Voxel Plugin SAS. All Rights Reserved.
+﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 // 将 UVoxelPlanetGenerator 封装为可直接摆放的 Actor。
 
 #pragma once
@@ -108,6 +108,22 @@ public:
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Terrain")
 	TObjectPtr<UVoxelPlanetTerrainModule> Terrain;
+
+	/**
+	 * 地质预设名：Content/Geology/Planets/<name>.json 的 <name>。
+	 * 空 = 这颗行星没有矿。下拉框由 GetGeologyPresetOptions 提供。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Geology",
+		meta = (GetOptions = "GetGeologyPresetOptions"))
+	FString GeologyPreset = TEXT("earth");
+
+	/** 重新读盘并重建这颗行星：改完 JSON 后调用。 */
+	UFUNCTION(BlueprintCallable, Category = "Planet|Geology")
+	void ReloadGeology();
+
+	/** 编辑器下拉框的选项：Content/Geology/Planets 下所有预设名。 */
+	UFUNCTION(BlueprintPure, Category = "Planet|Geology")
+	TArray<FString> GetGeologyPresetOptions() const;
 
 	//////////////////////////////////////////////////////////////////////////
 	// 性能
