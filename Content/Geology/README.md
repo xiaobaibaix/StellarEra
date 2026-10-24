@@ -36,6 +36,25 @@
 
 未在行星 JSON 中出现的元素 = 这颗行星没有该元素。
 
+### 地表可见性
+
+`peakDepth` 是**绝对体素深度**，而某个地表点的地质深度约为
+`-terrainAmplitude × Offset`（低地为正）。因此近地表矿层能不能露头取决于地形振幅：
+shipped 的 `DA_Terrain_Earth`（Amplitude=200）低地表面深度可达约 70 体素，
+water/iron/silicon/copper 才会零星出现在地表；如果把 `earth` 预设挂到小振幅地形
+（例如模块默认的 8），自然地表几乎看不到矿色，通常要向下挖 20+ 体素才出现。
+这不是地质加载失败。
+
+### 数值与收敛约束
+
+- `geometryAmplitude` 会被夹到 `[0, 64]`；`layerThickness` 必须是有限正数并被夹到
+  `(0, 10000]`；`peakDepth` 夹到 `[-10000, 10000]`。越界会在日志里留下 Warning。
+- 地表查询用两次不动点迭代 `d ← D0 - δ(d)`，收缩条件是
+  `|∂δ/∂depth| < 1`。矿脉凸起振幅应**显著小于最小 `layerThickness`**：shipped
+  内容 1.5 / 12 的实际导数约为 0.05，远小于 1；若把凸起调到 12、最薄层厚调到 4
+  （比值 3），迭代可能不收敛，角色会站在与地形表面不一致的半径上。建议
+  `geometryAmplitude / min(layerThickness) ≤ 0.1`。
+
 ## 改完怎么生效
 
 编辑器控制台执行：

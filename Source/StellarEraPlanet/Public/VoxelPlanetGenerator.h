@@ -44,7 +44,12 @@ public:
 	 */
 	FVoxelPlanetTerrainContext MakeTerrainContext();
 
-	/** 按 GeologyPreset 懒加载并缓存；预设为空或加载失败时返回空指针。 */
+	/**
+	 * 按 GeologyPreset 懒加载并缓存。
+	 * - 预设为空 → 返回 nullptr；
+	 * - 加载失败 → 返回**有效空场**（IsValid() 且 IsEmpty()），错误写入日志；
+	 * - 缓存按预设名键控，失败结果同样被缓存，直到 InvalidateGeology()。
+	 */
 	TSharedPtr<const FPlanetGeologyField> GetGeology();
 
 	/** 丢弃缓存；下次 GetGeology 重新读盘。 */

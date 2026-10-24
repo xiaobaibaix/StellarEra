@@ -78,7 +78,7 @@
 | 字段 | 类型 | 范围 | 说明 |
 |---|---|---|---|
 | `id` | string | 唯一、非空 | 行星 JSON 用它引用元素 |
-| `displayName` | string | — | 只用于日志/未来 UI |
+| `displayName` | string | — | 保留给未来 UI/日志；当前解析器读入但不消费 |
 | `color` | [r,g,b] | 0~1 | 高纯度时的本色 |
 | `noise.frequency` | number | > 0 | 单位方向上的噪声频率，越大矿脉越碎 |
 | `noise.octaves` | int | 1~6 | 分形层数，性能旋钮 |
@@ -433,7 +433,7 @@ UnrealEditor-Cmd StellarEra.uproject -ExecCmds="Automation RunTests StellarEra" 
 
 `GetMaterialImpl` 里的 `MakeVoxelMaterial(Sample, BaseColor)` 是唯一出口。未来版本：
 
-- 在 `FPlanetGeologySample` 上增加 `DominantIndex` 与混合权重（已有）；
+- 在 `FPlanetGeologySample` 上增加 `DominantIndex` 与混合权重（未来增加；当前未实现）；
 - 元素定义增加材质槽索引；
 - `MakeVoxelMaterial` 改为构造 `EVoxelMaterialConfig::MultiIndex`，并建立材质集合资产。
 

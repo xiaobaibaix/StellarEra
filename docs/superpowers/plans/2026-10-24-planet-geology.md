@@ -1935,15 +1935,17 @@ bool FPlanetGeologyDefaultContentTest::RunTest(const FString& Parameters)
     "purityForFullColor": 0.7
   },
   "elements": {
-    "iron":     { "abundance": 0.75, "peakDepth": -30,  "layerThickness": 20 },
-    "copper":   { "abundance": 0.45, "peakDepth": -65,  "layerThickness": 42 },
-    "silicon":  { "abundance": 0.60, "peakDepth": -48,  "layerThickness": 31 },
-    "titanium": { "abundance": 0.15, "peakDepth": -110, "layerThickness": 72 },
-    "uranium":  { "abundance": 0.10, "peakDepth": -190, "layerThickness": 124 },
-    "water":    { "abundance": 0.30, "peakDepth": -12,  "layerThickness": 12 }
+    "iron":     { "abundance": 0.75, "peakDepth": 30,  "layerThickness": 20 },
+    "copper":   { "abundance": 0.45, "peakDepth": 65,  "layerThickness": 42 },
+    "silicon":  { "abundance": 0.60, "peakDepth": 48,  "layerThickness": 31 },
+    "titanium": { "abundance": 0.15, "peakDepth": 110, "layerThickness": 72 },
+    "uranium":  { "abundance": 0.10, "peakDepth": 190, "layerThickness": 124 },
+    "water":    { "abundance": 0.30, "peakDepth": 12,  "layerThickness": 12 }
   }
 }
 ```
+
+R9：深度以基准球面为 0、向内为正（代码与设计文档 §3.1 为准）。
 
 - [ ] **Step 5: 写 README**
 
@@ -1983,7 +1985,7 @@ bool FPlanetGeologyDefaultContentTest::RunTest(const FString& Parameters)
 | `appearance.fadeRange` | 0.15 | 从阈值到完全显现的过渡宽度 |
 | `appearance.purityForFullColor` | 0.7 | 纯度达到它时颜色完全用矿色 |
 | `elements.<id>.abundance` | 0 | 全局丰度，0~1 |
-| `elements.<id>.peakDepth` | — | 峰值深度，体素；负 = 地表以下 |
+| `elements.<id>.peakDepth` | — | 峰值深度，体素；正 = 向行星内部 |
 | `elements.<id>.layerThickness` | — | 高斯层厚，体素，必须 > 0 |
 
 未在行星 JSON 中出现的元素 = 这颗行星没有该元素。
