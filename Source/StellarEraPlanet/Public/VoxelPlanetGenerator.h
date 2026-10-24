@@ -74,8 +74,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet")
 	FLinearColor SurfaceColor = FLinearColor(0.18f, 0.42f, 0.16f);
 
-	/** 地质预设名：Content/Geology/Planets/<name>.json。空 = 关闭地质。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Geology")
+	/**
+	 * 地质预设名：Content/Geology/Planets/<name>.json。空 = 关闭地质。
+	 *
+	 * 故意**不做成 EditAnywhere**（VisibleAnywhere = Edit + EditConst）：
+	 * VoxelFree 的 UVoxelGenerator::GetParameters 会枚举每个可编辑属性并构造
+	 * FVoxelGeneratorParameterType，而后者只支持 float/int/bool/object/softobject/
+	 * struct/array/set/map —— FString 会直接命中断言
+	 *（VoxelGeneratorParameters.cpp:176）。在场景大纲里选中行星 Actor 时，
+	 * Details 里继承来的 Generator 选择器会调 GetParameters，于是每次都弹 ensure。
+	 * 作者入口是 AVoxelPlanetActor::GeologyPreset，RebuildPlanet 每次把它推到这里。
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Planet|Geology")
 	FString GeologyPreset;
 
 private:

@@ -31,14 +31,32 @@ struct FPlanetGeologyElement
 	float Gain = 0.5f;
 	int32 Seed = 0;
 	float DepthScale = 0.3f;
+
+	/**
+	 * 矿脉稀疏阈值（0..0.95，来自元素表 noise.veinThreshold）。
+	 *
+	 * Perlin 噪声 0.5 是均值：阈值越高，只有噪声峰值附近才留下含量，
+	 * 单元素脉越稀疏、越纯。0 表示不稀疏（旧行为）。
+	 * 每个元素可以不同，用来让各矿脉的分布与密度互不相同。
+	 */
+	float VeinThreshold = 0.f;
 };
 
-/** 一次地质采样的结果。TotalNorm / Purity 均已归一化到 [0,1]。 */
+/** 一次地质采样的结果。TotalNorm / DominantNorm / Purity 均已归一化到 [0,1]。 */
 struct FPlanetGeologySample
 {
 	float TotalNorm = 0.f;
+	/**
+	 * 最强元素自身的归一化强度 = 高斯层因子 × 矿脉因子（raw_i / abundance_i）。
+	 *
+	 * 与元素丰度无关：丰度 0.05 的铀在自己的矿脉里也能到 1。
+	 * 颜色显现必须用它而不是 TotalNorm，否则低丰度元素永远够不到阈值。
+	 */
+	float DominantNorm = 0.f;
 	float Purity = 0.f;
 	FLinearColor MineralColor = FLinearColor::Black;
+	/** 最强元素在元素表中的下标；-1 表示当前采样没有任何矿。 */
+	int32 DominantIndex = INDEX_NONE;
 };
 
 /** 行星级的外观参数（来自 Planets/<preset>.json 的 appearance 段）。 */

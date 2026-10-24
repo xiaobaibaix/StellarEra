@@ -61,6 +61,9 @@ private:
 	{
 		double Total = 0.0;
 		double MaxRaw = 0.0;
+		/** 最强元素的 raw_i / abundance_i；与丰度无关，供颜色显现判定。 */
+		double DominantNorm = 0.0;
+		int32 DominantIndex = INDEX_NONE;
 	};
 
 	/** 单遍累加；bComputeColor 为假时跳过加权颜色，供几何查询用。 */

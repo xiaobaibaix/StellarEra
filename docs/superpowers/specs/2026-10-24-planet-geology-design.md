@@ -38,6 +38,7 @@
 | 4 | JSON 放 `Content/Geology/`，**元素表与行星预设分成两份** | 全局元素表与每行星参数分离；改一个行星不影响其他 |
 | 5 | 第一版范围 = **视觉 + 几何 + 查询接口**，不做产出 | 现有挖掘链路（`UPlanetEditComponent`）已经能挖，先打通“看得到” |
 | 6 | 实现在**独立 worktree** 中进行 | 用户要求 |
+| 7 | 每元素独立的**矿脉稀疏门**（`veinThreshold`），显色看最强元素自身强度（`DominantNorm`） | 用户要求矿脉稀疏、不过度合并、能采到高纯度且颜色明显，且各元素分布/含量互不相同；按总含量归一化会让低丰度元素永远显不出来 |
 
 ---
 
@@ -66,7 +67,8 @@
         "lacunarity": 2.0,
         "gain": 0.5,
         "seed": 101,
-        "depthScale": 0.3
+        "depthScale": 0.3,
+        "veinThreshold": 0.55
       }
     }
   ]
@@ -86,6 +88,7 @@
 | `noise.gain` | number | 0~1 | 每层振幅衰减 |
 | `noise.seed` | int | — | 不同元素用不同种子，分布互不相关 |
 | `noise.depthScale` | number | (0,1] | 深度混入噪声的强度，见 §3.2；0 会让矿退化成均匀壳 |
+| `noise.veinThreshold` | number | [0,0.95] | 矿脉稀疏门，见 §3.2；perlin 噪声 0.5 是均值，阈值越高只有峰值附近留矿，0 = 满层（旧行为） |
 
 ### 2.3 `Planets/<preset>.json`
 
@@ -94,26 +97,30 @@
   "version": 1,
   "geometryAmplitude": 1.5,
   "appearance": {
-    "colorThreshold": 0.22,
-    "fadeRange": 0.15,
+    "colorThreshold": 0.15,
+    "fadeRange": 0.45,
     "purityForFullColor": 0.7
   },
   "elements": {
-    "iron":    { "abundance": 0.75, "peakDepth": 30,  "layerThickness": 20 },
-    "copper":  { "abundance": 0.45, "peakDepth": 65,  "layerThickness": 42 },
-    "silicon": { "abundance": 0.60, "peakDepth": 48,  "layerThickness": 31 },
-    "titanium":{ "abundance": 0.15, "peakDepth": 110, "layerThickness": 72 },
-    "uranium": { "abundance": 0.10, "peakDepth": 190, "layerThickness": 124 },
-    "water":   { "abundance": 0.30, "peakDepth": 12,  "layerThickness": 12 }
+    "silicon":  { "abundance": 0.60, "peakDepth": 5,   "layerThickness": 22 },
+    "water":    { "abundance": 0.20, "peakDepth": 10,  "layerThickness": 8 },
+    "iron":     { "abundance": 0.75, "peakDepth": 30,  "layerThickness": 20 },
+    "copper":   { "abundance": 0.45, "peakDepth": 50,  "layerThickness": 24 },
+    "titanium": { "abundance": 0.15, "peakDepth": 78,  "layerThickness": 30 },
+    "uranium":  { "abundance": 0.10, "peakDepth": 130, "layerThickness": 55 }
   }
 }
 ```
 
+层位按 shipped 地形（Amplitude=200）的实测地表深度分布排定：中位表面 ≈ +1.5 体素，
+四分位低地 ≈ +25，最深低地 ≈ +70。硅到处都是、铁约四分之一地表可见、
+铜只在深洼、钛几乎只见于最深处、铀只能挖到——六条深度带互不重叠。
+
 | 字段 | 默认 | 说明 |
 |---|---|---|
 | `geometryAmplitude` | 1.5 | 矿脉让地表外凸的最大体素数；`0` = 不影响几何 |
-| `appearance.colorThreshold` | 0.22 | 归一化总含量的显现阈值 |
-| `appearance.fadeRange` | 0.15 | 从阈值到完全显现的过渡宽度 |
+| `appearance.colorThreshold` | 0.15 | 最强元素自身强度（`DominantNorm`）的显现阈值 |
+| `appearance.fadeRange` | 0.45 | 从阈值到完全显现的过渡宽度 |
 | `appearance.purityForFullColor` | 0.7 | 纯度混合系数 `PurityMix = saturate((Purity - (1 - p)) / p)`：`Purity ≤ 1 - p` 时不用矿色，线性升高到 `Purity = 1` 才完全用矿色 |
 | `elements.<id>.abundance` | 0 | 全局丰度，0~1 |
 | `elements.<id>.peakDepth` | — | 峰值深度，体素；**正 = 基准球面以下（向行星内部为正）**，缺省 0 |
@@ -155,28 +162,40 @@ depth = Radius - DistanceToCenter
 ### 3.2 单元素原始密度
 
 ```
-SampleZ = UnitDir.Z + (depth / layerThickness) * depthScale
-n_i     = FractalPerlin3D(UnitDir.X, UnitDir.Y, SampleZ, frequency, octaves)   // [-1,1]
-noise_i = 0.5 * (n_i + 1)                                                      // [0,1]
-raw_i   = abundance_i
-        * exp(-((depth - peakDepth_i) / layerThickness_i)²)
-        * noise_i
+SampleZ   = UnitDir.Z + (depth / layerThickness) * depthScale
+n_i       = FractalPerlin3D(UnitDir.X, UnitDir.Y, SampleZ, frequency, octaves)   // [-1,1]
+noise_i   = 0.5 * (n_i + 1)                                                      // [0,1]
+vein_i    = veinThreshold_i > 0
+              ? clamp((noise_i - veinThreshold_i) / (1 - veinThreshold_i), 0, 1)
+              : noise_i
+gaussian_i= exp(-((depth - peakDepth_i) / layerThickness_i)²)
+raw_i     = abundance_i * gaussian_i * vein_i
 ```
 
 `depthScale` 必须大于 0：同一半径上的所有点若噪声值相同，矿会退化成一层均匀的壳而不是矿脉。
+
+`veinThreshold` 是**矿脉稀疏门**：perlin 噪声的均值是 0.5，阈值以上才留矿，阈值以下完全为 0；
+阈值越高，单元素矿脉越稀疏。各元素的种子、频率、深度带与门限都不同，因此每张密度场的
+分布互不相关，同一地点通常只有一种元素在门内——这是 `Purity` 能接近 1 的前提。
 
 `FVoxelFastNoise` 的 `GetPerlinFractal_3D(x, y, z, frequency, octaves)` 内部会把坐标乘频率，因此 `SampleZ` 用无量纲的深度比，不直接加体素深度。
 
 ### 3.3 合并与纯度
 
 ```
-Total       = Σ raw_i                        ∈ [0, Σ abundance_i]
-TotalNorm   = Total / Σ abundance_i          ∈ [0,1]（丰度和为 0 时取 0）
-w_i         = raw_i / Total                  （Total = 0 时全 0）
-Purity      = max(w_i)                       ∈ [0,1]
+Total        = Σ raw_i                                   ∈ [0, Σ abundance_i]
+TotalNorm    = Total / Σ abundance_i                     ∈ [0,1]（丰度和为 0 时取 0）
+Own_i        = gaussian_i * vein_i                       （去掉丰度的自身强度）
+DominantNorm = max_i Own_i                               ∈ [0,1]
+DominantIndex= argmax_i Own_i                            （-1 = 没有任何矿）
+w_i          = raw_i / Total                             （Total = 0 时全 0）
+Purity       = max(w_i) = max(raw_i) / Total             ∈ [0,1]
 MineralColor = Σ w_i * color_i
-DominantIndex = argmax(raw_i)
 ```
+
+`TotalNorm` 会被丰度和稀释（shipped 的 `Σ abundance = 2.25`），因此**只用于几何增量与解析测试**；
+显色与「这颗矿在不在这」一律看 `DominantNorm`——它与丰度无关，丰度 0.10 的铀在自己的矿脉里
+也能到 1。两者用途不同，不可互换。
 
 ### 3.4 几何增量
 
@@ -189,7 +208,7 @@ GeometryDelta = geometryAmplitude * saturate(TotalNorm)     ∈ [0, geometryAmpl
 ### 3.5 颜色
 
 ```
-Presence    = saturate((TotalNorm - colorThreshold) / fadeRange)
+Presence    = saturate((DominantNorm - colorThreshold) / fadeRange)
 PurityMix   = saturate((Purity - (1 - purityForFullColor)) / purityForFullColor)
 MineralWeight = Presence * PurityMix
 
@@ -277,7 +296,7 @@ const double Value = (Distance - BaseSurface - Delta) / DensityScale;
 
 1. 先算现有地形色（水/沙/草/岩/雪）；
 2. `depth = Radius - Distance`，`Sample = Geology->Sample(UnitDir, depth)`；
-3. 若 `Offset > SeaLevel` 且 `TotalNorm > colorThreshold`，按 §3.5 叠矿色；
+3. 若 `Offset > SeaLevel` 且 `DominantNorm > colorThreshold`，按 §3.5 叠矿色；
 4. 通过唯一出口打包：
 
 ```cpp
@@ -411,6 +430,7 @@ UnrealEditor-Cmd StellarEra.uproject -ExecCmds="Automation RunTests StellarEra" 
 | `StellarEra.Planet.Geology.Bounds` | `Total <= Σ abundance`；`GeometryDelta ∈ [0, geometryAmplitude]`；`Purity ∈ [0,1]` |
 | `StellarEra.Planet.Geology.RangeCoverage` | **关键**：包围盒内随机采样，`GetValueRangeImpl` 必须覆盖所有 `GetValueImpl` 值 |
 | `StellarEra.Planet.Geology.Color` | 无矿 → 地形底色；纯矿 → 元素色；水面不叠矿色 |
+| `StellarEra.Planet.Geology.Veins` | 稀疏场仍找得到矿，但明显少于无门限场；存在 `Purity > 0.95` 的采样点；丰度 0.05 的元素与丰度 0.90 的元素各自都能成为主导并显出本色 |
 
 `LoadFromString` 让解析测试不依赖磁盘。
 
@@ -433,7 +453,7 @@ UnrealEditor-Cmd StellarEra.uproject -ExecCmds="Automation RunTests StellarEra" 
 
 `GetMaterialImpl` 里的 `MakeVoxelMaterial(Sample, BaseColor)` 是唯一出口。未来版本：
 
-- 在 `FPlanetGeologySample` 上增加 `DominantIndex` 与混合权重（未来增加；当前未实现）；
+- `FPlanetGeologySample` 已有 `DominantIndex` 与 `Purity`（`DominantIndex` 当前只用于诊断/测试）；
 - 元素定义增加材质槽索引；
 - `MakeVoxelMaterial` 改为构造 `EVoxelMaterialConfig::MultiIndex`，并建立材质集合资产。
 
