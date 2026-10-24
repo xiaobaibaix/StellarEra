@@ -9,6 +9,7 @@
 class AVoxelPlanetActor;
 class UCameraComponent;
 class UCosmosSimulationSubsystem;
+class UPlanetEditComponent;
 class UVoxelSimpleInvokerComponent;
 
 /**
@@ -46,6 +47,8 @@ struct FStarMapObstacle
 	double RadiusCm = 0.0;
 };
 
+struct FPlanetEditTarget;
+
 /**
  * 星图模式的相机。进入星图时由 AStellarEraPlayerController 创建并 Possess。
  *
@@ -66,6 +69,11 @@ class AStarMapCameraPawn : public APawn
 
 public:
 	AStarMapCameraPawn();
+
+	virtual void BeginPlay() override;
+
+	/** 星图模式的行星编辑组件。参数（尺寸区间、提示、距离）在构造函数里配好。 */
+	UPlanetEditComponent* GetPlanetEditComponent() const;
 
 	/** 进入星图模式时由控制器调用：把相机原地钉住，并重置为「未选中」。 */
 	void EnterFrom(const FVector& InCameraLocation, const FRotator& InCameraRotation);
@@ -198,6 +206,16 @@ protected:
 	 */
 	void ComputeOrbitDistanceLimitsCm(AActor* Focus, double& OutMinCm, double& OutMaxCm) const;
 
+	/**
+	 * 屏幕射线 → 最近一颗被射线打到的体素行星的表面点。
+	 *
+	 * 逐颗行星调用 AVoxelPlanetActor::RaycastSurfaceCm，用「当前最近距离」当
+	 * 上限剪枝 —— 射线没穿过的行星在解析那一步就返回了，不会付体素行进的开销。
+	 * 不是行星的天体（飞船、角色）直接跳过：它们没有可编辑的体素数据。
+	 */
+	bool ResolveEditTargetByPlanets(const FVector& RayOrigin, const FVector& RayDirection,
+		float MaxDistanceCm, FPlanetEditTarget& OutTarget) const;
+
 	/** 相机，同时是根组件。不挂 SpringArm —— 太空里没有东西要避。 */
 	UPROPERTY(VisibleAnywhere, Category = "StarMap")
 	TObjectPtr<UCameraComponent> Camera;
@@ -228,6 +246,16 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, Category = "StarMap|Voxel")
 	TObjectPtr<UVoxelSimpleInvokerComponent> VoxelInvokerLOD5;
+
+	/**
+	 * 行星编辑器。与角色共用同一个组件类，差别只在参数与射线解析器：
+	 * 角色 1..8 体素、LineTrace；星图 8..128 体素、解析 + 体素行进。
+	 *
+	 * 挂在本 Pawn 上而不是行星上：换焦点、换行星都不影响它的生命周期，
+	 * 而且它不参与 N 体搬运。
+	 */
+	UPROPERTY(VisibleAnywhere, Category = "StarMap|Edit")
+	TObjectPtr<UPlanetEditComponent> PlanetEdit;
 
 	// ── 运行时状态 ──
 

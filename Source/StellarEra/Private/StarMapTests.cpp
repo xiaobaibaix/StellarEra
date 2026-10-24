@@ -10,6 +10,7 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "PlanetCharacter.h"
+#include "PlanetEditComponent.h"
 #include "SpaceshipPawn.h"
 #include "StarMapCameraPawn.h"
 #include "StellarEraPlayerController.h"
@@ -515,6 +516,39 @@ bool FStellarEraStarMapZoomLimitsTest::RunTest(const FString& Parameters)
 			5000.0, 2.0e4, 5.0e7),
 		2.0e4, Tolerance);
 
+	return true;
+}
+
+// 星图 Pawn 的编辑组件参数是构造函数里配的，所以 CDO 上就能读到。
+// 这一项钉的是「8..128、默认 32、Shift 填、50 AU」四个数字 —— 它们只能在一个地方
+// 出现（构造函数），测试替 HUD 与输入层看着它们。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapEditComponentDefaultsTest,
+	"StellarEra.StarMap.EditComponentDefaults",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraStarMapEditComponentDefaultsTest::RunTest(const FString& Parameters)
+{
+	const AStarMapCameraPawn* PawnCDO = GetDefault<AStarMapCameraPawn>();
+	TestNotNull(TEXT("星图 Pawn 有 CDO"), PawnCDO);
+	if (!PawnCDO)
+	{
+		return false;
+	}
+
+	const UPlanetEditComponent* Edit = PawnCDO->GetPlanetEditComponent();
+	TestNotNull(TEXT("星图 Pawn 带编辑组件"), Edit);
+	if (!Edit)
+	{
+		return false;
+	}
+
+	TestEqual(TEXT("默认 32 体素"), Edit->GetBrushSizeVoxels(), 32);
+	TestEqual(TEXT("下限 8 体素"), Edit->GetMinBrushSizeVoxels(), 8);
+	TestEqual(TEXT("上限 128 体素"), Edit->GetMaxBrushSizeVoxels(), 128);
+	TestEqual(TEXT("提示为 Shift 填"), Edit->GetPlaceActionHint(), FString(TEXT("Shift+左键填")));
+	TestTrue(TEXT("编辑距离 50 AU"),
+		FMath::IsNearlyEqual(Edit->MaxEditDistanceCm, 5.0e7f));
+	TestTrue(TEXT("大笔刷走并行"), Edit->bMultiThreadedEdits);
 	return true;
 }
 
