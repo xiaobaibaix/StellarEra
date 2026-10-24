@@ -67,7 +67,7 @@ bool PlanetBrushApplicator::Apply(
 		}
 	}
 
-	// 空操作不重建网格、也不触发保存。
+	// 空操作不调 NotifyVoxelEdited（表面网格刷新 + 存档防抖）；渲染仍会在上面按请求包围盒刷新一次。
 	if (ModifiedValues.Num() == 0)
 	{
 		return false;

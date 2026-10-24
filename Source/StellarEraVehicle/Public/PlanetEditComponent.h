@@ -59,7 +59,7 @@ public:
 	/**
 	 * 装「屏幕射线 → 编辑目标」的解析器。由 Owner 在 BeginPlay 里调一次。
 	 *
-	 * 没装时 TryResolveTarget 恒 false：组件只显示预览、不落笔。
+	 * 没装时 TryResolveTarget 恒 false：预览与落笔都不会发生。
 	 */
 	void SetTargetResolver(FPlanetEditTargetResolver InResolver);
 

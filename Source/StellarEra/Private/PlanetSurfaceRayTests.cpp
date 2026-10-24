@@ -5,6 +5,8 @@
 #include "Misc/AutomationTest.h"
 #include "PlanetSurfaceRay.h"
 
+#if WITH_DEV_AUTOMATION_TESTS
+
 // 定半径：就是一个普通球面求交。起于球心正下方 10 cm、朝 +Z 打半径 5 的球，
 // 穿入点在 z = −5，所以距离 5。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSurfaceRayConstantRadiusTest,
@@ -136,3 +138,5 @@ bool FStellarEraSurfaceRayMidIterationMissTest::RunTest(const FString& Parameter
 	TestTrue(TEXT("保留基准距离 10"), FMath::IsNearlyEqual(Distance, 10.0, 1e-6));
 	return true;
 }
+
+#endif

@@ -245,10 +245,12 @@ void UPlanetEditComponent::UpdateBrushPreview()
 	}
 	else
 	{
-		// 与挖 / 放走完全相同的 MakeBox → MakeVoxelBox，预览框才与真实格子一致。
+		// 与挖 / 放走完全相同的 MakeBox → MakeVoxelBox，预览框才与真实格子一致
+		//（区间取本组件的，星图是 8..128）。
 		const FVoxelVector LocalCenter = Planet->GlobalToLocalFloat(Center);
 		const FPlanetEditBox Box = PlanetEditBrush::MakeBox(
-			FVector(LocalCenter.X, LocalCenter.Y, LocalCenter.Z), BrushSizeVoxels);
+			FVector(LocalCenter.X, LocalCenter.Y, LocalCenter.Z), BrushSizeVoxels,
+			MinBrushSizeVoxels, MaxBrushSizeVoxels);
 		const FPlanetEditVoxelBox VoxelBox = PlanetEditBrush::MakeVoxelBox(Box);
 		PlanetEditBrush::BuildBoxPreviewSegments(VoxelBox.Min, VoxelBox.MaxExclusive, Segments);
 

@@ -23,8 +23,9 @@ namespace PlanetBrushApplicator
 	 * CenterWorld 由调用方按 GetEditCenterWorld 算好：挖 = 命中点本身，
 	 * 放 = 沿命中法线外移一个半边长。
 	 *
-	 * 空操作（在岩石里放石头、挖空气）返回 false，且**不**触发网格重建与
-	 * 存档 —— 判据是工具写回的 OutModifiedValues 数量：它只记录值真的变了的
+	 * 空操作（在岩石里放石头、挖空气）返回 false，且**不**调 NotifyVoxelEdited
+	 *（表面网格刷新 + 存档防抖）；渲染仍会按请求包围盒刷新一次。
+	 * 判据是工具写回的 OutModifiedValues 数量：它只记录值真的变了的
 	 * 体素。插件的 OutEditedBounds 不能用，宏会无条件把它设成请求包围盒。
 	 */
 	STELLARERAVEHICLE_API bool Apply(
