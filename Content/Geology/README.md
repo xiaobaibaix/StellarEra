@@ -14,7 +14,7 @@
 | 字段 | 说明 |
 |---|---|
 | `id` | 唯一非空；行星 JSON 用它引用元素 |
-| `displayName` | 只用于日志/未来 UI |
+| `displayName` | 保留给未来 UI/日志；当前代码不读取 |
 | `color` | `[r,g,b]`，0~1，高纯度时的本色 |
 | `noise.frequency` | 单位方向上的噪声频率，越大矿脉越碎 |
 | `noise.octaves` | 1~6，分形层数，性能旋钮 |
@@ -29,9 +29,9 @@
 | `geometryAmplitude` | 1.5 | 矿脉让地表外凸的最大体素数；0 = 不影响几何 |
 | `appearance.colorThreshold` | 0.22 | 归一化总含量的显现阈值 |
 | `appearance.fadeRange` | 0.15 | 从阈值到完全显现的过渡宽度 |
-| `appearance.purityForFullColor` | 0.7 | 纯度达到它时颜色完全用矿色 |
+| `appearance.purityForFullColor` | 0.7 | 纯度混合系数 `PurityMix = saturate((Purity - (1 - p)) / p)`：`Purity ≤ 1 - p` 时不用矿色，线性升高到 `Purity = 1` 才完全用矿色 |
 | `elements.<id>.abundance` | 0 | 全局丰度，0~1 |
-| `elements.<id>.peakDepth` | — | 峰值深度，体素；负 = 地表以下 |
+| `elements.<id>.peakDepth` | — | 峰值深度，体素；**正 = 基准球面以下（向行星内部为正）**，缺省 0 |
 | `elements.<id>.layerThickness` | — | 高斯层厚，体素，必须 > 0 |
 
 未在行星 JSON 中出现的元素 = 这颗行星没有该元素。
