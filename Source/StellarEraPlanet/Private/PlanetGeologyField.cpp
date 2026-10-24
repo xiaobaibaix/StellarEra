@@ -386,13 +386,105 @@ TArray<FString> FPlanetGeologyField::ListPresetNames()
 	return PresetNames;
 }
 
-// 采样数学在 Task 2 实现；先留桩让解析测试能单独跑。
 FPlanetGeologySample FPlanetGeologyField::Sample(const FVector& UnitDir, double Depth) const
 {
-	return FPlanetGeologySample();
+	FPlanetGeologySample Result;
+	if (Elements.Num() == 0 || TotalAbundance <= 0.f)
+	{
+		return Result;
+	}
+
+	FAccumulation Accumulation;
+	FLinearColor WeightedColor = FLinearColor::Black;
+	Accumulate(UnitDir, Depth, true, Accumulation, WeightedColor);
+
+	if (Accumulation.Total <= UE_DOUBLE_KINDA_SMALL_NUMBER)
+	{
+		return Result;
+	}
+
+	Result.TotalNorm = FMath::Clamp(
+		float(Accumulation.Total / double(TotalAbundance)), 0.f, 1.f);
+	Result.Purity = FMath::Clamp(
+		float(Accumulation.MaxRaw / Accumulation.Total), 0.f, 1.f);
+	Result.MineralColor = WeightedColor / float(Accumulation.Total);
+	return Result;
 }
 
 float FPlanetGeologyField::SampleGeometryDelta(const FVector& UnitDir, double Depth) const
 {
-	return 0.f;
+	if (Elements.Num() == 0 || TotalAbundance <= 0.f)
+	{
+		return 0.f;
+	}
+	// 高斯尾部之外没有贡献；绝大多数行星内部体积走这一条。
+	if (Depth < -double(MaxReachDepth) || Depth > double(MaxReachDepth))
+	{
+		return 0.f;
+	}
+
+	FAccumulation Accumulation;
+	FLinearColor UnusedColor = FLinearColor::Black;
+	Accumulate(UnitDir, Depth, false, Accumulation, UnusedColor);
+
+	if (Accumulation.Total <= 0.0)
+	{
+		return 0.f;
+	}
+
+	const float TotalNorm = FMath::Clamp(
+		float(Accumulation.Total / double(TotalAbundance)), 0.f, 1.f);
+	return GeometryAmplitude * TotalNorm;
+}
+
+void FPlanetGeologyField::Accumulate(const FVector& UnitDir, double Depth, bool bComputeColor,
+	FAccumulation& OutAccumulation, FLinearColor& OutWeightedColor) const
+{
+	OutAccumulation = FAccumulation();
+	OutWeightedColor = FLinearColor::Black;
+
+	double WeightedR = 0.0;
+	double WeightedG = 0.0;
+	double WeightedB = 0.0;
+
+	for (const FElementRuntime& Runtime : Elements)
+	{
+		const FPlanetGeologyElement& Definition = Runtime.Definition;
+		const double LayerThickness = FMath::Max(double(Definition.LayerThickness), 1e-3);
+		const double DepthRatio =
+			(Depth - double(Definition.PeakDepth)) / LayerThickness;
+		const double Gaussian = FMath::Exp(-DepthRatio * DepthRatio);
+
+		// 单元素在任一深度上常常没有贡献；先算 exp 再决定是否花一次分形 Perlin。
+		if (Gaussian < 0.01)
+		{
+			continue;
+		}
+
+		// SampleZ 用无量纲的深度比：GetPerlinFractal_3D 内部会把三个坐标都乘频率，
+		// 直接加体素深度会让噪声随深度剧烈振荡。
+		const double SampleZ =
+			double(UnitDir.Z) + (Depth / LayerThickness) * double(Definition.DepthScale);
+
+		const double RawNoise = double(Runtime.Noise.GetPerlinFractal_3D(
+			v_flt(UnitDir.X), v_flt(UnitDir.Y), v_flt(SampleZ),
+			v_flt(Definition.Frequency), Definition.Octaves));
+
+		// Perlin 输出 [-1,1]，映射到 [0,1] 才是「含量」。
+		const double Noise01 = 0.5 * (RawNoise + 1.0);
+		const double Raw = double(Definition.Abundance) * Gaussian * Noise01;
+
+		OutAccumulation.Total += Raw;
+		OutAccumulation.MaxRaw = FMath::Max(OutAccumulation.MaxRaw, Raw);
+
+		if (bComputeColor && Raw > 0.0)
+		{
+			WeightedR += Raw * double(Definition.Color.R);
+			WeightedG += Raw * double(Definition.Color.G);
+			WeightedB += Raw * double(Definition.Color.B);
+		}
+	}
+
+	OutWeightedColor = FLinearColor(
+		float(WeightedR), float(WeightedG), float(WeightedB), 1.f);
 }

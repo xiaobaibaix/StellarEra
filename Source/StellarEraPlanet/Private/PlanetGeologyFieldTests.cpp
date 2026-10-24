@@ -107,4 +107,104 @@ bool FPlanetGeologyParseTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyDeterminismTest,
+	"StellarEra.Planet.Geology.Determinism",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyDeterminismTest::RunTest(const FString& Parameters)
+{
+	using namespace PlanetGeologyTest;
+
+	const TCHAR* ElementsA = TEXT(R"JSON(
+{
+  "version": 1,
+  "elements": [
+    { "id": "iron", "color": [0.55, 0.28, 0.16],
+      "noise": { "frequency": 3.0, "octaves": 2, "lacunarity": 2.0, "gain": 0.5, "seed": 101, "depthScale": 0.3 } }
+  ]
+}
+)JSON");
+
+	const TCHAR* ElementsB = TEXT(R"JSON(
+{
+  "version": 1,
+  "elements": [
+    { "id": "iron", "color": [0.55, 0.28, 0.16],
+      "noise": { "frequency": 3.0, "octaves": 2, "lacunarity": 2.0, "gain": 0.5, "seed": 999, "depthScale": 0.3 } }
+  ]
+}
+)JSON");
+
+	const TCHAR* Planet = TEXT(R"JSON(
+{
+  "version": 1,
+  "geometryAmplitude": 1.5,
+  "elements": {
+    "iron": { "abundance": 0.8, "peakDepth": -30, "layerThickness": 20 }
+  }
+}
+)JSON");
+
+	FPlanetGeologyLoadReport ReportA;
+	FPlanetGeologyLoadReport ReportB;
+	const TSharedPtr<const FPlanetGeologyField> FieldA =
+		FPlanetGeologyField::LoadFromString(ElementsA, Planet, ReportA);
+	const TSharedPtr<const FPlanetGeologyField> FieldB =
+		FPlanetGeologyField::LoadFromString(ElementsB, Planet, ReportB);
+
+	const FVector Direction = FVector(0.3, -0.5, 0.8).GetSafeNormal();
+	constexpr double Depth = -30.0;
+
+	const FPlanetGeologySample First = FieldA->Sample(Direction, Depth);
+	const FPlanetGeologySample Second = FieldA->Sample(Direction, Depth);
+	TestEqual(TEXT("同坐标两次采样 TotalNorm 完全一致"), First.TotalNorm, Second.TotalNorm);
+	TestEqual(TEXT("同坐标两次采样 Purity 完全一致"), First.Purity, Second.Purity);
+	TestEqual(TEXT("同坐标两次采样颜色完全一致"), First.MineralColor, Second.MineralColor);
+
+	const FPlanetGeologySample OtherSeed = FieldB->Sample(Direction, Depth);
+	TestTrue(TEXT("不同 noise.seed 得到不同布局"), First.TotalNorm != OtherSeed.TotalNorm);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyBoundsTest,
+	"StellarEra.Planet.Geology.Bounds",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyBoundsTest::RunTest(const FString& Parameters)
+{
+	using namespace PlanetGeologyTest;
+
+	FPlanetGeologyLoadReport Report;
+	const TSharedPtr<const FPlanetGeologyField> Field =
+		FPlanetGeologyField::LoadFromString(ElementsJson, PlanetJson, Report);
+	if (!Field.IsValid())
+	{
+		return false;
+	}
+
+	const float MaxDelta = Field->GetMaxGeometryDelta();
+	FRandomStream Stream(20261024);
+
+	bool bSampleBounds = true;
+	bool bDeltaBounds = true;
+	for (int32 Index = 0; Index < 2048; ++Index)
+	{
+		const FVector Direction = Stream.GetUnitVector();
+		const double Depth = Stream.FRandRange(-400.0, 80.0);
+
+		const FPlanetGeologySample Sample = Field->Sample(Direction, Depth);
+		bSampleBounds &= Sample.TotalNorm >= 0.f && Sample.TotalNorm <= 1.f;
+		bSampleBounds &= Sample.Purity >= 0.f && Sample.Purity <= 1.f;
+
+		const float Delta = Field->SampleGeometryDelta(Direction, Depth);
+		bDeltaBounds &= Delta >= 0.f && Delta <= MaxDelta;
+	}
+
+	TestTrue(TEXT("TotalNorm 与 Purity 都在 [0,1]"), bSampleBounds);
+	TestTrue(TEXT("GeometryDelta 在 [0, geometryAmplitude]"), bDeltaBounds);
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
