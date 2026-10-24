@@ -70,7 +70,8 @@ AStarMapCameraPawn::AStarMapCameraPawn()
 	PlanetEdit->ConfigureBrushRange(
 		PlanetEditBrush::MinStarMapSizeVoxels, PlanetEditBrush::MaxStarMapSizeVoxels,
 		/*InitialSize=*/32);
-	// 128 体素的球在体素空间里要改几十万格，单线程会卡住整帧。
+	// 128 是直径：半径 64 体素的球在体素空间里是百万格量级，填充时整球都要改，
+	// 单线程会卡住整帧。
 	PlanetEdit->bMultiThreadedEdits = true;
 	// 右键在星图里已经归绕轨，所以「填」改用 Shift+左键。
 	PlanetEdit->PlaceActionHint = TEXT("Shift+左键填");

@@ -520,8 +520,8 @@ bool FStellarEraStarMapZoomLimitsTest::RunTest(const FString& Parameters)
 }
 
 // 星图 Pawn 的编辑组件参数是构造函数里配的，所以 CDO 上就能读到。
-// 这一项钉的是「8..128、默认 32、Shift 填、50 AU」四个数字 —— 它们只能在一个地方
-// 出现（构造函数），测试替 HUD 与输入层看着它们。
+// 这一项钉的是星图笔刷的四个可调参数（默认 32、区间 8..128、Shift 填、50 AU）：
+// 构造函数把它们配进组件，测试替 HUD 与输入层看着它们。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapEditComponentDefaultsTest,
 	"StellarEra.StarMap.EditComponentDefaults",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
