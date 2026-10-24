@@ -35,6 +35,18 @@ struct FStarMapPanelRect
 	float H = 0.f;
 };
 
+/** 矿物剖面图例的一行。纯数据，不含 UObject 引用。 */
+struct FCutawayLegendEntry
+{
+	FString DisplayName;
+
+	/** 色块颜色 —— 与切面里该元素的显示色一致。 */
+	FLinearColor Color = FLinearColor::White;
+
+	/** 该元素在行星总含量里的份额（0..1，各行相加约为 1）。 */
+	float Abundance = 0.f;
+};
+
 /**
  * 星图模式的信息 UI 控制系统。
  *
@@ -55,6 +67,17 @@ public:
 
 	/** 格式化成面板行；**第一行是名字**，其余是属性。选中与悬停共用。 */
 	static TArray<FString> FormatBodyInfoLines(const FStarMapBodyInfo& Info);
+
+	/**
+	 * 剖面图例的文本行：第 0 行标题（「矿物剖面 — 行星名」），其后每元素一行
+	 * 「名称  百分比」，最后一行是操作提示。
+	 *
+	 * 百分比按 0..1 份额四舍五入，并夹到 [0,100]；元素表为空时给一行占位。
+	 * 纯函数，便于无头测试。
+	 */
+	static TArray<FString> FormatCutawayLegendLines(
+		const FString& PlanetName,
+		TArrayView<const FCutawayLegendEntry> Entries);
 
 	/** 天体表面重力，单位 m/s²。质量或半径无效时返回 0。 */
 	static double ComputeSurfaceGravityMps2(double MassEarth, double RadiusKm);
@@ -77,5 +100,11 @@ private:
 		const FStarMapBodyInfo& Info,
 		const FVector2D& AnchorPx,
 		float AnchorRadiusPx,
+		const FVector2D& ViewportSizePx);
+
+	void DrawCutawayLegend(
+		AStellarEraHUD& Hud,
+		const FString& PlanetName,
+		const TArray<FCutawayLegendEntry>& Entries,
 		const FVector2D& ViewportSizePx);
 };
