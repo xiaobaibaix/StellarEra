@@ -28,7 +28,12 @@ struct FSectionRingScreenPolyline
 	TArray<FVector2D> Points;
 };
 
-struct FPlanetCutawayMath
+/**
+ * 剖面数学。**整型导出**：Task 5 起 StellarEra 模块（星图控制器）也调用
+ * PickSectionRing，模块边界上必须有 STELLARERAPLANET_API，否则链接期找不到符号。
+ * 与 PlanetSurfaceRay / PlanetAtmosphereParams 的导出方式一致。
+ */
+struct STELLARERAPLANET_API FPlanetCutawayMath
 {
 	/**
 	 * 让「相机侧」有正投影的法线：dot(CameraPos − CenterCm, 结果) >= 0。

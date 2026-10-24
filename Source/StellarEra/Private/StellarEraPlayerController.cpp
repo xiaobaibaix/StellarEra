@@ -3,6 +3,7 @@
 #include "StellarEraPlayerController.h"
 
 #include "PlanetCharacter.h"
+#include "PlanetCutawayComponent.h"
 #include "PlanetEditBrush.h"
 #include "PlanetEditComponent.h"
 #include "PlanetEditUI.h"
@@ -142,6 +143,11 @@ void AStellarEraPlayerController::SetupInputComponent()
 		&AStellarEraPlayerController::OnBrushSize);
 
 	EnhancedInput->BindAction(IA_Interact, ETriggerEvent::Started, this, &AStellarEraPlayerController::OnInteract);
+
+	EnhancedInput->BindAction(IA_CutawayToggle, ETriggerEvent::Started,
+		this, &AStellarEraPlayerController::OnCutawayToggle);
+	EnhancedInput->BindAction(IA_CutawayDrag, ETriggerEvent::Triggered,
+		this, &AStellarEraPlayerController::OnCutawayDrag);
 }
 
 void AStellarEraPlayerController::BeginPlay()
@@ -161,6 +167,9 @@ void AStellarEraPlayerController::BeginPlay()
 void AStellarEraPlayerController::OnPossess(APawn* InPawn)
 {
 	Super::OnPossess(InPawn);
+
+	// 换 Pawn（登船 / 离船 / 进出星图 / DebugPossessShip）一律退出剖面。
+	ExitCutawayIfActive();
 
 	ApplyMouseModeForPawn(InPawn);
 }
@@ -263,6 +272,8 @@ void AStellarEraPlayerController::BuildInputAssets()
 	IA_StarMapToggle = MakeAction(this, TEXT("IA_StarMapToggle"), EInputActionValueType::Boolean);
 	IA_StarMapSelect = MakeAction(this, TEXT("IA_StarMapSelect"), EInputActionValueType::Boolean);
 	IA_EditModeToggle = MakeAction(this, TEXT("IA_EditModeToggle"), EInputActionValueType::Boolean);
+	IA_CutawayToggle = MakeAction(this, TEXT("IA_CutawayToggle"), EInputActionValueType::Boolean);
+	IA_CutawayDrag = MakeAction(this, TEXT("IA_CutawayDrag"), EInputActionValueType::Axis2D);
 	IA_BrushSize = MakeAction(this, TEXT("IA_BrushSize"), EInputActionValueType::Axis1D);
 
 	// WASD 合成一个二维向量：W/S 走 X 轴，A/D 先用 Swizzle 搬到 Y 轴再取反。
@@ -299,6 +310,12 @@ void AStellarEraPlayerController::BuildInputAssets()
 	MapKey(MappingContext, IA_StarMapToggle, EKeys::M);
 	MapKey(MappingContext, IA_StarMapSelect, EKeys::LeftMouseButton);
 	MapKey(MappingContext, IA_EditModeToggle, EKeys::G);
+
+	// 剖面：H 进出；左键位移转切面。IA_CutawayDrag 与 IA_Look 共用 Mouse2D ——
+	// 同一个 IMC 内的动作互不吞输入（IA_Move / IA_Thrust 共用 W 是同一机制的既有用例），
+	// 谁来处理由 ActiveCutaway 判断。
+	MapKey(MappingContext, IA_CutawayToggle, EKeys::H);
+	MapKey(MappingContext, IA_CutawayDrag, EKeys::Mouse2D);
 
 	// 笔刷尺寸：星图里滚轮已归缩放（角色编辑模式下滚轮同样调笔刷），尺寸因此另占
 	// 一对键，两个模式都能用。左括号接 Negate，于是 ] = +1、[ = −1。
@@ -364,6 +381,13 @@ void AStellarEraPlayerController::OnLook(const FInputActionValue& Value)
 	{
 		// 星图里左键拖拽就是转视角，不设 bLookHeld 那道门 —— 那道门是给角色
 		// 「不按右键就别动视角」用的；星图的相机除了转视角没有别的职责。
+		//
+		// 剖面模式是唯一例外：左键归圆环拖拽，视角只认右键（与角色同一套门），
+		// 否则抓住环一拖，相机和切面会一起转。
+		if (ActiveCutaway && !bLookHeld)
+		{
+			return;
+		}
 		StarMap->OrbitLook(DeltaYaw, DeltaPitch);
 	}
 }
@@ -624,6 +648,21 @@ void AStellarEraPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);
 
+	// 剖面绑在「选中的那颗行星」上。焦点被改选、或 Pawn 已经不是星图相机，
+	// 就立刻退出 —— 否则另一颗行星会一直保持被切开的半透明状态。
+	if (ActiveCutaway)
+	{
+		UCosmosSimulationSubsystem* CutawaySubsystem = GetWorld()
+			? GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>()
+			: nullptr;
+		const bool bSamePlanet = CutawaySubsystem &&
+			CutawaySubsystem->GetSelectedBody() == ActiveCutaway->GetCutawayPlanet();
+		if (!Cast<AStarMapCameraPawn>(GetPawn()) || !bSamePlanet)
+		{
+			ExitCutawayIfActive();
+		}
+	}
+
 	// 提示只在“站在飞船旁”时出现，所以每帧重算一次距离。
 	if (APlanetCharacter* PawnCharacter = Cast<APlanetCharacter>(GetPawn()))
 	{
@@ -760,6 +799,134 @@ ASpaceshipPawn* AStellarEraPlayerController::ResolveStarMapFocusShip(APawn* Ente
 	return nullptr;
 }
 
+void AStellarEraPlayerController::OnCutawayToggle()
+{
+	if (!Cast<AStarMapCameraPawn>(GetPawn()))
+	{
+		return;
+	}
+
+	if (ActiveCutaway)
+	{
+		ExitCutawayIfActive();
+		return;
+	}
+
+	UCosmosSimulationSubsystem* Subsystem = GetWorld()
+		? GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>()
+		: nullptr;
+	AVoxelPlanetActor* Planet = Subsystem
+		? Cast<AVoxelPlanetActor>(Subsystem->GetSelectedBody())
+		: nullptr;
+	UPlanetCutawayComponent* Cutaway = Planet ? Planet->GetCutawayComponent() : nullptr;
+	if (!Cutaway)
+	{
+		ShowPromptFor(TEXT("矿物剖面只支持行星"), 2.f);
+		return;
+	}
+
+	// 初始切面法线 = 相机看向球心的方向：进剖面的第一眼是「正对镜头的一面被切开」。
+	FVector ViewLocation = FVector::ZeroVector;
+	FRotator ViewRotation = FRotator::ZeroRotator;
+	GetPlayerViewPoint(ViewLocation, ViewRotation);
+	const FVector ToCenter = (Planet->GetActorLocation() - ViewLocation).GetSafeNormal();
+	const FVector InitialNormal = ToCenter.IsNearlyZero() ? FVector::UpVector : ToCenter;
+
+	if (!Cutaway->Activate(Planet, InitialNormal))
+	{
+		// Activate 失败只有两种原因：没有地质场、或资产缺失（后者会先打 Error 日志）。
+		ShowPromptFor(TEXT("该行星没有矿物分布"), 2.f);
+		return;
+	}
+
+	// 拉到能看全剖面圆盘的距离：3 × 表面半径（圆盘半径 1.05R，视场 90° 时 3R 留有余量）。
+	AStarMapCameraPawn* StarMap = Cast<AStarMapCameraPawn>(GetPawn());
+	if (StarMap)
+	{
+		StarMap->FocusOn(Planet, 3.0 * Planet->GetSurfaceRadiusCm());
+		StarMap->OrientToDirection(ToCenter);
+	}
+
+	ActiveCutaway = Cutaway;
+}
+
+void AStellarEraPlayerController::OnCutawayDrag(const FInputActionValue& Value)
+{
+	if (!ActiveCutaway || !bCutawayDragActive)
+	{
+		return;
+	}
+
+	const FVector2D Delta = Value.Get<FVector2D>();
+	if (Delta.IsNearlyZero())
+	{
+		return;
+	}
+
+	// 横拖与竖拖绕同一根世界轴、方向相反：这是「转环」的直觉（拇指推环的切线方向）。
+	const float DeltaDegrees = (float(Delta.X) - float(Delta.Y)) * 0.5f;
+	ActiveCutaway->RotatePlane(CutawayDragRing, DeltaDegrees);
+	bCutawayRotatedThisDrag = true;
+}
+
+void AStellarEraPlayerController::ExitCutawayIfActive()
+{
+	if (!ActiveCutaway)
+	{
+		return;
+	}
+
+	ActiveCutaway->Deactivate();
+	ActiveCutaway = nullptr;
+	bCutawayDragActive = false;
+	bCutawayRotatedThisDrag = false;
+}
+
+bool AStellarEraPlayerController::PickCutawayRing(
+	const FVector2D& ScreenPosition,
+	ESectionRing& OutRing) const
+{
+	if (!ActiveCutaway)
+	{
+		return false;
+	}
+
+	TArray<FSectionRingWorldPolyline> WorldRings;
+	ActiveCutaway->GetRingWorldPoints(WorldRings);
+
+	TArray<FSectionRingScreenPolyline> ScreenRings;
+	ScreenRings.Reserve(WorldRings.Num());
+
+	for (const FSectionRingWorldPolyline& WorldRing : WorldRings)
+	{
+		FSectionRingScreenPolyline ScreenRing;
+		ScreenRing.Ring = WorldRing.Ring;
+		ScreenRing.Points.Reserve(WorldRing.Points.Num());
+
+		bool bAllVisible = true;
+		for (const FVector& WorldPoint : WorldRing.Points)
+		{
+			FVector2D ScreenPoint = FVector2D::ZeroVector;
+			if (!ProjectWorldLocationToScreen(WorldPoint, ScreenPoint))
+			{
+				bAllVisible = false;
+				break;
+			}
+			ScreenRing.Points.Add(ScreenPoint);
+		}
+
+		// 任何一点在相机背后就整条环作废：投影到背后会把点翻到屏幕另一侧，
+		// 凭空造出一段「假环」，拾取会抓到屏幕对面去。
+		if (bAllVisible)
+		{
+			ScreenRings.Add(MoveTemp(ScreenRing));
+		}
+	}
+
+	return FPlanetCutawayMath::PickSectionRing(
+		ScreenRings, ScreenPosition, CutawayRingPickTolerancePx, OutRing);
+}
+
 void AStellarEraPlayerController::ToggleStarMap()
 {
 	AStarMapCameraPawn* CurrentStarMapPawn = Cast<AStarMapCameraPawn>(GetPawn());
@@ -774,6 +941,9 @@ void AStellarEraPlayerController::ToggleStarMap()
 	if (CurrentStarMapPawn)
 	{
 		// ── 退出 ──
+		// 先退剖再换 Pawn：剖面把全球材质的 OpacityMask 改了，必须在恢复视角之前还原。
+		ExitCutawayIfActive();
+
 		Subsystem->SetSelectedBody(nullptr);
 		Subsystem->SetStarMapActive(false);
 
@@ -936,6 +1106,23 @@ void AStellarEraPlayerController::OnStarMapSelectStarted(const FInputActionValue
 		return;
 	}
 
+	if (ActiveCutaway)
+	{
+		double CutawayMouseX = 0.0;
+		double CutawayMouseY = 0.0;
+		if (!GetMousePosition(CutawayMouseX, CutawayMouseY))
+		{
+			return;
+		}
+
+		bCutawayRotatedThisDrag = false;
+		bCutawayDragActive = PickCutawayRing(
+			FVector2D(CutawayMouseX, CutawayMouseY), CutawayDragRing);
+
+		// 没抓到环就什么都不做：剖面模式下左键不再拾取天体，也不转视角（归右键）。
+		return;
+	}
+
 	// 用 double 重载，是为了后面直接喂给 FVector2D（UE5 里是双精度）时少一次转换。
 	// **但精度上并不占便宜**：引擎那个重载（PlayerController.cpp:6186）内部就是
 	// `float X, Y; GetMousePosition(X, Y);` —— 先过 float 再展宽，真正决定精度的
@@ -951,6 +1138,18 @@ void AStellarEraPlayerController::OnStarMapSelectStarted(const FInputActionValue
 
 void AStellarEraPlayerController::OnStarMapSelectCompleted(const FInputActionValue& Value)
 {
+	if (ActiveCutaway)
+	{
+		if (bCutawayDragActive && bCutawayRotatedThisDrag)
+		{
+			// 拖拽期间只画 96² 预览；松手补一张 512²。没转过就省掉这一次。
+			ActiveCutaway->RequestSectionRender(ActiveCutaway->FinalResolution);
+		}
+		bCutawayDragActive = false;
+		bCutawayRotatedThisDrag = false;
+		return;
+	}
+
 	if (!bStarMapSelectHeld)
 	{
 		return;
@@ -1105,4 +1304,17 @@ void AStellarEraPlayerController::ShowPrompt(const FString& Text)
 	// duration 0 = 只显示这一帧。固定 key 让屏幕上永远只有一行，不会堆积。
 	static const uint64 PromptMessageKey = 0x5745'4C43'4F4D'4521ULL;
 	GEngine->AddOnScreenDebugMessage(PromptMessageKey, 0.f, FColor::Yellow, Text);
+}
+
+void AStellarEraPlayerController::ShowPromptFor(const FString& Text, float DurationSeconds)
+{
+	if (!GEngine)
+	{
+		return;
+	}
+
+	// 与 ShowPrompt 分开的 key：那条每帧刷新（duration 0），这条到点自动消失。
+	static const uint64 TransientPromptMessageKey = 0x43555441ULL;
+	GEngine->AddOnScreenDebugMessage(
+		TransientPromptMessageKey, DurationSeconds, FColor::Yellow, Text);
 }

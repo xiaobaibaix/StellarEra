@@ -16,18 +16,24 @@ using UnrealBuildTool;
 //
 // Core 必须是 **Public**：CosmosSimulationSubsystem.h 按值持有 FNBodySimulator，
 // 而 NBodySimulator.h 在 StellarEraCore 里，该头是本模块公开头的一部分。
+//
+// StellarEraPlanet 也必须是 **Public**：公开头 StellarEraPlayerController.h 直接
+// 包含 PlanetCutawayMath.h（ESectionRing 是成员类型，不能只前置声明）。
+// UBT 的规则是公开头只能包含公开依赖的头。
 public class StellarEra : ModuleRules
 {
 	public StellarEra(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine" });
+		PublicDependencyModuleNames.AddRange(new string[]
+		{
+			"Core", "CoreUObject", "Engine", "StellarEraPlanet",
+		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"StellarEraCore",
-			"StellarEraPlanet",
 			"StellarEraVehicle",
 			"Voxel",           // StarMapCameraPawn.cpp 的体素调用器（VoxelInvokerComponent.h）
 			"InputCore",
