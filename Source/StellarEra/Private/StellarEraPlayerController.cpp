@@ -300,8 +300,8 @@ void AStellarEraPlayerController::BuildInputAssets()
 	MapKey(MappingContext, IA_StarMapSelect, EKeys::LeftMouseButton);
 	MapKey(MappingContext, IA_EditModeToggle, EKeys::G);
 
-	// 笔刷尺寸：滚轮在角色（拉镜头）与星图（缩放）里都有别的用途，尺寸单独占
-	// 一对键。左括号接 Negate，于是 ] = +1、[ = −1。
+	// 笔刷尺寸：星图里滚轮已归缩放（角色编辑模式下滚轮同样调笔刷），尺寸因此另占
+	// 一对键，两个模式都能用。左括号接 Negate，于是 ] = +1、[ = −1。
 	MapKey(MappingContext, IA_BrushSize, EKeys::RightBracket);
 	MapKey(MappingContext, IA_BrushSize, EKeys::LeftBracket, { MakeNegate(this) });
 }
@@ -812,7 +812,7 @@ void AStellarEraPlayerController::ToggleStarMap()
 			Possess(ReturnPawn);
 		}
 		// 星图的编辑模式不跟着换 Pawn 走：Possess 回飞船后组件已不在手上，
-		// 预览 Tick 与网格都会留在原地。退出即关，重进再按 G。
+		// 预览 Tick 与笔刷线都会留在原地。退出即关，重进再按 G。
 		ForceExitEditMode(CurrentStarMapPawn);
 		PreviousPawn.Reset();
 		return;

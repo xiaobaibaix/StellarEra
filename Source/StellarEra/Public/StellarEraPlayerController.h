@@ -86,7 +86,7 @@ protected:
 	 * 当前 Pawn 上、且编辑模式开着的编辑组件，否则 nullptr。
 	 * 角色与星图相机各有一个这样的组件，**两者都会命中**。
 	 *
-	 * 不能用来进入编辑模式：模式关着时它返回空。G 键的切换走 GetEditComponentForPawn。
+	 * 不能用来进入编辑模式：模式关着时它返回空。G 键的切换不看模式，直接找 Pawn 上的组件。
 	 */
 	UPlanetEditComponent* GetEditComponentInEditMode() const;
 
@@ -115,7 +115,7 @@ protected:
 	/** G 键：切换编辑模式。角色与星图相机都有编辑组件；飞船等没有，按 G 无反应。 */
 	void OnEditModeToggle(const FInputActionValue& Value);
 
-	/** `[` / `]`：编辑模式下调笔刷尺寸（±1）。滚轮在两种模式下都有别的用途。 */
+	/** `[` / `]`：编辑模式下调笔刷尺寸（±1）。星图里滚轮归缩放，所以尺寸另占一对键；角色编辑模式下滚轮也能调。 */
 	void OnBrushSize(const FInputActionValue& Value);
 
 	// --- 飞船输入回调 ---
