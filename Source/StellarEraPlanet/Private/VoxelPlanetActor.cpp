@@ -789,6 +789,9 @@ bool AVoxelPlanetActor::RaycastSurfaceCm(
 	constexpr int32 SurfaceRayWindowVoxels = 128;
 
 	// 解析点换算成体素坐标，之后的行进全在体素空间（单位 = 体素）。
+	// 本函数假定 Actor 缩放 S = 1（见 GetSurfaceRadiusCm 上方的不一致说明）：
+	// S ≠ 1 时体素空间里的实际表面半径是 Radius · S，而解析这一步用的是 Radius，
+	// 偏差 (S − 1) · Radius 体素；超过窗口就打不中，星图会静默失效。
 	const FVoxelVector HitLocalVoxels = GlobalToLocalFloat(
 		RayOriginWorld + Direction * AnalyticDistanceCm);
 	const FVector HitLocal(HitLocalVoxels.X, HitLocalVoxels.Y, HitLocalVoxels.Z);
@@ -833,7 +836,8 @@ bool AVoxelPlanetActor::RaycastSurfaceCm(
 	};
 
 	// 从解析点往里走是「空 → 实」（正常俯视），往外走是「实 → 空」（估计高了一格）。
-	// 两个方向都试，失败面就只剩「窗口不够」这一种。
+	// 按起点空/实**选一个**方向走：起点空就往里找第一块实心，起点实就往外找第一格空气。
+	// 失败面因此只剩「翻转点在窗口之外」这一种。
 	const bool bStartsEmpty = SampleEmpty(0);
 	const int32 StepSign = bStartsEmpty ? 1 : -1;
 
