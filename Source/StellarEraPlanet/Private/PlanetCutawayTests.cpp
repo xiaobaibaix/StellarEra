@@ -45,6 +45,23 @@ bool FPlanetCutawayClipNormalTest::RunTest(const FString& Parameters)
 		FPlanetCutawayMath::ComputeClipNormal(PlaneNormal, Center, Center).Equals(
 			FVector::UpVector, 1e-9));
 
+	// spec §9：返回值必须是单位长度，即使输入法线不是单位向量。
+	const FVector NonUnitNormal(0.0, 0.0, 5.0);
+
+	const FVector ClipAbove =
+		FPlanetCutawayMath::ComputeClipNormal(NonUnitNormal, CameraAbove, Center);
+	TestTrue(TEXT("非单位法线朝相机时归一化为 +Z"),
+		ClipAbove.Equals(FVector::UpVector, 1e-6));
+	TestTrue(TEXT("非单位法线朝相机时返回单位长"),
+		FMath::IsNearlyEqual(ClipAbove.Size(), 1.0, 1e-6));
+
+	const FVector ClipBelow =
+		FPlanetCutawayMath::ComputeClipNormal(NonUnitNormal, CameraBelow, Center);
+	TestTrue(TEXT("非单位法线在反侧时归一化为 −Z"),
+		ClipBelow.Equals(-FVector::UpVector, 1e-6));
+	TestTrue(TEXT("非单位法线在反侧时返回单位长"),
+		FMath::IsNearlyEqual(ClipBelow.Size(), 1.0, 1e-6));
+
 	return true;
 }
 
@@ -112,6 +129,20 @@ bool FPlanetCutawayRotatePlaneTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("零轴不变"),
 		FPlanetCutawayMath::RotatePlane(Rotated, FVector::ZeroVector, 45.f).Equals(Rotated, 1e-9));
 
+	// spec §9：早退路径也必须返回单位四元数（输入故意给成非单位）。
+	const FQuat NonUnitOrientation(0.f, 0.f, 0.f, 2.f);
+	TestTrue(TEXT("零角度早退也归一化为单位四元数"),
+		FMath::IsNearlyEqual(
+			FPlanetCutawayMath::RotatePlane(NonUnitOrientation, FVector::UpVector, 0.f).Size(),
+			1.0, 1e-6));
+
+	// 世界左乘 vs 局部右乘：先绕世界 Y +90°（法线 → +X），再绕世界 Z +90°。
+	// Delta * Orientation 会把 +X 转到 +Y；Orientation * Delta（局部右乘）会停在 +X。
+	const FQuat RotatedThenYaw =
+		FPlanetCutawayMath::RotatePlane(Rotated, FVector::UpVector, 90.f);
+	TestTrue(TEXT("世界左乘：+X 再绕世界 Z 转到 +Y"),
+		RotatedThenYaw.GetAxisZ().Equals(FVector::RightVector, 1e-6));
+
 	return true;
 }
 
@@ -150,6 +181,30 @@ bool FPlanetCutawayOpacityMaskTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("切面本身不裁"),
 		FPlanetCutawayMath::ComputeOpacityMask(
 			FVector(900.0, 900.0, 0.0), Origin, Normal, InsideRadiusCm, true), 1.f);
+
+	// 以下三条把两个过渡因子拉出饱和区，避免错误实现被「全 0 / 全 1」掩盖。
+
+	// z = 0.05：Half = saturate(0.05 × 10) = 0.5，Inside = 1 → Mask = 0.5（钉住 ×10）。
+	TestTrue(TEXT("×10 过渡：Half=0.5 时遮罩为 0.5"),
+		FMath::IsNearlyEqual(
+			FPlanetCutawayMath::ComputeOpacityMask(
+				FVector(0.0, 0.0, 0.05), Origin, Normal, InsideRadiusCm, true),
+			0.5f, 1e-3f));
+
+	// |P| = 10475：Half = 1，Inside = (10500 − 10475) × 0.02 = 0.5 → Mask = 0.5（钉住 ×0.02）。
+	TestTrue(TEXT("×0.02 过渡：Inside=0.5 时遮罩为 0.5"),
+		FMath::IsNearlyEqual(
+			FPlanetCutawayMath::ComputeOpacityMask(
+				FVector(0.0, 0.0, 10475.0), Origin, Normal, InsideRadiusCm, true),
+			0.5f, 1e-3f));
+
+	// P = (10475, 0, 0.05)：Half = 0.5、Inside = 0.5 → Mask = 1 − 0.5 × 0.5 = 0.75。
+	// 若用 Min(Half, Inside) 代替乘积会得到 0.5，这条专门抓该错误。
+	TestTrue(TEXT("两个因子各 0.5 时按乘积得 0.75"),
+		FMath::IsNearlyEqual(
+			FPlanetCutawayMath::ComputeOpacityMask(
+				FVector(10475.0, 0.0, 0.05), Origin, Normal, InsideRadiusCm, true),
+			0.75f, 1e-3f));
 
 	return true;
 }

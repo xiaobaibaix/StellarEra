@@ -63,7 +63,7 @@ FQuat FPlanetCutawayMath::RotatePlane(
 	const FVector UnitAxis = Axis.GetSafeNormal();
 	if (UnitAxis.IsNearlyZero() || DeltaDegrees == 0.f)
 	{
-		return PlaneOrientation;
+		return PlaneOrientation.GetNormalized();
 	}
 
 	const FQuat Delta(UnitAxis, FMath::DegreesToRadians(DeltaDegrees));

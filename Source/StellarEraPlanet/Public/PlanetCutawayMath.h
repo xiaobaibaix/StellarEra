@@ -42,6 +42,7 @@ struct FPlanetCutawayMath
 	/**
 	 * 由法线造右手正交基：AxisU、AxisV、N 两两垂直，且 Cross(N, AxisU) == AxisV。
 	 * AxisV 即「从相机看过去的上方」，图像第 0 行对应 −AxisV（spec §3.1）。
+	 * 前置条件：PlaneNormal 必须非零；调用方传单位向量。
 	 */
 	static void ComputePlaneBasis(
 		const FVector& PlaneNormal,
