@@ -11,6 +11,7 @@ namespace PlanetSurfaceRay
 {
 	/**
 	 * 射线与球面的第一个穿入点距离。打不到 / 起点在球内 / 整个球在背后 → −1。
+	 * 起点正好在球面上且朝内也返回 −1 —— 穿入距离 0 不满足 Entry > 0（严格比较）。
 	 *
 	 * 本函数原来叫 AStarMapCameraPawn::RaySphereFirstHitCm（星图摄像机用它做
 	 * 行星遮挡夹取）；搬到本模块后两边共用一个实现，星图那个函数只做转发。

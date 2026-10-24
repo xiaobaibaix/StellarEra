@@ -37,7 +37,7 @@ bool FStellarEraSurfaceRayVaryingRadiusTest::RunTest(const FString& Parameters)
 	const FVector Origin(0.0, 0.0, -10.0);
 	const FVector Direction(0.0, 0.0, 1.0);
 
-	// 极轴方向鼓 3 cm。命中点方向恒为 (0,0,−1)，所以两次迭代后半径稳定在 2。
+	// 极轴方向鼓 3 cm。命中点方向恒为 (0,0,−1)：第一次求交落在 z = −5，按该方向半径 2 重算即得到 8；第二次只是确认（变化为 0）。
 	const auto RadiusAtDirection = [](const FVector& UnitDirection)
 	{
 		return 5.0 + 3.0 * UnitDirection.Z;
@@ -81,6 +81,8 @@ bool FStellarEraSurfaceRayRejectsTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("球在背后"),
 		PlanetSurfaceRay::SolveAnalyticHit(
 			FVector(0.0, 0.0, 10.0), Forward, 5.0, 3, ConstantRadius, Distance));
+	// 失败时不动 Out 参数：调用方可能拿它和上一次的结果比较。
+	TestEqual(TEXT("失败时 Out 距离保持 123"), Distance, 123.0);
 	return true;
 }
 
@@ -109,5 +111,28 @@ bool FStellarEraSurfaceRaySphereHitTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("半径 0 → −1"),
 		PlanetSurfaceRay::RaySphereFirstHit(
 			FVector(0.0, 0.0, -10.0), Forward, Center, 0.0) < 0.0);
+	return true;
+}
+
+// 中段失败面：第一次按命中方向取到的半径让射线打空（垂距 10 > 半径 5）时，
+// 保留上一个距离而不是整体失败 —— 这是 RaycastSurfaceCm 依赖的契约。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSurfaceRayMidIterationMissTest,
+	"StellarEra.Planet.SurfaceRay.MidIterationMiss",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraSurfaceRayMidIterationMissTest::RunTest(const FString& Parameters)
+{
+	// 起点 (0,10,−10)：到基准球（半径 10）的垂距正好 10，擦着命中，距离 10，
+	// 命中方向 (0,1,0)。该方向上的半径只有 5 → 第二次求交打空。
+	const FVector Origin(0.0, 10.0, -10.0);
+	const FVector Direction(0.0, 0.0, 1.0);
+
+	double Distance = -1.0;
+	const bool bHit = PlanetSurfaceRay::SolveAnalyticHit(
+		Origin, Direction, /*BaseRadiusCm=*/10.0, /*Iterations=*/3,
+		[](const FVector&) { return 5.0; }, Distance);
+
+	TestTrue(TEXT("中段打空仍算命中"), bHit);
+	TestTrue(TEXT("保留基准距离 10"), FMath::IsNearlyEqual(Distance, 10.0, 1e-6));
 	return true;
 }
