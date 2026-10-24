@@ -83,14 +83,22 @@ protected:
 	virtual void OnPossess(APawn* InPawn) override;
 
 	/**
-	 * 当前 Possess 的是角色、且编辑模式开着时返回它的编辑组件，否则返回 nullptr。
-	 * 右键点放 / 滚轮 / 左键挖共用这套「取组件 + 判模式」的两步。
+	 * 当前 Pawn 上、且编辑模式开着的编辑组件，否则 nullptr。
+	 * 角色与星图相机各有一个这样的组件，**两者都会命中**。
 	 *
-	 * **不能用来进入编辑模式**：模式关着时它返回空。G 键的切换走直接取组件。
+	 * 不能用来进入编辑模式：模式关着时它返回空。G 键的切换走 GetEditComponentForPawn。
 	 */
 	UPlanetEditComponent* GetEditComponentInEditMode() const;
 
-	/** Pawn 是角色且编辑模式开着时退出。上船 / 进星图 / 调试换 Pawn 的强制退出共用。 */
+	/**
+	 * 只认角色：当前 Possess 的是角色、且编辑模式开着时返回它的组件。
+	 *
+	 * 右键「点放」的按下/松开用它。**不能用通用版** —— 星图里右键是转视角，
+	 * 通用版会让松开右键变成 PlaceAtScreenPosition。
+	 */
+	UPlanetEditComponent* GetCharacterEditComponentInEditMode() const;
+
+	/** Pawn 上开着的编辑模式一律退出。上船 / 进出星图 / 调试换 Pawn 共用。 */
 	void ForceExitEditMode(APawn* InPawn);
 
 	// --- 角色输入回调 ---
@@ -104,8 +112,11 @@ protected:
 	void OnSprintStarted(const FInputActionValue& Value);
 	void OnSprintCompleted(const FInputActionValue& Value);
 
-	/** G 键：切换编辑模式。只有当前 Pawn 是角色时生效。 */
+	/** G 键：切换编辑模式。角色与星图相机都有编辑组件；飞船等没有，按 G 无反应。 */
 	void OnEditModeToggle(const FInputActionValue& Value);
+
+	/** `[` / `]`：编辑模式下调笔刷尺寸（±1）。滚轮在两种模式下都有别的用途。 */
+	void OnBrushSize(const FInputActionValue& Value);
 
 	// --- 飞船输入回调 ---
 	void OnThrust(const FInputActionValue& Value);
@@ -279,4 +290,8 @@ protected:
 	/** 编辑模式开关（G）。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> IA_EditModeToggle;
+
+	/** 笔刷尺寸（`[` / `]`）。Axis1D，只绑 Started，不随按住每帧刷。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> IA_BrushSize;
 };
