@@ -520,4 +520,63 @@ bool FStellarEraPlanetSaveObjectPathTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// 星图笔刷是 8..128，与角色的 1..8 是两套区间。旧的 1 参 ClampSize 会把
+// 32 悄悄夹成 8，所以「带区间的重载」必须是独立函数，不能只改常量。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraEditBrushClampSizeRangeTest,
+	"StellarEra.Planet.EditBrush.ClampSizeRange",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraEditBrushClampSizeRangeTest::RunTest(const FString& Parameters)
+{
+	TestEqual(TEXT("0 夹到下限 8"), PlanetEditBrush::ClampSize(0, 8, 128), 8);
+	TestEqual(TEXT("999 夹到上限 128"), PlanetEditBrush::ClampSize(999, 8, 128), 128);
+	TestEqual(TEXT("32 原样通过"), PlanetEditBrush::ClampSize(32, 8, 128), 32);
+	TestEqual(TEXT("8 正好在下限上"), PlanetEditBrush::ClampSize(8, 8, 128), 8);
+	TestEqual(TEXT("128 正好在上限上"), PlanetEditBrush::ClampSize(128, 8, 128), 128);
+	TestEqual(TEXT("上限小于下限时以下限为准"), PlanetEditBrush::ClampSize(0, 10, 2), 10);
+	TestEqual(TEXT("上限小于下限时不越过下限"), PlanetEditBrush::ClampSize(99, 10, 2), 10);
+	TestEqual(TEXT("下限 0 被抬到 1"), PlanetEditBrush::ClampSize(0, 0, 4), 1);
+	return true;
+}
+
+// 128 体素的方块必须真的是 128 格宽。MakeBox 内部若仍走 1..8 的钳制，
+// 这里会得到 8 格 —— 星图方块笔刷「永远只有 8 格」就是这么来的。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraEditBrushBoxBounds128Test,
+	"StellarEra.Planet.EditBrush.BoxBounds128",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraEditBrushBoxBounds128Test::RunTest(const FString& Parameters)
+{
+	const FPlanetEditBox Big = PlanetEditBrush::MakeBox(
+		FVector(1000.f, 1000.f, 1000.f), 128,
+		PlanetEditBrush::MinStarMapSizeVoxels, PlanetEditBrush::MaxStarMapSizeVoxels);
+
+	// Low = (128-1)/2 = 63，High = 128-1-63 = 64。
+	TestEqual(TEXT("128 Min.X"), Big.Min.X, 1000 - 63);
+	TestEqual(TEXT("128 Max.X"), Big.Max.X, 1000 + 64);
+	TestEqual(TEXT("128 X 方向宽度（含端点）"), Big.Max.X - Big.Min.X + 1, 128);
+	TestEqual(TEXT("128 Y 方向宽度（含端点）"), Big.Max.Y - Big.Min.Y + 1, 128);
+	TestEqual(TEXT("128 Z 方向宽度（含端点）"), Big.Max.Z - Big.Min.Z + 1, 128);
+
+	const FPlanetEditBox Mid = PlanetEditBrush::MakeBox(
+		FVector(1000.f), 32,
+		PlanetEditBrush::MinStarMapSizeVoxels, PlanetEditBrush::MaxStarMapSizeVoxels);
+	TestEqual(TEXT("32 X 方向宽度（含端点）"), Mid.Max.X - Mid.Min.X + 1, 32);
+
+	// 半边长 = 尺寸 × 体素尺寸 / 2。行星 3 的体素是 50 cm，128 格 = 6400 cm 直径。
+	TestEqual(TEXT("128 × 50cm 的半边长"),
+		PlanetEditBrush::GetHalfExtentCm(128, 50.f,
+			PlanetEditBrush::MinStarMapSizeVoxels, PlanetEditBrush::MaxStarMapSizeVoxels),
+		3200.f);
+
+	// 放的偏移必须跟着区间版走，否则 128 的方块会只偏移 4 格。
+	const FVector Hit(0.f, 0.f, 1000.f);
+	const FVector Placed = PlanetEditBrush::GetEditCenterWorld(
+		Hit, FVector(0.f, 0.f, 1.f), 128, 50.f, /*bPlace=*/true,
+		PlanetEditBrush::MinStarMapSizeVoxels, PlanetEditBrush::MaxStarMapSizeVoxels);
+	TestTrue(TEXT("放的球心沿法线外移 3200cm"), Placed.Equals(Hit + FVector(0.f, 0.f, 3200.f)));
+
+	return true;
+}
+
 #endif

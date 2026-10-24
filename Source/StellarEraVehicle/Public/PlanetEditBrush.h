@@ -48,17 +48,38 @@ struct FPlanetEditSegment
 
 namespace PlanetEditBrush
 {
-	/** 笔刷尺寸下限（体素数，直径 / 边长）。 */
+	/** 角色笔刷的尺寸下限 / 上限（体素数，直径 / 边长）。 */
 	constexpr int32 MinSizeVoxels = 1;
-
-	/** 笔刷尺寸上限（体素数，边长）。 */
 	constexpr int32 MaxSizeVoxels = 8;
+
+	/**
+	 * 星图笔刷的尺寸区间。
+	 *
+	 * 与角色的 1..8 是**两套**，不是同一个常量的不同取值：角色贴着地表看的是
+	 * 脚下几米，星图看的是整颗星的地貌。带区间的重载是为此存在的 ——
+	 * 旧的 1 参 ClampSize 会把 32 悄悄夹成 8。
+	 */
+	constexpr int32 MinStarMapSizeVoxels = 8;
+	constexpr int32 MaxStarMapSizeVoxels = 128;
 
 	/** 夹到 [MinSizeVoxels, MaxSizeVoxels]。 */
 	STELLARERAVEHICLE_API int32 ClampSize(int32 SizeVoxels);
 
+	/**
+	 * 夹到 [MinSize, MaxSize]。
+	 *
+	 * 下限被抬到至少 1（尺寸 0 会造出空盒）；MinSize > MaxSize 时以下限为准，
+	 * 而不是像 FMath::Clamp 那样断言 —— 这两个值是可配置项，写反了不该在
+	 * 运行时崩。
+	 */
+	STELLARERAVEHICLE_API int32 ClampSize(int32 SizeVoxels, int32 MinSize, int32 MaxSize);
+
 	/** 球半径 / 方块半边长，单位厘米。两者同式：Size * VoxelSize / 2。 */
 	STELLARERAVEHICLE_API float GetHalfExtentCm(int32 SizeVoxels, float VoxelSizeCm);
+
+	/** 区间版：先按 [MinSize, MaxSize] 夹尺寸，再算半边长。 */
+	STELLARERAVEHICLE_API float GetHalfExtentCm(int32 SizeVoxels, float VoxelSizeCm,
+		int32 MinSize, int32 MaxSize);
 
 	/**
 	 * 编辑中心。
@@ -69,6 +90,10 @@ namespace PlanetEditBrush
 	STELLARERAVEHICLE_API FVector GetEditCenterWorld(const FVector& HitLocation, const FVector& HitNormal,
 		int32 SizeVoxels, float VoxelSizeCm, bool bPlace);
 
+	/** 区间版：放的偏移量与笔刷半边长一致（用同一套 Min/Max 夹）。 */
+	STELLARERAVEHICLE_API FVector GetEditCenterWorld(const FVector& HitLocation, const FVector& HitNormal,
+		int32 SizeVoxels, float VoxelSizeCm, bool bPlace, int32 MinSize, int32 MaxSize);
+
 	/**
 	 * 把「行星体素空间里的浮点中心」换成整数盒。
 	 *
@@ -77,6 +102,10 @@ namespace PlanetEditBrush
 	 * 转成 FVoxelIntBox 时注意它的 Max 是开区间，要 `Max + 1` 才能保持格数。
 	 */
 	STELLARERAVEHICLE_API FPlanetEditBox MakeBox(const FVector& LocalCenterVoxels, int32 SizeVoxels);
+
+	/** 区间版：盒宽 = 夹到 [MinSize, MaxSize] 之后的尺寸，每轴都是 Width 格。 */
+	STELLARERAVEHICLE_API FPlanetEditBox MakeBox(const FVector& LocalCenterVoxels, int32 SizeVoxels,
+		int32 MinSize, int32 MaxSize);
 
 	/**
 	 * 把两端都含的 FPlanetEditBox 换成右端开区间。

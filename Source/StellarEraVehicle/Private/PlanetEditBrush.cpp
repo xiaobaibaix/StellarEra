@@ -4,12 +4,26 @@
 
 int32 PlanetEditBrush::ClampSize(const int32 SizeVoxels)
 {
-	return FMath::Clamp(SizeVoxels, MinSizeVoxels, MaxSizeVoxels);
+	return ClampSize(SizeVoxels, MinSizeVoxels, MaxSizeVoxels);
+}
+
+int32 PlanetEditBrush::ClampSize(const int32 SizeVoxels, const int32 MinSize, const int32 MaxSize)
+{
+	// 尺寸 0 造出空盒，下限至少 1；上下限写反时保下限。
+	const int32 Low = FMath::Max(MinSize, 1);
+	const int32 High = FMath::Max(MaxSize, Low);
+	return FMath::Clamp(SizeVoxels, Low, High);
 }
 
 float PlanetEditBrush::GetHalfExtentCm(const int32 SizeVoxels, const float VoxelSizeCm)
 {
-	return ClampSize(SizeVoxels) * VoxelSizeCm * 0.5f;
+	return GetHalfExtentCm(SizeVoxels, VoxelSizeCm, MinSizeVoxels, MaxSizeVoxels);
+}
+
+float PlanetEditBrush::GetHalfExtentCm(const int32 SizeVoxels, const float VoxelSizeCm,
+	const int32 MinSize, const int32 MaxSize)
+{
+	return ClampSize(SizeVoxels, MinSize, MaxSize) * VoxelSizeCm * 0.5f;
 }
 
 FVector PlanetEditBrush::GetEditCenterWorld(
@@ -19,6 +33,19 @@ FVector PlanetEditBrush::GetEditCenterWorld(
 	const float VoxelSizeCm,
 	const bool bPlace)
 {
+	return GetEditCenterWorld(HitLocation, HitNormal, SizeVoxels, VoxelSizeCm, bPlace,
+		MinSizeVoxels, MaxSizeVoxels);
+}
+
+FVector PlanetEditBrush::GetEditCenterWorld(
+	const FVector& HitLocation,
+	const FVector& HitNormal,
+	const int32 SizeVoxels,
+	const float VoxelSizeCm,
+	const bool bPlace,
+	const int32 MinSize,
+	const int32 MaxSize)
+{
 	if (!bPlace)
 	{
 		return HitLocation;
@@ -26,12 +53,18 @@ FVector PlanetEditBrush::GetEditCenterWorld(
 
 	// 法线为零（退化命中）时不偏移，总比把方块放到 inf/nan 强。
 	const FVector Normal = HitNormal.GetSafeNormal();
-	return HitLocation + Normal * GetHalfExtentCm(SizeVoxels, VoxelSizeCm);
+	return HitLocation + Normal * GetHalfExtentCm(SizeVoxels, VoxelSizeCm, MinSize, MaxSize);
 }
 
 FPlanetEditBox PlanetEditBrush::MakeBox(const FVector& LocalCenterVoxels, const int32 SizeVoxels)
 {
-	const int32 Size = ClampSize(SizeVoxels);
+	return MakeBox(LocalCenterVoxels, SizeVoxels, MinSizeVoxels, MaxSizeVoxels);
+}
+
+FPlanetEditBox PlanetEditBrush::MakeBox(const FVector& LocalCenterVoxels, const int32 SizeVoxels,
+	const int32 MinSize, const int32 MaxSize)
+{
+	const int32 Size = ClampSize(SizeVoxels, MinSize, MaxSize);
 	// FVector 的分量是 double，FMath::RoundToInt(double) 返回 int64；
 	// FIntVector 收 int32。本项目警告即错误，必须显式窄化。
 	const FIntVector Center(
