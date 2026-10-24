@@ -207,4 +207,116 @@ bool FPlanetGeologyBoundsTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyRangeCoverageTest,
+	"StellarEra.Planet.Geology.RangeCoverage",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyRangeCoverageTest::RunTest(const FString& Parameters)
+{
+	// 故意用大几何振幅，让「区间漏掉 Geology 项」立刻暴露成真失败。
+	const TCHAR* Elements = TEXT(R"JSON(
+{
+  "version": 1,
+  "elements": [
+    { "id": "iron", "color": [0.55, 0.28, 0.16],
+      "noise": { "frequency": 0.5, "octaves": 1, "lacunarity": 2.0, "gain": 0.5, "seed": 101, "depthScale": 0.3 } }
+  ]
+}
+)JSON");
+
+	const TCHAR* Planet = TEXT(R"JSON(
+{
+  "version": 1,
+  "geometryAmplitude": 12.0,
+  "appearance": { "colorThreshold": 0.0, "fadeRange": 0.001, "purityForFullColor": 0.01 },
+  "elements": {
+    "iron": { "abundance": 1.0, "peakDepth": 0, "layerThickness": 200 }
+  }
+}
+)JSON");
+
+	FPlanetGeologyLoadReport Report;
+	const TSharedPtr<const FPlanetGeologyField> Field =
+		FPlanetGeologyField::LoadFromString(Elements, Planet, Report);
+
+	FVoxelPlanetTerrainContext Context;
+	Context.Radius = 100.f;
+	Context.Geology = Field;
+
+	// Amplitude 设为 0：把「基础起伏振幅」带来的区间余量清零，让密度下界只剩
+	// 地质增量一个未知量。否则基础振幅 8 体素的保守余量（最多 8/5=1.6 的密度
+	// 余量）会盖住矿脉增量，区间测试即使漏项也可能碰巧通过。
+	FPlanetNoiseParams Params;
+	Params.Amplitude = 0.f;
+	Params.SeaLevel = -0.35f;
+	const FVoxelPlanetNoiseTerrainInstance Instance(Context, Params);
+	const FVoxelItemStack& Items = FVoxelItemStack::Empty;
+
+	FRandomStream Stream(424242);
+	bool bRangeCovers = true;
+	FString FailureDetail;
+
+	// 仿照网格化器：只检查贴着地表的 32³ 区块，而不是包住球心的整块包围盒。
+	for (int32 BoxIndex = 0; BoxIndex < 48 && bRangeCovers; ++BoxIndex)
+	{
+		const FVector Direction = Stream.GetUnitVector();
+		const FVector Center =
+			Direction * (100.0 + Stream.FRandRange(-8.0, 8.0));
+		const FIntVector BoxMin(
+			FMath::FloorToInt(Center.X) - 16,
+			FMath::FloorToInt(Center.Y) - 16,
+			FMath::FloorToInt(Center.Z) - 16);
+		const FIntVector BoxMax(BoxMin.X + 31, BoxMin.Y + 31, BoxMin.Z + 31);
+		const FVoxelIntBox Bounds(BoxMin, BoxMax);
+		const TVoxelRange<v_flt> Range = Instance.GetValueRangeImpl(Bounds, 0, Items);
+
+		for (int32 SampleIndex = 0; SampleIndex < 256; ++SampleIndex)
+		{
+			const FVector P(
+				Stream.FRandRange(double(BoxMin.X), double(BoxMax.X + 1)),
+				Stream.FRandRange(double(BoxMin.Y), double(BoxMax.Y + 1)),
+				Stream.FRandRange(double(BoxMin.Z), double(BoxMax.Z + 1)));
+
+			const v_flt Value = Instance.GetValueImpl(
+				v_flt(P.X), v_flt(P.Y), v_flt(P.Z), 0, Items);
+
+			if (Value < Range.Min || Value > Range.Max)
+			{
+				bRangeCovers = false;
+				FailureDetail = FString::Printf(
+					TEXT("盒 %d: 值 %.4f 落在区间 [%.4f, %.4f] 之外"),
+					BoxIndex, double(Value), double(Range.Min), double(Range.Max));
+				break;
+			}
+		}
+	}
+
+	TestTrue(*FString::Printf(TEXT("GetValueRangeImpl 覆盖所有采样值 %s"), *FailureDetail), bRangeCovers);
+
+	// 地表查询必须与密度场落在同一个面上：否则角色出生会陷进矿脉凸起里。
+	UVoxelPlanetNoiseTerrain* Terrain = NewObject<UVoxelPlanetNoiseTerrain>();
+	const FPlanetNoiseParams TerrainParams = Terrain->MakeParams();
+	const FVoxelPlanetNoiseTerrainInstance SurfaceInstance(Context, TerrainParams);
+
+	bool bSurfaceConsistent = true;
+	for (int32 Index = 0; Index < 32; ++Index)
+	{
+		const FVector Direction = Stream.GetUnitVector();
+		const float SurfaceRadius = Terrain->GetSurfaceRadiusVoxels(Context, Direction);
+		const FVector P = Direction * double(SurfaceRadius);
+		const double Value = double(SurfaceInstance.GetValueImpl(
+			v_flt(P.X), v_flt(P.Y), v_flt(P.Z), 0, Items));
+
+		// 密度 = (距离 - 地表)/5；允许 float 半径带来的一点误差。
+		if (FMath::Abs(Value) > 0.1)
+		{
+			bSurfaceConsistent = false;
+			break;
+		}
+	}
+	TestTrue(TEXT("地表查询处的密度约为 0"), bSurfaceConsistent);
+
+	return bRangeCovers && bSurfaceConsistent;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

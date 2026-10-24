@@ -1,10 +1,11 @@
-// Copyright Voxel Plugin SAS. All Rights Reserved.
+﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 // 噪声地形模块：球面起伏 + 海平面 + 按高度与纬度分色。
 
 #include "VoxelPlanetNoiseTerrain.h"
 
 #include "VoxelMaterialBuilder.h"
 #include "Math/RandomStream.h"
+#include "PlanetGeologyField.h"
 
 namespace
 {
@@ -104,10 +105,24 @@ float UVoxelPlanetNoiseTerrain::GetSurfaceRadiusVoxels(const FVoxelPlanetTerrain
 		return Context.Radius;
 	}
 
-	// 与密度场调用同一个 ComputePlanetOffset。角色脚下的地面和眼睛看到的地面
-	// 必须是同一个面 —— 这是那个共用函数存在的全部理由。
+	// 与密度场调用同一个 ComputePlanetOffset 和同一个 SampleGeometryDelta。
+	// 角色脚下的地面和眼睛看到的地面必须是同一个面。
 	const FPlanetNoiseParams Params = MakeParams();
-	return Context.Radius + Params.Amplitude * ComputePlanetOffset(Params, Direction);
+	const double BaseSurface =
+		double(Context.Radius) + double(Params.Amplitude) * double(ComputePlanetOffset(Params, Direction));
+
+	double GeometryDelta = 0.0;
+	if (Context.Geology.IsValid())
+	{
+		// 真实地表满足 R_s = Base + delta(R - R_s)。用不动点迭代一次，
+		// 把 delta 自身的 1~2 体素偏移也收进来。
+		const double Depth0 = double(Context.Radius) - BaseSurface;
+		GeometryDelta = double(Context.Geology->SampleGeometryDelta(Direction, Depth0));
+		GeometryDelta = double(Context.Geology->SampleGeometryDelta(
+			Direction, Depth0 - GeometryDelta));
+	}
+
+	return float(BaseSurface + GeometryDelta);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -118,6 +133,7 @@ FVoxelPlanetNoiseTerrainInstance::FVoxelPlanetNoiseTerrainInstance(const FVoxelP
 	, Radius(Context.Radius)
 	, Center(Context.Center)
 	, Params(InParams)
+	, Geology(Context.Geology)
 {
 }
 
@@ -143,10 +159,16 @@ v_flt FVoxelPlanetNoiseTerrainInstance::GetValueImpl(v_flt X, v_flt Y, v_flt Z, 
 		double(Z) - Center.Z + PlanetCenterEpsilon);
 
 	const double Distance = Relative.Size();
-	const double SurfaceRadius =
-		double(Radius) + double(Params.Amplitude) * double(ComputePlanetOffset(Params, GetUnitDirection(Relative)));
+	const FVector UnitDir = GetUnitDirection(Relative);
+	const double BaseSurface =
+		double(Radius) + double(Params.Amplitude) * double(ComputePlanetOffset(Params, UnitDir));
 
-	const double Value = (Distance - SurfaceRadius) / DensityScale;
+	// 深度以基准球面为 0、向内为正。几何增量只往外推，不挖坑。
+	const double GeometryDelta = Geology.IsValid()
+		? double(Geology->SampleGeometryDelta(UnitDir, double(Radius) - Distance))
+		: 0.0;
+
+	const double Value = (Distance - BaseSurface - GeometryDelta) / DensityScale;
 
 	// 不夹到 [-1, 1]。存储层（FVoxelValue）本来就会按 ±1 饱和，表面抽取只看
 	// 符号，夹不夹对几何没有影响；但 LOD > 0 的着色法线是插件用**生成器浮点值**
@@ -260,8 +282,14 @@ TVoxelRange<v_flt> FVoxelPlanetNoiseTerrainInstance::GetValueRangeImpl(const FVo
 	// 与 GetValueImpl 一样不夹到 ±1：契约要求区间**覆盖**取值，而取值已不再
 	// 夹断。下游把它换算成 FVoxelValue 时会自己饱和，只消费端点的符号，所以
 	// 这里放宽不影响空/实区块的判定。
+	// 地质增量只增大表面半径，因此只压缩最小密度那一侧。
+	// 漏掉这一项会在矿脉处出洞，而且是静默的 —— RangeCoverage 测试兜底。
+	const double MaxGeometryDelta =
+		Geology.IsValid() ? double(Geology->GetMaxGeometryDelta()) : 0.0;
+
 	const double MinValue =
-		(MinDistance - double(Radius) - double(Params.Amplitude) * MaxOffset) / DensityScale;
+		(MinDistance - double(Radius) - double(Params.Amplitude) * MaxOffset - MaxGeometryDelta)
+		/ DensityScale;
 	const double MaxValue =
 		(MaxDistance - double(Radius) - double(Params.Amplitude) * MinOffset) / DensityScale;
 

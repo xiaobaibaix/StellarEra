@@ -1,4 +1,4 @@
-// Copyright Voxel Plugin SAS. All Rights Reserved.
+﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 // 噪声地形模块：球面起伏 + 海平面 + 按高度与纬度分色。
 
 #pragma once
@@ -165,6 +165,8 @@ public:
 	float PolarStart = 0.72f;
 };
 
+class FPlanetGeologyField;
+
 /** 密度场实例。模板第二个参数是宿主类型而非本模块 —— 理由见纯球模块的同名类。 */
 class FVoxelPlanetNoiseTerrainInstance : public TVoxelGeneratorInstanceHelper<FVoxelPlanetNoiseTerrainInstance, UVoxelPlanetGenerator>
 {
@@ -186,6 +188,9 @@ private:
 	const float Radius;
 	const FVector Center;
 	const FPlanetNoiseParams Params;
+
+	/** 与 Context.Geology 同一份只读场；为空 = 没有矿。 */
+	const TSharedPtr<const FPlanetGeologyField> Geology;
 
 	/** 由采样点求相对球心的单位方向；退化到球心时给一个任意方向。 */
 	FVector GetUnitDirection(const FVector& RelativePosition) const;
