@@ -408,6 +408,8 @@ FPlanetGeologySample FPlanetGeologyField::Sample(const FVector& UnitDir, double 
 	Result.Purity = FMath::Clamp(
 		float(Accumulation.MaxRaw / Accumulation.Total), 0.f, 1.f);
 	Result.MineralColor = WeightedColor / float(Accumulation.Total);
+	// 累加器初值 A = 1，除法会把 alpha 也除掉；MineralColor 是纯颜色，A 恒为 1。
+	Result.MineralColor.A = 1.f;
 	return Result;
 }
 

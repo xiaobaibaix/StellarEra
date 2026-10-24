@@ -23,6 +23,22 @@ namespace
 	{
 		return From + (To - From) * Alpha;
 	}
+
+	/**
+	 * 材质打包的唯一出口。本期 = RGB 顶点色；未来换 MultiIndex 只改这里，
+	 * 地形与地质场的代码都不动。
+	 */
+	FVoxelMaterial MakeVoxelMaterial(const FPlanetGeologySample& Sample, const FLinearColor& FinalColor)
+	{
+		// 本期不用 Sample：元素颜色已经折算进 FinalColor。参数留着是为了
+		// 将来接真实矿物材质时能直接拿到纯度与混合权重，不必再改调用点。
+		(void)Sample;
+
+		FVoxelMaterialBuilder Builder;
+		Builder.SetMaterialConfig(EVoxelMaterialConfig::RGB);
+		Builder.SetColor(FinalColor);
+		return Builder.Build();
+	}
 }
 
 float ComputePlanetOffset(const FPlanetNoiseParams& Params, const FVector& UnitDir)
@@ -233,10 +249,29 @@ FVoxelMaterial FVoxelPlanetNoiseTerrainInstance::GetMaterialImpl(v_flt X, v_flt 
 		}
 	}
 
-	FVoxelMaterialBuilder Builder;
-	Builder.SetMaterialConfig(EVoxelMaterialConfig::RGB);
-	Builder.SetColor(Color);
-	return Builder.Build();
+	FPlanetGeologySample GeologySample;
+	if (Geology.IsValid() && Offset > Params.SeaLevel + UE_KINDA_SMALL_NUMBER)
+	{
+		const double Distance = Relative.Size();
+		const double Depth = double(Radius) - Distance;
+		GeologySample = Geology->Sample(UnitDir, Depth);
+
+		const FPlanetGeologyAppearance& Appearance = Geology->GetAppearance();
+		if (GeologySample.TotalNorm > Appearance.ColorThreshold)
+		{
+			const float Presence = FMath::Clamp(
+				(GeologySample.TotalNorm - Appearance.ColorThreshold)
+					/ FMath::Max(Appearance.FadeRange, 1e-4f),
+				0.f, 1.f);
+			const float PurityMix = FMath::Clamp(
+				(GeologySample.Purity - (1.f - Appearance.PurityForFullColor))
+					/ FMath::Max(Appearance.PurityForFullColor, 1e-4f),
+				0.f, 1.f);
+			Color = MixColor(Color, GeologySample.MineralColor, Presence * PurityMix);
+		}
+	}
+
+	return MakeVoxelMaterial(GeologySample, Color);
 }
 
 TVoxelRange<v_flt> FVoxelPlanetNoiseTerrainInstance::GetValueRangeImpl(const FVoxelIntBox& Bounds, int32 LOD, const FVoxelItemStack& Items) const

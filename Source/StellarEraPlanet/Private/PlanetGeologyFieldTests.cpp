@@ -319,4 +319,123 @@ bool FPlanetGeologyRangeCoverageTest::RunTest(const FString& Parameters)
 	return bRangeCovers && bSurfaceConsistent;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyColorTest,
+	"StellarEra.Planet.Geology.Color",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyColorTest::RunTest(const FString& Parameters)
+{
+	const TCHAR* Elements = TEXT(R"JSON(
+{
+  "version": 1,
+  "elements": [
+    { "id": "iron", "color": [0.8, 0.2, 0.2],
+      "noise": { "frequency": 3.0, "octaves": 1, "lacunarity": 2.0, "gain": 0.5, "seed": 101, "depthScale": 0.3 } }
+  ]
+}
+)JSON");
+
+	// 阈值 0、过渡极窄、纯度门槛极低 → 只要有一点含量就完全用元素色。
+	const TCHAR* Planet = TEXT(R"JSON(
+{
+  "version": 1,
+  "geometryAmplitude": 0.0,
+  "appearance": { "colorThreshold": 0.0, "fadeRange": 0.001, "purityForFullColor": 0.01 },
+  "elements": {
+    "iron": { "abundance": 1.0, "peakDepth": 0, "layerThickness": 200 }
+  }
+}
+)JSON");
+
+	FPlanetGeologyLoadReport Report;
+	const TSharedPtr<const FPlanetGeologyField> Field =
+		FPlanetGeologyField::LoadFromString(Elements, Planet, Report);
+
+	FVoxelPlanetTerrainContext Context;
+	Context.Radius = 100.f;
+	Context.Geology = Field;
+
+	FVoxelPlanetTerrainContext NoGeoContext;
+	NoGeoContext.Radius = 100.f;
+
+	FVoxelPlanetTerrainContext EmptyGeoContext;
+	EmptyGeoContext.Radius = 100.f;
+	EmptyGeoContext.Geology = MakeShared<FPlanetGeologyField>();
+
+	FPlanetNoiseParams Params;
+	Params.Amplitude = 8.f;
+	Params.SeaLevel = -0.35f;
+
+	const FVoxelPlanetNoiseTerrainInstance WithGeo(Context, Params);
+	const FVoxelPlanetNoiseTerrainInstance WithoutGeo(NoGeoContext, Params);
+	const FVoxelPlanetNoiseTerrainInstance WithEmptyGeo(EmptyGeoContext, Params);
+	const FVoxelItemStack& Items = FVoxelItemStack::Empty;
+
+	FRandomStream Stream(777);
+	FVector LandDirection = FVector::UpVector;
+	FVector WaterDirection = FVector::DownVector;
+	bool bFoundLand = false;
+	bool bFoundWater = false;
+
+	for (int32 Index = 0; Index < 4096 && !(bFoundLand && bFoundWater); ++Index)
+	{
+		const FVector Direction = Stream.GetUnitVector();
+		const double Offset = double(ComputePlanetOffset(Params, Direction));
+		// 陆地点还要求矿物含量足够高：否则噪声恰好接近 0 时 TotalNorm 会低于
+		// fadeRange，颜色只混了一部分，断言就变成概率性的。
+		if (!bFoundLand
+			&& Offset > double(Params.SeaLevel) + 0.1
+			&& Field->Sample(Direction, 0.0).TotalNorm > 0.5)
+		{
+			LandDirection = Direction;
+			bFoundLand = true;
+		}
+		if (!bFoundWater && Offset <= double(Params.SeaLevel) + UE_KINDA_SMALL_NUMBER)
+		{
+			WaterDirection = Direction;
+			bFoundWater = true;
+		}
+	}
+
+	TestTrue(TEXT("找到陆地采样点"), bFoundLand);
+	TestTrue(TEXT("找到水面采样点"), bFoundWater);
+
+	// 陆地：depth = 0 落在峰值层，且方向高于海平面 → 完全使用元素色。
+	{
+		const FVector P = LandDirection * 100.0;
+		const FColor Color = WithGeo.GetMaterialImpl(
+			v_flt(P.X), v_flt(P.Y), v_flt(P.Z), 0, Items).GetColor();
+
+		const auto Near = [](uint8 Actual, float Expected)
+		{
+			return FMath::Abs(int32(Actual) - FMath::RoundToInt(Expected * 255.f)) <= 2;
+		};
+		TestTrue(TEXT("纯矿地表 R 接近元素色"), Near(Color.R, 0.8f));
+		TestTrue(TEXT("纯矿地表 G 接近元素色"), Near(Color.G, 0.2f));
+		TestTrue(TEXT("纯矿地表 B 接近元素色"), Near(Color.B, 0.2f));
+	}
+
+	// 空场不能改变任何像素的颜色。
+	{
+		const FVector P = LandDirection * 100.0;
+		const FColor Baseline = WithoutGeo.GetMaterialImpl(
+			v_flt(P.X), v_flt(P.Y), v_flt(P.Z), 0, Items).GetColor();
+		const FColor EmptyGeo = WithEmptyGeo.GetMaterialImpl(
+			v_flt(P.X), v_flt(P.Y), v_flt(P.Z), 0, Items).GetColor();
+		TestEqual(TEXT("空场不改变地形底色"), EmptyGeo, Baseline);
+	}
+
+	// 水面不叠矿色：与没有地质的实例逐通道一致。
+	{
+		const FVector P = WaterDirection * 100.0;
+		const FColor Baseline = WithoutGeo.GetMaterialImpl(
+			v_flt(P.X), v_flt(P.Y), v_flt(P.Z), 0, Items).GetColor();
+		const FColor WithGeology = WithGeo.GetMaterialImpl(
+			v_flt(P.X), v_flt(P.Y), v_flt(P.Z), 0, Items).GetColor();
+		TestEqual(TEXT("水面不叠矿色"), WithGeology, Baseline);
+	}
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
