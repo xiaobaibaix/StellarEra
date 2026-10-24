@@ -19,8 +19,6 @@
 #include "EngineUtils.h"
 #include "CollisionQueryParams.h"
 #include "Engine/World.h"
-#include "GameFramework/PlayerController.h"
-#include "SceneTypes.h"
 
 namespace
 {
