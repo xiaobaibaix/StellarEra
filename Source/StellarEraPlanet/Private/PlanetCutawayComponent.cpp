@@ -137,11 +137,13 @@ void UPlanetCutawayComponent::Deactivate()
 		if (UPlanetAtmosphereComponent* Atmosphere = RestorePlanet->GetAtmosphereComponent())
 		{
 			Atmosphere->bAtmosphereEnabled = bSavedAtmosphereEnabled;
-			Atmosphere->SetVisibility(bSavedAtmosphereVisible);
 			if (bSavedAtmosphereEnabled)
 			{
+				// Refresh 成功路径末尾会 SetVisibility(true)：必须先刷新、再恢复
+				// 进入前的可见性，否则「enabled 但被手动隐藏」的壳会被强行显示。
 				Atmosphere->RefreshAtmosphereGeometry();
 			}
+			Atmosphere->SetVisibility(bSavedAtmosphereVisible);
 		}
 	}
 
@@ -271,6 +273,20 @@ bool UPlanetCutawayComponent::EnsureViewAssets()
 {
 	if (SectionMesh && SectionRings && SectionMaterialInstance)
 	{
+		// 纹理尺寸在首次创建时就定死了；运行期改属性只警告一次，不逐帧重建。
+		if (!bWarnedResolutionMismatch &&
+			FinalTexture && PreviewTexture &&
+			FinalTexture->GetSizeX() > 0 && PreviewTexture->GetSizeX() > 0 &&
+			(FinalTexture->GetSizeX() != FinalResolution ||
+				PreviewTexture->GetSizeX() != PreviewResolution))
+		{
+			bWarnedResolutionMismatch = true;
+			UE_LOG(LogTemp, Warning,
+				TEXT("UPlanetCutawayComponent: 运行期修改了分辨率属性，纹理不会重建；"
+					 "继续使用 %dx%d Final / %dx%d Preview。"),
+				FinalTexture->GetSizeX(), FinalTexture->GetSizeX(),
+				PreviewTexture->GetSizeX(), PreviewTexture->GetSizeX());
+		}
 		return true;
 	}
 
@@ -468,9 +484,21 @@ void UPlanetCutawayComponent::RenderSection(int32 Resolution)
 		return;
 	}
 
-	const bool bFinal = Resolution >= FinalResolution;
-	const int32 Res = bFinal ? FinalResolution : FMath::Max(PreviewResolution, 1);
-	UTexture2D* Target = bFinal ? FinalTexture.Get() : PreviewTexture.Get();
+	UTexture2D* FinalTarget = FinalTexture.Get();
+	UTexture2D* PreviewTarget = PreviewTexture.Get();
+
+	// 纹理只在 EnsureViewAssets 首次创建时按当时属性定尺，运行期改属性不会重建。
+	// 渲染/上传尺寸必须取真实纹理：否则区域宽度与行跨距会超过纹理宽度，越界写 RHI。
+	const int32 FinalRes = FinalTarget && FinalTarget->GetSizeX() > 0
+		? FinalTarget->GetSizeX()
+		: FMath::Max(FinalResolution, 1);
+	const int32 PreviewRes = PreviewTarget && PreviewTarget->GetSizeX() > 0
+		? PreviewTarget->GetSizeX()
+		: FMath::Max(PreviewResolution, 1);
+
+	const bool bFinal = Resolution >= FinalRes;
+	const int32 Res = bFinal ? FinalRes : PreviewRes;
+	UTexture2D* Target = bFinal ? FinalTarget : PreviewTarget;
 
 	// 512² 与 96² 各有两份缓冲轮换：上一份上传可能还在渲染线程里被读。
 	TArray<FColor>& Buffer = bFinal

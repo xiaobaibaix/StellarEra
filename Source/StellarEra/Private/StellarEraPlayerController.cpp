@@ -688,6 +688,13 @@ void AStellarEraPlayerController::PlayerTick(float DeltaTime)
 
 void AStellarEraPlayerController::OnEditModeToggle(const FInputActionValue& Value)
 {
+	// 剖面模式下左键归圆环：编辑模式会抢左键并改写体素，所以直接忽略切换，
+	// 保持进入剖面时强制退出的状态。
+	if (ActiveCutaway)
+	{
+		return;
+	}
+
 	// 角色与星图相机各有一个编辑组件；飞船等其他 Pawn 上没有，返回空。
 	if (UPlanetEditComponent* Edit = GetEditComponentForPawn(GetPawn()))
 	{
@@ -839,6 +846,9 @@ void AStellarEraPlayerController::OnCutawayToggle()
 		return;
 	}
 
+	// 剖面里左键只拖圆环：若此前按过 G，先退出编辑模式，否则左键会同时挖/填体素。
+	ForceExitEditMode(GetPawn());
+
 	// 拉到能看全剖面圆盘的距离：3 × 表面半径（圆盘半径 1.05R，视场 90° 时 3R 留有余量）。
 	AStarMapCameraPawn* StarMap = Cast<AStarMapCameraPawn>(GetPawn());
 	if (StarMap)
@@ -865,8 +875,11 @@ void AStellarEraPlayerController::OnCutawayDrag(const FInputActionValue& Value)
 
 	// 横拖与竖拖绕同一根世界轴、方向相反：这是「转环」的直觉（拇指推环的切线方向）。
 	const float DeltaDegrees = (float(Delta.X) - float(Delta.Y)) * 0.5f;
-	ActiveCutaway->RotatePlane(CutawayDragRing, DeltaDegrees);
-	bCutawayRotatedThisDrag = true;
+	if (!FMath::IsNearlyZero(DeltaDegrees))
+	{
+		ActiveCutaway->RotatePlane(CutawayDragRing, DeltaDegrees);
+		bCutawayRotatedThisDrag = true;
+	}
 }
 
 void AStellarEraPlayerController::ExitCutawayIfActive()
@@ -1040,7 +1053,9 @@ void AStellarEraPlayerController::ToggleStarMap()
 void AStellarEraPlayerController::OnStarMapSelectStarted(const FInputActionValue& Value)
 {
 	// 编辑模式（角色或星图）：按钮优先，其次一次笔刷操作。按钮命中不能顺带挖到脚下的地形。
-	if (UPlanetEditComponent* Edit = GetEditComponentInEditMode())
+	// 剖面激活期间左键归圆环：短路编辑分支，否则左键会挖/填体素（且剖面图不刷新）。
+	UPlanetEditComponent* Edit = ActiveCutaway ? nullptr : GetEditComponentInEditMode();
+	if (Edit)
 	{
 		double MouseX = 0.0;
 		double MouseY = 0.0;

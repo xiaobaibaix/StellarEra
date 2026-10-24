@@ -142,5 +142,8 @@ private:
 	bool bSavedAtmosphereEnabled = true;
 	bool bSavedAtmosphereVisible = true;
 
+	/** 运行期改分辨率属性时只警告一次：纹理沿用创建时的尺寸，不逐帧重建。 */
+	bool bWarnedResolutionMismatch = false;
+
 	static constexpr int32 RingSegments = 128;
 };
