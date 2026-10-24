@@ -5,6 +5,7 @@
 #include "Camera/CameraComponent.h"
 #include "CosmosSimulationSubsystem.h"
 #include "Engine/World.h"
+#include "PlanetSurfaceRay.h"
 #include "VoxelPlanetActor.h"
 #include "AlwaysLocalVoxelInvokerComponent.h"
 
@@ -188,36 +189,9 @@ double AStarMapCameraPawn::RaySphereFirstHitCm(
 	const FVector& SphereCenter,
 	double SphereRadiusCm)
 {
-	if (SphereRadiusCm <= 0.0)
-	{
-		return -1.0;
-	}
-
-	const FVector Direction = UnitDir.GetSafeNormal();
-	if (Direction.IsNearlyZero())
-	{
-		return -1.0;
-	}
-
-	// 射线 P(t) = Origin + Direction × t。把球心投到射线上：投影长度 Projection
-	// 对应最近点，垂距平方 PerpSq = |ToCenter|² − Projection²。
-	const FVector ToCenter = SphereCenter - RayOrigin;
-	const double Projection = ToCenter.Dot(Direction);
-	const double PerpSq = ToCenter.SizeSquared() - Projection * Projection;
-	const double RadiusSq = SphereRadiusCm * SphereRadiusCm;
-	if (PerpSq > RadiusSq)
-	{
-		return -1.0; // 射线擦不到球
-	}
-
-	// 半弦长：Entry 是穿入点，Exit 是穿出点。
-	const double HalfChord = FMath::Sqrt(RadiusSq - PerpSq);
-	const double Entry = Projection - HalfChord;
-	const double Exit = Projection + HalfChord;
-
-	// Exit ≤ 0：整个球在射线背后；Entry ≤ 0 < Exit：起点在球内。
-	// 两种都不给约束 —— 返回 -1，避免把缩放锁死在 0。
-	return (Exit > 0.0 && Entry > 0.0) ? Entry : -1.0;
+	// 实现搬到了 StellarEraPlanet/PlanetSurfaceRay：行星编辑的射线也要用它。
+	// 这里保留同名静态函数，星图现有的调用点与测试都不用改。
+	return PlanetSurfaceRay::RaySphereFirstHit(RayOrigin, UnitDir, SphereCenter, SphereRadiusCm);
 }
 
 double AStarMapCameraPawn::LimitDistanceByObstaclesCm(
