@@ -6,6 +6,7 @@
 #include "GameFramework/Pawn.h"
 #include "StarMapCameraPawn.generated.h"
 
+class AVoxelPlanetActor;
 class UCameraComponent;
 class UCosmosSimulationSubsystem;
 class UVoxelSimpleInvokerComponent;
@@ -31,6 +32,18 @@ struct FStarMapScreenCandidate
 	 * 都投到屏幕，取两点的像素距离。用固定的世界轴会算出被投影压扁的假半径。
 	 */
 	float ScreenRadiusPx = 0.f;
+};
+
+/**
+ * 星图里挡在相机拉远路径上的球体：一颗行星的球心与当前方向上的地表半径。
+ *
+ * 单独拎成结构体是为了让「不穿行星」的夹取能被无头测试：算夹取的函数只吃
+ * 位置与半径，不碰世界、不碰体素查询。
+ */
+struct FStarMapObstacle
+{
+	FVector Center = FVector::ZeroVector;
+	double RadiusCm = 0.0;
 };
 
 /**
@@ -69,14 +82,15 @@ public:
 	 * 从 LOD 1/3/5 塌到 LOD 6/7，画面掉精度（平滑只管观感，不负责躲 ensure ——
 	 * 见 bSmoothFocusActive 的说明）。这里只记录起点与目标，插值在 CalcCamera。
 	 *
-	 * 距离会被夹到 Min/Max 之间。Body 为空时什么都不做。
+	 * 距离会被夹进「不穿行星」的合法区间（见 ComputeOrbitDistanceLimitsCm）。
+	 * Body 为空时什么都不做。
 	 */
 	void FocusOn(AActor* Body, double DistanceCm);
 
 	/** 鼠标位移 → 绕焦点转视角。单位是度，来自控制器的 LookSensitivity。 */
 	void OrbitLook(float DeltaYaw, float DeltaPitch);
 
-	/** 滚轮 → 按倍率缩放与焦点的距离。Value 每格 ±1。 */
+	/** 滚轮 → 按倍率缩放相机到**地表的高度**。Value 每格 ±1，正值为拉近。 */
 	void AddZoom(float Value);
 
 	/** 当前选中的天体（每帧从子系统读，不自己存）。 */
@@ -111,11 +125,79 @@ public:
 	 */
 	static double SilhouetteRadiusScale(double CameraDistanceCm, double BodyRadiusCm);
 
+	/**
+	 * 滚轮缩放的纯函数：在**地表高度**上乘倍率，再夹进 [MinAltitudeCm, MaxAltitudeCm]。
+	 *
+	 * 为什么缩放的是高度而不是到球心的距离：星图焦点的半径从飞船（几十厘米）到
+	 * 行星（1e6–2e6 厘米）不等。按中心距离乘同一个倍率时，贴着地表滚一格会直接
+	 * 穿进星球，远处滚一格又只挪一点点。按高度缩放让「每格画面的变化」大致恒定：
+	 * 贴地一格几十米，远处一格几个 AU。
+	 *
+	 * Value > 0 = 滚轮上滚 = 拉近（高度变小）。AltitudeCm 为负按 0 处理；
+	 * MaxAltitudeCm 小于 MinAltitudeCm 时以下限为准。
+	 */
+	static double ZoomAltitudeCm(
+		double AltitudeCm,
+		double StepFactor,
+		float Value,
+		double MinAltitudeCm,
+		double MaxAltitudeCm);
+
+	/**
+	 * 射线-球首次交点：从 RayOrigin 沿 UnitDir（内部归一化）出发，返回首次穿入
+	 * 球面的距离（厘米）；没命中、或整个球在射线背后返回 **-1**。
+	 *
+	 * 起点在球内（Entry ≤ 0 < Exit）也返回 -1：那是「焦点本身就在山里」的病态
+	 * 情形，强行给个 0 反而会把缩放锁死。
+	 */
+	static double RaySphereFirstHitCm(
+		const FVector& RayOrigin,
+		const FVector& UnitDir,
+		const FVector& SphereCenter,
+		double SphereRadiusCm);
+
+	/**
+	 * 用视线上的行星压低「拉远上限」：相机停在每颗行星穿入点之前 MinAltitudeCm 处。
+	 *
+	 * 返回 min(CurrentMaxCm, 各命中点 − MinAltitudeCm)，且不小于 MinDistanceCm
+	 * （MinDistanceCm 由焦点自己的半径决定；两者冲突说明焦点贴在山里，保下限）。
+	 * 没命中的行星不产生约束。
+	 */
+	static double LimitDistanceByObstaclesCm(
+		const FVector& FocusLocation,
+		const FVector& RayDirection,
+		TArrayView<const FStarMapObstacle> Obstacles,
+		double MinAltitudeCm,
+		double MinDistanceCm,
+		double CurrentMaxCm);
+
 	//~ Begin AActor Interface
 	virtual void CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult) override;
 	//~ End AActor Interface
 
 protected:
+	/**
+	 * 焦点天体在「焦点 → 相机」方向上的表面半径（厘米）。
+	 *
+	 * 焦点是体素行星时按该方向查真实地表（山脉会高于基准球面）；飞船/角色这类
+	 * 非体素天体退回碰撞半径；都没有则返回 0。
+	 */
+	double ResolveFocusSurfaceRadiusCm(AActor* Focus) const;
+
+	/**
+	 * 当前视线下「相机到焦点距离」的合法区间（厘米）。
+	 *
+	 * 下限 = 焦点表面半径 + （焦点是行星时用 MinSurfaceAltitudeCm，否则用
+	 * MinFocusDistanceCm）—— 绕焦点转时不能钻进焦点，也不能把相机塞进飞船模型。
+	 * 上限 = MaxOrbitDistanceCm，再被视线上的其他行星压低：沿「焦点 → 相机」
+	 * 做射线-球求交，相机只能停在命中点前 MinSurfaceAltitudeCm 处。焦点是飞船
+	 * （进图默认就是飞船）时，这条才是防穿地的主力 —— 飞船自己的半径保护不了
+	 * 脚下的行星。
+	 *
+	 * **每帧都要重算**：行星在动，合法区间也在动。
+	 */
+	void ComputeOrbitDistanceLimitsCm(AActor* Focus, double& OutMinCm, double& OutMaxCm) const;
+
 	/** 相机，同时是根组件。不挂 SpringArm —— 太空里没有东西要避。 */
 	UPROPERTY(VisibleAnywhere, Category = "StarMap")
 	TObjectPtr<UCameraComponent> Camera;
@@ -158,11 +240,11 @@ protected:
 	 *
 	 * **只在发生过一次选中之后才有意义。** 初始值 0 是哨兵，不影响任何可观测结果：
 	 * 未选中时 CalcCamera 不更新 CameraLocation（也就用不到它），而第一次选中时
-	 * CalcCamera 会用「当前相机位置 → 焦点」的实际距离（夹到 Min/Max 之间）把它整个覆盖掉。
+	 * CalcCamera 会用「当前相机位置 → 焦点」的实际距离（夹进合法区间）把它整个覆盖掉。
 	 * EnterFrom 不重置它 —— 重置成什么都不影响结果，因为首次选中必然覆盖。
 	 *
 	 * 因此：不要读它来初始化「进星图时的距离」；也不要指望选中之前调 AddZoom
-	 * 有可观测效果（那期间它被夹到 MinOrbitDistanceCm，但没人看）。
+	 * 有可观测效果（那期间它被夹到合法下限，但没人看）。
 	 */
 	UPROPERTY(Transient, VisibleAnywhere, Category = "StarMap|State")
 	double OrbitDistanceCm = 0.0;
@@ -235,14 +317,37 @@ protected:
 	double ZoomStepFactor = 1.15;
 
 	/**
-	 * 最近距离（厘米）。世界尺度：1 AU = CentimetersPerAu = 1e6 厘米；
-	 * 默认体素行星的半径 = Radius 100 体素 × VoxelSize 100 厘米 = 1e4 厘米。
-	 * 所以 2e4 = 两颗行星半径，够近但不会钻进地里。
+	 * 相机在地表之上的最小高度（厘米）。
+	 *
+	 * 滚轮作用在**高度**（相机到球心距离 − 焦点表面半径）上，见 ZoomAltitudeCm。
+	 * 5000 = 50 米：贴着地表看细节，又不会把近裁剪面塞进体素；细气泡调用器的
+	 * LOD 1 范围是 80 米，这个高度正好落在它里面。
+	 *
+	 * 同一个值也用作「视线擦过行星」的余量：沿视线拉远时，相机停在行星表面
+	 * 前 50 米。
+	 *
+	 * 注意别再按「行星半径 = 1e4 厘米」写常量：当前关卡的行星半径是 1e6–2e6
+	 * 厘米（1–2 AU），任何按中心距离设的固定下限都会让相机扎进星球。
 	 */
 	UPROPERTY(EditAnywhere, Category = "StarMap")
-	double MinOrbitDistanceCm = 2.0e4;
+	double MinSurfaceAltitudeCm = 5.0e3;
 
-	/** 最远距离（厘米）。5e7 厘米 = 50 AU，够从一颗行星看到整个星系。 */
+	/**
+	 * 焦点不是行星时（飞船/角色），相机到焦点中心的最小距离（厘米）。
+	 *
+	 * 这一项故意远小于 MinSurfaceAltitudeCm：飞船的「表面」不是地表，5 米已经
+	 * 够贴近；用 50 米会让贴着地面停放的飞船一进星图就把相机顶到地下。
+	 * 防穿地由视线上的行星约束负责，不靠这个值。
+	 */
+	UPROPERTY(EditAnywhere, Category = "StarMap")
+	double MinFocusDistanceCm = 5.0e2;
+
+	/**
+	 * 最远距离（厘米，到焦点球心）。5e7 厘米 = 50 AU，够从一颗行星看到整个星系。
+	 *
+	 * 这是**全局**上限；视线上有行星时实际上限更小（见
+	 * ComputeOrbitDistanceLimitsCm）—— 拉远不能穿过行星。
+	 */
 	UPROPERTY(EditAnywhere, Category = "StarMap")
 	double MaxOrbitDistanceCm = 5.0e7;
 

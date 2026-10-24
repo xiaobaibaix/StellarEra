@@ -428,4 +428,94 @@ bool FStellarEraStarMapFocusTargetTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapZoomLimitsTest,
+	"StellarEra.StarMap.ZoomLimits",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraStarMapZoomLimitsTest::RunTest(const FString& Parameters)
+{
+	// 滚轮缩放的是「相机到地表的高度」，不是到球心的距离；拉远被视线上的行星
+	// 挡住时，相机停在穿入点之前。这两条都是纯函数，不需要世界。
+
+	constexpr double Tolerance = 1e-6;
+
+	// ── 高度缩放：同一倍率，近处一格几十米、远处一格几个 AU ──
+	TestEqual(TEXT("远处拉近一格按 1.15 缩放"),
+		AStarMapCameraPawn::ZoomAltitudeCm(1.0e7, 1.15, 1.f, 5000.0, 5.0e7),
+		1.0e7 / 1.15, Tolerance);
+	TestEqual(TEXT("近处拉近一格同样按 1.15 缩放"),
+		AStarMapCameraPawn::ZoomAltitudeCm(2.0e4, 1.15, 1.f, 5000.0, 5.0e7),
+		2.0e4 / 1.15, Tolerance);
+
+	// 贴地时滚轮停在下限：不会穿进地表。
+	TestEqual(TEXT("滚到下限就停住"),
+		AStarMapCameraPawn::ZoomAltitudeCm(5000.0, 1.15, 1.f, 5000.0, 5.0e7),
+		5000.0, Tolerance);
+	TestEqual(TEXT("拉远一格高度变大"),
+		AStarMapCameraPawn::ZoomAltitudeCm(5000.0, 1.15, -1.f, 5000.0, 5.0e7),
+		5750.0, Tolerance);
+	// 越过全局上限就停住。
+	TestEqual(TEXT("拉远上限"),
+		AStarMapCameraPawn::ZoomAltitudeCm(4.9e7, 1.15, -3.f, 5000.0, 5.0e7),
+		5.0e7, Tolerance);
+
+	// ── 射线-球：行星挡在拉远路径上时，相机停在表面之前 ──
+	// 焦点在原点，行星球心 (1.5e6, 0, 0)、半径 1e6 → 穿入点在 0.5e6。
+	const FVector FocusLocation = FVector::ZeroVector;
+	const FVector RayDirection = FVector::ForwardVector;
+
+	TestEqual(TEXT("穿入距离"),
+		AStarMapCameraPawn::RaySphereFirstHitCm(
+			FocusLocation, RayDirection, FVector(1.5e6, 0.0, 0.0), 1.0e6),
+		5.0e5, 1.0);
+
+	TArray<FStarMapObstacle> Blocking;
+	{
+		FStarMapObstacle Obstacle;
+		Obstacle.Center = FVector(1.5e6, 0.0, 0.0);
+		Obstacle.RadiusCm = 1.0e6;
+		Blocking.Add(Obstacle);
+	}
+
+	TestEqual(TEXT("拉远上限被行星压到穿入点前 50 米"),
+		AStarMapCameraPawn::LimitDistanceByObstaclesCm(
+			FocusLocation, RayDirection, Blocking, 5000.0, 100.0, 5.0e7),
+		5.0e5 - 5000.0, 1.0);
+
+	// 球心偏移超过半径：射线擦不到，不限制。
+	TestEqual(TEXT("擦不到的行星不限制"),
+		AStarMapCameraPawn::LimitDistanceByObstaclesCm(
+			FocusLocation, RayDirection,
+			TArray<FStarMapObstacle>{
+				FStarMapObstacle{ FVector(1.5e6, 1.0e6 + 1.0, 0.0), 1.0e6 } },
+			5000.0, 100.0, 5.0e7),
+		5.0e7, Tolerance);
+
+	// 球在射线背后：相机越拉越远也碰不到它。
+	TestEqual(TEXT("背后的行星不限制"),
+		AStarMapCameraPawn::LimitDistanceByObstaclesCm(
+			FocusLocation, RayDirection,
+			TArray<FStarMapObstacle>{
+				FStarMapObstacle{ FVector(-1.5e6, 0.0, 0.0), 1.0e6 } },
+			5000.0, 100.0, 5.0e7),
+		5.0e7, Tolerance);
+
+	// 起点在球内（焦点贴在山里）：返回 -1，不给约束 —— 返回 0 会把缩放锁死。
+	TestEqual(TEXT("起点在球内返回 -1"),
+		AStarMapCameraPawn::RaySphereFirstHitCm(
+			FVector::ZeroVector, RayDirection, FVector(1.0e6, 0.0, 0.0), 2.0e6),
+		-1.0, Tolerance);
+
+	// 障碍物比下限还近：上限不能低于下限，否则 Clamp 的区间会反转。
+	TestEqual(TEXT("障碍物比下限更近时保下限"),
+		AStarMapCameraPawn::LimitDistanceByObstaclesCm(
+			FocusLocation, RayDirection,
+			TArray<FStarMapObstacle>{
+				FStarMapObstacle{ FVector(1.0e6 + 1000.0, 0.0, 0.0), 1.0e6 } },
+			5000.0, 2.0e4, 5.0e7),
+		2.0e4, Tolerance);
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

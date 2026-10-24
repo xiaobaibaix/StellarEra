@@ -5,6 +5,7 @@
 #include "Camera/CameraComponent.h"
 #include "CosmosSimulationSubsystem.h"
 #include "Engine/World.h"
+#include "VoxelPlanetActor.h"
 #include "AlwaysLocalVoxelInvokerComponent.h"
 
 AStarMapCameraPawn::AStarMapCameraPawn()
@@ -97,11 +98,18 @@ void AStarMapCameraPawn::FocusOn(AActor* Body, double DistanceCm)
 	// 重建，不是相机距离跳变；那是另一处修复，见 AlwaysLocalVoxelInvokerComponent.h。
 	// 平滑只负责观感。
 	//
-	// 起点取「相机当前位置 → 焦点」的实际距离并夹进 Min/Max —— 与 CalcCamera
-	// 「选中变化」那条分支反推出来的值一致，所以拉远的第一帧位置仍然连续
-	// （唯一会跳的仍是距离被 Min 夹起来那一刻，这是既有行为）。
-	SmoothFocusStartCm  = FMath::Clamp(ToFocus.Size(), MinOrbitDistanceCm, MaxOrbitDistanceCm);
-	SmoothFocusTargetCm = FMath::Clamp(DistanceCm, MinOrbitDistanceCm, MaxOrbitDistanceCm);
+	// 起点取「相机当前位置 → 焦点」的实际距离，目标取 DistanceCm；两者都夹进
+	// 「不穿行星」的合法区间 —— 与 CalcCamera「选中变化」那条分支用的是同一个
+	// 函数，所以拉远的第一帧位置仍然连续（唯一会跳的仍是距离被下限夹起来那一刻，
+	// 这是既有行为）。
+	//
+	// 这里夹的是**目标**，不是最终相机位置：玩家滚过头不会攒下无效偏移。
+	double MinCm = 0.0;
+	double MaxCm = 0.0;
+	ComputeOrbitDistanceLimitsCm(Body, MinCm, MaxCm);
+
+	SmoothFocusStartCm  = FMath::Clamp(ToFocus.Size(), MinCm, MaxCm);
+	SmoothFocusTargetCm = FMath::Clamp(DistanceCm, MinCm, MaxCm);
 	SmoothFocusElapsedSeconds = 0.f;
 	bSmoothFocusActive = !FMath::IsNearlyEqual(SmoothFocusStartCm, SmoothFocusTargetCm);
 
@@ -128,18 +136,206 @@ void AStarMapCameraPawn::OrbitLook(float DeltaYaw, float DeltaPitch)
 
 void AStarMapCameraPawn::AddZoom(float Value)
 {
-	// 夹的是**目标距离本身**，不是最终算出来的相机位置 —— 这条经验来自飞船的
-	// AddZoom（SpaceshipPawn.cpp:469-471）：夹最终值的话，玩家滚过头会攒下一堆
-	// 被 Clamp 吃掉的无效偏移，往回滚要先「还债」，前几格看起来像没反应。
-	//
 	// 用户主动缩放：立刻接管距离。平滑拉远只是入场的过渡，不该在玩家已经
 	// 开始滚轮之后还继续按自己的曲线走 —— 两者同时改 OrbitDistanceCm 会互相打架。
 	bSmoothFocusActive = false;
 
-	// 取负号：Value > 0 是滚轮上滚 = 拉近 = 距离变小。
-	const double Factor = FMath::Pow(ZoomStepFactor, -double(Value));
-	OrbitDistanceCm = FMath::Clamp(
-		OrbitDistanceCm * Factor, MinOrbitDistanceCm, MaxOrbitDistanceCm);
+	AActor* Selected = ResolveSelectedBody();
+
+	double MinCm = MinSurfaceAltitudeCm;
+	double MaxCm = MaxOrbitDistanceCm;
+	double FocusRadiusCm = 0.0;
+	if (Selected)
+	{
+		ComputeOrbitDistanceLimitsCm(Selected, MinCm, MaxCm);
+		FocusRadiusCm = ResolveFocusSurfaceRadiusCm(Selected);
+	}
+
+	// 缩放作用在**高度**上，不是到球心的距离 —— 见 ZoomAltitudeCm 的说明。
+	// 夹取放在缩放之后、且夹的是高度：等价于夹「目标距离」，玩家滚过头不会
+	// 攒下被 Clamp 吃掉的无效偏移（这条经验来自飞船的 AddZoom）。
+	const double AltitudeCm = FMath::Max(OrbitDistanceCm - FocusRadiusCm, 0.0);
+	const double NewAltitudeCm = ZoomAltitudeCm(
+		AltitudeCm,
+		ZoomStepFactor,
+		Value,
+		FMath::Max(MinCm - FocusRadiusCm, 0.0),
+		FMath::Max(MaxCm - FocusRadiusCm, 0.0));
+
+	OrbitDistanceCm = FMath::Clamp(NewAltitudeCm + FocusRadiusCm, MinCm, MaxCm);
+}
+
+double AStarMapCameraPawn::ZoomAltitudeCm(
+	double AltitudeCm,
+	double StepFactor,
+	float Value,
+	double MinAltitudeCm,
+	double MaxAltitudeCm)
+{
+	// 取负号：Value > 0 是滚轮上滚 = 拉近 = 高度变小。StepFactor ≤ 1 时缩放
+	// 退化（乘 1 或越乘越大），按「没有缩放」处理。
+	const double Factor = FMath::Pow(FMath::Max(StepFactor, 1.0), -double(Value));
+	const double Scaled = FMath::Max(AltitudeCm, 0.0) * Factor;
+
+	// 夹在缩放之后，等价于夹「目标高度」：玩家滚过头不会攒下无效偏移。
+	const double Upper = FMath::Max(MaxAltitudeCm, MinAltitudeCm);
+	return FMath::Clamp(Scaled, MinAltitudeCm, Upper);
+}
+
+double AStarMapCameraPawn::RaySphereFirstHitCm(
+	const FVector& RayOrigin,
+	const FVector& UnitDir,
+	const FVector& SphereCenter,
+	double SphereRadiusCm)
+{
+	if (SphereRadiusCm <= 0.0)
+	{
+		return -1.0;
+	}
+
+	const FVector Direction = UnitDir.GetSafeNormal();
+	if (Direction.IsNearlyZero())
+	{
+		return -1.0;
+	}
+
+	// 射线 P(t) = Origin + Direction × t。把球心投到射线上：投影长度 Projection
+	// 对应最近点，垂距平方 PerpSq = |ToCenter|² − Projection²。
+	const FVector ToCenter = SphereCenter - RayOrigin;
+	const double Projection = ToCenter.Dot(Direction);
+	const double PerpSq = ToCenter.SizeSquared() - Projection * Projection;
+	const double RadiusSq = SphereRadiusCm * SphereRadiusCm;
+	if (PerpSq > RadiusSq)
+	{
+		return -1.0; // 射线擦不到球
+	}
+
+	// 半弦长：Entry 是穿入点，Exit 是穿出点。
+	const double HalfChord = FMath::Sqrt(RadiusSq - PerpSq);
+	const double Entry = Projection - HalfChord;
+	const double Exit = Projection + HalfChord;
+
+	// Exit ≤ 0：整个球在射线背后；Entry ≤ 0 < Exit：起点在球内。
+	// 两种都不给约束 —— 返回 -1，避免把缩放锁死在 0。
+	return (Exit > 0.0 && Entry > 0.0) ? Entry : -1.0;
+}
+
+double AStarMapCameraPawn::LimitDistanceByObstaclesCm(
+	const FVector& FocusLocation,
+	const FVector& RayDirection,
+	TArrayView<const FStarMapObstacle> Obstacles,
+	double MinAltitudeCm,
+	double MinDistanceCm,
+	double CurrentMaxCm)
+{
+	double MaxCm = CurrentMaxCm;
+	for (const FStarMapObstacle& Obstacle : Obstacles)
+	{
+		const double HitCm = RaySphereFirstHitCm(
+			FocusLocation, RayDirection, Obstacle.Center, Obstacle.RadiusCm);
+		if (HitCm < 0.0)
+		{
+			continue;
+		}
+
+		// 相机停在穿入点之前 MinAltitudeCm 处。命中点比下限还近时不让上限低于
+		// 下限：下限由焦点自己的半径决定，两者冲突说明焦点贴在山里，只能保下限。
+		MaxCm = FMath::Min(MaxCm, FMath::Max(HitCm - MinAltitudeCm, 0.0));
+	}
+
+	return FMath::Max(MaxCm, MinDistanceCm);
+}
+
+double AStarMapCameraPawn::ResolveFocusSurfaceRadiusCm(AActor* Focus) const
+{
+	if (!Focus)
+	{
+		return 0.0;
+	}
+
+	if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(Focus))
+	{
+		// 用「焦点 → 相机」方向上的真实地表：焦点是行星时，相机可能正对着
+		// 山区，用基准球半径会让相机扎进山体。
+		const FVector Direction =
+			(CameraLocation - Focus->GetActorLocation()).GetSafeNormal();
+		return Planet->GetSurfaceRadiusCmAtDirection(Direction);
+	}
+
+	// 飞船/角色：只要不把相机塞进模型里。碰撞半径是唯一现成的几何。
+	return Focus->GetSimpleCollisionRadius();
+}
+
+void AStarMapCameraPawn::ComputeOrbitDistanceLimitsCm(
+	AActor* Focus, double& OutMinCm, double& OutMaxCm) const
+{
+	// 焦点是行星：下限是地表往上一个 MinSurfaceAltitudeCm（贴地看细节）。
+	// 焦点是飞船/角色：下限只是「别把相机塞进模型」，用 MinFocusDistanceCm ——
+	// 拿 50 米当飞船的最近距离，会让停在地面的飞船一进星图就把相机顶到地下。
+	const bool bFocusIsPlanet = Cast<AVoxelPlanetActor>(Focus) != nullptr;
+	const double FocusStandoffCm = bFocusIsPlanet ? MinSurfaceAltitudeCm : MinFocusDistanceCm;
+
+	OutMinCm = ResolveFocusSurfaceRadiusCm(Focus) + FocusStandoffCm;
+	OutMaxCm = FMath::Max(MaxOrbitDistanceCm, OutMinCm);
+
+	UWorld* World = GetWorld();
+	UCosmosSimulationSubsystem* Subsystem = World
+		? World->GetSubsystem<UCosmosSimulationSubsystem>()
+		: nullptr;
+	if (!Subsystem)
+	{
+		return;
+	}
+
+	const FVector FocusLocation = Focus ? Focus->GetActorLocation() : CameraLocation;
+	// 相机在焦点的哪一侧：OrbitRotation 是相机朝焦点的朝向，反过来就是
+	// 「焦点 → 相机」的射线方向。
+	const FVector RayDirection = -OrbitRotation.Vector();
+
+	TArray<AActor*> Bodies;
+	Subsystem->GetRegisteredBodies(Bodies);
+
+	TArray<FStarMapObstacle> Obstacles;
+	Obstacles.Reserve(Bodies.Num());
+	for (AActor* Body : Bodies)
+	{
+		// 焦点自己由 OutMinCm 保护；非体素天体没有可信的表面半径。
+		if (!Body || Body == Focus)
+		{
+			continue;
+		}
+
+		const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(Body);
+		if (!Planet)
+		{
+			continue;
+		}
+
+		// 地形起伏让「表面半径」依赖方向：先按基准球求交，命中后再用命中点
+		// 的方向取一次真实地表半径。一次修正足够 —— 振幅只有基准半径的 1% 量级。
+		double SurfaceRadiusCm = Planet->GetSurfaceRadiusCm();
+		const double FirstHitCm = RaySphereFirstHitCm(
+			FocusLocation, RayDirection, Body->GetActorLocation(), SurfaceRadiusCm);
+		if (FirstHitCm >= 0.0)
+		{
+			const FVector HitDirection =
+				(FocusLocation + RayDirection * FirstHitCm - Body->GetActorLocation())
+					.GetSafeNormal();
+			SurfaceRadiusCm = Planet->GetSurfaceRadiusCmAtDirection(HitDirection);
+		}
+
+		FStarMapObstacle& Obstacle = Obstacles.AddDefaulted_GetRef();
+		Obstacle.Center = Body->GetActorLocation();
+		Obstacle.RadiusCm = SurfaceRadiusCm;
+	}
+
+	OutMaxCm = LimitDistanceByObstaclesCm(
+		FocusLocation,
+		RayDirection,
+		Obstacles,
+		MinSurfaceAltitudeCm,
+		OutMinCm,
+		OutMaxCm);
 }
 
 AActor* AStarMapCameraPawn::ResolveSelectedBody() const
@@ -171,14 +367,19 @@ void AStarMapCameraPawn::CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult
 			const FVector ToFocus = Selected->GetActorLocation() - CameraLocation;
 			const double Distance = ToFocus.Size();
 
-			// 夹距离本身（不是夹算出来的位置）。夹是必要的：相机不能钻进星体里。
-			// 真夹到时会有一次跳变，这是唯一允许跳变的场合。
-			OrbitDistanceCm = FMath::Clamp(Distance, MinOrbitDistanceCm, MaxOrbitDistanceCm);
-
+			// 先摆朝向再算限值：限值按「焦点 → 相机」的射线求行星遮挡，
+			// 方向就是 OrbitRotation 的反向。
 			if (!ToFocus.IsNearlyZero())
 			{
 				OrbitRotation = ToFocus.Rotation();
 			}
+
+			// 夹距离本身（不是夹算出来的位置）。夹是必要的：相机不能钻进星体里。
+			// 真夹到时会有一次跳变，这是唯一允许跳变的场合。
+			double MinCm = 0.0;
+			double MaxCm = 0.0;
+			ComputeOrbitDistanceLimitsCm(Selected, MinCm, MaxCm);
+			OrbitDistanceCm = FMath::Clamp(Distance, MinCm, MaxCm);
 		}
 	}
 
@@ -197,7 +398,7 @@ void AStarMapCameraPawn::CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult
 
 			// 对数插值：每帧的距离**倍率**恒定，LOD 平滑地一档一档退；线性插值
 			// 会把时间耗在远处、近处几帧就冲过去，仍然是一帧塌数档。
-			// 下限 1 cm 只为躲开 Loge(0)，实际距离都被 MinOrbitDistanceCm 夹着。
+			// 下限 1 cm 只为躲开 Loge(0)，实际距离都被合法区间的下限夹着。
 			const double StartCm = FMath::Max(SmoothFocusStartCm, 1.0);
 			const double TargetCm = FMath::Max(SmoothFocusTargetCm, 1.0);
 			OrbitDistanceCm = FMath::Exp(
@@ -209,6 +410,15 @@ void AStarMapCameraPawn::CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult
 				// 收在精确目标上，避免对数往返的浮点残差让距离永远差一点点。
 				OrbitDistanceCm = SmoothFocusTargetCm;
 			}
+		}
+
+		// 行星每帧都在动，「不穿行星」的合法区间也跟着动。入场那一刻夹过一次
+		// 不够：0.8 秒的平滑拉远期间，焦点与行星的相对位置可能已经变了。
+		{
+			double MinCm = 0.0;
+			double MaxCm = 0.0;
+			ComputeOrbitDistanceLimitsCm(Selected, MinCm, MaxCm);
+			OrbitDistanceCm = FMath::Clamp(OrbitDistanceCm, MinCm, MaxCm);
 		}
 
 		CameraLocation = Selected->GetActorLocation()
