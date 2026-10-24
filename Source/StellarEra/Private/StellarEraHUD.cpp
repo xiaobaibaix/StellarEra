@@ -5,6 +5,10 @@
 #include "CosmosOrbitComponent.h"
 #include "CosmosSimulationSubsystem.h"
 #include "CosmosTypes.h"
+#include "PlanetCharacter.h"
+#include "PlanetEditBrush.h"
+#include "PlanetEditComponent.h"
+#include "PlanetEditUI.h"
 #include "SpaceshipPawn.h"
 #include "StarMapCameraPawn.h"
 #include "StarMapUISystem.h"
@@ -91,6 +95,18 @@ void AStellarEraHUD::DrawHUD()
 		}
 	}
 
+	// 编辑模式面板：只有当前 Pawn 是角色且模式打开时画。
+	if (const APlanetCharacter* Character = GetViewedCharacter())
+	{
+		if (const UPlanetEditComponent* Edit = Character->GetPlanetEditComponent())
+		{
+			if (Edit->IsEditMode())
+			{
+				DrawPlanetEditPanel(*Edit);
+			}
+		}
+	}
+
 	// 帧率面板：与当前 Pawn 无关，走路、开飞船、星图都画。
 	DrawFrameRatePanel();
 
@@ -151,6 +167,113 @@ ASpaceshipPawn* AStellarEraHUD::GetViewedShip() const
 {
 	const APlayerController* PlayerController = GetOwningPlayerController();
 	return PlayerController ? Cast<ASpaceshipPawn>(PlayerController->GetPawn()) : nullptr;
+}
+
+APlanetCharacter* AStellarEraHUD::GetViewedCharacter() const
+{
+	const APlayerController* PlayerController = GetOwningPlayerController();
+	return PlayerController
+		? Cast<APlanetCharacter>(PlayerController->GetPawn())
+		: nullptr;
+}
+
+void AStellarEraHUD::DrawPlanetEditPanel(const UPlanetEditComponent& Edit)
+{
+	UFont* Font = GEngine ? GEngine->GetMediumFont() : nullptr;
+	if (!Font || !Canvas)
+	{
+		return;
+	}
+
+	const FVector2D ViewportSize = GetViewportSize();
+	FVector2D SpherePosition = FVector2D::ZeroVector;
+	FVector2D CubePosition = FVector2D::ZeroVector;
+	PlanetEditUI::GetBrushButtonRects(ViewportSize, SpherePosition, CubePosition);
+
+	const bool bSphereSelected = Edit.GetBrushShape() == EPlanetBrushShape::Sphere;
+	const bool bCubeSelected = !bSphereSelected;
+
+	const FLinearColor SelectedColor(1.f, 0.85f, 0.30f, 1.f);
+	const FLinearColor UnselectedColor(0.85f, 0.85f, 0.85f, 1.f);
+	const FLinearColor Background(0.f, 0.f, 0.f, 0.55f);
+	const float Size = PlanetEditUI::ButtonSize;
+
+	// AHUD 的绘制参数都是 float，而 FVector2D 的分量是 double。
+	// 本项目警告即错误，这里先转成 float 再用。
+	const float SphereX = static_cast<float>(SpherePosition.X);
+	const float SphereY = static_cast<float>(SpherePosition.Y);
+	const float CubeX = static_cast<float>(CubePosition.X);
+	const float CubeY = static_cast<float>(CubePosition.Y);
+
+	// ── 球体按钮 ──
+	DrawRect(Background, SphereX, SphereY, Size, Size);
+	DrawBorder(this, SphereX, SphereY, Size, Size,
+		bSphereSelected ? SelectedColor : UnselectedColor);
+
+	// DrawLine 的参数也是 float：分量全部先落到 float 局部变量。
+	const float SphereCenterX = SphereX + Size * 0.5f;
+	const float SphereCenterY = SphereY + Size * 0.5f;
+	const FLinearColor SphereColor = bSphereSelected ? SelectedColor : UnselectedColor;
+	for (int32 Index = 0; Index < 24; ++Index)
+	{
+		const float Angle0 = 2.f * PI * Index / 24.f;
+		const float Angle1 = 2.f * PI * (Index + 1) / 24.f;
+		DrawLine(
+			SphereCenterX + FMath::Cos(Angle0) * 14.f,
+			SphereCenterY + FMath::Sin(Angle0) * 14.f,
+			SphereCenterX + FMath::Cos(Angle1) * 14.f,
+			SphereCenterY + FMath::Sin(Angle1) * 14.f,
+			SphereColor, 2.f);
+	}
+
+	// ── 正方体按钮：等轴测六边形 + 顶面两条棱 + 中竖线 ──
+	DrawRect(Background, CubeX, CubeY, Size, Size);
+	DrawBorder(this, CubeX, CubeY, Size, Size,
+		bCubeSelected ? SelectedColor : UnselectedColor);
+
+	const float CubeCenterX = CubeX + Size * 0.5f;
+	const float CubeCenterY = CubeY + Size * 0.5f;
+	const FLinearColor CubeColor = bCubeSelected ? SelectedColor : UnselectedColor;
+
+	// 六边形顶点用一对 float 数组：避免 FVector2D 的 double 分量喂进 DrawLine。
+	const float HexX[6] =
+	{
+		CubeCenterX, CubeCenterX + 12.f, CubeCenterX + 12.f,
+		CubeCenterX, CubeCenterX - 12.f, CubeCenterX - 12.f
+	};
+	const float HexY[6] =
+	{
+		CubeCenterY - 14.f, CubeCenterY - 7.f, CubeCenterY + 7.f,
+		CubeCenterY + 14.f, CubeCenterY + 7.f, CubeCenterY - 7.f
+	};
+	for (int32 Index = 0; Index < 6; ++Index)
+	{
+		const int32 Next = (Index + 1) % 6;
+		DrawLine(HexX[Index], HexY[Index], HexX[Next], HexY[Next], CubeColor, 2.f);
+	}
+
+	// 等轴测方块的三条可见棱共用中心这一个交点：左上棱到 Hex[5]（cx-12, cy-7）、
+	// 右上棱到 Hex[1]（cx+12, cy-7）、前面竖棱到最下方的六边形顶点（cx, cy+14）。
+	// 交点必须落在中心 —— 挪到 cy-7 会让三条线互不相交，方块看起来是散的。
+	DrawLine(CubeCenterX, CubeCenterY,
+		HexX[5], HexY[5], CubeColor, 1.5f);
+	DrawLine(CubeCenterX, CubeCenterY,
+		HexX[1], HexY[1], CubeColor, 1.5f);
+	DrawLine(CubeCenterX, CubeCenterY,
+		CubeCenterX, CubeCenterY + 14.f, CubeColor, 1.5f);
+
+	// ── 提示行 ──
+	const FString Hint = FString::Printf(
+		TEXT("笔刷 %d 体素 · 左键挖 / 右键点放 · G 退出"),
+		Edit.GetBrushSizeVoxels());
+
+	float TextWidth = 0.f;
+	float TextHeight = 0.f;
+	GetTextSize(Hint, TextWidth, TextHeight, Font, TextScale);
+
+	const float HintY = SphereY + Size + PlanetEditUI::HintGap;
+	DrawText(Hint, FLinearColor::White,
+		static_cast<float>((ViewportSize.X - TextWidth) * 0.5), HintY, Font, TextScale);
 }
 
 float AStellarEraHUD::GetShipGravityKmPerS2(const ASpaceshipPawn* Ship) const

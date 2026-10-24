@@ -3,9 +3,10 @@
 #include "PlanetCharacter.h"
 
 #include "PlanetCharacterMovementComponent.h"
+#include "PlanetEditComponent.h"
 #include "VoxelPlanetActor.h"
 #include "SpaceshipPawn.h"
-#include "VoxelComponents/VoxelInvokerComponent.h"
+#include "AlwaysLocalVoxelInvokerComponent.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -98,7 +99,10 @@ APlanetCharacter::APlanetCharacter(const FObjectInitializer& ObjectInitializer)
 	Camera->SetupAttachment(SpringArm, USpringArmComponent::SocketName);
 	Camera->bUsePawnControlRotation = false;
 
-	VoxelInvoker = CreateDefaultSubobject<UVoxelSimpleInvokerComponent>(TEXT("VoxelInvoker"));
+	// 用 AlwaysLocal 版：进星图时控制器 Possess 星图相机，普通调用器会当场掉出
+	// LOD（IsLocalInvoker 只认本地控制的 Pawn），触发整棵八叉树重建。详见
+	// AlwaysLocalVoxelInvokerComponent.h。
+	VoxelInvoker = CreateDefaultSubobject<UAlwaysLocalVoxelInvokerComponent>(TEXT("VoxelInvoker"));
 	VoxelInvoker->SetupAttachment(GetCapsuleComponent());
 	// LODToSet = 0 表示最精细，这是插件对“贴着表面的 Pawn”的约定用法。
 	VoxelInvoker->bUseForLOD = true;
@@ -110,6 +114,8 @@ APlanetCharacter::APlanetCharacter(const FObjectInitializer& ObjectInitializer)
 	VoxelInvoker->bUseForNavmesh = false;
 	VoxelInvoker->bUseForEvents = false;
 	VoxelInvoker->bUseForPriorities = false;
+
+	PlanetEdit = CreateDefaultSubobject<UPlanetEditComponent>(TEXT("PlanetEdit"));
 
 	// C++ 只给一个引擎骷髅方块兜底，让裸放的 APlanetCharacter 不至于隐形。
 	//
@@ -132,6 +138,11 @@ APlanetCharacter::APlanetCharacter(const FObjectInitializer& ObjectInitializer)
 		UE_LOG(LogTemp, Warning,
 			TEXT("APlanetCharacter: 找不到占位网格 %s，Mesh 将没有模型。"), FallbackMeshPath);
 	}
+}
+
+UPlanetEditComponent* APlanetCharacter::GetPlanetEditComponent() const
+{
+	return PlanetEdit;
 }
 
 void APlanetCharacter::ApplyCharacterMesh()
@@ -429,8 +440,9 @@ void APlanetCharacter::SnapToPlanetSurface()
 
 void APlanetCharacter::ReevaluatePlanet()
 {
+	AVoxelPlanetActor* const OldPlanet = PlanetActor;
 	AVoxelPlanetActor* Nearest = FindNearestPlanet();
-	if (Nearest == PlanetActor)
+	if (Nearest == OldPlanet)
 	{
 		return;
 	}
@@ -444,6 +456,20 @@ void APlanetCharacter::ReevaluatePlanet()
 	{
 		// 内部会把 LastSurfaceUp 清零，相机基座下一帧重建。
 		SnapToPlanetSurface();
+	}
+
+	// 编辑模式跟着角色走：网格是行星上的组件，换星时把可见性从旧星搬到新星。
+	// 不搬的话，站到另一颗星上按左键，网格还留在上一颗星上。
+	if (PlanetEdit && PlanetEdit->IsEditMode())
+	{
+		if (OldPlanet)
+		{
+			OldPlanet->SetEditGridVisible(false);
+		}
+		if (PlanetActor)
+		{
+			PlanetActor->SetEditGridVisible(true);
+		}
 	}
 }
 

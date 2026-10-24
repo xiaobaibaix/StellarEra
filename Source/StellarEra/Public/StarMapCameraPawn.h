@@ -58,12 +58,16 @@ public:
 	void EnterFrom(const FVector& InCameraLocation, const FRotator& InCameraRotation);
 
 	/**
-	 * 进入星图模式时立刻聚焦到某个天体：把焦点设为它，并把相机沿当前视线方向
-	 * 后退到距焦点 DistanceCm 处。
+	 * 进入星图模式时聚焦到某个天体：把焦点设为它，并让相机沿当前视线方向
+	 * 平滑后退到距焦点 DistanceCm 处。
 	 *
 	 * 与「进入后手动点选」的区别：手动点选时相机位置不动、只把朝向摆向新焦点
 	 * （见 CalcCamera 里 LastSeenSelected 那段）；这里则是**主动拉远**，让飞船
-	 * 连同附近轨道一起进入视野 —— 这是「驾驶中按 M 进星图」想要的观感。
+	 * 连同附近轨道一起进入视野 —— 这是按 M 进星图想要的观感。
+	 *
+	 * **拉远是平滑的、不在本函数内一次跳到位**：直接瞬移会让整颗行星在同一帧里
+	 * 从 LOD 1/3/5 塌到 LOD 6/7，画面掉精度（平滑只管观感，不负责躲 ensure ——
+	 * 见 bSmoothFocusActive 的说明）。这里只记录起点与目标，插值在 CalcCamera。
 	 *
 	 * 距离会被夹到 Min/Max 之间。Body 为空时什么都不做。
 	 */
@@ -119,8 +123,12 @@ protected:
 	/**
 	 * 体素调用器：三档 LOD，配置与飞船（ASpaceshipPawn）同一套。
 	 *
-	 * 星图相机进入时会被控制器 Possess，所以它是 local invoker
-	 * （VoxelInvokerComponent.cpp 的 IsLocalInvoker 只认本地控制的 Pawn）——
+	 * 类型是本项目的 UAlwaysLocalVoxelInvokerComponent，不是插件的 Simple 版。
+	 * 插件原版只把「被本地控制器 Possess 的 Pawn」算作 local invoker
+	 * （VoxelInvokerComponent.cpp:21），而进出星图恰好要换 Possess 对象 —— 用原版的话，
+	 * 每次进出星图都会把飞船和角色的调用器一起踢出 LOD，逼插件重建整棵八叉树，
+	 * 撞上 chunk 簿记 ensure。详见 AlwaysLocalVoxelInvokerComponent.h。
+	 *
 	 * 靠近行星时靠它把脚下的体素细分到最精，离开后由行星自己的调用器接手。
 	 *
 	 * 用 **Simple** 而不是飞船那种 WithPrediction：本 Pawn 不 Tick，位置在
@@ -158,6 +166,34 @@ protected:
 	 */
 	UPROPERTY(Transient, VisibleAnywhere, Category = "StarMap|State")
 	double OrbitDistanceCm = 0.0;
+
+	/**
+	 * 平滑拉远（FocusOn）的状态。FocusOn 只记录起点与目标，CalcCamera 每帧把
+	 * OrbitDistanceCm 按 SmoothFocusSeconds 插值过去。
+	 *
+	 * **平滑是为了观感，不是为了躲 ensure。** 进星图时相机从地表瞬移到焦点外
+	 * （默认 0.5 AU），整颗行星会在同一帧里从 LOD 1/3/5 塌到 LOD 6/7，画面会
+	 * 突然掉精度；摊到几十帧后每帧的变化量与飞船高速飞行相当，观感自然。
+	 *
+	 * 曾经以为这种一次性 LOD 切换就是 VoxelDefaultRenderer.cpp:1249 / 846 那几条
+	 * ensure 的成因 —— **2026-10-24 用日志否掉了**：ensure 在按 M 后约 113 ms 就报，
+	 * 相机几乎没动；退出星图（相机不动）时同样会报一条。真正的触发点是 Possess
+	 * 换人导致调用器 `bUseForLOD` 翻转、全量重建，修复见
+	 * AlwaysLocalVoxelInvokerComponent.h。平滑保留，但不要再把它当成 ensure 的解药。
+	 *
+	 * 用户滚轮缩放过、或选中被改掉时，拉远立即作废（见 AddZoom 与 CalcCamera
+	 * 的选中变化分支）—— 平滑只是入场的过渡，不该压过玩家输入。
+	 */
+	bool bSmoothFocusActive = false;
+
+	/** 拉远起点（厘米，已夹进 Min/Max）。与 CalcCamera 反推的实际距离一致。 */
+	double SmoothFocusStartCm = 0.0;
+
+	/** 拉远目标（厘米，已夹进 Min/Max）。 */
+	double SmoothFocusTargetCm = 0.0;
+
+	/** 拉远已进行的秒数，每帧累加 DeltaTime。 */
+	float SmoothFocusElapsedSeconds = 0.f;
 
 	/**
 	 * 相机当前的世界位置。
@@ -209,4 +245,15 @@ protected:
 	/** 最远距离（厘米）。5e7 厘米 = 50 AU，够从一颗行星看到整个星系。 */
 	UPROPERTY(EditAnywhere, Category = "StarMap")
 	double MaxOrbitDistanceCm = 5.0e7;
+
+	/**
+	 * FocusOn 的平滑拉远时长（秒）。0.8 秒足够让 LOD 逐帧退档，又不至于让
+	 * 玩家觉得「按了 M 还在等」。
+	 *
+	 * 距离按**对数**插值而不是线性：LOD 需求按距离的数量级变化，线性插值会把
+	 * 时间耗在远处、近处几帧就冲过去，LOD 仍是一帧塌好几档。对数插值让每帧的
+	 * 距离倍率恒定，档位平滑地一档一档退。
+	 */
+	UPROPERTY(EditAnywhere, Category = "StarMap", meta = (ClampMin = "0.01"))
+	float SmoothFocusSeconds = 0.8f;
 };

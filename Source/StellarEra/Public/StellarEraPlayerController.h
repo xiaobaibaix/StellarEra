@@ -11,6 +11,7 @@ class AStarMapCameraPawn;
 class ASpaceshipPawn;
 class UInputAction;
 class UInputMappingContext;
+class UPlanetEditComponent;
 struct FInputActionValue;
 struct FStarMapScreenCandidate;
 
@@ -53,6 +54,17 @@ public:
 	/** 任意屏幕点下的已注册天体。悬停与点击共用。 */
 	AActor* PickBodyUnderScreenPosition(const FVector2D& ScreenPosition) const;
 
+	/**
+	 * 进入星图时该以谁为焦点。
+	 *
+	 * 驾驶中 → 当前飞船；步行 → 角色最近的那艘飞船（玩家口中的「当前飞船」）；
+	 * 其他 Pawn / 空 → 空（相机保持冻结）。
+	 *
+	 * 步行也必须给焦点：没有焦点时星图相机停在角色眼位、UI 又因为没有选中
+	 * 而不画任何东西，玩家看到的就是「按 M 没反应」。
+	 */
+	static ASpaceshipPawn* ResolveStarMapFocusShip(APawn* EnteringPawn);
+
 protected:
 	/** 构造 IMC 与全部 IA。幂等：重复调用会直接返回。 */
 	void BuildInputAssets();
@@ -70,6 +82,17 @@ protected:
 
 	virtual void OnPossess(APawn* InPawn) override;
 
+	/**
+	 * 当前 Possess 的是角色、且编辑模式开着时返回它的编辑组件，否则返回 nullptr。
+	 * 右键点放 / 滚轮 / 左键挖共用这套「取组件 + 判模式」的两步。
+	 *
+	 * **不能用来进入编辑模式**：模式关着时它返回空。G 键的切换走直接取组件。
+	 */
+	UPlanetEditComponent* GetEditComponentInEditMode() const;
+
+	/** Pawn 是角色且编辑模式开着时退出。上船 / 进星图 / 调试换 Pawn 的强制退出共用。 */
+	void ForceExitEditMode(APawn* InPawn);
+
 	// --- 角色输入回调 ---
 	void OnMove(const FInputActionValue& Value);
 	void OnLook(const FInputActionValue& Value);
@@ -80,6 +103,9 @@ protected:
 	void OnJump(const FInputActionValue& Value);
 	void OnSprintStarted(const FInputActionValue& Value);
 	void OnSprintCompleted(const FInputActionValue& Value);
+
+	/** G 键：切换编辑模式。只有当前 Pawn 是角色时生效。 */
+	void OnEditModeToggle(const FInputActionValue& Value);
 
 	// --- 飞船输入回调 ---
 	void OnThrust(const FInputActionValue& Value);
@@ -95,6 +121,9 @@ protected:
 	 *
 	 * 方向由「当前 Possess 的是不是星图 Pawn」判定，**不用单独的状态标志** ——
 	 * 幂等，也不会和实际 Possess 的 Pawn 不同步。
+	 *
+	 * 进入时若当前是飞船 → 聚焦它；若当前是角色 → 聚焦角色最近的飞船
+	 * （见 ResolveStarMapFocusShip）。
 	 *
 	 * 做成无参是为了直接绑给 Enhanced Input：FEnhancedInputActionHandlerSignature
 	 * 就是一个无参委托（EnhancedInputComponent.h:490 的 DEFINE_BIND_ACTION）。
@@ -155,6 +184,12 @@ protected:
 	/** 左键按下的屏幕位置（像素）。用 double 存 —— 与 GetMousePosition 的 double 重载对齐。 */
 	FVector2D StarMapPressPosition = FVector2D::ZeroVector;
 
+	/** 编辑模式右键按下的屏幕位置。松开时用它区分「点击放置」与「拖拽转视角」。 */
+	FVector2D EditRightPressPosition = FVector2D::ZeroVector;
+
+	/** 右键按下时是否记下了编辑位置（不是编辑模式 / 没拿到鼠标时为 false）。 */
+	bool bEditRightPressValid = false;
+
 	/**
 	 * 拾取的像素容差。20 像素保证远处的星球也点得中。
 	 *
@@ -167,7 +202,8 @@ protected:
 	float SelectionPixelRadius = 20.f;
 
 	/**
-	 * 驾驶飞船时按 M 进星图，相机以飞船为焦点拉远到的距离（厘米）。
+	 * 按 M 进星图时，相机以焦点飞船为中心拉远到的距离（厘米）。
+	 * 驾驶中焦点就是当前飞船；步行时是角色最近的飞船。
 	 *
 	 * 世界尺度：1 AU = 1e6 厘米，默认体素行星半径约 1e4 厘米。取 5e5 = 0.5 AU，
 	 * 能同时看清飞船、附近的行星表面和一段轨道，又不会小到只看见飞船本身。
@@ -239,4 +275,8 @@ protected:
 	/** 星图里选中天体 / 拖拽转视角（鼠标左键）。按下与松开的位移区分两者。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> IA_StarMapSelect;
+
+	/** 编辑模式开关（G）。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> IA_EditModeToggle;
 };

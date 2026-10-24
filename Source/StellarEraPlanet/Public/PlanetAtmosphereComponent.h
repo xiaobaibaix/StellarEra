@@ -106,12 +106,15 @@ private:
 	TObjectPtr<ADirectionalLight> CachedSunLight;
 
 	/**
-	 * CameraPos / SunDirection 的上一次值，用来判断"这一帧变了没有"。
+	 * SunDirection 的上一次值，用来判断"这一帧变了没有"。
 	 *
-	 * 只有这两个走门控。PlanetCenter 在 TickComponent 里**每帧无条件写**，
+	 * 只有它走门控。PlanetCenter 在 TickComponent 里**每帧无条件写**，
 	 * 不经过这里，所以这里没有它的缓存。
+	 *
+	 * **相机位置不在这里，也不再有缓存**：材质用 CameraPositionWS 视图 uniform
+	 * 逐帧自取。曾经由 C++ 写 MID，但编辑器里组件 Tick 早于视口 Tick，
+	 * 写进去的相机位置慢一帧，快速移动视口时壳边缘会被算成过亮的暖白硬边。
 	 */
-	FVector LastCameraPos = FVector(UE_BIG_NUMBER);
 	FVector LastSunDirection = FVector(UE_BIG_NUMBER);
 	bool bLoggedMissingSun = false;
 

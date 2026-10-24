@@ -7,7 +7,9 @@
 #include "GameFramework/HUD.h"
 #include "StellarEraHUD.generated.h"
 
+class APlanetCharacter;
 class ASpaceshipPawn;
+class UPlanetEditComponent;
 class UStarMapUISystem;
 struct FSpaceshipStatus;
 
@@ -110,6 +112,12 @@ protected:
 private:
 	/** 当前 Possess 的 Pawn 是飞船就返回它，否则返回空（此时不画状态条）。 */
 	ASpaceshipPawn* GetViewedShip() const;
+
+	/** 当前 Possess 的 Pawn 是角色就返回它，否则返回空。 */
+	APlanetCharacter* GetViewedCharacter() const;
+
+	/** 画底部居中的两个笔刷按钮与提示。只在角色的编辑模式下调用。 */
+	void DrawPlanetEditPanel(const UPlanetEditComponent& Edit);
 
 	/**
 	 * 飞船当前位置受到的合引力大小（世界 km/s²）。

@@ -11,6 +11,7 @@ class ASpaceshipPawn;
 class AVoxelPlanetActor;
 class UCameraComponent;
 class UAnimInstance;
+class UPlanetEditComponent;
 class USkeletalMesh;
 class USpringArmComponent;
 class UVoxelSimpleInvokerComponent;
@@ -70,6 +71,14 @@ public:
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Planet")
 	TObjectPtr<AVoxelPlanetActor> PlanetActor;
 
+	/**
+	 * 编辑模式组件。角色天生带一个，不需要蓝图配置。
+	 *
+	 * 定义在 .cpp：本头只前向声明 UPlanetEditComponent，内联返回 TObjectPtr 的
+	 * Get() 会退化成 reinterpret_cast。
+	 */
+	UPlanetEditComponent* GetPlanetEditComponent() const;
+
 	/** 查找行星时的最大距离（厘米）。默认 1000 公里，够覆盖任意单颗行星。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet")
 	float PlanetSearchRadius = 1.0e8f;
@@ -109,6 +118,10 @@ protected:
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet")
 	TObjectPtr<UVoxelSimpleInvokerComponent> VoxelInvoker;
+
+	/** 行星编辑模式的状态与执行。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet")
+	TObjectPtr<UPlanetEditComponent> PlanetEdit;
 
 	/** 相机臂长（厘米）。滚轮缩放的基准值，见 BaseCameraArmLength。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")

@@ -396,15 +396,20 @@ protected:
 	 *     Height 0，只有 Height 0 的区块才带碰撞体（同文件 :479）。
 	 *   - 导航：本项目不用。
 	 *
-	 * 为什么挂在飞船根节点而不是相机上：IsLocalInvoker
-	 * （VoxelInvokerComponent.cpp:21）只认 Pawn 的 IsLocallyControlled()，
-	 * UVoxelInvokerAutoCameraComponent 那条路是 bUseCameraIfNoInvokersFound 的
-	 * 兜底，且写死玩家索引 0（同文件 :177），多人下不可用。
+	 * 为什么挂在飞船根节点而不是相机上：插件的 UVoxelInvokerAutoCameraComponent
+	 * 只是 bUseCameraIfNoInvokersFound 的兜底，且写死玩家索引 0
+	 * （VoxelInvokerComponent.cpp:177），多人下不可用。
 	 *
-	 * 为什么登船后必须换人扛：Possess(Ship) 会把 Controller 从角色转到飞船，
-	 * 角色的调用器随即不再是 local invoker，VoxelDefaultLODManager.cpp:218 会把它
-	 * 的 bUseForLOD 强制置假。没有这一份，整个行星就一直停在行星调用器给的最粗
-	 * LOD 上 —— 这正是「开飞船时星球不更新 LOD、也不碰撞」的成因。
+	 * 类型是本项目的 UAlwaysLocalVoxelInvokerWithPredictionComponent：插件的
+	 * IsLocalInvoker（VoxelInvokerComponent.cpp:21）只认被本地控制器 Possess 的
+	 * Pawn，而进星图 = Possess(星图相机) 会把飞船的调用器踢出 LOD
+	 * （VoxelDefaultLODManager.cpp:218），强制整棵八叉树重建。覆写成恒真后，
+	 * Possess 换人不再影响 LOD，详见 AlwaysLocalVoxelInvokerComponent.h。
+	 *
+	 * 为什么登船后必须换人扛：登船时角色的调用器由 APlanetCharacter 自己关掉
+	 * （PlanetCharacter.cpp 的 bBoarded 分支），不关的话它和飞船会各养一份
+	 * 脚下的精细块。没有飞船这一份，整个行星会停在行星调用器给的最粗 LOD 上 ——
+	 * 这正是「开飞船时星球不更新 LOD、也不碰撞」的成因。
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spaceship")
 	TObjectPtr<UVoxelInvokerWithPredictionComponent> VoxelInvoker;

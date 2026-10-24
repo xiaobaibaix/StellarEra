@@ -1,26 +1,14 @@
 ﻿#include "PlanetAtmosphereComponent.h"
 
-// APlayerCameraManager 不在 GameFramework/ 下，在 Camera/ 下
-// （Engine/Classes/Camera/PlayerCameraManager.h 是引擎里唯一一份）。
-// 写成 GameFramework/PlayerCameraManager.h 编译不过（C1083）。
-#include "Camera/PlayerCameraManager.h"
 #include "Engine/DirectionalLight.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
-#include "GameFramework/PlayerController.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "PlanetAtmosphereParams.h"
 #include "UObject/ConstructorHelpers.h"
 #include "VoxelPlanetActor.h"
-
-#if WITH_EDITOR
-// 编辑器世界没有 PlayerController，相机位置只能从活动视口拿。
-// GEditor / FEditorViewportClient 都在 UnrealEd 模块（Build.cs 里按编辑器目标加依赖）。
-#include "Editor.h"
-#include "EditorViewportClient.h"
-#endif
 
 namespace
 {
@@ -30,53 +18,17 @@ namespace
 	const TCHAR* const AtmosphereMaterialPath = TEXT("/Game/Materials/M_PlanetAtmosphere");
 
 	// 材质参数名。必须与 PlanetAtmosphereMaterialBuilder.cpp 里的一致。
+	// 这里没有 CameraPos：相机位置由材质的 CameraPositionWS 节点从视图 uniform 取，
+	// 不再经过 C++ / MID（原因见 PlanetAtmosphereMaterialBuilder.cpp 里的注释）。
 	const FName ParamPlanetRadius(TEXT("PlanetRadius"));
 	const FName ParamShellRadius(TEXT("ShellRadius"));
 	const FName ParamRayleighScaleHeight(TEXT("RayleighScaleHeight"));
 	const FName ParamMieScaleHeight(TEXT("MieScaleHeight"));
 	const FName ParamRayleighBeta(TEXT("RayleighBeta"));
 	const FName ParamMieBeta(TEXT("MieBeta"));
-	const FName ParamCameraPos(TEXT("CameraPos"));
 	const FName ParamPlanetCenter(TEXT("PlanetCenter"));
 	const FName ParamSunDirection(TEXT("SunDirection"));
 	const FName ParamSunIntensity(TEXT("SunIntensity"));
-
-	/**
-	 * 当前视图的相机位置（世界 cm）。
-	 *
-	 * 游戏世界取玩家相机；编辑器世界没有 PlayerController，取活动视口相机。
-	 * 编辑器里若拿不到视口（例如资产预览、后台），返回零向量，调用方保持上一次的值。
-	 */
-	FVector ResolveViewCameraLocation(const UWorld* World)
-	{
-		if (World->IsGameWorld())
-		{
-			if (const APlayerController* PC = World->GetFirstPlayerController())
-			{
-				if (const APlayerCameraManager* CamMgr = PC->PlayerCameraManager)
-				{
-					return CamMgr->GetCameraLocation();
-				}
-			}
-			return FVector::ZeroVector;
-		}
-
-#if WITH_EDITOR
-		if (GEditor)
-		{
-			if (const FViewport* Viewport = GEditor->GetActiveViewport())
-			{
-				if (const FEditorViewportClient* ViewClient =
-						static_cast<const FEditorViewportClient*>(Viewport->GetClient()))
-				{
-					return ViewClient->GetViewLocation();
-				}
-			}
-		}
-#endif
-
-		return FVector::ZeroVector;
-	}
 }
 
 UPlanetAtmosphereComponent::UPlanetAtmosphereComponent()
@@ -84,7 +36,7 @@ UPlanetAtmosphereComponent::UPlanetAtmosphereComponent()
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.bStartWithTickEnabled = true;
 
-	// 编辑器视图也要 Tick：CameraPos / PlanetCenter 与行星半径变化全靠它更新。
+	// 编辑器视图也要 Tick：PlanetCenter / SunDirection 与行星半径变化全靠它更新。
 	// 引擎只在 LEVELTICK_ViewportsOnly 下 tick 带这个标记的组件
 	// （Actor.h 的 FActorComponentTickFunction::ExecuteTickHelper）。
 	bTickInEditor = true;
@@ -361,23 +313,9 @@ void UPlanetAtmosphereComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	AtmosphereMID->SetVectorParameterValue(ParamPlanetCenter,
 		FLinearColor(PlanetCenter.X, PlanetCenter.Y, PlanetCenter.Z, 1.0f));
 
-	// 相机位置。游戏世界取玩家相机（星图模式下 Possess 的是 AStarMapCameraPawn，
-	// GetCameraLocation 一样能取到）；编辑器世界没有 PlayerController，取视口相机。
-	FVector CameraPos = LastCameraPos;
-	if (const UWorld* World = GetWorld())
-	{
-		const FVector ResolvedCameraPos = ResolveViewCameraLocation(World);
-		if (!ResolvedCameraPos.IsNearlyZero())
-		{
-			CameraPos = ResolvedCameraPos;
-		}
-	}
-	if (!CameraPos.Equals(LastCameraPos, 1.0f))
-	{
-		LastCameraPos = CameraPos;
-		AtmosphereMID->SetVectorParameterValue(ParamCameraPos,
-			FLinearColor(CameraPos.X, CameraPos.Y, CameraPos.Z, 1.0f));
-	}
+	// 相机位置**不在这里**：材质用 CameraPositionWS 视图 uniform 自己取。
+	// 早先这里每帧写 MID 参数，但编辑器里组件 Tick 早于视口 Tick，写进去的相机位置
+	// 总是慢一帧 —— 快速移动视口时壳的边缘会被算成过亮的暖白硬边。
 
 	const FVector SunDirection = ResolveSunDirection();
 	if (!SunDirection.IsNearlyZero() && !SunDirection.Equals(LastSunDirection, 1e-4f))

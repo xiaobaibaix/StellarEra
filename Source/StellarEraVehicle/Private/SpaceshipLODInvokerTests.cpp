@@ -11,8 +11,8 @@
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
+#include "AlwaysLocalVoxelInvokerComponent.h"
 #include "SpaceshipPawn.h"
-#include "VoxelComponents/VoxelInvokerComponent.h"
 #include "UObject/UnrealType.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -51,6 +51,17 @@ bool FStellarEraSpaceshipLODInvokerTest::RunTest(const FString& Parameters)
 	{
 		return false;
 	}
+
+	// 类必须是我们自己的 AlwaysLocal 子类，不能退回插件原类：原类只把「被本地
+	// 控制器 Possess 的 Pawn」算作 local invoker，进/出星图换 Possess 时会把
+	// 飞船调用器踢出 LOD、触发全量重建（见 AlwaysLocalVoxelInvokerComponent.h）。
+	// 蓝图子类若残留旧类的组件模板覆盖，这几条会当场变红。
+	TestTrue(TEXT("细气泡是 AlwaysLocal 类"),
+		Cast<UAlwaysLocalVoxelInvokerWithPredictionComponent>(Fine) != nullptr);
+	TestTrue(TEXT("LOD3 环是 AlwaysLocal 类"),
+		Cast<UAlwaysLocalVoxelInvokerWithPredictionComponent>(Ring3) != nullptr);
+	TestTrue(TEXT("LOD5 环是 AlwaysLocal 类"),
+		Cast<UAlwaysLocalVoxelInvokerWithPredictionComponent>(Ring5) != nullptr);
 
 	// 细气泡：LOD 1 @ 80 米、碰撞 30 米。PredictionTime 不能再大 ——
 	// 门控上限 0.6 km/s = 6e4 cm/s，× 0.03 s = 18 米，仍小于两个范围。

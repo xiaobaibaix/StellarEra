@@ -15,12 +15,9 @@ public class StellarEraPlanet : ModuleRules
 
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "Voxel" });
 
-		// 大气壳的编辑器预览要取活动视口相机（GEditor / FEditorViewportClient），
-		// 这两个符号在 UnrealEd 模块里。只对编辑器目标加，运行时构建不受影响，
-		// 对应的代码也都在 #if WITH_EDITOR 里。
-		if (Target.bBuildEditor)
-		{
-			PrivateDependencyModuleNames.Add("UnrealEd");
-		}
+		// 没有 UnrealEd 依赖：编辑器里的大气材质重建（PlanetAtmosphereMaterialBuilder.cpp）
+		// 只用 Engine 模块的 UMaterial / 表达式节点 / SavePackage 接口。
+		// 早先这里有 UnrealEd，是为了从活动视口取相机位置（GEditor / FEditorViewportClient）；
+		// 相机位置改由材质的视图 uniform 提供后，那两个符号不再被引用。
 	}
 }

@@ -1,14 +1,16 @@
-// Copyright Voxel Plugin SAS. All Rights Reserved.
+﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 // 将 UVoxelPlanetGenerator 封装为可直接摆放的 Actor。
 
 #pragma once
 
 #include "CoreMinimal.h"
 #include "VoxelWorld.h"
+#include "Engine/TimerHandle.h"
 #include "VoxelPlanetActor.generated.h"
 
 class UMaterialInterface;
 class UPlanetAtmosphereComponent;
+class UPlanetSurfaceGridComponent;
 class UVoxelPlanetGenerator;
 class UVoxelPlanetTerrainModule;
 class UVoxelSimpleInvokerComponent;
@@ -44,6 +46,7 @@ public:
 	//~ Begin AActor Interface
 	virtual void OnConstruction(const FTransform& Transform) override;
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
@@ -61,6 +64,24 @@ public:
 	 * 「参数没生效」。
 	 */
 	void InvalidateAndRebuild();
+
+	/** 显示 / 隐藏编辑模式下的表面网格。 */
+	void SetEditGridVisible(bool bVisible);
+
+	/**
+	 * 体素被编辑后调用：通知网格重建（防抖），并按 SaveDebounceSeconds 触发保存。
+	 * SaveDebounceSeconds = 0 时不在运行中保存，只在 EndPlay 兜一次。
+	 */
+	void NotifyVoxelEdited();
+
+	/**
+	 * 把当前体素数据写进 SaveObject（压缩后）。没有 SaveObject 时只记一条
+	 * Warning（每颗行星一次），不崩溃、也不阻止继续编辑。
+	 *
+	 * 由 NotifyVoxelEdited 的 SaveDebounceSeconds 防抖调用（0 = 只在 EndPlay 保存）；
+	 * EndPlay 会再调一次，但只在仍有未保存编辑且有 SaveObject 时才真正写入。
+	 */
+	void SaveEditsToSaveObject();
 
 	/**
 	 * 行星表面半径（厘米，含 Actor 等比缩放），**不含地形起伏**。
@@ -153,6 +174,14 @@ public:
 	UFUNCTION(BlueprintPure, Category = "StellarEra|Atmosphere")
 	UPlanetAtmosphereComponent* GetAtmosphereComponent() const { return AtmosphereComponent; }
 
+	/** 编辑模式下的表面网格基线。构造时自动创建。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet|Edit")
+	TObjectPtr<UPlanetSurfaceGridComponent> EditGrid;
+
+	/** 编辑后多久写一次 SaveObject（秒，默认 2；0 = 只在 EndPlay 保存）。 */
+	UPROPERTY(EditAnywhere, Category = "Planet|Edit", meta = (ClampMin = "0.0"))
+	float SaveDebounceSeconds = 2.f;
+
 private:
 	/**
 	 * 修正继承重构前遗留的组件树：确保基类的 WorldRoot 就是本 Actor 的根组件。
@@ -183,4 +212,13 @@ private:
 
 	/** 上次 RebuildPlanet 构建世界所用的哈希。哈希不变则跳过重建。 */
 	uint64 LastParamsHash = 0;
+
+	/** 防抖保存的定时器。 */
+	FTimerHandle SaveTimerHandle;
+
+	/** 上次保存之后是否又有编辑。只有 NotifyVoxelEdited 会置位。 */
+	bool bHasUnsavedEdits = false;
+
+	/** 缺 SaveObject 的警告只刷一次，别让每次编辑都往日志里灌。 */
+	bool bLoggedMissingSaveObject = false;
 };

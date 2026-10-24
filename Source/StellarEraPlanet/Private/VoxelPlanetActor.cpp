@@ -13,9 +13,14 @@
 #include "VoxelPlanetGenerator.h"
 #include "VoxelPlanetTerrainModule.h"
 #include "PlanetAtmosphereComponent.h"
+#include "PlanetSurfaceGridComponent.h"
 #include "Materials/MaterialInterface.h"
 #include "Engine/World.h"
+#include "TimerManager.h"
 #include "UObject/ConstructorHelpers.h"
+#include "VoxelData/VoxelSave.h"
+#include "VoxelData/VoxelSaveUtilities.h"
+#include "VoxelTools/VoxelDataTools.h"
 
 AVoxelPlanetActor::AVoxelPlanetActor()
 {
@@ -92,6 +97,11 @@ AVoxelPlanetActor::AVoxelPlanetActor()
 	// 材质与缩放都在 BeginPlay 里按 GetSurfaceRadiusCm() 定，构造期拿不到最终半径。
 	AtmosphereComponent = CreateDefaultSubobject<UPlanetAtmosphereComponent>(TEXT("PlanetAtmosphere"));
 	AtmosphereComponent->SetupAttachment(RootComponent);
+
+	// 表面网格：默认隐藏、不 tick，编辑模式打开时才工作。
+	// 它是纯 UActorComponent（不带变换），跟着 Owner Tick 即可，不需要 SetupAttachment
+	// —— 那个函数只存在于 USceneComponent。
+	EditGrid = CreateDefaultSubobject<UPlanetSurfaceGridComponent>(TEXT("PlanetEditGrid"));
 }
 
 float AVoxelPlanetActor::GetScaledRadiusVoxels() const
@@ -399,6 +409,14 @@ void AVoxelPlanetActor::RebuildPlanet()
 	}
 
 	CreateWorld(FVoxelWorldCreateInfo());
+
+	// 世界刚被 DestroyWorld + CreateWorld 重建，旧的表面网格采样全部作废。
+	// 这里只刷新网格、**不**调用本 Actor 的 NotifyVoxelEdited()：重建不是编辑，
+	// 不能因此把行星标脏并触发保存。
+	if (EditGrid)
+	{
+		EditGrid->NotifyVoxelEdited();
+	}
 }
 
 void AVoxelPlanetActor::InvalidateAndRebuild()
@@ -410,6 +428,91 @@ void AVoxelPlanetActor::InvalidateAndRebuild()
 	// 哈希。不抹掉的话守卫会把这次重建整个吞掉。
 	LastParamsHash = 0;
 	RebuildPlanet();
+
+	// 地形布局变了，表面网格必须重新采样（组件内部按防抖时间重建）。
+	if (EditGrid)
+	{
+		EditGrid->NotifyVoxelEdited();
+	}
+}
+
+void AVoxelPlanetActor::SetEditGridVisible(const bool bVisible)
+{
+	if (EditGrid)
+	{
+		EditGrid->SetGridVisible(bVisible);
+	}
+}
+
+void AVoxelPlanetActor::NotifyVoxelEdited()
+{
+	bHasUnsavedEdits = true;
+
+	if (EditGrid)
+	{
+		EditGrid->NotifyVoxelEdited();
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		// SaveDebounceSeconds = 0 时引擎不会建定时器（SetTimer 只在 rate > 0 时生效），
+		// 语义是「只在 EndPlay 保存」，不是「立即保存」。
+		World->GetTimerManager().SetTimer(SaveTimerHandle,
+			FTimerDelegate::CreateUObject(this, &AVoxelPlanetActor::SaveEditsToSaveObject),
+			FMath::Max(SaveDebounceSeconds, 0.f), false);
+	}
+}
+
+void AVoxelPlanetActor::SaveEditsToSaveObject()
+{
+	if (!bHasUnsavedEdits)
+	{
+		return;
+	}
+
+	// 不在这里清标志：没有 SaveObject / 世界没建时这次保存**没成功**，脏数据
+	// 必须留着，等 SaveObject 后补上（延迟赋值的场景）后由下一次保存或 EndPlay
+	// 再试。「只警告一次」由 bLoggedMissingSaveObject 负责，不靠提前清标志。
+	if (!SaveObject)
+	{
+		if (!bLoggedMissingSaveObject)
+		{
+			bLoggedMissingSaveObject = true;
+			UE_LOG(LogTemp, Warning,
+				TEXT("AVoxelPlanetActor %s 没有 SaveObject，编辑只存在于本次运行的内存里。"),
+				*GetName());
+		}
+		return;
+	}
+
+	if (!IsCreated())
+	{
+		return;
+	}
+
+	FVoxelUncompressedWorldSave UncompressedSave;
+	UVoxelDataTools::GetSave(this, UncompressedSave);
+	UVoxelSaveUtilities::CompressVoxelSave(UncompressedSave, SaveObject->Save);
+
+	// Depth 不参与压缩，必须从 Save 补上；否则下次加载时世界尺寸对不上。
+	SaveObject->CopyDepthFromSave();
+	SaveObject->MarkPackageDirty();
+
+	// 到这里才算真的写进了 SaveObject，脏标志才能清。
+	bHasUnsavedEdits = false;
+}
+
+void AVoxelPlanetActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(SaveTimerHandle);
+	}
+
+	// 防抖窗口内退出 PIE 也不能丢最后一次编辑。
+	SaveEditsToSaveObject();
+
+	Super::EndPlay(EndPlayReason);
 }
 
 float AVoxelPlanetActor::GetSurfaceRadiusCm() const

@@ -2,11 +2,17 @@
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/ScopeExit.h"
 
 #include "CosmosOrbitComponent.h"
 #include "CosmosSimulationSubsystem.h"
 #include "CosmosTrajectoryComponent.h"
+#include "Engine/Engine.h"
+#include "Engine/World.h"
+#include "PlanetCharacter.h"
+#include "SpaceshipPawn.h"
 #include "StarMapCameraPawn.h"
+#include "StellarEraPlayerController.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -358,6 +364,66 @@ bool FStellarEraStarMapVelocityQueryTest::RunTest(const FString& Parameters)
 		Subsystem->GetBodyVelocityGameUnits(0).IsNearlyZero());
 	TestTrue(TEXT("大下标越界返回零"),
 		Subsystem->GetBodyVelocityGameUnits(9999).IsNearlyZero());
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapFocusTargetTest,
+	"StellarEra.StarMap.FocusTarget",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraStarMapFocusTargetTest::RunTest(const FString& Parameters)
+{
+	// 进入星图时的焦点选择。步行路径是这次要盯住的那条：角色按 M 时若没有
+	// 焦点，星图相机停在角色眼位（CalcCamera 冻结），星图 UI 又只画选中/悬停，
+	// 画面与普通视角完全一样 —— 玩家会以为 M 键没生效。
+	UWorld* World = UWorld::CreateWorld(EWorldType::Editor, false);
+	if (!TestNotNull(TEXT("测试世界"), World))
+	{
+		return false;
+	}
+	FWorldContext& WorldContext = GEngine->CreateNewWorldContext(EWorldType::Editor);
+	WorldContext.SetCurrentWorld(World);
+	World->InitializeActorsForPlay(FURL());
+
+	ON_SCOPE_EXIT
+	{
+		GEngine->DestroyWorldContext(World);
+		World->DestroyWorld(false);
+	};
+
+	APawn* OtherPawn = World->SpawnActor<APawn>(
+		APawn::StaticClass(), FTransform::Identity);
+	ASpaceshipPawn* NearShip = World->SpawnActor<ASpaceshipPawn>(
+		ASpaceshipPawn::StaticClass(),
+		FTransform(FRotator::ZeroRotator, FVector(500.0, 0.0, 0.0)));
+	ASpaceshipPawn* FarShip = World->SpawnActor<ASpaceshipPawn>(
+		ASpaceshipPawn::StaticClass(),
+		FTransform(FRotator::ZeroRotator, FVector(50000.0, 0.0, 0.0)));
+	APlanetCharacter* Character = World->SpawnActor<APlanetCharacter>(
+		APlanetCharacter::StaticClass(), FTransform::Identity);
+
+	if (!TestNotNull(TEXT("其他 Pawn"), OtherPawn) ||
+		!TestNotNull(TEXT("近处飞船"), NearShip) ||
+		!TestNotNull(TEXT("远处飞船"), FarShip) ||
+		!TestNotNull(TEXT("角色"), Character))
+	{
+		return false;
+	}
+
+	// ── 驾驶中：焦点就是当前飞船 ──
+	TestTrue(TEXT("驾驶中 → 当前飞船"),
+		AStellarEraPlayerController::ResolveStarMapFocusShip(NearShip) == NearShip);
+
+	// ── 步行：取角色最近的飞船，而不是随机一艘 ──
+	TestTrue(TEXT("步行 → 最近的飞船"),
+		AStellarEraPlayerController::ResolveStarMapFocusShip(Character) == NearShip);
+
+	// ── 其他 Pawn / 空：没有焦点（相机保持冻结）──
+	TestTrue(TEXT("其他 Pawn → 无焦点"),
+		AStellarEraPlayerController::ResolveStarMapFocusShip(OtherPawn) == nullptr);
+	TestTrue(TEXT("空 Pawn → 无焦点"),
+		AStellarEraPlayerController::ResolveStarMapFocusShip(nullptr) == nullptr);
 
 	return true;
 }

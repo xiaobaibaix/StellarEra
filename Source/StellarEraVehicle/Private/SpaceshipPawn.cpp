@@ -13,7 +13,7 @@
 #include "Engine/StaticMesh.h"
 #include "PhysicsEngine/BodySetup.h"
 #include "PhysicsEngine/ConvexElem.h"
-#include "VoxelComponents/VoxelInvokerComponent.h"
+#include "AlwaysLocalVoxelInvokerComponent.h"
 
 namespace
 {
@@ -147,7 +147,9 @@ ASpaceshipPawn::ASpaceshipPawn()
 	// **调参后要看游戏里的「Total tasks remaining」**（HUD 上直接显示）—— 那是当前待
 	// 网格化的区块数，是唯一可靠的实测口径。它到几万就要警惕，几十万必炸显存。
 	// 角色那份（PlanetCharacter.cpp）配 LODToSet = 0 + 200 米盒子，同理：盒子小才用得起。
-	VoxelInvoker = CreateDefaultSubobject<UVoxelInvokerWithPredictionComponent>(TEXT("VoxelInvoker"));
+	// 三个调用器都用 AlwaysLocal 版：进星图 = Possess(星图相机)，普通调用器会在
+	// 那一帧全部掉出 LOD，强制整棵八叉树重建。详见 AlwaysLocalVoxelInvokerComponent.h。
+	VoxelInvoker = CreateDefaultSubobject<UAlwaysLocalVoxelInvokerWithPredictionComponent>(TEXT("VoxelInvoker"));
 	VoxelInvoker->SetupAttachment(Hull);
 	VoxelInvoker->bUseForLOD = true;
 	VoxelInvoker->LODToSet = 1;
@@ -168,7 +170,7 @@ ASpaceshipPawn::ASpaceshipPawn()
 	//   - 细气泡 @ 0.03 秒：偏移 1.8e3 厘米（18 米）≤ 碰撞 3e3 / LOD 8e3；
 	//   - LOD3 @ 0.1 秒：偏移 6e3 厘米（60 米）≤ 范围 3e4；
 	//   - LOD5 @ 0.2 秒：偏移 1.2e4 厘米（120 米）≤ 范围 1e5。
-	VoxelInvokerLOD3 = CreateDefaultSubobject<UVoxelInvokerWithPredictionComponent>(TEXT("VoxelInvokerLOD3"));
+	VoxelInvokerLOD3 = CreateDefaultSubobject<UAlwaysLocalVoxelInvokerWithPredictionComponent>(TEXT("VoxelInvokerLOD3"));
 	VoxelInvokerLOD3->SetupAttachment(Hull);
 	VoxelInvokerLOD3->bUseForLOD = true;
 	VoxelInvokerLOD3->LODToSet = 3;
@@ -180,7 +182,7 @@ ASpaceshipPawn::ASpaceshipPawn()
 	VoxelInvokerLOD3->bEnablePrediction = true;
 	VoxelInvokerLOD3->PredictionTime = 0.1f;
 
-	VoxelInvokerLOD5 = CreateDefaultSubobject<UVoxelInvokerWithPredictionComponent>(TEXT("VoxelInvokerLOD5"));
+	VoxelInvokerLOD5 = CreateDefaultSubobject<UAlwaysLocalVoxelInvokerWithPredictionComponent>(TEXT("VoxelInvokerLOD5"));
 	VoxelInvokerLOD5->SetupAttachment(Hull);
 	VoxelInvokerLOD5->bUseForLOD = true;
 	VoxelInvokerLOD5->LODToSet = 5;

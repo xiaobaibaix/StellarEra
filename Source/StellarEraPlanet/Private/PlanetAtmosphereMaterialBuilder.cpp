@@ -4,6 +4,7 @@
 
 #include "HAL/IConsoleManager.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialExpressionCameraPositionWS.h"
 #include "Materials/MaterialExpressionComponentMask.h"
 #include "Materials/MaterialExpressionCustom.h"
 #include "Materials/MaterialExpressionScalarParameter.h"
@@ -24,7 +25,8 @@ const TCHAR* const AtmosphereAssetPath = TEXT("/Game/Materials/M_PlanetAtmospher
 //
 // 坐标空间（已从引擎源码钉死，见计划「与规格的偏差」第 4 条）：
 //   WorldPos / CameraPos / PlanetCenter 全是**绝对世界坐标（cm）**。
-//   WorldPosition 节点 WPT_Default 的标题字面就是 "Absolute World Position"。
+//   WorldPosition 节点 WPT_Default 的标题字面就是 "Absolute World Position"；
+//   CameraPos 是视图 uniform（CameraPositionWS），同样在绝对世界坐标下。
 //
 // 注意：因为函数体里有 return，UE 不会再自动包一层 return，末尾必须自己 return。
 // ---------------------------------------------------------------------------
@@ -180,8 +182,18 @@ bool BuildPlanetAtmosphereMaterial(FString& OutError)
 	UMaterialExpressionVectorParameter* MieBeta = AddVectorParam(Material, TEXT("MieBeta"),
 		FLinearColor(2.25524e-5f, 2.25524e-5f, 2.25524e-5f, 1.0f), -800, 100);
 
-	UMaterialExpressionVectorParameter* CameraPos = AddVectorParam(Material, TEXT("CameraPos"),
-		FLinearColor::Black, -800, 200);
+	// 相机位置取视图 uniform（CameraPositionWS 节点 → MEVP_WorldSpaceCameraPosition，
+	// 渲染器按当前视口逐帧给出），**不再**由 C++ 每帧写 MID 参数。
+	//
+	// 曾经是向量参数：编辑器里组件的 Tick 跑在视口 Tick 之前（EditorEngine.cpp 里
+	// World()->Tick 在视口循环之前），写进 MID 的相机位置永远慢一帧。快速移动视口时
+	// 射线起点落后于真实相机，靠近行星边缘的像素会被算成一条长得多的壳内弦长，
+	// 单次散射饱和成一条硬边暖白色带 —— 静止时相机不动，滞后无害，所以只在运动时出现。
+	UMaterialExpressionCameraPositionWS* CameraPos = NewObject<UMaterialExpressionCameraPositionWS>(Material);
+	CameraPos->Material = Material;
+	CameraPos->MaterialExpressionEditorX = -800;
+	CameraPos->MaterialExpressionEditorY = 200;
+	Material->GetExpressionCollection().AddExpression(CameraPos);
 	UMaterialExpressionVectorParameter* PlanetCenter = AddVectorParam(Material, TEXT("PlanetCenter"),
 		FLinearColor::Black, -800, 300);
 	UMaterialExpressionVectorParameter* SunDirection = AddVectorParam(Material, TEXT("SunDirection"),
