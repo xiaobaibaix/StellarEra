@@ -50,10 +50,9 @@ water/iron/silicon/copper 才会零星出现在地表；如果把 `earth` 预设
 - `geometryAmplitude` 会被夹到 `[0, 64]`；`layerThickness` 必须是有限正数并被夹到
   `(0, 10000]`；`peakDepth` 夹到 `[-10000, 10000]`。越界会在日志里留下 Warning。
 - 地表查询用两次不动点迭代 `d ← D0 - δ(d)`，收缩条件是
-  `|∂δ/∂depth| < 1`。矿脉凸起振幅应**显著小于最小 `layerThickness`**：shipped
-  内容 1.5 / 12 的实际导数约为 0.05，远小于 1；若把凸起调到 12、最薄层厚调到 4
-  （比值 3），迭代可能不收敛，角色会站在与地形表面不一致的半径上。建议
-  `geometryAmplitude / min(layerThickness) ≤ 0.1`。
+  `|∂δ/∂depth| < 1`。`geometryAmplitude / min(layerThickness)` 应**远小于 1**：
+  shipped 内容 `1.5 / 12 = 0.125`，实际导数约为 0.05；该比值接近或超过约 1 时
+  迭代可能不收敛，角色会站在与地形表面不一致的半径上。
 
 ## 改完怎么生效
 

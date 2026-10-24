@@ -140,16 +140,54 @@ bool FPlanetGeologyParseTest::RunTest(const FString& Parameters)
 {
   "version": 1,
   "elements": {
-    "iron": { "abundance": 1.0, "peakDepth": 1e9, "layerThickness": 1e9 }
+    "iron": { "abundance": 1.0, "peakDepth": 1e6, "layerThickness": 1e6 }
   }
 }
 )JSON"), DepthReport);
 		TestTrue(TEXT("极端 peakDepth/layerThickness 仍产出有效场"),
 			DepthField.IsValid() && !DepthField->IsEmpty());
-		TestTrue(TEXT("最大触达深度是有限值且被夹到 40000"),
+		// 两者都夹到 10000 时，触达深度 = 10000 + 3×10000 = 40000。
+		TestTrue(TEXT("peakDepth 与 layerThickness 都夹到 10000"),
 			DepthField.IsValid()
-				&& FMath::IsFinite(DepthField->GetMaxReachDepth())
-				&& DepthField->GetMaxReachDepth() <= 40000.f);
+				&& FMath::IsNearlyEqual(DepthField->GetMaxReachDepth(), 40000.f, 1e-3f));
+
+		bool bSawPeakDepthWarning = false;
+		bool bSawThicknessWarning = false;
+		for (const FString& Warning : DepthReport.Warnings)
+		{
+			bSawPeakDepthWarning |= Warning.Contains(TEXT("peakDepth"))
+				&& Warning.Contains(TEXT("iron"));
+			bSawThicknessWarning |= Warning.Contains(TEXT("layerThickness"))
+				&& Warning.Contains(TEXT("iron"));
+		}
+		TestTrue(TEXT("peakDepth 夹取警告带元素 id"), bSawPeakDepthWarning);
+		TestTrue(TEXT("layerThickness 夹取警告带元素 id"), bSawThicknessWarning);
+
+		// 1e999 是合法 JSON 数字，Atod 会得到 inf：必须走「非有限按 0」，
+		// 而不是让场爆掉（若解析器拒绝该文本，这条会立刻变红）。
+		FPlanetGeologyLoadReport NonFiniteReport;
+		const TSharedPtr<const FPlanetGeologyField> NonFiniteField =
+			FPlanetGeologyField::LoadFromString(ElementsJson, TEXT(R"JSON(
+{
+  "version": 1,
+  "geometryAmplitude": 1e999,
+  "elements": {
+    "iron": { "abundance": 1.0, "peakDepth": 0, "layerThickness": 10 }
+  }
+}
+)JSON"), NonFiniteReport);
+		TestTrue(TEXT("非有限 geometryAmplitude 仍产出有效场"),
+			NonFiniteField.IsValid() && !NonFiniteField->IsEmpty());
+		TestTrue(TEXT("非有限 geometryAmplitude 按 0 处理"),
+			NonFiniteField.IsValid() && NonFiniteField->GetMaxGeometryDelta() == 0.f);
+
+		bool bSawNonFiniteWarning = false;
+		for (const FString& Warning : NonFiniteReport.Warnings)
+		{
+			bSawNonFiniteWarning |= Warning.Contains(TEXT("geometryAmplitude"))
+				&& Warning.Contains(TEXT("不是有限数"));
+		}
+		TestTrue(TEXT("非有限 geometryAmplitude 有警告"), bSawNonFiniteWarning);
 	}
 
 	return true;
@@ -531,11 +569,16 @@ bool FPlanetGeologyPipelineTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("earth 预设启用了几何外凸"),
 		Context.Geology.IsValid() && Context.Geology->GetMaxGeometryDelta() > 0.f);
 
-	// 缓存失效后必须真重新读盘，而不是永久返回空场。
+	// 缓存失效后必须真重新读盘，而不是继续返回旧对象或永久空场。
+	// 先持有第一次拿到的指针：只要它活着，分配器就不可能把同一地址交给
+	// 重新加载的场，因此「指针不同」是确定性的，而不是实现巧合。
+	const TSharedPtr<const FPlanetGeologyField> First = Context.Geology;
 	Generator->InvalidateGeology();
 	const TSharedPtr<const FPlanetGeologyField> Reloaded = Generator->GetGeology();
 	TestTrue(TEXT("InvalidateGeology 后重新加载仍是非空场"),
 		Reloaded.IsValid() && !Reloaded->IsEmpty());
+	TestTrue(TEXT("InvalidateGeology 后重新加载得到新的场对象"),
+		Reloaded.IsValid() && Reloaded.Get() != First.Get());
 	if (!Reloaded.IsValid())
 	{
 		return false;
