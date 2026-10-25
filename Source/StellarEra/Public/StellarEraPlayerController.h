@@ -5,12 +5,14 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
+#include "PlanetCutawayMath.h"
 #include "StellarEraPlayerController.generated.h"
 
 class AStarMapCameraPawn;
 class ASpaceshipPawn;
 class UInputAction;
 class UInputMappingContext;
+class UPlanetCutawayComponent;
 class UPlanetEditComponent;
 struct FInputActionValue;
 struct FStarMapScreenCandidate;
@@ -64,6 +66,9 @@ public:
 	 * 而不画任何东西，玩家看到的就是「按 M 没反应」。
 	 */
 	static ASpaceshipPawn* ResolveStarMapFocusShip(APawn* EnteringPawn);
+
+	/** 当前激活的矿物剖面组件；未激活时为空。星图 UI 用它画图例。 */
+	UPlanetCutawayComponent* GetActiveCutaway() const { return ActiveCutaway; }
 
 protected:
 	/** 构造 IMC 与全部 IA。幂等：重复调用会直接返回。 */
@@ -140,6 +145,26 @@ protected:
 	 * 就是一个无参委托（EnhancedInputComponent.h:490 的 DEFINE_BIND_ACTION）。
 	 */
 	void ToggleStarMap();
+
+	/**
+	 * H 键：进入 / 退出矿物剖面。只在星图里生效。
+	 *
+	 * 进入条件：当前选中的是体素行星、且它带地质场。失败时给 2 秒提示，不改变状态。
+	 * 退出条件：再按一次 H、退出星图、换 Pawn、或选中天体变了（见 PlayerTick）。
+	 */
+	void OnCutawayToggle();
+
+	/** 左键拖拽圆环：Axis2D 是鼠标像素位移，换算成绕该圆环世界轴的旋转角。 */
+	void OnCutawayDrag(const FInputActionValue& Value);
+
+	/** 退出剖面（幂等）。退出星图 / 换 Pawn / 选中变化 / EndPlay 都走这里。 */
+	void ExitCutawayIfActive();
+
+	/** 屏幕点是否落在某根圆环上。命中时写 OutRing 并返回 true。 */
+	bool PickCutawayRing(const FVector2D& ScreenPosition, ESectionRing& OutRing) const;
+
+	/** 带时长的提示：几秒后自动消失，与每帧刷新的 ShowPrompt 分开。 */
+	void ShowPromptFor(const FString& Text, float DurationSeconds);
 
 	/** 左键按下：记下位置，用来区分「点击」和「拖拽」。 */
 	void OnStarMapSelectStarted(const FInputActionValue& Value);
@@ -294,4 +319,29 @@ protected:
 	/** 笔刷尺寸（`[` / `]`）。Axis1D，只绑 Started，不随按住每帧刷。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> IA_BrushSize;
+
+	/** 矿物剖面开关（H）。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> IA_CutawayToggle;
+
+	/** 拖拽剖面圆环（鼠标左键位移）。与 IA_Look 共用 Mouse2D，靠 ActiveCutaway 分派。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> IA_CutawayDrag;
+
+	/** 当前激活的剖面组件。行星销毁时 GC 会把它置空。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UPlanetCutawayComponent> ActiveCutaway;
+
+	/** 左键本轮拖拽抓住的圆环；只有 bCutawayDragActive 为真时有意义。 */
+	ESectionRing CutawayDragRing = ESectionRing::X;
+
+	/** 本轮左键是否抓住了圆环（没抓住 = 剖面模式下左键什么都不做）。 */
+	bool bCutawayDragActive = false;
+
+	/** 本轮拖拽是否真的转过角度：没转过就不必在松手时补渲染一张 512²。 */
+	bool bCutawayRotatedThisDrag = false;
+
+	/** 圆环拾取容差（像素）。圆环本身 3px 粗，12px 让远处也能点中。 */
+	UPROPERTY(EditAnywhere, Category = "StarMap", meta = (ClampMin = "0.0"))
+	float CutawayRingPickTolerancePx = 12.f;
 };

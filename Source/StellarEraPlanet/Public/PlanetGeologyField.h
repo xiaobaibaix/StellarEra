@@ -15,7 +15,7 @@
  *
  * 设计见 docs/superpowers/specs/2026-10-24-planet-geology-design.md。
  */
-class FPlanetGeologyField
+class STELLARERAPLANET_API FPlanetGeologyField
 {
 public:
 	FPlanetGeologyField() = default;
@@ -50,6 +50,9 @@ public:
 	int32 NumElements() const { return Elements.Num(); }
 	float GetTotalAbundance() const { return TotalAbundance; }
 
+	/** 元素定义的副本（元素表顺序），给矿物剖面图例用。 */
+	TArray<FPlanetGeologyElement> GetElementDefinitions() const;
+
 private:
 	struct FElementRuntime
 	{
@@ -75,4 +78,10 @@ private:
 	float TotalAbundance = 0.f;
 	float MaxReachDepth = 0.f;
 	TArray<FElementRuntime> Elements;
+
+	/**
+	 * Elements.json 数组里的 id 顺序；GetElementDefinitions 按它输出（spec §3.3）。
+	 * 运行期采样仍按 Elements 的现有顺序，不受影响。
+	 */
+	TArray<FString> ElementOrder;
 };

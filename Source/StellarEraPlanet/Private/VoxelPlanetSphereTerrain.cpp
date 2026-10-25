@@ -1,4 +1,4 @@
-// Copyright Voxel Plugin SAS. All Rights Reserved.
+﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 // 纯球地形模块：等值面是一个严格的球面。
 
 #include "VoxelPlanetSphereTerrain.h"
@@ -6,11 +6,11 @@
 
 // 值查询给采样点加的极小偏移（体素数）。区间查询必须用同一个球心，否则
 // GetValueRangeImpl 算出的区间会与真实取值差之毫厘。
-static constexpr double PlanetCenterEpsilon = 0.001;
+static constexpr double SpherePlanetCenterEpsilon = 0.001;
 
 // 密度除以的常数。噪声地形模块用的是同一个值 —— 两边的梯度必须一致，
 // 否则换地形时着色法线会变、光照观感会跳。
-static constexpr double DensityScale = 5.0;
+static constexpr double SphereDensityScale = 5.0;
 
 TVoxelSharedRef<FVoxelGeneratorInstance> UVoxelPlanetSphereTerrain::GetInstance(const FVoxelPlanetTerrainContext& Context)
 {
@@ -39,9 +39,9 @@ v_flt FVoxelPlanetSphereTerrainInstance::GetValueImpl(v_flt X, v_flt Y, v_flt Z,
 {
 	// 相对行星球心的偏移；带一个极小的 epsilon，避免返回恰好为 0 的密度值，
 	// 那会让网格化器出问题。
-	const double PX = double(X) - Center.X + PlanetCenterEpsilon;
-	const double PY = double(Y) - Center.Y + PlanetCenterEpsilon;
-	const double PZ = double(Z) - Center.Z + PlanetCenterEpsilon;
+	const double PX = double(X) - Center.X + SpherePlanetCenterEpsilon;
+	const double PY = double(Y) - Center.Y + SpherePlanetCenterEpsilon;
+	const double PZ = double(Z) - Center.Z + SpherePlanetCenterEpsilon;
 
 	const double Distance = FMath::Sqrt(PX * PX + PY * PY + PZ * PZ);
 
@@ -55,7 +55,7 @@ v_flt FVoxelPlanetSphereTerrainInstance::GetValueImpl(v_flt X, v_flt Y, v_flt Z,
 	// （LOD 3 起），6 个采样就全都饱和，法线只剩 ±1 分量，退化成 26 个轴向
 	// 对角方向之一 —— 表现为粗 LOD 的大块明暗色块。存储层（FVoxelValue）自己
 	// 会按 ±1 饱和，表面抽取只看符号，所以不夹不影响几何。
-	const double Value = (Distance - double(Radius)) / DensityScale;
+	const double Value = (Distance - double(Radius)) / SphereDensityScale;
 
 	return v_flt(Value);
 }
@@ -83,9 +83,9 @@ TVoxelRange<v_flt> FVoxelPlanetSphereTerrainInstance::GetValueRangeImpl(const FV
 	// 必然取遍 [最近点, 最远点] 两个距离之间的每一个值，而密度是距离的单调
 	// 函数，所以两端各自映射过去就是确切区间。
 
-	const double CX = Center.X - PlanetCenterEpsilon;
-	const double CY = Center.Y - PlanetCenterEpsilon;
-	const double CZ = Center.Z - PlanetCenterEpsilon;
+	const double CX = Center.X - SpherePlanetCenterEpsilon;
+	const double CY = Center.Y - SpherePlanetCenterEpsilon;
+	const double CZ = Center.Z - SpherePlanetCenterEpsilon;
 
 	// 逐轴求球心投影到盒区间 [Min, Max] 的距离：球心在区间外时是到最近端点
 	// 的距离，在区间内时为 0。两个方向的合成即为盒上离球心最近/最远的点。
@@ -112,8 +112,8 @@ TVoxelRange<v_flt> FVoxelPlanetSphereTerrainInstance::GetValueRangeImpl(const FV
 
 	// 与 GetValueImpl 完全相同的映射。不夹到 ±1：契约要求区间覆盖取值，而
 	// 取值已不再夹断；下游换算成 FVoxelValue 时会自己饱和，只消费端点符号。
-	const double MinValue = (MinDistance - double(Radius)) / DensityScale;
-	const double MaxValue = (MaxDistance - double(Radius)) / DensityScale;
+	const double MinValue = (MinDistance - double(Radius)) / SphereDensityScale;
+	const double MaxValue = (MaxDistance - double(Radius)) / SphereDensityScale;
 
 	return TVoxelRange<v_flt>(v_flt(MinValue), v_flt(MaxValue));
 }

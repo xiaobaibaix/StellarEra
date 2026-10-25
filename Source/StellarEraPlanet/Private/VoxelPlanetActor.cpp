@@ -15,6 +15,7 @@
 #include "PlanetAtmosphereComponent.h"
 #include "PlanetSurfaceGridComponent.h"
 #include "PlanetGeologyField.h"
+#include "PlanetCutawayComponent.h"
 #include "HAL/IConsoleManager.h"
 #include "EngineUtils.h"
 #include "Materials/MaterialInterface.h"
@@ -115,6 +116,10 @@ AVoxelPlanetActor::AVoxelPlanetActor()
 	// 材质与缩放都在 BeginPlay 里按 GetSurfaceRadiusCm() 定，构造期拿不到最终半径。
 	AtmosphereComponent = CreateDefaultSubobject<UPlanetAtmosphereComponent>(TEXT("PlanetAtmosphere"));
 	AtmosphereComponent->SetupAttachment(RootComponent);
+
+	// 剖面组件默认不 Tick，第一个 Activate 才创建圆盘/圆环并加载资产。
+	CutawayComponent = CreateDefaultSubobject<UPlanetCutawayComponent>(TEXT("PlanetCutaway"));
+	CutawayComponent->SetupAttachment(RootComponent);
 
 	// 表面网格：默认隐藏、不 tick，编辑模式打开时才工作。
 	// 它是纯 UActorComponent（不带变换），跟着 Owner Tick 即可，不需要 SetupAttachment
@@ -737,6 +742,11 @@ float AVoxelPlanetActor::GetSurfaceRadiusCmAtDirection(const FVector& WorldDirec
 
 	// 体素空间与世界空间之间只差一个等比缩放，没有旋转，方向可以原样传递。
 	return PlanetGenerator->Terrain->GetSurfaceRadiusVoxels(Context, Direction) * VoxelSize;
+}
+
+TSharedPtr<const FPlanetGeologyField> AVoxelPlanetActor::GetGeologyField()
+{
+	return PlanetGenerator ? PlanetGenerator->GetGeology() : nullptr;
 }
 
 bool AVoxelPlanetActor::RaycastSurfaceCm(
