@@ -175,6 +175,10 @@ void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildP
 		// 单簇单元素总角点不超过 MaxTotalCorners。触发时放大格边（分辨率下降），
 		// 绝不跳过 —— 跳过会让一整簇矿囊凭空消失，比糊更坏。
 		//
+		// 两个上限都是**硬上限**：CellCount = ceil(extent/CellSize) + 2（外扩的两格），
+		// CornerCount = CellCount + 1，所以除数要先减掉这 3 格/角点 —— 否则取整会把
+		// 上限顶破几个百分点（例：pow(8e6, 1/3) ≈ 200 时实际得到 203³ = 8,365,427）。
+		//
 		// 为什么不能只靠引擎自己的兜底：FMarchingCubes::SetDimensions 在
 		// MaxDim > SafetyMaxDimension（4096）时会静默改写 CubeSize，而 Implicit
 		// 闭包捕获的是我们自己算的 CellSize，两者错位后求值点与顶点就落在不同
@@ -187,20 +191,24 @@ void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildP
 			(Box.Max.Y - Box.Min.Y) + 2.0 * CellSize,
 			(Box.Max.Z - Box.Min.Z) + 2.0 * CellSize);
 		const double ExtentMax = PaddedExtent.GetMax();
-		CellSize = FMath::Max(CellSize, ExtentMax / double(MaxCellsPerAxis));
-		CellSize = FMath::Max(CellSize,
-			ExtentMax / FMath::Pow(static_cast<double>(MaxTotalCorners), 1.0 / 3.0));
+		CellSize = FMath::Max(CellSize, ExtentMax / double(MaxCellsPerAxis - 2));
+		CellSize = FMath::Max(CellSize, ExtentMax
+			/ (FMath::Pow(static_cast<double>(MaxTotalCorners), 1.0 / 3.0) - 3.0));
 
 		// 外扩一格，并把盒子拉到整数格。引擎按 (int)(Width / CubeSize) + 1 定**格数**
 		// （截断）：Width == CellCount * CellSize 在 double 下可能被截成 CellCount - 1，
 		// 最外一圈就会被裁掉。这里多给一格，无论截断与否都留有余量。
 		//
 		// 余量安全的前提在**别的模块**：引擎的角点会越过我们采样的 CornerCount，
-		// 越过的那几层由 Implicit 的 Clamp 落回最后一个已采样平面；而这些平面
-		// 都在所有矿囊的包围盒之外，SampleElementNormAtNormalized 在那里返回 0 是
+		// 越过的那几层由 Implicit 的 Clamp 落回最后一个已采样平面；而这一平面在
+		// **本簇**矿囊的包围盒之外，SampleElementNormAtNormalized 在那里返回 0 是
 		// 因为 PlanetGeologyField 的 PodInfluence 在 d ≥ r 处**严格**返回 0
 		// （无浮点残渣）。低于等值线（0 < IsoValue）就不会有穿越 —— 这里依赖
 		// 那个前提，改动 PodInfluence 的边界行为时必须回来复核。
+		//
+		// 注意范围：簇之间只保证 AABB 不相交，不保证相隔一格。同一元素**其它簇**的
+		// 矿囊可以离本簇盒子不到一格，其包围盒与该「最后采样平面」相交时那一层角点
+		// 场值就不为 0 —— 封闭性结论只对本簇矿囊成立。
 		const FVector PaddedMin = Box.Min - FVector(CellSize);
 		const FVector PaddedMax = Box.Max + FVector(CellSize);
 		const FIntVector CellCount(
@@ -215,14 +223,14 @@ void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildP
 			double(CellCount.Z + 1) * CellSize);
 		const FIntVector CornerCount = CellCount + FIntVector(1);
 
-		// 由上面两条上限推出：每轴格数 ≤ 512 + 2，远低于引擎的 4096。
+		// 由上面两条硬上限推出：每轴格数 ≤ 512、角点 ≤ 513，远低于引擎的 4096。
 		checkf(FMath::Max3(CellCount.X, CellCount.Y, CellCount.Z) < 4096,
 			TEXT("矿囊簇格数 %d×%d×%d 触及 FMarchingCubes 的 SafetyMaxDimension"),
 			CellCount.X, CellCount.Y, CellCount.Z);
 
 		// 角点数用 int64 求积再收窄成 int32。这条 checkf 在构造上不可能触发：
-		// 经 MaxTotalCorners 钳制后每轴 ≤ ~202，乘积 ≤ ~8.25e6，远低于 int32 上限。
-		// 留着是防将来有人改上限或外扩量时静默溢出。
+		// 经 MaxTotalCorners 钳制后每轴角点 ≤ 200，乘积 ≤ 200³ = 8,000,000，
+		// 远低于 int32 上限。留着是防将来有人改上限或外扩量时静默溢出。
 		const int64 TotalCorners64 =
 			int64(CornerCount.X) * int64(CornerCount.Y) * int64(CornerCount.Z);
 		checkf(TotalCorners64 <= int64(TNumericLimits<int32>::Max()),

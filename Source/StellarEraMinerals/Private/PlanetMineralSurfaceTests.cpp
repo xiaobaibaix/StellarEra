@@ -85,9 +85,10 @@ namespace PlanetMineralSurfaceTest
 		double CellSize = 2.0 * MinRadiusCm / double(CellsPerPod);
 		const FVector PaddedExtent = RawExtentCm + FVector(2.0 * CellSize);
 		const double ExtentMax = PaddedExtent.GetMax();
-		CellSize = FMath::Max(CellSize, ExtentMax / double(MaxCellsPerAxis));
-		CellSize = FMath::Max(CellSize,
-			ExtentMax / FMath::Pow(static_cast<double>(MaxTotalCorners), 1.0 / 3.0));
+		// 除数先减掉外扩的两格 + 角点那一格，上限才是硬上限（与 Build 的取整账一致）。
+		CellSize = FMath::Max(CellSize, ExtentMax / double(MaxCellsPerAxis - 2));
+		CellSize = FMath::Max(CellSize, ExtentMax
+			/ (FMath::Pow(static_cast<double>(MaxTotalCorners), 1.0 / 3.0) - 3.0));
 		return CellSize;
 	}
 
@@ -345,6 +346,11 @@ bool FPlanetMineralSurfaceIsoAccuracyTest::RunTest(const FString& Parameters)
 		}
 		const double CellSizeBoundCm = ExpectedCellSizeCm(MaxPodRadiusCm,
 			ElementBounds.Max - ElementBounds.Min, Params.CellsPerPod);
+		// 夹具一旦触发上限钳制，排除带会随格边变大而扩大、探测点被静默裁掉 ——
+		// 测试只会变弱、不会变红。先钉死「钳制不生效」。
+		const double BaseCellSizeCm = 2.0 * MaxPodRadiusCm / double(Params.CellsPerPod);
+		TestTrue(*FString::Printf(TEXT("元素 #%d 的夹具不触发格边上限"), ElementIndex),
+			CellSizeBoundCm == BaseCellSizeCm);
 		const double ExcludedRadiusCm = RadiusCm * 1.0001 - CellSizeBoundCm;
 
 		for (int32 Index = 0; Index < Mesh.VerticesCm.Num(); Index += 13)
@@ -732,7 +738,8 @@ bool FPlanetMineralSurfaceRadiusInvarianceTest::RunTest(const FString& Parameter
 	// 场 A：元素 0 一个 r = 0.20 的矿囊。
 	// 场 B：同一个元素 0 同一个矿囊 + 元素 1 一个远离它的 r = 0.01 小矿囊。
 	// 按簇定尺时两簇互不相干 ⇒ 元素 0 的网格完全相同；换成全局最小半径 ⇒
-	// 格边被 0.01 拖小 20 倍 ⇒ 三角形数必然不等。
+	// 格边基准被 0.01 拖小 20 倍，叠加 8M 预算钳制后实际约 16 倍（3333 → ~205 cm）
+	// ⇒ 三角形数必然不等。
 	FPlanetGeologyElementParams BigParams = MakeElement(TEXT("big"), 0.20f, 11);
 	const auto AloneField = MakeField(*MakePreset({BigParams}));
 
