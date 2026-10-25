@@ -76,8 +76,8 @@ Content/Geology/Planets/DA_Geology_Earth.uasset
 | `DisplayName` | `FString` | 空 | 图例与日志显示名 |
 | `Color` | `FLinearColor` | 白 | 矿体颜色 |
 | `Abundance` | `float` | 1.0 | **只影响颜色混合权重与图例占比，不改几何**；ClampMin 0 |
-| `PodCount` | `int32` | 24 | 该元素撒多少矿囊；ClampMin 0 |
-| `PodRadius` | `float` | 0.025 | 矿囊名义半径，**占行星基准半径的比例**；Clamp 0.001–0.25 |
+| `PodCount` | `int32` | 16 | 该元素撒多少矿囊；ClampMin 0 |
+| `PodRadius` | `float` | 0.05 | 矿囊名义半径，**占行星基准半径的比例**；Clamp 0.001–0.25。重叠对数量按 `PodCount² × (2r)³` 增长——半径砍半，重叠少 8 倍 |
 | `PodRadiusJitter` | `float` | 0.5 | 每囊半径的随机抖动幅度（±比例）；Clamp 0–1 |
 | `PodDepthBias` | `float` | 0.0 | 深度偏好强度；**0 = 全深度体积均匀**；Clamp 0–0.9 |
 | `PodDepthCenter` | `float` | 0.25 | 偏好深度（占半径比例，1 = 球心）；Clamp 0–1 |
@@ -182,7 +182,7 @@ C  = D × rc                                         // 矿囊球心
 
 ```
 PodFactor_i(P) = max over pods of  (1 − (|P − C| / rp)²)_+      // 多囊取 max
-N              = P × (ShapeDetail / PodRadius)                  // 噪声坐标
+N              = P × (2 · ShapeDetail / PodRadius)              // 噪声坐标
 Noise01        = 0.5 × (PerlinFractal_3D(N, frequency=1, Octaves) + 1)
 Vein           = clamp((Noise01 − VeinThreshold) / (1 − VeinThreshold), 0, 1)
 Norm_i         = PodFactor_i × Vein
@@ -198,7 +198,7 @@ Raw_i          = Abundance_i × Norm_i
 
 ### 3.4 空间索引
 
-建场时把所有矿囊塞进一个 `TMap<FIntVector, TArray<int32>>`：
+建场时把所有矿囊塞进一个 `TMap<FIntVector, TArray<FPlanetGeologyPodRef>>`（`FPlanetGeologyPodRef = { ElementIndex, PodIndex }`）：
 
 - 格子边长 = 全局最大矿囊半径（含抖动）；
 - 每囊插入其包围盒（球心 ± rp）覆盖的所有格子，最多 8 格。
@@ -260,12 +260,12 @@ Raw_i          = Abundance_i × Norm_i
 
 ### 4.3 成本
 
-| | 现有 40³ | 新（6 元素 × 24 囊，CellsPerPod = 12） |
+| | 现有 40³ | 新（6 元素共 94 囊，CellsPerPod = 12） |
 |---|---|---|
-| 角点数 | 69k × 6 元素 = 413k | 144 囊 × 15³ ≈ 486k（每点只求自己的元素） |
+| 角点数 | 69k × 6 元素 = 413k | 94 囊 × 14³ ≈ 258k（每点只求自己的元素） |
 | 每囊横向格数 | ≈ 1 | 12 |
 | 稠密场数组 | 41³ × 6 × 4 B = 1.6 MB | 无；每簇独立，峰值 < 1 MB |
-| 噪声求值次数 | ≈ 10 万 | ≈ 20 万（只算囊内角点，约占 41%） |
+| 噪声求值次数 | ≈ 10 万 | ≈ 10 万（只算囊内角点，约占 41%） |
 
 量级相当，分辨率 12 倍。成本随 `Σ 矿囊体积 / 最小矿囊体积` 线性增长；把 `PodCount` 拉到几百会明显变慢，但那是显式调参的结果。
 
@@ -279,7 +279,9 @@ Raw_i          = Abundance_i × Norm_i
 
 ### 4.5 看见重叠
 
-不同元素的矿囊独立播撒，穿插是必然的。但矿体材质不透明，同屏只能看到靠前的那层。确认重叠的方法：**用图例关掉其他元素**，露出来的矿囊里会嵌着别的元素。
+不同元素的矿囊独立播撒，模型上不会互相避让。但矿体材质不透明，同屏只能看到靠前的那层。确认重叠的方法：**用图例关掉其他元素**，露出来的矿囊里会嵌着别的元素。
+
+重叠**不是保证**而是统计结果：两个矿囊相交的概率约 `(r_a+r_b)³`，所以默认数据（§8）只有约 3 对。想看得更明显就调大 `PodRadius` 或 `PodCount`——这是显式的调参，不是魔法。
 
 ---
 
@@ -401,17 +403,21 @@ UFUNCTION(BlueprintPure) bool IsPreviewing() const;
 
 | 元素 | Abundance | PodCount | PodRadius | Seed |
 |---|---|---|---|---|
-| silicon 硅 | 0.60 | 28 | 0.030 | 303 |
-| iron 铁 | 0.75 | 30 | 0.028 | 101 |
-| water 水 | 0.20 | 24 | 0.030 | 606 |
-| copper 铜 | 0.45 | 22 | 0.022 | 202 |
-| titanium 钛 | 0.15 | 16 | 0.020 | 404 |
-| uranium 铀 | 0.10 | 10 | 0.016 | 505 |
+| silicon 硅 | 0.60 | 20 | 0.050 | 303 |
+| iron 铁 | 0.75 | 20 | 0.050 | 101 |
+| water 水 | 0.20 | 16 | 0.048 | 606 |
+| copper 铜 | 0.45 | 16 | 0.045 | 202 |
+| titanium 钛 | 0.15 | 12 | 0.042 | 404 |
+| uranium 铀 | 0.10 | 10 | 0.038 | 505 |
 
 公共值：`ShapeDetail 3`、`Octaves 2`、`Lacunarity 2`、`Gain 0.5`、`VeinThreshold 0.5`、`PodDepthBias 0`、`PodRadiusJitter 0.5`。
 `Appearance`：`ColorThreshold 0.05`、`FadeRange 0.12`、`PurityForFullColor 0.45`。
 
-丰度总和 2.25，图例百分比与今天一致（27/33/9/20/7/4）。预计地表露头约 10 处，比现在少一个数量级。
+丰度总和 2.25，图例百分比与今天一致（27/33/9/20/7/4）。
+
+共 94 个矿囊，按上表推算：**跨元素重叠对 ≈ 3**（`Σ N_a·N_b × (r_a+r_b)³`），**地表露头 ≈ 13 处**（`Σ N × 3r`），比现在少一个数量级。
+
+> 早先的草稿用 24 囊 / 半径 0.025：那时重叠对期望只有 **0.04 对**——默认数据下永远看不到重叠，验收项 2 会直接失败。重叠数与体积分数的平方成正比，所以半径不能太小。
 
 这是起点，之后全靠编辑器调参。
 
