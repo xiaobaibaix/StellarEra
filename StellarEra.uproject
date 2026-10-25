@@ -30,6 +30,11 @@
 			"LoadingPhase": "Default"
 		},
 		{
+			"Name": "StellarEraGeology",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
 			"Name": "StellarEraSpaceship",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"

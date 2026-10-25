@@ -13,14 +13,18 @@ public class StellarEraPlanet : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "Voxel" });
+		// 地质场：本模块的公开头直接 include PlanetGeologyTypes.h，并在
+		// VoxelPlanetTerrainModule.h 等公开结构体里暴露 FPlanetGeologyField，
+		// 下游模块要用就必须拿到它的包含路径，所以是 Public。
+		PublicDependencyModuleNames.AddRange(new string[]
+		{
+			"Core", "CoreUObject", "Engine", "Voxel",
+			"StellarEraGeology",
+		});
 
 		// 编辑器里给每颗行星懒创建 / 加载 UVoxelWorldSaveObject 资产（VoxelPlanetActor.cpp
 		// 的 EnsureSaveObject），创建后要通知资产注册表，否则内容浏览器里看不到。
 		PrivateDependencyModuleNames.AddRange(new string[] { "AssetRegistry" });
-
-		// JSON 只在 PlanetGeologyField.cpp 里用，不需要向下游传递。
-		PrivateDependencyModuleNames.AddRange(new string[] { "Json" });
 
 		// 矿物等值面：FMarchingCubes / FDynamicMesh3 / FMeshNormals 都在 GeometryCore
 		// 的运行时模块里（不是编辑器模块）。头文件不向下游暴露这些类型，所以是 Private。

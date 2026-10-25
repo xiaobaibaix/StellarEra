@@ -15,7 +15,7 @@
  *
  * 设计见 docs/superpowers/specs/2026-10-24-planet-geology-design.md。
  */
-class STELLARERAPLANET_API FPlanetGeologyField
+class STELLARERAGEOLOGY_API FPlanetGeologyField
 {
 public:
 	FPlanetGeologyField() = default;
