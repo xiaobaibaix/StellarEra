@@ -16,7 +16,7 @@ public class StellarEraEditorTarget : TargetRules
 			"StellarEraCosmos",    // 万有引力
 			"StellarEraCore",      // 天体力学
 			"StellarEraPlanet",    // 体素星球
-			"StellarEraVehicle",   // 角色载具
+			"StellarEraSpaceship", // 飞船
 			"StellarEraUI",    // 显示与控制
 			"StellarEraPlanetEdit",  // 行星编辑
 			"StellarEraCharacter", // 角色控制

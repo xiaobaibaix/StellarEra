@@ -18,9 +18,9 @@ struct FSpaceshipStatus;
  * 用 AHUD + Canvas 直接画，不建 UMG 资产：与本项目「输入资产也在 C++ 里造」的
  * 做法一致 —— 零手工步骤，改完代码立刻能跑。
  *
- * 依赖方向：本类在 StellarEraUI 模块，飞船在 StellarEraVehicle 模块。Build.cs 里
+ * 依赖方向：本类在 StellarEraUI 模块，飞船在 StellarEraSpaceship 模块。Build.cs 里
  * 后者是 **私有**依赖，所以这里只前置声明 ASpaceshipPawn / FSpaceshipStatus，
- * 真正的 include 放在 .cpp —— 否则本头文件（公开头）就要求把 StellarEraVehicle
+ * 真正的 include 放在 .cpp —— 否则本头文件（公开头）就要求把 StellarEraSpaceship
  * 提升成公开依赖，整个依赖层级都要跟着改。
  *
  * 字体用的是引擎默认字体（GEngine->GetMediumFont()），与

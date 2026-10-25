@@ -95,7 +95,7 @@ struct FSpaceshipStatus
  * UCosmosSimulationSubsystem 每帧下来读走、换算成 AU/年² 写进它那个 FCosmosBodyState。
  * 位置与速度都由求解器写回（SetActorLocation + SetCosmosVelocity）。
  *
- * 力只能是这个方向：StellarEraVehicle 不能依赖 StellarEra（会成环），所以飞船
+ * 力只能是这个方向：StellarEraSpaceship 不能依赖 StellarEra（会成环），所以飞船
  * 既不能 include CosmosOrbitComponent.h，也不能调那个子系统。
  *
  * 鼠标给的是角速度冲量而不是直接设朝向，松手后指数衰减 —— 这是"开飞机"的惯性感
@@ -103,7 +103,7 @@ struct FSpaceshipStatus
  * 不参与积分。
  */
 UCLASS()
-class STELLARERAVEHICLE_API ASpaceshipPawn : public APawn
+class STELLARERASPACESHIP_API ASpaceshipPawn : public APawn
 {
 	GENERATED_BODY()
 
@@ -362,7 +362,7 @@ public:
 	 *
 	 * 行星自身不自转，大气跟着行星中心平移，所以大气阻力必须按「飞船相对行星」
 	 * 的速度算；相对速度也是 HUD 要显示的第二条速度。方向只能是子系统下来推：
-	 * StellarEraVehicle 不能反向依赖 StellarEra 去查求解器（会成环）。
+	 * StellarEraSpaceship 不能反向依赖 StellarEra 去查求解器（会成环）。
 	 * 没有参考行星时传零向量，相对速度退化为绝对速度。
 	 */
 	void SetReferencePlanetVelocity(const FVector& InVelocity) { ReferencePlanetVelocity = InVelocity; }
@@ -570,7 +570,7 @@ protected:
 	 * 就是它）。世界速度与物理速度不是一回事，见
 	 * UCosmosOrbitComponent::InitialVelocityKmPerSecond 的注释。
 	 *
-	 * 换算是本模块内的一行（× 1e5），因为 StellarEraVehicle 不能依赖 StellarEraCore。
+	 * 换算是本模块内的一行（× 1e5），因为 StellarEraSpaceship 不能依赖 StellarEraCore。
 	 */
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Thrust",
 		meta = (DisplayName = "推力加速度（km/s²，世界）"))

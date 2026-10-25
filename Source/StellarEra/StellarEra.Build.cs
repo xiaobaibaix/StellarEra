@@ -12,7 +12,7 @@ using UnrealBuildTool;
 // DefaultEngine.ini 的 [CoreRedirects] 兜底。
 //
 // 依赖方向（严格分层，无环）：
-//     StellarEra ─→ StellarEraUI ─→ StellarEraCosmos ─→ StellarEraVehicle ─→ StellarEraPlanet
+//     StellarEra ─→ StellarEraUI ─→ StellarEraCosmos ─→ StellarEraSpaceship ─→ StellarEraPlanet / StellarEraCharacter
 //          │            └──────→ StellarEraCore
 //          └──────→ StellarEraCore
 //
@@ -52,7 +52,7 @@ public class StellarEra : ModuleRules
 		{
 			"StellarEraPlanet", // 行星 Actor / 地质场 / 纹理；只在 .cpp 里 include
 			"StellarEraCore",
-			"StellarEraVehicle",
+			"StellarEraSpaceship",
 			"StellarEraCharacter", // 角色；只在 .cpp 与测试里 include
 			"StellarEraPlanetEdit", // 编辑组件 / 笔刷；只在 .cpp 与测试里 include
 			"StellarEraCosmos", // N 体编排；公开头只在 .cpp 里 include

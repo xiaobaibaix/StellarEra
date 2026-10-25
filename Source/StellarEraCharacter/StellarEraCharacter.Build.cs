@@ -14,7 +14,7 @@ using UnrealBuildTool;
 //       · PlanetCharacter.h 的 UPROPERTY TObjectPtr<UVoxelSimpleInvokerComponent>
 //         需要插件里的 UClass（Module.*.gen.cpp 的 Z_Construct_UClass_...）；
 //       · PlanetCharacter.cpp 的 EnableInvoker / DisableInvoker / IsInvokerEnabled。
-// 同模块的 StellarEraVehicle / StellarEraPlanetEdit / StellarEraUI 也都是直接列 Voxel。
+// 同模块的 StellarEraSpaceship / StellarEraPlanetEdit / StellarEraUI 也都是直接列 Voxel。
 public class StellarEraCharacter : ModuleRules
 {
 	public StellarEraCharacter(ReadOnlyTargetRules Target) : base(Target)

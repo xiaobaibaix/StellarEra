@@ -396,7 +396,7 @@ void ASpaceshipPawn::Tick(float DeltaSeconds)
 	//
 	// 阈值按 **相对行星** 的速度算：行星自己随求解器每秒走几十公里，船贴着
 	// 地面停着时 GetVelocity() 的绝对值也不小。逐帧位移相减即可，不必让
-	// StellarEraVehicle 反向依赖 StellarEra 去查求解器。
+	// StellarEraSpaceship 反向依赖 StellarEra 去查求解器。
 	const AVoxelPlanetActor* const SamplePlanet = PlanetActor;
 	const FVector PlanetLocation = SamplePlanet ? SamplePlanet->GetActorLocation() : FVector::ZeroVector;
 	const FVector ShipLocation = GetActorLocation();
