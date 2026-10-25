@@ -16,9 +16,11 @@ using UnrealBuildTool;
 //          │            └──────→ StellarEraCore
 //          └──────→ StellarEraCore
 //
-// StellarEraUI 是 **Private**：本模块没有下游模块（Vehicle 不能依赖 Game），
-// 所以即使 StellarEraPlayerController.h 这个公开头 include 了 UI 侧的
-// StarMapUIInputs.h，私有依赖也不会让任何别的模块断链。
+// StellarEraUI 是 **Public**：公开头 StellarEraPlayerController.h include 了
+// StarMapUIInputs.h —— AStellarEraPlayerController 公开继承 IStarMapUIInputs，
+// 所以 UI 的 include 路径必须向下游传播。写成 Private 的话本模块自己编得过，
+// 但任何公开依赖 StellarEra 的模块 include 控制器头就会撞 C1083，而且报错
+// 指向 UI 的文件而不是它自己的 Build.cs。
 // 反向（UI → Game）禁止，需要控制器数据的地方走 IStarMapUIInputs。
 //
 // Core 是 **Public**：拆分前 CosmosSimulationSubsystem.h（按值持有 FNBodySimulator）
@@ -41,6 +43,9 @@ public class StellarEra : ModuleRules
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
 			"Core", "CoreUObject", "Engine",
+			// 公开头 StellarEraPlayerController.h include 了 StarMapUIInputs.h
+			// （公开继承 IStarMapUIInputs），include 路径必须向下游传播。
+			"StellarEraUI",
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]
@@ -49,7 +54,6 @@ public class StellarEra : ModuleRules
 			"StellarEraCore",
 			"StellarEraVehicle",
 			"StellarEraCosmos", // N 体编排；公开头只在 .cpp 里 include
-			"StellarEraUI",    // HUD / 星图相机 / 星图面板；只在 .cpp 里 include
 			"Voxel",           // 已无直接 include（星图代码搬到 StellarEraUI），待清理
 			"InputCore",
 			"EnhancedInput",   // 只有 StellarEraPlayerController.cpp 用到
