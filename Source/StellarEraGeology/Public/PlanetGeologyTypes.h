@@ -33,7 +33,10 @@ struct FPlanetGeologyElement
 	FString DisplayName;
 	FLinearColor Color = FLinearColor::White;
 
-	/** 只影响颜色混合权重与图例占比，不改几何。 */
+	/**
+	 * 只影响颜色混合权重与图例占比，不改几何。
+	 * 几何外凸量取各元素 Norm 的最大值（见 SampleGeometryDelta），与 Abundance 无关。
+	 */
 	float Abundance = 0.f;
 
 	// --- 矿囊 ---
@@ -50,11 +53,11 @@ struct FPlanetGeologyElement
 	int32 Seed = 0;
 
 	/**
-	 * 矿脉稀疏阈值（0..0.95，来自元素表 noise.veinThreshold）。
+	 * 矿脉稀疏阈值（0..0.95，来自预设资产的 VeinThreshold）。
 	 *
 	 * Perlin 噪声 0.5 是均值：阈值越高，只有噪声峰值附近才留下含量，
-	 * 单元素脉越稀疏、越纯。0 表示不稀疏（旧行为）。
-	 * 每个元素可以不同，用来让各矿脉的分布与密度互不相同。
+	 * 单元素矿囊越稀疏、越纯。0 表示不稀疏。
+	 * 每个元素可以不同，用来让各矿囊的分布与密度互不相同。
 	 */
 	float VeinThreshold = 0.f;
 };

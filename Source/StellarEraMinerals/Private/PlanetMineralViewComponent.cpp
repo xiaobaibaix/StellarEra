@@ -58,7 +58,7 @@ bool UPlanetMineralViewComponent::Activate(AVoxelPlanetActor* InPlanet)
 	Params.IsoValue = Geology->GetAppearance().ColorThreshold;
 
 	// 键里不含 IsoValue / VoxelSizeCm / 元素表：它们都来自地质场，而地质场**不在键里**。
-	// ReloadGeology()（含 StellarEra.ReloadGeology 命令）会用新的地质对象替换旧的，而行星、
+	// ReloadGeology()（Details 面板的「重建行星」）会用新的地质对象替换旧的，而行星、
 	// 半径、缩放全不变 —— 只比键会静默复用旧几何，再按新元素表上色（同元素数），
 	// 或直接让观察体的「网格数 == 元素数」校验失败（不同元素数）。所以另外单独比对
 	// 地质对象本身：共享指针相等才算同一份数据。GridResolution 是组件上可编辑的属性，

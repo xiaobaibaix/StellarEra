@@ -159,17 +159,20 @@ public:
 
 	/**
 	 * 旧字段，只用于加载时迁移（存的是 JSON 预设名）。
-	 * PostLoad 会按 MakeLegacyGeologyAssetPath 找资产并写进 GeologyAsset。
+	 *
+	 * **默认值 "earth" 必须保留**：旧关卡的 Actor 从来没序列化过这个字段，
+	 * 它的值一直来自 CDO 默认值。删掉默认值 = 迁移条件恒为假，老关卡直接丢矿。
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet|Geology",
 		meta = (DeprecatedProperty))
-	FString GeologyPreset;
+	FString GeologyPreset = TEXT("earth");
 
-	/** 重新取地质场并重建这颗行星：改完预设资产后调用。 */
-	UFUNCTION(BlueprintCallable, Category = "Planet|Geology")
+	/** 重新取地质场并重建这颗行星：改完预设资产后从这里应用。 */
+	UFUNCTION(BlueprintCallable, Category = "Planet|Geology",
+		meta = (CallInEditor, DisplayName = "重建行星（应用地质预设改动）"))
 	void ReloadGeology();
 
-	/** 当前地质预设资产（编辑器预览订阅它）。 */
+	/** 当前地质预设资产（供编辑器预览订阅；Task 5 接入）。 */
 	UFUNCTION(BlueprintPure, Category = "Planet|Geology")
 	UPlanetGeologyPreset* GetGeologyPresetAsset() const { return GeologyAsset; }
 

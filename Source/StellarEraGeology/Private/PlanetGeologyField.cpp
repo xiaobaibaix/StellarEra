@@ -99,7 +99,8 @@ TSharedPtr<const FPlanetGeologyField> FPlanetGeologyField::BuildFromPreset(
 	TSharedPtr<FPlanetGeologyField> Field = MakeShared<FPlanetGeologyField>();
 	Field->RadiusVoxels = FMath::Max(PlanetRadiusVoxels, 0.0);
 	Field->Appearance = Preset.Appearance;
-	Field->GeometryAmplitude = FMath::Max(0.f, Preset.GeometryAmplitude);
+	// 与旧 JSON 校验器同界：绕过 Details（Python/MCP、手改资产）的写入也不能把地表推出世界。
+	Field->GeometryAmplitude = FMath::Clamp(Preset.GeometryAmplitude, 0.f, 64.f);
 
 	Field->Elements.Reserve(Preset.Elements.Num());
 	for (const FPlanetGeologyElementParams& Params : Preset.Elements)
@@ -110,7 +111,7 @@ TSharedPtr<const FPlanetGeologyField> FPlanetGeologyField::BuildFromPreset(
 			? Params.Id.ToString()
 			: Params.DisplayName;
 		Definition.Color = Params.Color;
-		Definition.Abundance = FMath::Max(0.f, Params.Abundance);
+		Definition.Abundance = FMath::Clamp(Params.Abundance, 0.f, 1.f);
 		Definition.Octaves = FMath::Clamp(Params.Octaves, 1, 6);
 		Definition.Lacunarity = FMath::Max(Params.Lacunarity, 1.f);
 		Definition.Gain = FMath::Clamp(Params.Gain, 0.f, 1.f);
@@ -337,11 +338,11 @@ FPlanetGeologySample FPlanetGeologyField::Sample(const FVector& UnitDir, double 
 
 float FPlanetGeologyField::SampleGeometryDelta(const FVector& UnitDir, double Depth) const
 {
-	if (Elements.Num() == 0 || TotalAbundance <= 0.f)
+	if (Elements.Num() == 0)
 	{
 		return 0.f;
 	}
-	// 高斯尾部之外没有贡献；绝大多数行星内部体积走这一条。
+	// 矿囊之外没有任何贡献；绝大多数行星内部体积走这一条，省掉一次全元素遍历。
 	if (Depth < -double(MaxReachDepth) || Depth > double(MaxReachDepth))
 	{
 		return 0.f;
@@ -351,14 +352,15 @@ float FPlanetGeologyField::SampleGeometryDelta(const FVector& UnitDir, double De
 	FLinearColor UnusedColor = FLinearColor::Black;
 	Accumulate(UnitDir, Depth, false, Accumulation, UnusedColor);
 
-	if (Accumulation.Total <= 0.0)
+	// 取各元素 Norm 的**最大值**，不做丰度加权平均：Abundance 的承诺是「只影响颜色
+	// 混合权重与图例占比」，地形外凸量必须与它无关。这样外凸量也仍被
+	// GeometryAmplitude 严格限住（≤ GeometryAmplitude），元素再多也不会变强或变弱。
+	const double MaxNorm = Accumulation.DominantNorm;
+	if (MaxNorm <= 0.0)
 	{
 		return 0.f;
 	}
-
-	const float TotalNorm = FMath::Clamp(
-		float(Accumulation.Total / double(TotalAbundance)), 0.f, 1.f);
-	return GeometryAmplitude * TotalNorm;
+	return GeometryAmplitude * FMath::Clamp(float(MaxNorm), 0.f, 1.f);
 }
 
 void FPlanetGeologyField::SampleElementNorms(const FVector& UnitDir, double Depth,

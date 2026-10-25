@@ -15,8 +15,6 @@
 #include "PlanetSurfaceGridComponent.h"
 #include "PlanetGeologyField.h"
 #include "PlanetGeologyPreset.h"
-#include "HAL/IConsoleManager.h"
-#include "EngineUtils.h"
 #include "Materials/MaterialInterface.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
@@ -699,6 +697,10 @@ void AVoxelPlanetActor::PostLoad()
 
 	// 迁移：旧关卡存的是 JSON 预设名。找不到资产就原样保留字符串，
 	// 不报错 —— 资产可能还没建（Task 6）。
+	//
+	// 这里用同步 TryLoad 是有意的取舍：迁移是一次性的编辑器内容迁移，预设资产只有
+	// 几 KB；cooked build 不收录本路径，靠 Task 6 给三颗行星与 BP 显式赋 GeologyAsset
+	// 硬引用并保存。若将来要在运行时依赖它，必须改成异步加载 + 完成回调。
 	if (!GeologyAsset && !GeologyPreset.IsEmpty())
 	{
 		const FSoftObjectPath LegacyPath = MakeLegacyGeologyAssetPath(GeologyPreset);

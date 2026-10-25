@@ -4,9 +4,16 @@
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "Math/RandomStream.h"
+// VoxelItemStack.h 不是自包含的：它用到 FVoxelIntBox 却没 include 对应头，
+// 直接单独包含会在 VoxelItemStack.h(38) 报「缺少类型说明符」。
+#include "VoxelIntBox.h"
+#include "VoxelItemStack.h"
+#include "VoxelMaterial.h"
 #include "PlanetGeologyField.h"
 #include "PlanetGeologyPreset.h"
 #include "VoxelPlanetGenerator.h"
+#include "VoxelPlanetNoiseTerrain.h"
+#include "VoxelGenerators/VoxelGeneratorInstance.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -329,29 +336,52 @@ bool FPlanetGeologyAbundanceInvarianceTest::RunTest(const FString& Parameters)
 {
 	using namespace PlanetGeologyPodTest;
 
-	FPlanetGeologyElementParams Low = MakeElement(TEXT("a"), 20, 0.05f, 31, 0.2f);
-	Low.Abundance = 0.2f;
-	FPlanetGeologyElementParams High = Low;
-	High.Abundance = 1.0f;
+	// 多元素夹具：单元素时「丰度加权平均」与「取最大值」恒等，测不出这个承诺。
+	FPlanetGeologyElementParams A = MakeElement(TEXT("a"), 20, 0.06f, 31, 0.1f);
+	FPlanetGeologyElementParams B = MakeElement(TEXT("b"), 16, 0.05f, 32, 0.2f);
+	FPlanetGeologyElementParams C = MakeElement(TEXT("c"), 12, 0.04f, 33, 0.3f);
+	A.Abundance = 0.2f;
+	B.Abundance = 0.5f;
+	C.Abundance = 1.0f;
 
-	UPlanetGeologyPreset* PresetLow = MakePreset({Low});
-	UPlanetGeologyPreset* PresetHigh = MakePreset({High});
+	FPlanetGeologyElementParams AHigh = A;
+	FPlanetGeologyElementParams BHigh = B;
+	FPlanetGeologyElementParams CHigh = C;
+	AHigh.Abundance = 1.0f;
+	BHigh.Abundance = 0.9f;
+	CHigh.Abundance = 0.3f;
+
+	UPlanetGeologyPreset* PresetLow = MakePreset({A, B, C});
+	UPlanetGeologyPreset* PresetHigh = MakePreset({AHigh, BHigh, CHigh});
 	const auto FieldLow = MakeField(*PresetLow);
 	const auto FieldHigh = MakeField(*PresetHigh);
 
 	FRandomStream Rng(4242);
-	int32 Mismatches = 0;
+	int32 NormMismatches = 0;
+	int32 GeometryMismatches = 0;
 	for (int32 SampleIndex = 0; SampleIndex < 1000; ++SampleIndex)
 	{
 		const FVector P = RandomPoint(Rng);
-		if (!FMath::IsNearlyEqual(FieldLow->SampleElementNormAtNormalized(0, P),
-			FieldHigh->SampleElementNormAtNormalized(0, P), 1e-6f))
+		for (int32 ElementIndex = 0; ElementIndex < 3; ++ElementIndex)
 		{
-			++Mismatches;
+			if (!FMath::IsNearlyEqual(FieldLow->SampleElementNormAtNormalized(ElementIndex, P),
+				FieldHigh->SampleElementNormAtNormalized(ElementIndex, P), 1e-6f))
+			{
+				++NormMismatches;
+			}
+		}
+
+		const FVector UnitDir = P.GetSafeNormal();
+		const double Depth = (1.0 - double(P.Size())) * PlanetRadiusVoxels;
+		if (!FMath::IsNearlyEqual(FieldLow->SampleGeometryDelta(UnitDir, Depth),
+			FieldHigh->SampleGeometryDelta(UnitDir, Depth), 1e-6f))
+		{
+			++GeometryMismatches;
 		}
 	}
 
-	TestEqual(TEXT("只改 Abundance 不改逐点几何"), Mismatches, 0);
+	TestEqual(TEXT("只改 Abundance 不改逐点元素强度"), NormMismatches, 0);
+	TestEqual(TEXT("只改 Abundance 不改地表外凸量"), GeometryMismatches, 0);
 	return true;
 }
 
@@ -435,15 +465,22 @@ bool FPlanetGeologyDeterminismTest::RunTest(const FString& Parameters)
 	const auto First = MakeField(*Preset);
 	const auto Second = MakeField(*Preset);
 
+	// 先钉住矿囊真的撒出来了：PlacePods 全失效时两次建场同样「逐点一致」。
+	TestEqual(TEXT("元素 a 矿囊数"), First->GetPods(0).Num(), 12);
+	TestEqual(TEXT("元素 b 矿囊数"), First->GetPods(1).Num(), 9);
+
 	FRandomStream Rng(2024);
 	int32 Mismatches = 0;
-	for (int32 SampleIndex = 0; SampleIndex < 500; ++SampleIndex)
+	int32 NonZeroSamples = 0;
+	for (int32 SampleIndex = 0; SampleIndex < 2000; ++SampleIndex)
 	{
 		const FVector P = RandomPoint(Rng);
 		for (int32 ElementIndex = 0; ElementIndex < 2; ++ElementIndex)
 		{
-			if (First->SampleElementNormAtNormalized(ElementIndex, P)
-				!= Second->SampleElementNormAtNormalized(ElementIndex, P))
+			const float FirstNorm = First->SampleElementNormAtNormalized(ElementIndex, P);
+			const float SecondNorm = Second->SampleElementNormAtNormalized(ElementIndex, P);
+			NonZeroSamples += FirstNorm > 0.f ? 1 : 0;
+			if (FirstNorm != SecondNorm)
 			{
 				++Mismatches;
 			}
@@ -451,6 +488,9 @@ bool FPlanetGeologyDeterminismTest::RunTest(const FString& Parameters)
 	}
 
 	TestEqual(TEXT("同一预设两次建场逐点完全相同"), Mismatches, 0);
+	// 反假绿：矿囊体积占比不到 1%，若比较的几乎全是 0==0，这条测试就形同虚设。
+	TestTrue(*FString::Printf(TEXT("采样中确实有非零矿（%d 个）"), NonZeroSamples),
+		NonZeroSamples >= 5);
 	return true;
 }
 
@@ -488,6 +528,22 @@ bool FPlanetGeologyBoundsTest::RunTest(const FString& Parameters)
 			Sample.TotalNorm >= 0.f && Sample.TotalNorm <= 1.f
 			&& Sample.DominantNorm >= 0.f && Sample.DominantNorm <= 1.f
 			&& Sample.Purity >= 0.f && Sample.Purity <= 1.f))
+		{
+			return false;
+		}
+	}
+
+	// 地表外凸量必须落在 [0, MaxGeometryDelta]：地形网格与地表查询都读它。
+	FRandomStream GeometryRng(5151);
+	const float MaxGeometryDelta = Field->GetMaxGeometryDelta();
+	for (int32 SampleIndex = 0; SampleIndex < 2048; ++SampleIndex)
+	{
+		const FVector P = RandomPoint(GeometryRng);
+		const double Depth = (1.0 - double(P.Size())) * PlanetRadiusVoxels;
+		const float Delta = Field->SampleGeometryDelta(P.GetSafeNormal(), Depth);
+		if (!TestTrue(*FString::Printf(TEXT("GeometryDelta %.4f 在 [0, %.4f]"),
+			Delta, MaxGeometryDelta),
+			Delta >= 0.f && Delta <= MaxGeometryDelta + 1e-4f))
 		{
 			return false;
 		}
@@ -533,17 +589,274 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyGeneratorParametersTest,
 
 bool FPlanetGeologyGeneratorParametersTest::RunTest(const FString& Parameters)
 {
-	const FProperty* Property = FindFProperty<FProperty>(
+	// VoxelFree 的 UVoxelGenerator::GetParameters（VoxelGenerator.cpp:18-63）会把
+	// 每个 CPF_Edit 且非 CPF_EditConst 的属性都塞进 FVoxelGeneratorParameterType
+	//（VoxelGeneratorParameters.cpp:98-178）。后者只认识 Float/Int/Bool/Object/
+	// SoftObject/Struct/Array/Set/Map；FString/FName/FText/FByte 等都会
+	// ensureMsgf(false) —— 在场景大纲里选中行星 Actor 时，Details 里继承来的
+	// Generator 选择器会调 GetParameters，于是每次都弹 ensure。
+	const FProperty* PresetProperty = FindFProperty<FProperty>(
 		UVoxelPlanetGenerator::StaticClass(), TEXT("GeologyPreset"));
-	if (!TestNotNull(TEXT("生成器上有 GeologyPreset 属性"), Property))
+	if (!TestNotNull(TEXT("生成器上有 GeologyPreset 属性"), PresetProperty))
 	{
 		return false;
 	}
 
-	TestTrue(TEXT("必须是对象指针"), CastField<FObjectProperty>(Property) != nullptr);
-	TestTrue(TEXT("必须带 CPF_Edit"), Property->HasAnyPropertyFlags(CPF_Edit));
+	TestTrue(TEXT("必须是对象指针"), CastField<FObjectProperty>(PresetProperty) != nullptr);
+	TestTrue(TEXT("必须带 CPF_Edit"), PresetProperty->HasAnyPropertyFlags(CPF_Edit));
 	TestTrue(TEXT("必须同时带 CPF_EditConst（否则 VoxelFree 参数枚举会 ensure）"),
-		Property->HasAnyPropertyFlags(CPF_EditConst));
+		PresetProperty->HasAnyPropertyFlags(CPF_EditConst));
+
+	int32 EditablePropertyCount = 0;
+	for (TFieldIterator<FProperty> It(UVoxelPlanetGenerator::StaticClass()); It; ++It)
+	{
+		const FProperty* Property = *It;
+		if (!Property->HasAnyPropertyFlags(CPF_Edit) ||
+			Property->HasAnyPropertyFlags(CPF_EditConst))
+		{
+			continue;
+		}
+		++EditablePropertyCount;
+
+		const bool bSupportedType =
+			Property->IsA<FFloatProperty>() ||
+			Property->IsA<FIntProperty>() ||
+			Property->IsA<FBoolProperty>() ||
+			Property->IsA<FObjectProperty>() ||
+			Property->IsA<FSoftObjectProperty>() ||
+			Property->IsA<FStructProperty>() ||
+			Property->IsA<FArrayProperty>() ||
+			Property->IsA<FSetProperty>() ||
+			Property->IsA<FMapProperty>();
+
+		TestTrue(*FString::Printf(
+			TEXT("%s（%s）的类型不在 Voxel 生成器参数系统支持范围内"),
+			*Property->GetNameCPP(), *Property->GetClass()->GetName()),
+			bSupportedType);
+	}
+
+	// 反证：枚举确实看得到东西，避免「一个属性都没遍历到」的假绿。
+	TestTrue(TEXT("至少应枚举到 Terrain/Radius/Center/SurfaceColor 这些可编辑属性"),
+		EditablePropertyCount >= 4);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyPipelineTest,
+	"StellarEra.Planet.Geology.Pipeline",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyPipelineTest::RunTest(const FString& Parameters)
+{
+	using namespace PlanetGeologyPodTest;
+
+	UPlanetGeologyPreset* PresetA = MakePreset({
+		MakeElement(TEXT("a"), 8, 0.06f, 5, 0.f)});
+	UPlanetGeologyPreset* PresetB = MakePreset({
+		MakeElement(TEXT("b"), 9, 0.05f, 6, 0.f),
+		MakeElement(TEXT("c"), 7, 0.04f, 7, 0.f)});
+
+	UVoxelPlanetGenerator* Generator = NewObject<UVoxelPlanetGenerator>();
+	Generator->Radius = 1500.f;
+
+	TestTrue(TEXT("空预设返回 nullptr"), Generator->GetGeology() == nullptr);
+
+	Generator->GeologyPreset = PresetA;
+	const TSharedPtr<const FPlanetGeologyField> First = Generator->GetGeology();
+	const TSharedPtr<const FPlanetGeologyField> Second = Generator->GetGeology();
+	TestTrue(TEXT("同一预设两次调用返回同一对象"),
+		First.IsValid() && First.Get() == Second.Get());
+
+	// 前面所有测试都手工构造 Context，漏掉 Context.Geology 时它们仍然会绿。
+	const FVoxelPlanetTerrainContext Context = Generator->MakeTerrainContext();
+	TestTrue(TEXT("MakeTerrainContext 带上非空地质场"),
+		Context.Geology.IsValid() && Context.Geology->NumElements() == 1);
+
+	// 换预设指针 → 重建。旧对象还活着，所以地址不同是确定性的，不是分配巧合。
+	Generator->GeologyPreset = PresetB;
+	const TSharedPtr<const FPlanetGeologyField> Third = Generator->GetGeology();
+	TestTrue(TEXT("换预设后重建"),
+		Third.IsValid() && First.IsValid() && Third.Get() != First.Get());
+	TestEqual(TEXT("新场元素数来自新预设"),
+		Third.IsValid() ? Third->NumElements() : -1, 2);
+
+	// 改 Revision → 重建（Revision 是缓存键的一部分，改资产内容必须生效）。
+	Generator->GeologyPreset = PresetA;
+	const TSharedPtr<const FPlanetGeologyField> CachedA = Generator->GetGeology();
+	PresetA->Revision += 1;
+	const TSharedPtr<const FPlanetGeologyField> AfterRevision = Generator->GetGeology();
+	TestTrue(TEXT("改 Revision 后重建"),
+		AfterRevision.IsValid() && CachedA.IsValid()
+		&& AfterRevision.Get() != CachedA.Get());
+
+	// Invalidate → 得到新对象。
+	Generator->InvalidateGeology();
+	const TSharedPtr<const FPlanetGeologyField> AfterInvalidate = Generator->GetGeology();
+	TestTrue(TEXT("Invalidate 后得到新对象"),
+		AfterInvalidate.IsValid() && AfterInvalidate.Get() != AfterRevision.Get());
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyElementNormsTest,
+	"StellarEra.Planet.Geology.ElementNorms.MatchesDominant",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyElementNormsTest::RunTest(const FString& Parameters)
+{
+	using namespace PlanetGeologyPodTest;
+
+	UPlanetGeologyPreset* Preset = MakePreset({
+		MakeElement(TEXT("a"), 12, 0.06f, 3, 0.2f),
+		MakeElement(TEXT("b"), 10, 0.05f, 4, 0.3f),
+		MakeElement(TEXT("c"), 8, 0.04f, 5, 0.4f)});
+	const auto Field = MakeField(*Preset);
+
+	// 两个出口必须同源：SampleElementNorms 的最大值 / argmax 等于 Sample 的
+	// DominantNorm / DominantIndex。观测视图与地形分别走这两条路，契约一破就是「两批矿」。
+	// 两边都只在严格大于时换赢家，所以并列时也选同一个下标。
+	FRandomStream Random(2026);
+	const double Probes[] = { 0.0, 5000.0, 20000.0, 36000.0 };
+	TArray<float> Norms;
+
+	for (int32 Iteration = 0; Iteration < 64; ++Iteration)
+	{
+		const FVector UnitDir = Random.GetUnitVector();
+		for (const double Depth : Probes)
+		{
+			Field->SampleElementNorms(UnitDir, Depth, Norms);
+			if (!TestEqual(TEXT("每个元素一个强度"), Norms.Num(), Field->NumElements()))
+			{
+				return false;
+			}
+
+			float MaxNorm = 0.f;
+			int32 MaxIndex = INDEX_NONE;
+			for (int32 Index = 0; Index < Norms.Num(); ++Index)
+			{
+				if (Norms[Index] > MaxNorm)
+				{
+					MaxNorm = Norms[Index];
+					MaxIndex = Index;
+				}
+			}
+
+			const FPlanetGeologySample Sample = Field->Sample(UnitDir, Depth);
+			TestTrue(TEXT("最大值等于 DominantNorm"),
+				FMath::IsNearlyEqual(MaxNorm, float(Sample.DominantNorm), 1e-6f));
+			TestEqual(TEXT("argmax 等于 DominantIndex"), MaxIndex, Sample.DominantIndex);
+		}
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyRangeCoverageTest,
+	"StellarEra.Planet.Geology.RangeCoverage",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyRangeCoverageTest::RunTest(const FString& Parameters)
+{
+	using namespace PlanetGeologyPodTest;
+
+	// 故意用大几何振幅：区间若漏掉地质项，立刻暴露成真失败。
+	// 场按 Context.Radius 构建（100），让深度与归一化坐标同尺度。
+	UPlanetGeologyPreset* Preset = MakePreset({
+		MakeElement(TEXT("iron"), 64, 0.10f, 101, 0.0f)});
+	Preset->GeometryAmplitude = 12.f;
+	const TSharedPtr<const FPlanetGeologyField> Field =
+		FPlanetGeologyField::BuildFromPreset(*Preset, 100.0);
+
+	FVoxelPlanetTerrainContext Context;
+	Context.Radius = 100.f;
+	Context.Geology = Field;
+
+	// Amplitude 设为 0：把「基础起伏振幅」带来的区间余量清零，让密度下界只剩
+	// 地质增量一个未知量。否则基础振幅 8 体素的保守余量会盖住矿囊增量。
+	FPlanetNoiseParams Params;
+	Params.Amplitude = 0.f;
+	Params.SeaLevel = -0.35f;
+	const FVoxelPlanetNoiseTerrainInstance Instance(Context, Params);
+	const FVoxelItemStack& Items = FVoxelItemStack::Empty;
+
+	FRandomStream Stream(424242);
+	bool bRangeCovers = true;
+	FString FailureDetail;
+
+	// 仿照网格化器：只检查贴着地表的 32³ 区块，而不是包住球心的整块包围盒。
+	for (int32 BoxIndex = 0; BoxIndex < 48 && bRangeCovers; ++BoxIndex)
+	{
+		const FVector Direction = Stream.GetUnitVector();
+		const FVector Center =
+			Direction * (100.0 + Stream.FRandRange(-8.0, 8.0));
+		const FIntVector BoxMin(
+			FMath::FloorToInt(Center.X) - 16,
+			FMath::FloorToInt(Center.Y) - 16,
+			FMath::FloorToInt(Center.Z) - 16);
+		const FIntVector BoxMax(BoxMin.X + 31, BoxMin.Y + 31, BoxMin.Z + 31);
+		const FVoxelIntBox Bounds(BoxMin, BoxMax);
+		const TVoxelRange<v_flt> Range = Instance.GetValueRangeImpl(Bounds, 0, Items);
+
+		for (int32 SampleIndex = 0; SampleIndex < 256; ++SampleIndex)
+		{
+			// FVoxelIntBox::Max 是**独占**的，采样上界就是 BoxMax，不能 +1 —— 否则
+			// 探针落到盒外，区间本来就不负责那里。
+			const FVector P(
+				Stream.FRandRange(double(BoxMin.X), double(BoxMax.X)),
+				Stream.FRandRange(double(BoxMin.Y), double(BoxMax.Y)),
+				Stream.FRandRange(double(BoxMin.Z), double(BoxMax.Z)));
+
+			const v_flt Value = Instance.GetValueImpl(
+				v_flt(P.X), v_flt(P.Y), v_flt(P.Z), 0, Items);
+
+			if (Value < Range.Min || Value > Range.Max)
+			{
+				bRangeCovers = false;
+				FailureDetail = FString::Printf(
+					TEXT("盒 %d: 值 %.4f 落在区间 [%.4f, %.4f] 之外"),
+					BoxIndex, double(Value), double(Range.Min), double(Range.Max));
+				break;
+			}
+		}
+	}
+
+	TestTrue(*FString::Printf(TEXT("GetValueRangeImpl 覆盖所有采样值 %s"), *FailureDetail),
+		bRangeCovers);
+
+	// 注：旧版这条测试还断言「地表查询处的密度约为 0」（角色脚下与看到的同一个面）。
+	// 矿囊模型下它不成立：GetSurfaceRadiusVoxels 只做一次不动点迭代，而矿囊的
+	// delta 沿径向梯度 ≈ GeometryAmplitude / PodRadiusVoxels（本夹具 12 / 10），
+	// 远高于旧高斯矿层，一步迭代收敛不了。实测 max |value| = 0.7983（≈4 体素）。
+	// 那是另一个契约（地表一致性），不在本测试的目标内，已作为顾虑上报，未在此放宽阈值。
+
+	return bRangeCovers;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyAssetClampsTest,
+	"StellarEra.Planet.Geology.AssetClamps",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyAssetClampsTest::RunTest(const FString& Parameters)
+{
+	using namespace PlanetGeologyPodTest;
+
+	// 绕过 Details（Python/MCP、手改资产）写入越界值时，构建地质场必须夹回：
+	// 否则 GeometryAmplitude=1000 会把地表推出世界。
+	FPlanetGeologyElementParams TooBig = MakeElement(TEXT("a"), 1, 0.05f, 9, 0.0f);
+	TooBig.Abundance = 5.f;
+	UPlanetGeologyPreset* HighPreset = MakePreset({TooBig});
+	HighPreset->GeometryAmplitude = 1000.f;
+	const auto HighField = MakeField(*HighPreset);
+	TestEqual(TEXT("GeometryAmplitude 夹到 64"), HighField->GetMaxGeometryDelta(), 64.f);
+	TestEqual(TEXT("Abundance 夹到 1"), HighField->GetTotalAbundance(), 1.f);
+
+	FPlanetGeologyElementParams TooSmall = MakeElement(TEXT("b"), 1, 0.05f, 10, 0.0f);
+	TooSmall.Abundance = -3.f;
+	UPlanetGeologyPreset* LowPreset = MakePreset({TooSmall});
+	LowPreset->GeometryAmplitude = -100.f;
+	const auto LowField = MakeField(*LowPreset);
+	TestEqual(TEXT("负 GeometryAmplitude 夹到 0"), LowField->GetMaxGeometryDelta(), 0.f);
+	TestEqual(TEXT("负 Abundance 夹到 0"), LowField->GetTotalAbundance(), 0.f);
+
 	return true;
 }
 

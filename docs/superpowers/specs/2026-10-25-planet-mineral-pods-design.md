@@ -75,7 +75,7 @@ Content/Geology/Planets/DA_Geology_Earth.uasset
 | `Id` | `FName` | `None` | 稳定标识，仅日志与存档用 |
 | `DisplayName` | `FString` | 空 | 图例与日志显示名 |
 | `Color` | `FLinearColor` | 白 | 矿体颜色 |
-| `Abundance` | `float` | 1.0 | **只影响颜色混合权重与图例占比，不改几何**；ClampMin 0 |
+| `Abundance` | `float` | 1.0 | **只影响颜色混合权重与图例占比，不改几何**（地形外凸量取各元素 `Norm` 的最大值，见 §3.3）；Clamp 0–1 |
 | `PodCount` | `int32` | 16 | 该元素撒多少矿囊；ClampMin 0 |
 | `PodRadius` | `float` | 0.05 | 矿囊名义半径，**占行星基准半径的比例**；Clamp 0.001–0.25。重叠对数量按 `PodCount² × (2r)³` 增长——半径砍半，重叠少 8 倍 |
 | `PodRadiusJitter` | `float` | 0.5 | 每囊半径的随机抖动幅度（±比例）；Clamp 0–1 |
@@ -182,7 +182,7 @@ C  = D × rc                                         // 矿囊球心
 
 ```
 PodFactor_i(P) = max over pods of  (1 − (|P − C| / rp)²)_+      // 多囊取 max
-N              = P × (2 · ShapeDetail / PodRadius)              // 噪声坐标
+N              = P × (ShapeDetail / (2 · PodRadius))            // 噪声坐标
 Noise01        = 0.5 × (PerlinFractal_3D(N, frequency=1, Octaves) + 1)
 Vein           = clamp((Noise01 − VeinThreshold) / (1 − VeinThreshold), 0, 1)
 Norm_i         = PodFactor_i × Vein
@@ -194,7 +194,8 @@ Raw_i          = Abundance_i × Norm_i
 - 之后的总量、最强元素、纯度、混合色公式**完全沿用现有实现**：
   `Total = Σ Raw_i`、`DominantNorm = max Norm_i`、`Purity = MaxRaw / Total`、
   `MineralColor = Σ(Raw_i · Color_i) / Total`、
-  `SampleGeometryDelta = GeometryAmplitude × clamp(Total / TotalAbundance, 0, 1)`。
+  `SampleGeometryDelta = GeometryAmplitude × clamp(max_i(Norm_i), 0, 1)`。
+  外凸量刻意**不用**丰度加权平均 —— 否则改 `Abundance` 会改地形，与它的承诺冲突。
 
 ### 3.4 空间索引
 
@@ -389,7 +390,7 @@ UFUNCTION(BlueprintPure) bool IsPreviewing() const;
 |---|---|---|
 | `Geology.PodCoverage` | 每个元素正样本的深度跨度 > 0.5R，且不存在「全元素皆空」的深度区间 | 退回分层 |
 | `Geology.PodOverlap` | 固定种子下至少一对元素存在共同覆盖点 | 「看不到重叠」复发 |
-| `Geology.AbundanceGeometryInvariance` | 只改 `Abundance`，`SampleElementNorm` 逐点不变 | 含量参数意外改了几何 |
+| `Geology.AbundanceGeometryInvariance` | 多元素夹具下只改 `Abundance`：`SampleElementNorm` 与 `SampleGeometryDelta` 都逐点不变 | 含量参数意外改了几何 |
 | `Geology.SpatialIndex` | 1000 个随机点上索引查询 == 暴力遍历全部矿囊，逐点相等 | 索引漏囊（静默少矿） |
 | `MineralSurface.ClosedMesh` | 每个非空网格的每条边恰好被两个三角形共用 | 外扩一格漏了 → 面上开洞 |
 | `MineralSurface.PodLocal` | 每元素网格包围盒落在该元素矿囊包围盒并集外扩 1 格内 | 局部栅格范围算错 |
