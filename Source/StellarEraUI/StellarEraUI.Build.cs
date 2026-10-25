@@ -29,7 +29,7 @@ public class StellarEraUI : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			"StellarEraCore",    // CosmosTypes.h（StarMapUISystemTests.cpp）
+			"StellarEraCore",    // Cosmos 单位类型 CosmosTypes.h（生产代码：StarMapUISystem.cpp、StellarEraHUD.cpp）
 			"StellarEraCosmos",  // 选中天体、轨迹、星图状态
 			"StellarEraTerrain",  // 行星 Actor / 行星面射线 / 体素调用器（StarMapCameraPawn.cpp、StarMapUISystem.cpp）
 			"StellarEraGeology", // 地质场/元素类型（StarMapUISystem.cpp 直接用）

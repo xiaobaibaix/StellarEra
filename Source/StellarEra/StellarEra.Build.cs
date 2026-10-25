@@ -23,10 +23,6 @@ using UnrealBuildTool;
 // 指向 UI 的文件而不是它自己的 Build.cs。
 // 反向（UI → Game）禁止，需要控制器数据的地方走 IStarMapUIInputs。
 //
-// Core 是 **Public**：拆分前 CosmosSimulationSubsystem.h（按值持有 FNBodySimulator）
-// 是本模块公开头的一部分；那部分已随 Cosmos 搬走，这里保留 Public 只是沿用既有
-// 声明，不影响任何下游。
-//
 // StellarEraTerrain 是 **Private**：本模块没有任何公开头 include 行星模块的头，
 // StellarEraPlayerController.h 里的行星类型一律前置声明 + TObjectPtr，用到完整类型的
 // 地方都在 .cpp 里。行星模块的头因而不需要向下游传播。

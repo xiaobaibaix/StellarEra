@@ -209,8 +209,8 @@ public:
 	/**
 	 * 找离 FromLocation 最近的飞船；找不到返回 nullptr。
 	 *
-	 * 放在飞船侧而不是角色侧：角色模块若不 include 飞船模块就与飞船模块成环
-	 * （飞船持有 APlanetCharacter*）。调用方是 AStellarEraPlayerController。
+	 * 放在飞船侧而不是角色侧：飞船模块已经依赖角色模块（持有 APlanetCharacter*），
+	 * 角色模块若再 include 飞船模块就会成环。调用方是 AStellarEraPlayerController。
 	 */
 	static ASpaceshipPawn* FindNearestTo(const UWorld* World, const FVector& FromLocation);
 
@@ -363,7 +363,7 @@ public:
 	 *
 	 * 行星自身不自转，大气跟着行星中心平移，所以大气阻力必须按「飞船相对行星」
 	 * 的速度算；相对速度也是 HUD 要显示的第二条速度。方向只能是子系统下来推：
-	 * StellarEraSpaceship 不能反向依赖 StellarEra 去查求解器（会成环）。
+	 * StellarEraSpaceship 不能反向依赖 StellarEraCosmos 去查求解器（会成环）。
 	 * 没有参考行星时传零向量，相对速度退化为绝对速度。
 	 */
 	void SetReferencePlanetVelocity(const FVector& InVelocity) { ReferencePlanetVelocity = InVelocity; }
@@ -837,7 +837,7 @@ private:
 	 *
 	 * 门控必须按相对速度：行星随求解器每秒走几十公里，船相对行星静止时
 	 * GetVelocity() 的绝对值并不小。这里用两个 Actor 的逐帧位移相减，
-	 * 免得让本模块反向依赖 StellarEra 去查求解器（会成环）。
+	 * 免得让本模块反向依赖 StellarEraCosmos 去查求解器（会成环）。
 	 */
 	FVector LastVoxelInvokerShipLocation = FVector::ZeroVector;
 	FVector LastVoxelInvokerPlanetLocation = FVector::ZeroVector;
