@@ -16,6 +16,7 @@ class UVoxelPlanetTerrainModule;
 class UVoxelSimpleInvokerComponent;
 class FPlanetGeologyField;
 class UPlanetCutawayComponent;
+class UPlanetMineralViewComponent;
 
 /**
  * 开箱即用的行星 Actor。
@@ -234,6 +235,13 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Planet|Cutaway")
 	UPlanetCutawayComponent* GetCutawayComponent() const { return CutawayComponent; }
+
+	/** 矿物透视观察组件。构造时自动创建；未激活时不 Tick、不建任何资产。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet|MineralView")
+	TObjectPtr<UPlanetMineralViewComponent> MineralViewComponent;
+
+	UFUNCTION(BlueprintPure, Category = "Planet|MineralView")
+	UPlanetMineralViewComponent* GetMineralViewComponent() const { return MineralViewComponent; }
 
 	/** 编辑后多久写一次 SaveObject（秒，默认 2；0 = 只在 EndPlay 保存）。 */
 	UPROPERTY(EditAnywhere, Category = "Planet|Edit", meta = (ClampMin = "0.0"))
