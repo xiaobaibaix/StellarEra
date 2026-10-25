@@ -9,13 +9,11 @@
 #include "VoxelPlanetActor.generated.h"
 
 class UMaterialInterface;
-class UPlanetAtmosphereComponent;
 class UPlanetSurfaceGridComponent;
 class UVoxelPlanetGenerator;
 class UVoxelPlanetTerrainModule;
 class UVoxelSimpleInvokerComponent;
 class FPlanetGeologyField;
-class UPlanetMineralViewComponent;
 
 /**
  * 开箱即用的行星 Actor。
@@ -206,13 +204,6 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet")
 	TObjectPtr<UVoxelSimpleInvokerComponent> LODInvoker;
 
-	/** 大气壳。构造时自动创建，每颗行星一个。 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "StellarEra|Atmosphere")
-	TObjectPtr<UPlanetAtmosphereComponent> AtmosphereComponent;
-
-	UFUNCTION(BlueprintPure, Category = "StellarEra|Atmosphere")
-	UPlanetAtmosphereComponent* GetAtmosphereComponent() const { return AtmosphereComponent; }
-
 	/**
 	 * 行星存档资产的路径：`/Game/Saves/PlanetVoxel/<地图名>/<Actor 标签>`。
 	 *
@@ -227,13 +218,6 @@ public:
 	/** 编辑模式下的表面网格基线。构造时自动创建。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet|Edit")
 	TObjectPtr<UPlanetSurfaceGridComponent> EditGrid;
-
-	/** 矿物透视观察组件。构造时自动创建；未激活时不 Tick、不建任何资产。 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet|MineralView")
-	TObjectPtr<UPlanetMineralViewComponent> MineralViewComponent;
-
-	UFUNCTION(BlueprintPure, Category = "Planet|MineralView")
-	UPlanetMineralViewComponent* GetMineralViewComponent() const { return MineralViewComponent; }
 
 	/** 编辑后多久写一次 SaveObject（秒，默认 2；0 = 只在 EndPlay 保存）。 */
 	UPROPERTY(EditAnywhere, Category = "Planet|Edit", meta = (ClampMin = "0.0"))

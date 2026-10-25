@@ -142,7 +142,8 @@ bool UPlanetMineralViewComponent::Activate(AVoxelPlanetActor* InPlanet)
 	InPlanet->SetActorEnableCollision(false);
 	InPlanet->SetActorHiddenInGame(true);
 
-	if (UPlanetAtmosphereComponent* Atmosphere = InPlanet->GetAtmosphereComponent())
+	if (UPlanetAtmosphereComponent* Atmosphere =
+		InPlanet->FindComponentByClass<UPlanetAtmosphereComponent>())
 	{
 		bSavedAtmosphereEnabled = Atmosphere->bAtmosphereEnabled;
 		bSavedAtmosphereVisible = Atmosphere->IsVisible();
@@ -175,7 +176,8 @@ void UPlanetMineralViewComponent::Deactivate()
 		RestorePlanet->SetActorHiddenInGame(bSavedPlanetHidden);
 		RestorePlanet->SetActorEnableCollision(bSavedCollisionEnabled);
 
-		if (UPlanetAtmosphereComponent* Atmosphere = RestorePlanet->GetAtmosphereComponent())
+		if (UPlanetAtmosphereComponent* Atmosphere =
+			RestorePlanet->FindComponentByClass<UPlanetAtmosphereComponent>())
 		{
 			Atmosphere->bAtmosphereEnabled = bSavedAtmosphereEnabled;
 			if (bSavedAtmosphereEnabled)

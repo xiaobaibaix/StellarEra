@@ -979,7 +979,8 @@ float ASpaceshipPawn::GetAtmosphereDensityRatio() const
 		return 0.f;
 	}
 
-	const UPlanetAtmosphereComponent* Atmosphere = PlanetActor->GetAtmosphereComponent();
+	const UPlanetAtmosphereComponent* Atmosphere =
+		PlanetActor->FindComponentByClass<UPlanetAtmosphereComponent>();
 	if (!Atmosphere)
 	{
 		return 0.f;
@@ -1009,7 +1010,8 @@ FVector ASpaceshipPawn::GetAtmosphereDragAccelerationWorldCmPerS2() const
 		return FVector::ZeroVector;
 	}
 
-	const UPlanetAtmosphereComponent* Atmosphere = PlanetActor->GetAtmosphereComponent();
+	const UPlanetAtmosphereComponent* Atmosphere =
+		PlanetActor->FindComponentByClass<UPlanetAtmosphereComponent>();
 	if (!Atmosphere || Atmosphere->DragAccelerationAtKmPerSecond <= 0.f)
 	{
 		return FVector::ZeroVector;

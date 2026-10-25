@@ -849,7 +849,7 @@ void AStellarEraPlayerController::OnMineralViewToggle()
 		? Cast<AVoxelPlanetActor>(Subsystem->GetSelectedBody())
 		: nullptr;
 	UPlanetMineralViewComponent* MineralView =
-		Planet ? Planet->GetMineralViewComponent() : nullptr;
+		Planet ? Planet->FindComponentByClass<UPlanetMineralViewComponent>() : nullptr;
 	if (!MineralView)
 	{
 		ShowPromptFor(TEXT("矿物观察只支持行星"), 2.f);

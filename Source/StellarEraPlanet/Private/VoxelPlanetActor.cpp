@@ -12,10 +12,8 @@
 #include "VoxelComponents/VoxelInvokerComponent.h"
 #include "VoxelPlanetGenerator.h"
 #include "VoxelPlanetTerrainModule.h"
-#include "PlanetAtmosphereComponent.h"
 #include "PlanetSurfaceGridComponent.h"
 #include "PlanetGeologyField.h"
-#include "PlanetMineralViewComponent.h"
 #include "HAL/IConsoleManager.h"
 #include "EngineUtils.h"
 #include "Materials/MaterialInterface.h"
@@ -112,14 +110,8 @@ AVoxelPlanetActor::AVoxelPlanetActor()
 	LODInvoker->LODToSet = 6;
 	LODInvoker->LODRange = 150000.f;
 
-	// 大气壳。挂到根组件上，相对位置为零 —— 球心与行星球心重合。
-	// 材质与缩放都在 BeginPlay 里按 GetSurfaceRadiusCm() 定，构造期拿不到最终半径。
-	AtmosphereComponent = CreateDefaultSubobject<UPlanetAtmosphereComponent>(TEXT("PlanetAtmosphere"));
-	AtmosphereComponent->SetupAttachment(RootComponent);
-
-	// 矿物透视组件：默认不 Tick，Activate 时才采样并 spawn 观察体。
-	MineralViewComponent = CreateDefaultSubobject<UPlanetMineralViewComponent>(TEXT("PlanetMineralView"));
-	MineralViewComponent->SetupAttachment(RootComponent);
+	// 大气壳与矿物观察组件不在这里创建：它们由 BP_VoxelPlanet 挂载。
+	// 原生 AVoxelPlanetActor 实例因此不带这两个组件，本项目只用 BP。
 
 	// 表面网格：默认隐藏、不 tick，编辑模式打开时才工作。
 	// 它是纯 UActorComponent（不带变换），跟着 Owner Tick 即可，不需要 SetupAttachment
