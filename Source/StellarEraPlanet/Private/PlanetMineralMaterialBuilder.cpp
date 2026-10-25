@@ -25,11 +25,17 @@ const TCHAR* PlanetMineralMaterials::GetBlockMaterialPath()
 
 #include "HAL/IConsoleManager.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialExpressionAbs.h"
+#include "Materials/MaterialExpressionAdd.h"
+#include "Materials/MaterialExpressionCameraVectorWS.h"
+#include "Materials/MaterialExpressionConstant.h"
+#include "Materials/MaterialExpressionDotProduct.h"
 #include "Materials/MaterialExpressionFresnel.h"
 #include "Materials/MaterialExpressionLinearInterpolate.h"
 #include "Materials/MaterialExpressionMultiply.h"
 #include "Materials/MaterialExpressionScalarParameter.h"
 #include "Materials/MaterialExpressionVectorParameter.h"
+#include "Materials/MaterialExpressionVertexNormalWS.h"
 #include "Misc/PackageName.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
@@ -67,6 +73,36 @@ namespace
 		Expr->Material = Material;
 		Expr->ParameterName = Name;
 		Expr->DefaultValue = Default;
+		Expr->MaterialExpressionEditorX = PosX;
+		Expr->MaterialExpressionEditorY = PosY;
+		Material->GetExpressionCollection().AddExpression(Expr);
+		return Expr;
+	}
+
+	/** 建一个常量节点并登记到材质。 */
+	UMaterialExpressionConstant* AddMineralConstant(UMaterial* Material, float Value,
+		int32 PosX, int32 PosY)
+	{
+		UMaterialExpressionConstant* Expr = NewObject<UMaterialExpressionConstant>(Material);
+		Expr->Material = Material;
+		Expr->R = Value;
+		Expr->MaterialExpressionEditorX = PosX;
+		Expr->MaterialExpressionEditorY = PosY;
+		Material->GetExpressionCollection().AddExpression(Expr);
+		return Expr;
+	}
+
+	/** 建一个二元节点（A 接 0 号输出、B 接 0 号输出）并登记到材质。 */
+	template <typename TExpression>
+	TExpression* AddMineralBinaryOp(UMaterial* Material, UMaterialExpression* A,
+		UMaterialExpression* B, int32 PosX, int32 PosY)
+	{
+		TExpression* Expr = NewObject<TExpression>(Material);
+		Expr->Material = Material;
+		Expr->A.Expression = A;
+		Expr->A.OutputIndex = 0;
+		Expr->B.Expression = B;
+		Expr->B.OutputIndex = 0;
 		Expr->MaterialExpressionEditorX = PosX;
 		Expr->MaterialExpressionEditorY = PosY;
 		Material->GetExpressionCollection().AddExpression(Expr);
@@ -185,7 +221,14 @@ namespace
 		return SaveMaterial(Material, GhostPath, OutError);
 	}
 
-	/** 方块：Unlit / Opaque，BlockColor × Brightness → Emissive。 */
+	/**
+	 * 矿体：Unlit / Opaque / TwoSided，BlockColor × Brightness × Shade → Emissive，
+	 * 其中 Shade = 0.6 + 0.4 × |dot(N, V)|。
+	 *
+	 * 纯色 Unlit 看不出体积，加一个轻量法线项后表面有起伏感，整体亮度量级不变。
+	 * 取绝对值 + 双面是刻意的：等值面抽取的绕序不保证朝外，单面渲染会把一半矿体剔掉，
+	 * 而 saturate(dot) 会让朝内那面变成一片死平。
+	 */
 	bool BuildBlockMaterial(FString& OutError)
 	{
 		UMaterial* Material = FindOrCreateMaterial(BlockPath, BlockAssetName, OutError);
@@ -195,20 +238,48 @@ namespace
 		}
 
 		UMaterialExpressionVectorParameter* BlockColor = AddMineralVectorParam(Material,
-			TEXT("BlockColor"), FLinearColor::White, -700, -200);
+			TEXT("BlockColor"), FLinearColor::White, -900, -200);
 		UMaterialExpressionScalarParameter* Brightness = AddMineralScalarParam(Material,
-			TEXT("Brightness"), 1.4f, -700, -100);
+			TEXT("Brightness"), 1.4f, -900, -100);
 
-		UMaterialExpressionMultiply* Multiply =
-			NewObject<UMaterialExpressionMultiply>(Material);
-		Multiply->Material = Material;
-		Multiply->A.Expression = BlockColor;
-		Multiply->A.OutputIndex = 0;
-		Multiply->B.Expression = Brightness;
-		Multiply->B.OutputIndex = 0;
-		Multiply->MaterialExpressionEditorX = -400;
-		Multiply->MaterialExpressionEditorY = -100;
-		Material->GetExpressionCollection().AddExpression(Multiply);
+		UMaterialExpressionMultiply* Tint = AddMineralBinaryOp<UMaterialExpressionMultiply>(
+			Material, BlockColor, Brightness, -600, -150);
+
+		UMaterialExpressionVertexNormalWS* VertexNormal =
+			NewObject<UMaterialExpressionVertexNormalWS>(Material);
+		VertexNormal->Material = Material;
+		VertexNormal->MaterialExpressionEditorX = -800;
+		VertexNormal->MaterialExpressionEditorY = -400;
+		Material->GetExpressionCollection().AddExpression(VertexNormal);
+
+		UMaterialExpressionCameraVectorWS* CameraVector =
+			NewObject<UMaterialExpressionCameraVectorWS>(Material);
+		CameraVector->Material = Material;
+		CameraVector->MaterialExpressionEditorX = -800;
+		CameraVector->MaterialExpressionEditorY = -500;
+		Material->GetExpressionCollection().AddExpression(CameraVector);
+
+		UMaterialExpressionDotProduct* Dot = AddMineralBinaryOp<UMaterialExpressionDotProduct>(
+			Material, VertexNormal, CameraVector, -600, -450);
+
+		UMaterialExpressionAbs* Abs = NewObject<UMaterialExpressionAbs>(Material);
+		Abs->Material = Material;
+		Abs->Input.Expression = Dot;
+		Abs->Input.OutputIndex = 0;
+		Abs->MaterialExpressionEditorX = -450;
+		Abs->MaterialExpressionEditorY = -450;
+		Material->GetExpressionCollection().AddExpression(Abs);
+
+		UMaterialExpressionConstant* Scale = AddMineralConstant(Material, 0.4f, -450, -350);
+		UMaterialExpressionMultiply* ShadeScale =
+			AddMineralBinaryOp<UMaterialExpressionMultiply>(Material, Abs, Scale, -300, -400);
+
+		UMaterialExpressionConstant* Bias = AddMineralConstant(Material, 0.6f, -300, -300);
+		UMaterialExpressionAdd* Shade =
+			AddMineralBinaryOp<UMaterialExpressionAdd>(Material, ShadeScale, Bias, -150, -350);
+
+		UMaterialExpressionMultiply* Final =
+			AddMineralBinaryOp<UMaterialExpressionMultiply>(Material, Tint, Shade, 0, -200);
 
 		UMaterialEditorOnlyData* EditorData = Material->GetEditorOnlyData();
 		if (!EditorData)
@@ -216,14 +287,14 @@ namespace
 			OutError = TEXT("GetEditorOnlyData() 返回空（M_MineralBlock）");
 			return false;
 		}
-		EditorData->EmissiveColor.Expression = Multiply;
+		EditorData->EmissiveColor.Expression = Final;
 		EditorData->EmissiveColor.OutputIndex = 0;
 
 		Material->BlendMode = BLEND_Opaque;
 		Material->SetShadingModel(MSM_Unlit);
-		// 方块走 UInstancedStaticMeshComponent：不开这一位，ISM 会退回默认材质。
-		// 5.8 起成员直接赋值已废弃（C4996），走 SetUsageByFlag。
-		Material->SetUsageByFlag(MATUSAGE_InstancedStaticMeshes, true);
+		// 绕序不保证朝外（见函数注释），必须双面。
+		Material->TwoSided = true;
+		// 已不再被 UInstancedStaticMeshComponent 使用：矿体走 UDynamicMeshComponent。
 
 		return SaveMaterial(Material, BlockPath, OutError);
 	}
