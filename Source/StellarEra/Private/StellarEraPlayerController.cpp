@@ -3,7 +3,8 @@
 #include "StellarEraPlayerController.h"
 
 #include "PlanetCharacter.h"
-#include "PlanetCutawayComponent.h"
+#include "PlanetMineralViewComponent.h"
+#include "StarMapUISystem.h"
 #include "PlanetEditBrush.h"
 #include "PlanetEditComponent.h"
 #include "PlanetEditUI.h"
@@ -144,10 +145,17 @@ void AStellarEraPlayerController::SetupInputComponent()
 
 	EnhancedInput->BindAction(IA_Interact, ETriggerEvent::Started, this, &AStellarEraPlayerController::OnInteract);
 
-	EnhancedInput->BindAction(IA_CutawayToggle, ETriggerEvent::Started,
-		this, &AStellarEraPlayerController::OnCutawayToggle);
-	EnhancedInput->BindAction(IA_CutawayDrag, ETriggerEvent::Triggered,
-		this, &AStellarEraPlayerController::OnCutawayDrag);
+	EnhancedInput->BindAction(IA_MineralViewToggle, ETriggerEvent::Started,
+		this, &AStellarEraPlayerController::OnMineralViewToggle);
+
+	// 数字键用变参 payload：同一个回调按下标分派，省掉九个一模一样的函数。
+	for (int32 ElementIndex = 0; ElementIndex < IA_MineralFilter.Num(); ++ElementIndex)
+	{
+		EnhancedInput->BindAction(IA_MineralFilter[ElementIndex], ETriggerEvent::Started,
+			this, &AStellarEraPlayerController::OnMineralFilter, ElementIndex);
+	}
+	EnhancedInput->BindAction(IA_MineralShowAll, ETriggerEvent::Started,
+		this, &AStellarEraPlayerController::OnMineralShowAll);
 }
 
 void AStellarEraPlayerController::BeginPlay()
@@ -168,8 +176,8 @@ void AStellarEraPlayerController::OnPossess(APawn* InPawn)
 {
 	Super::OnPossess(InPawn);
 
-	// 换 Pawn（登船 / 离船 / 进出星图 / DebugPossessShip）一律退出剖面。
-	ExitCutawayIfActive();
+	// 换 Pawn（登船 / 离船 / 进出星图 / DebugPossessShip）一律退出矿物透视。
+	ExitMineralViewIfActive();
 
 	ApplyMouseModeForPawn(InPawn);
 }
@@ -272,8 +280,15 @@ void AStellarEraPlayerController::BuildInputAssets()
 	IA_StarMapToggle = MakeAction(this, TEXT("IA_StarMapToggle"), EInputActionValueType::Boolean);
 	IA_StarMapSelect = MakeAction(this, TEXT("IA_StarMapSelect"), EInputActionValueType::Boolean);
 	IA_EditModeToggle = MakeAction(this, TEXT("IA_EditModeToggle"), EInputActionValueType::Boolean);
-	IA_CutawayToggle = MakeAction(this, TEXT("IA_CutawayToggle"), EInputActionValueType::Boolean);
-	IA_CutawayDrag = MakeAction(this, TEXT("IA_CutawayDrag"), EInputActionValueType::Axis2D);
+	IA_MineralViewToggle = MakeAction(this, TEXT("IA_MineralViewToggle"), EInputActionValueType::Boolean);
+	IA_MineralShowAll = MakeAction(this, TEXT("IA_MineralShowAll"), EInputActionValueType::Boolean);
+	IA_MineralFilter.Reset();
+	for (int32 Slot = 1; Slot <= 9; ++Slot)
+	{
+		IA_MineralFilter.Add(MakeAction(this,
+			*FString::Printf(TEXT("IA_MineralFilter%d"), Slot),
+			EInputActionValueType::Boolean));
+	}
 	IA_BrushSize = MakeAction(this, TEXT("IA_BrushSize"), EInputActionValueType::Axis1D);
 
 	// WASD 合成一个二维向量：W/S 走 X 轴，A/D 先用 Swizzle 搬到 Y 轴再取反。
@@ -311,11 +326,18 @@ void AStellarEraPlayerController::BuildInputAssets()
 	MapKey(MappingContext, IA_StarMapSelect, EKeys::LeftMouseButton);
 	MapKey(MappingContext, IA_EditModeToggle, EKeys::G);
 
-	// 剖面：H 进出；左键位移转切面。IA_CutawayDrag 与 IA_Look 共用 Mouse2D ——
-	// 同一个 IMC 内的动作互不吞输入（IA_Move / IA_Thrust 共用 W 是同一机制的既有用例），
-	// 谁来处理由 ActiveCutaway 判断。
-	MapKey(MappingContext, IA_CutawayToggle, EKeys::H);
-	MapKey(MappingContext, IA_CutawayDrag, EKeys::Mouse2D);
+	// 矿物透视：H 进出；数字键 1..9 切换前 9 个元素，0 全部打开。
+	MapKey(MappingContext, IA_MineralViewToggle, EKeys::H);
+
+	const FKey DigitKeys[] = {
+		EKeys::One, EKeys::Two, EKeys::Three, EKeys::Four, EKeys::Five,
+		EKeys::Six, EKeys::Seven, EKeys::Eight, EKeys::Nine
+	};
+	for (int32 Slot = 0; Slot < IA_MineralFilter.Num(); ++Slot)
+	{
+		MapKey(MappingContext, IA_MineralFilter[Slot], DigitKeys[Slot]);
+	}
+	MapKey(MappingContext, IA_MineralShowAll, EKeys::Zero);
 
 	// 笔刷尺寸：星图里滚轮已归缩放（角色编辑模式下滚轮同样调笔刷），尺寸因此另占
 	// 一对键，两个模式都能用。左括号接 Negate，于是 ] = +1、[ = −1。
@@ -382,9 +404,8 @@ void AStellarEraPlayerController::OnLook(const FInputActionValue& Value)
 		// 星图里左键拖拽就是转视角，不设 bLookHeld 那道门 —— 那道门是给角色
 		// 「不按右键就别动视角」用的；星图的相机除了转视角没有别的职责。
 		//
-		// 剖面模式是唯一例外：左键归圆环拖拽，视角只认右键（与角色同一套门），
-		// 否则抓住环一拖，相机和切面会一起转。
-		if (ActiveCutaway && !bLookHeld)
+		// 矿物透视是唯一例外：左键归图例点击，视角只认右键（与角色同一套门）。
+		if (ActiveMineralView && !bLookHeld)
 		{
 			return;
 		}
@@ -648,18 +669,18 @@ void AStellarEraPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);
 
-	// 剖面绑在「选中的那颗行星」上。焦点被改选、或 Pawn 已经不是星图相机，
-	// 就立刻退出 —— 否则另一颗行星会一直保持被切开的半透明状态。
-	if (ActiveCutaway)
+	// 矿物透视绑在「选中的那颗行星」上。焦点被改选、或 Pawn 已经不是星图相机，
+	// 就立刻退出 —— 否则球壳与方块会跟着一颗已取消选中的行星。
+	if (ActiveMineralView)
 	{
-		UCosmosSimulationSubsystem* CutawaySubsystem = GetWorld()
+		UCosmosSimulationSubsystem* ViewSubsystem = GetWorld()
 			? GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>()
 			: nullptr;
-		const bool bSamePlanet = CutawaySubsystem &&
-			CutawaySubsystem->GetSelectedBody() == ActiveCutaway->GetCutawayPlanet();
+		const bool bSamePlanet = ViewSubsystem &&
+			ViewSubsystem->GetSelectedBody() == ActiveMineralView->GetViewPlanet();
 		if (!Cast<AStarMapCameraPawn>(GetPawn()) || !bSamePlanet)
 		{
-			ExitCutawayIfActive();
+			ExitMineralViewIfActive();
 		}
 	}
 
@@ -688,9 +709,9 @@ void AStellarEraPlayerController::PlayerTick(float DeltaTime)
 
 void AStellarEraPlayerController::OnEditModeToggle(const FInputActionValue& Value)
 {
-	// 剖面模式下左键归圆环：编辑模式会抢左键并改写体素，所以直接忽略切换，
-	// 保持进入剖面时强制退出的状态。
-	if (ActiveCutaway)
+	// 矿物透视下左键归图例：编辑模式会抢左键并改写体素，所以直接忽略切换，
+	// 保持进入观察时强制退出的状态。
+	if (ActiveMineralView)
 	{
 		return;
 	}
@@ -806,16 +827,16 @@ ASpaceshipPawn* AStellarEraPlayerController::ResolveStarMapFocusShip(APawn* Ente
 	return nullptr;
 }
 
-void AStellarEraPlayerController::OnCutawayToggle()
+void AStellarEraPlayerController::OnMineralViewToggle()
 {
 	if (!Cast<AStarMapCameraPawn>(GetPawn()))
 	{
 		return;
 	}
 
-	if (ActiveCutaway)
+	if (ActiveMineralView)
 	{
-		ExitCutawayIfActive();
+		ExitMineralViewIfActive();
 		return;
 	}
 
@@ -825,119 +846,62 @@ void AStellarEraPlayerController::OnCutawayToggle()
 	AVoxelPlanetActor* Planet = Subsystem
 		? Cast<AVoxelPlanetActor>(Subsystem->GetSelectedBody())
 		: nullptr;
-	UPlanetCutawayComponent* Cutaway = Planet ? Planet->GetCutawayComponent() : nullptr;
-	if (!Cutaway)
+	UPlanetMineralViewComponent* MineralView =
+		Planet ? Planet->GetMineralViewComponent() : nullptr;
+	if (!MineralView)
 	{
-		ShowPromptFor(TEXT("矿物剖面只支持行星"), 2.f);
+		ShowPromptFor(TEXT("矿物观察只支持行星"), 2.f);
 		return;
 	}
 
-	// 初始切面法线 = 相机看向球心的方向：进剖面的第一眼是「正对镜头的一面被切开」。
-	FVector ViewLocation = FVector::ZeroVector;
-	FRotator ViewRotation = FRotator::ZeroRotator;
-	GetPlayerViewPoint(ViewLocation, ViewRotation);
-	const FVector ToCenter = (Planet->GetActorLocation() - ViewLocation).GetSafeNormal();
-	const FVector InitialNormal = ToCenter.IsNearlyZero() ? FVector::UpVector : ToCenter;
-
-	if (!Cutaway->Activate(Planet, InitialNormal))
+	if (!MineralView->Activate(Planet))
 	{
-		// Activate 失败只有两种原因：没有地质场、或资产缺失（后者会先打 Error 日志）。
+		// 失败只有三种：没有地质场、采样参数非法、观察体/材质创建失败
+		// （后两种会先打 Error 日志）。
 		ShowPromptFor(TEXT("该行星没有矿物分布"), 2.f);
 		return;
 	}
 
-	// 剖面里左键只拖圆环：若此前按过 G，先退出编辑模式，否则左键会同时挖/填体素。
+	// 观察里左键只点图例、右键转视角：若此前按过 G，先退出编辑模式。
 	ForceExitEditMode(GetPawn());
 
-	// 拉到能看全剖面圆盘的距离：3 × 表面半径（圆盘半径 1.05R，视场 90° 时 3R 留有余量）。
-	AStarMapCameraPawn* StarMap = Cast<AStarMapCameraPawn>(GetPawn());
-	if (StarMap)
+	// 只拉远、不改朝向：按 H 前看哪儿，进入后还是那个角度（spec §3）。
+	if (AStarMapCameraPawn* StarMap = Cast<AStarMapCameraPawn>(GetPawn()))
 	{
 		StarMap->FocusOn(Planet, 3.0 * Planet->GetSurfaceRadiusCm());
-		StarMap->OrientToDirection(ToCenter);
 	}
 
-	ActiveCutaway = Cutaway;
+	ActiveMineralView = MineralView;
 }
 
-void AStellarEraPlayerController::OnCutawayDrag(const FInputActionValue& Value)
+void AStellarEraPlayerController::OnMineralFilter(
+	const FInputActionValue& Value, int32 ElementIndex)
 {
-	if (!ActiveCutaway || !bCutawayDragActive)
+	if (!ActiveMineralView)
+	{
+		return;
+	}
+	ActiveMineralView->ToggleElement(ElementIndex);
+}
+
+void AStellarEraPlayerController::OnMineralShowAll(const FInputActionValue& Value)
+{
+	if (!ActiveMineralView)
+	{
+		return;
+	}
+	ActiveMineralView->SetAllElementsVisible(true);
+}
+
+void AStellarEraPlayerController::ExitMineralViewIfActive()
+{
+	if (!ActiveMineralView)
 	{
 		return;
 	}
 
-	const FVector2D Delta = Value.Get<FVector2D>();
-	if (Delta.IsNearlyZero())
-	{
-		return;
-	}
-
-	// 横拖与竖拖绕同一根世界轴、方向相反：这是「转环」的直觉（拇指推环的切线方向）。
-	const float DeltaDegrees = (float(Delta.X) - float(Delta.Y)) * 0.5f;
-	if (!FMath::IsNearlyZero(DeltaDegrees))
-	{
-		ActiveCutaway->RotatePlane(CutawayDragRing, DeltaDegrees);
-		bCutawayRotatedThisDrag = true;
-	}
-}
-
-void AStellarEraPlayerController::ExitCutawayIfActive()
-{
-	if (!ActiveCutaway)
-	{
-		return;
-	}
-
-	ActiveCutaway->Deactivate();
-	ActiveCutaway = nullptr;
-	bCutawayDragActive = false;
-	bCutawayRotatedThisDrag = false;
-}
-
-bool AStellarEraPlayerController::PickCutawayRing(
-	const FVector2D& ScreenPosition,
-	ESectionRing& OutRing) const
-{
-	if (!ActiveCutaway)
-	{
-		return false;
-	}
-
-	TArray<FSectionRingWorldPolyline> WorldRings;
-	ActiveCutaway->GetRingWorldPoints(WorldRings);
-
-	TArray<FSectionRingScreenPolyline> ScreenRings;
-	ScreenRings.Reserve(WorldRings.Num());
-
-	for (const FSectionRingWorldPolyline& WorldRing : WorldRings)
-	{
-		FSectionRingScreenPolyline ScreenRing;
-		ScreenRing.Ring = WorldRing.Ring;
-		ScreenRing.Points.Reserve(WorldRing.Points.Num());
-
-		bool bAllVisible = true;
-		for (const FVector& WorldPoint : WorldRing.Points)
-		{
-			FVector2D ScreenPoint = FVector2D::ZeroVector;
-			if (!ProjectWorldLocationToScreen(WorldPoint, ScreenPoint))
-			{
-				bAllVisible = false;
-				break;
-			}
-			ScreenRing.Points.Add(ScreenPoint);
-		}
-
-		// 任何一点在相机背后就整条环作废：投影到背后会把点翻到屏幕另一侧，
-		// 凭空造出一段「假环」，拾取会抓到屏幕对面去。
-		if (bAllVisible)
-		{
-			ScreenRings.Add(MoveTemp(ScreenRing));
-		}
-	}
-
-	return FPlanetCutawayMath::PickSectionRing(
-		ScreenRings, ScreenPosition, CutawayRingPickTolerancePx, OutRing);
+	ActiveMineralView->Deactivate();
+	ActiveMineralView = nullptr;
 }
 
 void AStellarEraPlayerController::ToggleStarMap()
@@ -954,8 +918,8 @@ void AStellarEraPlayerController::ToggleStarMap()
 	if (CurrentStarMapPawn)
 	{
 		// ── 退出 ──
-		// 先退剖再换 Pawn：剖面把全球材质的 OpacityMask 改了，必须在恢复视角之前还原。
-		ExitCutawayIfActive();
+		// 先退矿物透视再换 Pawn：它隐藏了行星网格、关了碰撞与大气，必须在恢复视角之前还原。
+		ExitMineralViewIfActive();
 
 		Subsystem->SetSelectedBody(nullptr);
 		Subsystem->SetStarMapActive(false);
@@ -1053,8 +1017,8 @@ void AStellarEraPlayerController::ToggleStarMap()
 void AStellarEraPlayerController::OnStarMapSelectStarted(const FInputActionValue& Value)
 {
 	// 编辑模式（角色或星图）：按钮优先，其次一次笔刷操作。按钮命中不能顺带挖到脚下的地形。
-	// 剖面激活期间左键归圆环：短路编辑分支，否则左键会挖/填体素（且剖面图不刷新）。
-	UPlanetEditComponent* Edit = ActiveCutaway ? nullptr : GetEditComponentInEditMode();
+	// 矿物透视激活期间左键归图例：短路编辑分支，否则左键会挖/填体素。
+	UPlanetEditComponent* Edit = ActiveMineralView ? nullptr : GetEditComponentInEditMode();
 	if (Edit)
 	{
 		double MouseX = 0.0;
@@ -1121,20 +1085,35 @@ void AStellarEraPlayerController::OnStarMapSelectStarted(const FInputActionValue
 		return;
 	}
 
-	if (ActiveCutaway)
+	if (ActiveMineralView)
 	{
-		double CutawayMouseX = 0.0;
-		double CutawayMouseY = 0.0;
-		if (!GetMousePosition(CutawayMouseX, CutawayMouseY))
+		double MouseX = 0.0;
+		double MouseY = 0.0;
+		if (!GetMousePosition(MouseX, MouseY))
 		{
 			return;
 		}
 
-		bCutawayRotatedThisDrag = false;
-		bCutawayDragActive = PickCutawayRing(
-			FVector2D(CutawayMouseX, CutawayMouseY), CutawayDragRing);
+		// 与绘制同一份纯函数：视口尺寸从控制器查（Canvas 只在 PostRender 有效）。
+		int32 ViewportSizeX = 0;
+		int32 ViewportSizeY = 0;
+		GetViewportSize(ViewportSizeX, ViewportSizeY);
+		const FVector2D ViewportSize(
+			static_cast<float>(ViewportSizeX), static_cast<float>(ViewportSizeY));
 
-		// 没抓到环就什么都不做：剖面模式下左键不再拾取天体，也不转视角（归右键）。
+		FStarMapPanelRect Panel;
+		TArray<FStarMapPanelRect> RowRects;
+		UStarMapUISystem::ComputeMineralLegendLayout(
+			ViewportSize, ActiveMineralView->NumElements(), Panel, RowRects);
+
+		const int32 RowIndex = UStarMapUISystem::HitTestMineralLegendRow(
+			RowRects, FVector2D(MouseX, MouseY));
+		if (RowRects.IsValidIndex(RowIndex))
+		{
+			ActiveMineralView->ToggleElement(RowIndex);
+		}
+
+		// 观察模式下左键不再拾取天体，也不转视角（转视角归右键）。
 		return;
 	}
 
@@ -1153,15 +1132,9 @@ void AStellarEraPlayerController::OnStarMapSelectStarted(const FInputActionValue
 
 void AStellarEraPlayerController::OnStarMapSelectCompleted(const FInputActionValue& Value)
 {
-	if (ActiveCutaway)
+	if (ActiveMineralView)
 	{
-		if (bCutawayDragActive && bCutawayRotatedThisDrag)
-		{
-			// 拖拽期间只画 96² 预览；松手补一张 512²。没转过就省掉这一次。
-			ActiveCutaway->RequestSectionRender(ActiveCutaway->FinalResolution);
-		}
-		bCutawayDragActive = false;
-		bCutawayRotatedThisDrag = false;
+		// 观察模式下左键只用来点图例，松手不做任何事。
 		return;
 	}
 

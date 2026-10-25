@@ -7,7 +7,7 @@
 #include "CosmosTypes.h"
 #include "StellarEraHUD.h"
 #include "StellarEraPlayerController.h"
-#include "PlanetCutawayComponent.h"
+#include "PlanetMineralViewComponent.h"
 #include "PlanetGeologyField.h"
 #include "VoxelPlanetActor.h"
 #include "Engine/Canvas.h"
@@ -174,36 +174,6 @@ TArray<FString> UStarMapUISystem::FormatBodyInfoLines(const FStarMapBodyInfo& In
 		Info.bSimulated ? TEXT("是") : TEXT("否"),
 		Info.bExertsGravity ? TEXT("是") : TEXT("否")));
 
-	return Lines;
-}
-
-TArray<FString> UStarMapUISystem::FormatCutawayLegendLines(
-	const FString& PlanetName,
-	TArrayView<const FCutawayLegendEntry> Entries)
-{
-	TArray<FString> Lines;
-	Lines.Reserve(Entries.Num() + 2);
-
-	Lines.Add(FString::Printf(TEXT("矿物剖面 — %s"), *PlanetName));
-
-	if (Entries.Num() == 0)
-	{
-		Lines.Add(TEXT("（无矿物元素）"));
-	}
-	else
-	{
-		for (const FCutawayLegendEntry& Entry : Entries)
-		{
-			const FString Name = Entry.DisplayName.IsEmpty()
-				? FString(TEXT("?"))
-				: Entry.DisplayName;
-			const int32 Percent = FMath::RoundToInt(
-				FMath::Clamp(Entry.Abundance, 0.f, 1.f) * 100.f);
-			Lines.Add(FString::Printf(TEXT("%s  %d%%"), *Name, Percent));
-		}
-	}
-
-	Lines.Add(TEXT("H 退出   左键拖圆环转切面   右键拖转视角   滚轮缩放"));
 	return Lines;
 }
 
@@ -386,32 +356,34 @@ void UStarMapUISystem::Draw(AStellarEraHUD& Hud)
 		}
 	}
 
-	// 矿物剖面图例：固定左上角，画在最后（压在所有天体面板之上）。
-	if (UPlanetCutawayComponent* Cutaway = PlayerController->GetActiveCutaway())
+	// 矿物观察图例：固定左上角，画在最后（压在所有天体面板之上）。
+	if (UPlanetMineralViewComponent* MineralView = PlayerController->GetActiveMineralView())
 	{
-		AVoxelPlanetActor* CutawayPlanet = Cutaway->GetCutawayPlanet();
-		if (CutawayPlanet)
+		AVoxelPlanetActor* ViewPlanet = MineralView->GetViewPlanet();
+		if (ViewPlanet)
 		{
-			TArray<FCutawayLegendEntry> Entries;
-			if (const TSharedPtr<const FPlanetGeologyField> Geology = Cutaway->GetGeologyField();
-				Geology.IsValid())
+			const TArray<FPlanetGeologyElement>& Elements = MineralView->GetElements();
+			const TSharedPtr<const FPlanetGeologyField> Geology = MineralView->GetGeologyField();
+			const float TotalAbundance = Geology.IsValid()
+				? FMath::Max(Geology->GetTotalAbundance(), 1e-6f)
+				: 1.f;
+
+			TArray<FMineralLegendEntry> Entries;
+			Entries.Reserve(Elements.Num());
+			for (int32 ElementIndex = 0; ElementIndex < Elements.Num(); ++ElementIndex)
 			{
-				const TArray<FPlanetGeologyElement> Elements = Geology->GetElementDefinitions();
-				const float TotalAbundance = FMath::Max(Geology->GetTotalAbundance(), 1e-6f);
-				Entries.Reserve(Elements.Num());
-				for (const FPlanetGeologyElement& Element : Elements)
-				{
-					FCutawayLegendEntry& Entry = Entries.AddDefaulted_GetRef();
-					Entry.DisplayName = Element.DisplayName.IsEmpty()
-						? Element.Id
-						: Element.DisplayName;
-					Entry.Color = Element.Color;
-					Entry.Abundance = Element.Abundance / TotalAbundance;
-				}
+				const FPlanetGeologyElement& Element = Elements[ElementIndex];
+				FMineralLegendEntry& Entry = Entries.AddDefaulted_GetRef();
+				Entry.DisplayName = Element.DisplayName.IsEmpty()
+					? Element.Id
+					: Element.DisplayName;
+				Entry.Color = Element.Color;
+				Entry.Abundance = Element.Abundance / TotalAbundance;
+				Entry.bVisible = MineralView->IsElementVisible(ElementIndex);
 			}
 
-			DrawCutawayLegend(
-				Hud, CutawayPlanet->GetActorNameOrLabel(), Entries, ViewportSize);
+			DrawMineralLegend(
+				Hud, ViewPlanet->GetActorNameOrLabel(), Entries, ViewportSize);
 		}
 	}
 }
@@ -491,114 +463,6 @@ void UStarMapUISystem::DrawBodyPanel(
 		Hud.DrawText(Lines[Index], White, Rect.X + Padding, CursorY, Font, TextScale);
 		CursorY += LineHeight + LineSpacing;
 	}
-}
-
-void UStarMapUISystem::DrawCutawayLegend(
-	AStellarEraHUD& Hud,
-	const FString& PlanetName,
-	const TArray<FCutawayLegendEntry>& Entries,
-	const FVector2D& ViewportSizePx)
-{
-	UFont* Font = GEngine ? GEngine->GetMediumFont() : nullptr;
-	if (!Font)
-	{
-		return;
-	}
-
-	const TArray<FString> Lines = FormatCutawayLegendLines(PlanetName, Entries);
-	if (Lines.Num() == 0)
-	{
-		return;
-	}
-
-	constexpr float TextScale = 1.f;
-	constexpr float Padding = 10.f;
-	constexpr float LineSpacing = 4.f;
-	constexpr float SeparatorSpacing = 6.f;
-	constexpr float SwatchSize = 14.f;
-	constexpr float SwatchGap = 8.f;
-	constexpr float Margin = 8.f;
-
-	// 结构固定：标题 / 元素行（每条一行）/ 操作提示。
-	const FString& Title = Lines[0];
-	const FString& Hint = Lines.Last();
-
-	float TitleWidth = 0.f;
-	float TitleHeight = 0.f;
-	Hud.GetTextSize(Title, TitleWidth, TitleHeight, Font, TextScale);
-
-	float RowTextWidth = 0.f;
-	float RowHeight = 0.f;
-	for (int32 Index = 1; Index < Lines.Num() - 1; ++Index)
-	{
-		float LineWidth = 0.f;
-		float ThisHeight = 0.f;
-		Hud.GetTextSize(Lines[Index], LineWidth, ThisHeight, Font, TextScale);
-		RowTextWidth = FMath::Max(RowTextWidth, LineWidth);
-		RowHeight = FMath::Max(RowHeight, ThisHeight);
-	}
-
-	float HintWidth = 0.f;
-	float HintHeight = 0.f;
-	Hud.GetTextSize(Hint, HintWidth, HintHeight, Font, TextScale);
-
-	const int32 EntryCount = Entries.Num();
-	const float TextColumnWidth =
-		FMath::Max(TitleWidth, FMath::Max(RowTextWidth, HintWidth));
-	const float PanelWidth = Padding * 2.f + SwatchSize + SwatchGap + TextColumnWidth;
-	const float RowSlotHeight = FMath::Max(RowHeight, SwatchSize);
-	const float RowsHeight = (EntryCount > 0 ? EntryCount : 1) * (RowSlotHeight + LineSpacing);
-	const float PanelHeight = Padding * 2.f + TitleHeight
-		+ SeparatorSpacing * 2.f + 1.f
-		+ RowsHeight
-		+ SeparatorSpacing * 2.f + 1.f + HintHeight;
-
-	// 左上角 = 锚点就在边距上、半径 0、间距 0（PlacePanelBesideAnchor 会把 Y 夹到 Margin）。
-	const FStarMapPanelRect Rect = PlacePanelBesideAnchor(
-		FVector2D(Margin, Margin), 0.f,
-		FVector2D(PanelWidth, PanelHeight), ViewportSizePx, 0.f, Margin);
-
-	const FLinearColor Background(0.f, 0.f, 0.f, 0.65f);
-	const FLinearColor Gold(1.f, 0.85f, 0.30f, 1.f);
-	const FLinearColor White(1.f, 1.f, 1.f, 1.f);
-	const FLinearColor Dim(0.75f, 0.75f, 0.75f, 1.f);
-
-	Hud.DrawRect(Background, Rect.X, Rect.Y, Rect.W, Rect.H);
-	Hud.DrawRect(Gold, Rect.X, Rect.Y, Rect.W, 1.f);
-	Hud.DrawRect(Gold, Rect.X, Rect.Y + Rect.H - 1.f, Rect.W, 1.f);
-	Hud.DrawRect(Gold, Rect.X, Rect.Y, 1.f, Rect.H);
-	Hud.DrawRect(Gold, Rect.X + Rect.W - 1.f, Rect.Y, 1.f, Rect.H);
-
-	float CursorY = Rect.Y + Padding;
-	Hud.DrawText(Title, Gold, Rect.X + Padding, CursorY, Font, TextScale);
-	CursorY += TitleHeight + SeparatorSpacing;
-
-	Hud.DrawRect(Gold, Rect.X + Padding, CursorY, Rect.W - Padding * 2.f, 1.f);
-	CursorY += 1.f + SeparatorSpacing;
-
-	if (EntryCount > 0)
-	{
-		for (int32 Index = 0; Index < EntryCount; ++Index)
-		{
-			const float SwatchY = CursorY + (RowSlotHeight - SwatchSize) * 0.5f;
-			Hud.DrawRect(Entries[Index].Color,
-				Rect.X + Padding, SwatchY, SwatchSize, SwatchSize);
-			Hud.DrawText(Lines[Index + 1], White,
-				Rect.X + Padding + SwatchSize + SwatchGap, CursorY, Font, TextScale);
-			CursorY += RowSlotHeight + LineSpacing;
-		}
-	}
-	else
-	{
-		Hud.DrawText(Lines[1], White, Rect.X + Padding, CursorY, Font, TextScale);
-		CursorY += RowSlotHeight + LineSpacing;
-	}
-
-	CursorY += SeparatorSpacing;
-	Hud.DrawRect(Gold, Rect.X + Padding, CursorY, Rect.W - Padding * 2.f, 1.f);
-	CursorY += 1.f + SeparatorSpacing;
-
-	Hud.DrawText(Hint, Dim, Rect.X + Padding, CursorY, Font, TextScale);
 }
 
 void UStarMapUISystem::DrawMineralLegend(

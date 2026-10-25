@@ -5,14 +5,13 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
-#include "PlanetCutawayMath.h"
 #include "StellarEraPlayerController.generated.h"
 
 class AStarMapCameraPawn;
 class ASpaceshipPawn;
 class UInputAction;
 class UInputMappingContext;
-class UPlanetCutawayComponent;
+class UPlanetMineralViewComponent;
 class UPlanetEditComponent;
 struct FInputActionValue;
 struct FStarMapScreenCandidate;
@@ -67,8 +66,8 @@ public:
 	 */
 	static ASpaceshipPawn* ResolveStarMapFocusShip(APawn* EnteringPawn);
 
-	/** 当前激活的矿物剖面组件；未激活时为空。星图 UI 用它画图例。 */
-	UPlanetCutawayComponent* GetActiveCutaway() const { return ActiveCutaway; }
+	/** 当前激活的矿物透视组件；未激活时为空。星图 UI 用它画图例、喂方块显隐。 */
+	UPlanetMineralViewComponent* GetActiveMineralView() const { return ActiveMineralView; }
 
 protected:
 	/** 构造 IMC 与全部 IA。幂等：重复调用会直接返回。 */
@@ -147,21 +146,21 @@ protected:
 	void ToggleStarMap();
 
 	/**
-	 * H 键：进入 / 退出矿物剖面。只在星图里生效。
+	 * H 键：进入 / 退出矿物透视。只在星图里生效。
 	 *
 	 * 进入条件：当前选中的是体素行星、且它带地质场。失败时给 2 秒提示，不改变状态。
 	 * 退出条件：再按一次 H、退出星图、换 Pawn、或选中天体变了（见 PlayerTick）。
 	 */
-	void OnCutawayToggle();
+	void OnMineralViewToggle();
 
-	/** 左键拖拽圆环：Axis2D 是鼠标像素位移，换算成绕该圆环世界轴的旋转角。 */
-	void OnCutawayDrag(const FInputActionValue& Value);
+	/** 数字键 1..9：切换第 ElementIndex 个元素的显示（下标从 0 起）。 */
+	void OnMineralFilter(const FInputActionValue& Value, int32 ElementIndex);
 
-	/** 退出剖面（幂等）。退出星图 / 换 Pawn / 选中变化 / EndPlay 都走这里。 */
-	void ExitCutawayIfActive();
+	/** 数字键 0：全部打开。 */
+	void OnMineralShowAll(const FInputActionValue& Value);
 
-	/** 屏幕点是否落在某根圆环上。命中时写 OutRing 并返回 true。 */
-	bool PickCutawayRing(const FVector2D& ScreenPosition, ESectionRing& OutRing) const;
+	/** 退出矿物透视（幂等）。退出星图 / 换 Pawn / 选中变化 / EndPlay 都走这里。 */
+	void ExitMineralViewIfActive();
 
 	/** 带时长的提示：几秒后自动消失，与每帧刷新的 ShowPrompt 分开。 */
 	void ShowPromptFor(const FString& Text, float DurationSeconds);
@@ -320,28 +319,19 @@ protected:
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> IA_BrushSize;
 
-	/** 矿物剖面开关（H）。 */
+	/** 矿物透视开关（H）。 */
 	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> IA_CutawayToggle;
+	TObjectPtr<UInputAction> IA_MineralViewToggle;
 
-	/** 拖拽剖面圆环（鼠标左键位移）。与 IA_Look 共用 Mouse2D，靠 ActiveCutaway 分派。 */
+	/** 数字键 1..9：按下标切换元素显示。下标 = 运行期元素顺序。 */
 	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> IA_CutawayDrag;
+	TArray<TObjectPtr<UInputAction>> IA_MineralFilter;
 
-	/** 当前激活的剖面组件。行星销毁时 GC 会把它置空。 */
+	/** 数字键 0：全部打开。 */
 	UPROPERTY(Transient)
-	TObjectPtr<UPlanetCutawayComponent> ActiveCutaway;
+	TObjectPtr<UInputAction> IA_MineralShowAll;
 
-	/** 左键本轮拖拽抓住的圆环；只有 bCutawayDragActive 为真时有意义。 */
-	ESectionRing CutawayDragRing = ESectionRing::X;
-
-	/** 本轮左键是否抓住了圆环（没抓住 = 剖面模式下左键什么都不做）。 */
-	bool bCutawayDragActive = false;
-
-	/** 本轮拖拽是否真的转过角度：没转过就不必在松手时补渲染一张 512²。 */
-	bool bCutawayRotatedThisDrag = false;
-
-	/** 圆环拾取容差（像素）。圆环本身 3px 粗，12px 让远处也能点中。 */
-	UPROPERTY(EditAnywhere, Category = "StarMap", meta = (ClampMin = "0.0"))
-	float CutawayRingPickTolerancePx = 12.f;
+	/** 当前激活的矿物透视组件。行星销毁时 GC 会把它置空。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UPlanetMineralViewComponent> ActiveMineralView;
 };

@@ -17,9 +17,10 @@ using UnrealBuildTool;
 // Core 必须是 **Public**：CosmosSimulationSubsystem.h 按值持有 FNBodySimulator，
 // 而 NBodySimulator.h 在 StellarEraCore 里，该头是本模块公开头的一部分。
 //
-// StellarEraPlanet 也必须是 **Public**：公开头 StellarEraPlayerController.h 直接
-// 包含 PlanetCutawayMath.h（ESectionRing 是成员类型，不能只前置声明）。
-// UBT 的规则是公开头只能包含公开依赖的头。
+// StellarEraPlanet 保持 **Public**：本模块的公开 API（如 StarMapCameraPawn::FocusOn
+// 与 GetActiveMineralView）以行星类型为参数 / 返回值，下游模块需要看到同样的依赖。
+// 当前公开头只前置声明行星类型，没有直接包含 —— 但保持 Public 不改变依赖图，
+// 挪成 Private 属于独立的重构。
 public class StellarEra : ModuleRules
 {
 	public StellarEra(ReadOnlyTargetRules Target) : base(Target)
