@@ -32,7 +32,6 @@ namespace
 	 * 本模块不声明 StellarEraCore 依赖（设计选择：飞船层不引入 Cosmos 单位体系）。
 	 * 注意不是防环 —— StellarEraCore 没有项目依赖，加进来也不会成环。
 	 */
-
 	constexpr float CentimetersPerKilometer = 1.0e5f;
 }
 

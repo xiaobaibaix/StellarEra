@@ -15,7 +15,7 @@ using UnrealBuildTool;
 // Voxel 必须**显式**列出，尽管本模块的公开头不 include 任何插件头：
 // Terrain 把 Voxel 声明成 Public，编译期 include 路径确实传了下来；
 // 但链接行只含本模块的直接依赖，二级依赖的 .lib 不会跟着传 ——
-// 于是 AlwaysLocalVoxelInvokerComponent（Planet 的派生类）用到的插件符号
+// 于是 AlwaysLocalVoxelInvokerComponent（Terrain 的派生类）用到的插件符号
 // 会 LNK2019。
 public class StellarEraSpaceship : ModuleRules
 {
