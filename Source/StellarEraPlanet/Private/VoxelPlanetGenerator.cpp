@@ -43,14 +43,18 @@ TSharedPtr<const FPlanetGeologyField> UVoxelPlanetGenerator::GetGeology()
 		return nullptr;
 	}
 
-	if (bGeologyCacheValid && GeologyCachePreset == GeologyPreset)
+	const double CacheRadius = double(Radius);
+	if (bGeologyCacheValid
+		&& GeologyCachePreset == GeologyPreset
+		&& GeologyCacheRadius == CacheRadius)
 	{
 		return GeologyCache;
 	}
 
 	FPlanetGeologyLoadReport Report;
-	GeologyCache = FPlanetGeologyField::LoadFromFiles(GeologyPreset, Report);
+	GeologyCache = FPlanetGeologyField::LoadFromFiles(GeologyPreset, Report, CacheRadius);
 	GeologyCachePreset = GeologyPreset;
+	GeologyCacheRadius = CacheRadius;
 	bGeologyCacheValid = true;
 
 	for (const FString& Error : Report.Errors)
@@ -69,5 +73,6 @@ void UVoxelPlanetGenerator::InvalidateGeology()
 {
 	GeologyCache.Reset();
 	GeologyCachePreset.Reset();
+	GeologyCacheRadius = 0.0;
 	bGeologyCacheValid = false;
 }

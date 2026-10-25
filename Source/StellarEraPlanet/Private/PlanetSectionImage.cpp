@@ -58,7 +58,12 @@ void FPlanetSectionImage::Render(
 				continue;
 			}
 
-			const double DepthVoxels = double(SurfaceRadiusCm - PlaneRadiusCm) / double(VoxelSize);
+			// 地质深度以**基准球面**为 0（体素场与地形模块都用这个约定）。
+			// 用实际地形表面做原点会把整条矿层按地表起伏上下平移最多 ±Amplitude，
+			// 于是同一个深度在凸起处与凹陷处采到不同的层。
+			const double DepthVoxels =
+				(double(Params.BaseRadiusVoxels) * double(VoxelSize) - double(PlaneRadiusCm))
+				/ double(VoxelSize);
 			const FPlanetGeologySample Sample = SampleFn(Dir, DepthVoxels);
 
 			const float Presence = FMath::Clamp(

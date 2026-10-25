@@ -45,10 +45,13 @@ public:
 	FVoxelPlanetTerrainContext MakeTerrainContext();
 
 	/**
-	 * 按 GeologyPreset 懒加载并缓存。
+	 * 按 GeologyPreset + Radius 懒加载并缓存。
 	 * - 预设为空 → 返回 nullptr；
 	 * - 加载失败 → 返回**有效空场**（IsValid() 且 IsEmpty()），错误写入日志；
-	 * - 缓存按预设名键控，失败结果同样被缓存，直到 InvalidateGeology()。
+	 * - 缓存键是「预设名 + 半径」，失败结果同样被缓存，直到 InvalidateGeology()。
+	 *
+	 * 半径进缓存键的原因：行星 JSON 里的深层矿带用半径比例描述，同一预设
+	 * 装在不同大小的行星上会解析出不同的体素深度。
 	 */
 	TSharedPtr<const FPlanetGeologyField> GetGeology();
 
@@ -89,9 +92,11 @@ public:
 	FString GeologyPreset;
 
 private:
-	/** 地质场缓存。键是 GeologyPreset；失败也缓存，避免每个采样点都读盘。 */
+	/** 地质场缓存。键是 GeologyPreset + GeologyCacheRadius；失败也缓存，避免每个采样点都读盘。 */
 	TSharedPtr<const FPlanetGeologyField> GeologyCache;
 	FString GeologyCachePreset;
+	/** 缓存对应的行星半径（体素）；比例矿带按它换算成绝对深度。 */
+	double GeologyCacheRadius = 0.0;
 	bool bGeologyCacheValid = false;
 
 	/**

@@ -23,13 +23,19 @@ public:
 	/**
 	 * 从磁盘加载。PresetName 只能是 Planets 下的文件名（不含扩展名）。
 	 * 任何失败都返回一个**有效的空场**，错误写进 OutReport。
+	 *
+	 * PlanetRadiusVoxels 用来把 JSON 里的半径比例（peakDepthRatio /
+	 * layerThicknessRatio）解析成体素深度。只用绝对深度的旧数据传 0 即可；
+	 * 带比例字段却没有半径的矿层会被跳过并留下警告。
 	 */
 	static TSharedPtr<const FPlanetGeologyField> LoadFromFiles(
-		const FString& PresetName, FPlanetGeologyLoadReport& OutReport);
+		const FString& PresetName, FPlanetGeologyLoadReport& OutReport,
+		double PlanetRadiusVoxels = 0.0);
 
-	/** 从内存加载，给测试和热重载用。 */
+	/** 从内存加载，给测试和热重载用。半径语义同 LoadFromFiles。 */
 	static TSharedPtr<const FPlanetGeologyField> LoadFromString(
-		const FString& ElementsJson, const FString& PlanetJson, FPlanetGeologyLoadReport& OutReport);
+		const FString& ElementsJson, const FString& PlanetJson, FPlanetGeologyLoadReport& OutReport,
+		double PlanetRadiusVoxels = 0.0);
 
 	/** Content/Geology/Planets 下所有预设名（排序后），给编辑器下拉框用。 */
 	static TArray<FString> ListPresetNames();

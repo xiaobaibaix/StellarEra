@@ -6,6 +6,20 @@
 #include "CoreMinimal.h"
 
 /**
+ * 一条高斯矿层的深度剖面。
+ *
+ * 深度单位是体素，正 = 基准球面以下。同一元素可以有多条带：
+ * 浅层带服务地表挖矿，深层带用半径比例描述行星内部结构。
+ */
+struct FPlanetGeologyBand
+{
+	float PeakDepth = 0.f;
+	float LayerThickness = 16.f;
+	/** |peakDepth| + 3 * layerThickness，解析时算好。 */
+	float ReachDepth = 0.f;
+};
+
+/**
  * 元素表的单条定义。
  *
  * 刻意不是 USTRUCT：它只在地质系统内部按值传递，不进反射、不进蓝图。
@@ -19,9 +33,9 @@ struct FPlanetGeologyElement
 
 	// --- 行星级参数（解析行星 JSON 时填入） ---
 	float Abundance = 0.f;
-	float PeakDepth = 0.f;
-	float LayerThickness = 16.f;
-	/** |peakDepth| + 3 * layerThickness，解析时算好，供采样早退。 */
+	/** 该元素的全部矿层，解析后至少一条。 */
+	TArray<FPlanetGeologyBand> Bands;
+	/** 所有带里最大的 |peakDepth| + 3 * layerThickness，供采样早退。 */
 	float ReachDepth = 0.f;
 
 	// --- 噪声参数（来自元素表） ---

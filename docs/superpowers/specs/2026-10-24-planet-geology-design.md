@@ -97,34 +97,52 @@
   "version": 1,
   "geometryAmplitude": 1.5,
   "appearance": {
-    "colorThreshold": 0.15,
-    "fadeRange": 0.45,
-    "purityForFullColor": 0.7
+    "colorThreshold": 0.05,
+    "fadeRange": 0.12,
+    "purityForFullColor": 0.45
   },
   "elements": {
-    "silicon":  { "abundance": 0.60, "peakDepth": 5,   "layerThickness": 22 },
-    "water":    { "abundance": 0.20, "peakDepth": 10,  "layerThickness": 8 },
-    "iron":     { "abundance": 0.75, "peakDepth": 30,  "layerThickness": 20 },
-    "copper":   { "abundance": 0.45, "peakDepth": 50,  "layerThickness": 24 },
-    "titanium": { "abundance": 0.15, "peakDepth": 78,  "layerThickness": 30 },
-    "uranium":  { "abundance": 0.10, "peakDepth": 130, "layerThickness": 55 }
+    "silicon":  { "abundance": 0.60, "bands": [
+        { "peakDepth": 5, "layerThickness": 22 },
+        { "peakDepthRatio": 0.06, "layerThicknessRatio": 0.035 } ] },
+    "water":    { "abundance": 0.20, "bands": [
+        { "peakDepth": 10, "layerThickness": 8 } ] },
+    "iron":     { "abundance": 0.75, "bands": [
+        { "peakDepth": 30, "layerThickness": 20 },
+        { "peakDepthRatio": 0.17, "layerThicknessRatio": 0.04 },
+        { "peakDepthRatio": 0.85, "layerThicknessRatio": 0.15 } ] },
+    "copper":   { "abundance": 0.45, "bands": [
+        { "peakDepth": 50, "layerThickness": 24 },
+        { "peakDepthRatio": 0.29, "layerThicknessRatio": 0.04 } ] },
+    "titanium": { "abundance": 0.15, "bands": [
+        { "peakDepth": 78, "layerThickness": 30 },
+        { "peakDepthRatio": 0.41, "layerThicknessRatio": 0.045 } ] },
+    "uranium":  { "abundance": 0.10, "bands": [
+        { "peakDepth": 130, "layerThickness": 55 },
+        { "peakDepthRatio": 0.55, "layerThicknessRatio": 0.05 } ] }
   }
 }
 ```
 
-层位按 shipped 地形（Amplitude=200）的实测地表深度分布排定：中位表面 ≈ +1.5 体素，
+浅层带按 shipped 地形（Amplitude=200）的实测地表深度分布排定：中位表面 ≈ +1.5 体素，
 四分位低地 ≈ +25，最深低地 ≈ +70。硅到处都是、铁约四分之一地表可见、
-铜只在深洼、钛几乎只见于最深处、铀只能挖到——六条深度带互不重叠。
+铜只在深洼、钛几乎只见于最深处、铀只能挖到。
+
+深层带用**半径比例**描述，让矿物布满整个切面盘而不只贴着地表：比例乘行星半径换算成
+体素深度，因此同一份预设装在不同大小的行星上仍落在相同的相对位置。
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
 | `geometryAmplitude` | 1.5 | 矿脉让地表外凸的最大体素数；`0` = 不影响几何 |
-| `appearance.colorThreshold` | 0.15 | 最强元素自身强度（`DominantNorm`）的显现阈值 |
-| `appearance.fadeRange` | 0.45 | 从阈值到完全显现的过渡宽度 |
-| `appearance.purityForFullColor` | 0.7 | 纯度混合系数 `PurityMix = saturate((Purity - (1 - p)) / p)`：`Purity ≤ 1 - p` 时不用矿色，线性升高到 `Purity = 1` 才完全用矿色 |
+| `appearance.colorThreshold` | 0.05 | 最强元素自身强度（`DominantNorm`）的显现阈值 |
+| `appearance.fadeRange` | 0.12 | 从阈值到完全显现的过渡宽度 |
+| `appearance.purityForFullColor` | 0.45 | 纯度混合系数 `PurityMix = saturate((Purity - (1 - p)) / p)`：`Purity ≤ 1 - p` 时不用矿色，线性升高到 `Purity = 1` 才完全用矿色 |
 | `elements.<id>.abundance` | 0 | 全局丰度，0~1 |
-| `elements.<id>.peakDepth` | — | 峰值深度，体素；**正 = 基准球面以下（向行星内部为正）**，缺省 0 |
-| `elements.<id>.layerThickness` | — | 高斯层厚，体素，必须 > 0 |
+| `elements.<id>.bands[]` | — | 该元素的矿层数组，至少一条；缺省 = 元素不参与（旧 schema 的顶层 `peakDepth`/`layerThickness` 仍按单带解析） |
+| `bands[].peakDepth` | 0 | 峰值深度，体素；**正 = 基准球面以下（向行星内部为正）** |
+| `bands[].layerThickness` | — | 高斯层厚，体素，必须 > 0 |
+| `bands[].peakDepthRatio` | — | 峰值深度占行星半径的比例（`[-1,1]`）；存在时优先于 `peakDepth` |
+| `bands[].layerThicknessRatio` | — | 层厚占行星半径的比例（`(0,1]`）；存在时优先于 `layerThickness` |
 
 **未在行星 JSON 中出现的元素 = 这颗行星没有该元素**，不需要 `bPresent` 字段。
 
@@ -138,7 +156,9 @@
 | JSON 语法错误 | `Log Error`（带文件名），返回空场 |
 | 行星 JSON 引用未知元素 id | `Log Warning`，跳过该条 |
 | `id` 重复 | 保留第一条，`Log Warning` |
-| `layerThickness <= 0` | `Log Warning`，该元素按不存在处理 |
+| 某条带 `layerThickness <= 0` 或缺失 | `Log Warning`，跳过这条带；元素一条带都不剩时按不存在处理 |
+| 带写比例字段但加载时没有行星半径 | `Log Warning`，跳过这条带（不会错位到 0 深度） |
+| `peakDepthRatio` / `layerThicknessRatio` 越界 | 夹到 `[-1,1]` / `(0,1]`，`Log Warning` |
 | 数值越界（如 `abundance` 超出 0~1） | 夹到合法范围，`Log Warning` |
 | `version` 不是 1 | `Log Warning`，仍按当前 schema 尝试解析 |
 | `Elements.json` 为空数组 | 合法：这颗行星没有矿 |
@@ -162,15 +182,20 @@ depth = Radius - DistanceToCenter
 ### 3.2 单元素原始密度
 
 ```
-SampleZ   = UnitDir.Z + (depth / layerThickness) * depthScale
-n_i       = FractalPerlin3D(UnitDir.X, UnitDir.Y, SampleZ, frequency, octaves)   // [-1,1]
-noise_i   = 0.5 * (n_i + 1)                                                      // [0,1]
-vein_i    = veinThreshold_i > 0
-              ? clamp((noise_i - veinThreshold_i) / (1 - veinThreshold_i), 0, 1)
-              : noise_i
-gaussian_i= exp(-((depth - peakDepth_i) / layerThickness_i)²)
-raw_i     = abundance_i * gaussian_i * vein_i
+SampleZ    = UnitDir.Z + (depth / layerThickness) * depthScale
+n_i        = FractalPerlin3D(UnitDir.X, UnitDir.Y, SampleZ, frequency, octaves)   // [-1,1]
+noise_i    = 0.5 * (n_i + 1)                                                      // [0,1]
+vein_i     = veinThreshold_i > 0
+               ? clamp((noise_i - veinThreshold_i) / (1 - veinThreshold_i), 0, 1)
+               : noise_i
+gaussian_j = exp(-((depth - peakDepth_j) / layerThickness_j)²)                    // 每条带各算一次
+raw_i      = abundance_i * Σ_j (gaussian_j * vein_i)
+own_i      = max_j (gaussian_j * vein_i)
 ```
+
+同一元素的各条带在深度上基本互不重叠：`raw` 相加，自身强度 `own` 取最大。
+单带元素与旧版逐位一致。`peakDepthRatio` / `layerThicknessRatio` 在解析阶段就已乘上
+行星半径换算成体素深度，采样阶段只见绝对深度。
 
 `depthScale` 必须大于 0：同一半径上的所有点若噪声值相同，矿会退化成一层均匀的壳而不是矿脉。
 
@@ -185,7 +210,7 @@ raw_i     = abundance_i * gaussian_i * vein_i
 ```
 Total        = Σ raw_i                                   ∈ [0, Σ abundance_i]
 TotalNorm    = Total / Σ abundance_i                     ∈ [0,1]（丰度和为 0 时取 0）
-Own_i        = gaussian_i * vein_i                       （去掉丰度的自身强度）
+Own_i        = max_j(gaussian_j * vein_i)                （去掉丰度的自身强度）
 DominantNorm = max_i Own_i                               ∈ [0,1]
 DominantIndex= argmax_i Own_i                            （-1 = 没有任何矿）
 w_i          = raw_i / Total                             （Total = 0 时全 0）
@@ -351,7 +376,9 @@ if (!Geology || Geology->IsEmpty()) return 0;                 // 空场
 if (depth < -MaxReachDepth || depth > MaxReachDepth) return 0; // 高斯尾部之外
 ```
 
-`MaxReachDepth = max(|peakDepth| + 3 * layerThickness)`，解析时算好。行星内部绝大部分体积与整个高空零成本。
+`MaxReachDepth = max_band(|peakDepth| + 3 * layerThickness)`（对所有元素的所有带取最大），
+解析时算好。高空仍然零成本；有深层带时这个上界会伸到行星内部，早退只挡高空，
+内部体素按带逐个 `exp` 剪枝（`gaussian < 0.01` 时连噪声都不算）。
 
 ### 5.2 深度剪枝
 

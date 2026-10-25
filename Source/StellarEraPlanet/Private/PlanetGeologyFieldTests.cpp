@@ -536,9 +536,12 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyDefaultContentTest,
 
 bool FPlanetGeologyDefaultContentTest::RunTest(const FString& Parameters)
 {
+	// 必须按行星半径加载：earth 的深层带用半径比例描述，不给半径这些带会被跳过。
+	constexpr double PlanetRadiusVoxels = 40000.0;
+
 	FPlanetGeologyLoadReport Report;
 	const TSharedPtr<const FPlanetGeologyField> Field =
-		FPlanetGeologyField::LoadFromFiles(TEXT("earth"), Report);
+		FPlanetGeologyField::LoadFromFiles(TEXT("earth"), Report, PlanetRadiusVoxels);
 
 	for (const FString& Error : Report.Errors)
 	{
@@ -553,6 +556,150 @@ bool FPlanetGeologyDefaultContentTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("默认 6 种元素"), Field->NumElements(), 6);
 	TestTrue(TEXT("预设列表包含 earth"),
 		FPlanetGeologyField::ListPresetNames().Contains(TEXT("earth")));
+
+	if (!Field.IsValid() || Field->IsEmpty())
+	{
+		return false;
+	}
+
+	// 深部带让触达深度覆盖到接近球心的 85% 半径，而不是只贴着地表几十个体素。
+	TestTrue(*FString::Printf(TEXT("触达深度伸到行星内部（%f）"), Field->GetMaxReachDepth()),
+		Field->GetMaxReachDepth() > float(PlanetRadiusVoxels * 0.9));
+
+	// 剖面盘上每个深层环带都必须真的采样得到矿，否则切面仍会是一整块暗绿。
+	// 用 256 个 Fibonacci 方向取最大值：单个方向可能正好落在矿脉门之外。
+	constexpr int32 NumDirections = 256;
+	const double BandRatios[] = { 0.06, 0.17, 0.29, 0.41, 0.55, 0.85 };
+	for (const double Ratio : BandRatios)
+	{
+		float MaxDominant = 0.f;
+		for (int32 Index = 0; Index < NumDirections; ++Index)
+		{
+			const double Z = 1.0 - 2.0 * (double(Index) + 0.5) / double(NumDirections);
+			const double RadiusXY = FMath::Sqrt(FMath::Max(0.0, 1.0 - Z * Z));
+			const double Angle =
+				UE_DOUBLE_TWO_PI * double(Index) * 0.6180339887498949;
+			const FVector Direction(
+				RadiusXY * FMath::Cos(Angle), RadiusXY * FMath::Sin(Angle), Z);
+
+			MaxDominant = FMath::Max(
+				MaxDominant,
+				Field->Sample(Direction, Ratio * PlanetRadiusVoxels).DominantNorm);
+		}
+
+		TestTrue(*FString::Printf(
+			TEXT("半径 %.0f%% 处有可见矿层（max DominantNorm=%.3f）"), Ratio * 100.0, MaxDominant),
+			MaxDominant > 0.1f);
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyBandsTest,
+	"StellarEra.Planet.Geology.Bands",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyBandsTest::RunTest(const FString& Parameters)
+{
+	const TCHAR* Elements = TEXT(R"JSON(
+{
+  "version": 1,
+  "elements": [
+    { "id": "iron", "color": [0.55, 0.28, 0.16],
+      "noise": { "frequency": 3.0, "octaves": 2, "lacunarity": 2.0, "gain": 0.5, "seed": 101, "depthScale": 0.3 } }
+  ]
+}
+)JSON");
+
+	// 两条带都只用半径比例：半径 10000 → 峰值 2500 / 5000，层厚 500 / 200。
+	const TCHAR* Planet = TEXT(R"JSON(
+{
+  "version": 1,
+  "geometryAmplitude": 0.0,
+  "elements": {
+    "iron": { "abundance": 1.0, "bands": [
+      { "peakDepthRatio": 0.25, "layerThicknessRatio": 0.05 },
+      { "peakDepthRatio": 0.50, "layerThicknessRatio": 0.02 }
+    ] }
+  }
+}
+)JSON");
+
+	constexpr double PlanetRadiusVoxels = 10000.0;
+
+	FPlanetGeologyLoadReport Report;
+	const TSharedPtr<const FPlanetGeologyField> Field =
+		FPlanetGeologyField::LoadFromString(Elements, Planet, Report, PlanetRadiusVoxels);
+
+	TestFalse(TEXT("比例带解析不产生 error"), Report.HasErrors());
+	TestTrue(TEXT("比例带产出非空场"), Field.IsValid() && !Field->IsEmpty());
+	if (!Field.IsValid() || Field->IsEmpty())
+	{
+		return false;
+	}
+
+	const TArray<FPlanetGeologyElement> Definitions = Field->GetElementDefinitions();
+	TestEqual(TEXT("只有一个元素"), Definitions.Num(), 1);
+	if (Definitions.Num() == 1)
+	{
+		const TArray<FPlanetGeologyBand>& Bands = Definitions[0].Bands;
+		TestEqual(TEXT("解析出两条矿层"), Bands.Num(), 2);
+		if (Bands.Num() == 2)
+		{
+			TestTrue(TEXT("第一条带峰值 = 0.25 × 半径"),
+				FMath::IsNearlyEqual(Bands[0].PeakDepth, 2500.f, 0.01f));
+			TestTrue(TEXT("第一条带层厚 = 0.05 × 半径"),
+				FMath::IsNearlyEqual(Bands[0].LayerThickness, 500.f, 0.01f));
+			TestTrue(TEXT("第二条带峰值 = 0.50 × 半径"),
+				FMath::IsNearlyEqual(Bands[1].PeakDepth, 5000.f, 0.01f));
+			TestTrue(TEXT("第二条带层厚 = 0.02 × 半径"),
+				FMath::IsNearlyEqual(Bands[1].LayerThickness, 200.f, 0.01f));
+		}
+	}
+
+	// 触达深度 = max(2500 + 3×500, 5000 + 3×200) = 5600。
+	TestTrue(TEXT("触达深度取所有带的最大值"),
+		FMath::IsNearlyEqual(Field->GetMaxReachDepth(), 5600.f, 1e-3f));
+
+	constexpr int32 NumDirections = 64;
+	const auto MaxDominantAt = [Field](double Depth)
+	{
+		float MaxDominant = 0.f;
+		for (int32 Index = 0; Index < NumDirections; ++Index)
+		{
+			const double Z = 1.0 - 2.0 * (double(Index) + 0.5) / double(NumDirections);
+			const double RadiusXY = FMath::Sqrt(FMath::Max(0.0, 1.0 - Z * Z));
+			const double Angle = UE_DOUBLE_TWO_PI * double(Index) * 0.6180339887498949;
+			const FVector Direction(
+				RadiusXY * FMath::Cos(Angle), RadiusXY * FMath::Sin(Angle), Z);
+			MaxDominant = FMath::Max(
+				MaxDominant, Field->Sample(Direction, Depth).DominantNorm);
+		}
+		return MaxDominant;
+	};
+
+	const float FirstPeak = MaxDominantAt(2500.0);
+	const float SecondPeak = MaxDominantAt(5000.0);
+	const float Between = MaxDominantAt(3750.0);
+
+	TestTrue(*FString::Printf(TEXT("第一条带峰值有矿（%.3f）"), FirstPeak), FirstPeak > 0.2f);
+	TestTrue(*FString::Printf(TEXT("第二条带峰值有矿（%.3f）"), SecondPeak), SecondPeak > 0.2f);
+	TestEqual(TEXT("两条带之间（相距 > 3σ）没有矿"), Between, 0.f);
+
+	// 带比例字段却没有行星半径：该带跳过，场退化成空场而不是错位到 0 深度。
+	FPlanetGeologyLoadReport NoRadiusReport;
+	const TSharedPtr<const FPlanetGeologyField> NoRadiusField =
+		FPlanetGeologyField::LoadFromString(Elements, Planet, NoRadiusReport);
+	TestTrue(TEXT("缺半径时比例矿层被跳过"),
+		NoRadiusField.IsValid() && NoRadiusField->IsEmpty());
+
+	bool bSawRatioWarning = false;
+	for (const FString& Warning : NoRadiusReport.Warnings)
+	{
+		bSawRatioWarning |= Warning.Contains(TEXT("Ratio"))
+			&& Warning.Contains(TEXT("行星半径"));
+	}
+	TestTrue(TEXT("缺半径有可定位的警告"), bSawRatioWarning);
 
 	return true;
 }

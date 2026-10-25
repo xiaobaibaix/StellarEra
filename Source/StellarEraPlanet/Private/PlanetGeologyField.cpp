@@ -97,6 +97,124 @@ namespace
 		return Clamped;
 	}
 
+	/**
+	 * 解析一条矿层。两种写法二选一：
+	 * - 绝对深度：peakDepth / layerThickness（体素，旧 schema）；
+	 * - 半径比例：peakDepthRatio / layerThicknessRatio（占行星半径，0..1）。
+	 * 比例字段存在时以比例为准；带比例却没有行星半径时跳过该带并留警告。
+	 */
+	bool ParseBand(const TSharedPtr<FJsonObject>& BandObject, const FString& Context,
+		double PlanetRadiusVoxels, FPlanetGeologyBand& OutBand,
+		FPlanetGeologyLoadReport& Report)
+	{
+		// 只有手填的绝对深度才需要上限：MaxReachDepth 靠它保持有限。
+		// 比例深度天然被行星半径约束，再套这个绝对上限会把深层带夹没。
+		constexpr double MaxAbsPeakDepth = 10000.0;
+		constexpr double MaxLayerThickness = 10000.0;
+
+		double PeakDepth = 0.0;
+		double Raw = 0.0;
+		if (BandObject->TryGetNumberField(TEXT("peakDepthRatio"), Raw))
+		{
+			if (PlanetRadiusVoxels <= 0.0)
+			{
+				Report.Warnings.Add(FString::Printf(
+					TEXT("%s: peakDepthRatio 需要行星半径，跳过这条矿层"), *Context));
+				return false;
+			}
+			if (!FMath::IsFinite(Raw))
+			{
+				Report.Warnings.Add(FString::Printf(
+					TEXT("%s: peakDepthRatio 不是有限数，按 0 处理"), *Context));
+				Raw = 0.0;
+			}
+			const double Ratio = FMath::Clamp(Raw, -1.0, 1.0);
+			if (!FMath::IsNearlyEqual(Ratio, Raw, 1e-9))
+			{
+				Report.Warnings.Add(FString::Printf(
+					TEXT("%s: peakDepthRatio %f 越界，夹到 [-1, 1]"), *Context, Raw));
+			}
+			PeakDepth = Ratio * PlanetRadiusVoxels;
+		}
+		else if (BandObject->TryGetNumberField(TEXT("peakDepth"), PeakDepth))
+		{
+			// 负峰值在 schema 里合法（矿层位于基准球面之上），只限制量级，
+			// 避免 MaxReachDepth 被推到 inf、早退失效。
+			if (!FMath::IsFinite(PeakDepth))
+			{
+				Report.Warnings.Add(FString::Printf(
+					TEXT("%s: peakDepth 不是有限数，按 0 处理"), *Context));
+				PeakDepth = 0.0;
+			}
+			else if (PeakDepth < -MaxAbsPeakDepth || PeakDepth > MaxAbsPeakDepth)
+			{
+				const double Clamped = FMath::Clamp(
+					PeakDepth, -MaxAbsPeakDepth, MaxAbsPeakDepth);
+				Report.Warnings.Add(FString::Printf(
+					TEXT("%s: peakDepth %f 越界，夹到 [-%g, %g]"),
+					*Context, PeakDepth, MaxAbsPeakDepth, MaxAbsPeakDepth));
+				PeakDepth = Clamped;
+			}
+		}
+
+		double LayerThickness = 0.0;
+		bool bHasThickness = false;
+		bool bThicknessFromRatio = false;
+		if (BandObject->TryGetNumberField(TEXT("layerThicknessRatio"), Raw))
+		{
+			if (PlanetRadiusVoxels <= 0.0)
+			{
+				Report.Warnings.Add(FString::Printf(
+					TEXT("%s: layerThicknessRatio 需要行星半径，跳过这条矿层"), *Context));
+				return false;
+			}
+			if (!FMath::IsFinite(Raw) || Raw <= 0.0)
+			{
+				Report.Warnings.Add(FString::Printf(
+					TEXT("%s: layerThicknessRatio 必须是有限正数，跳过这条矿层"), *Context));
+				return false;
+			}
+			const double Ratio = FMath::Clamp(Raw, 1e-4, 1.0);
+			if (!FMath::IsNearlyEqual(Ratio, Raw, 1e-9))
+			{
+				Report.Warnings.Add(FString::Printf(
+					TEXT("%s: layerThicknessRatio %f 越界，夹到 [1e-4, 1]"), *Context, Raw));
+			}
+			LayerThickness = Ratio * PlanetRadiusVoxels;
+			bHasThickness = true;
+			bThicknessFromRatio = true;
+		}
+		else if (BandObject->TryGetNumberField(TEXT("layerThickness"), LayerThickness))
+		{
+			bHasThickness = true;
+		}
+
+		if (!bHasThickness)
+		{
+			Report.Warnings.Add(FString::Printf(
+				TEXT("%s: 缺少 layerThickness / layerThicknessRatio，跳过这条矿层"), *Context));
+			return false;
+		}
+		if (!FMath::IsFinite(LayerThickness) || LayerThickness <= 0.0)
+		{
+			Report.Warnings.Add(FString::Printf(
+				TEXT("%s: layerThickness 必须是有限正数，跳过这条矿层"), *Context));
+			return false;
+		}
+		if (!bThicknessFromRatio && LayerThickness > MaxLayerThickness)
+		{
+			Report.Warnings.Add(FString::Printf(
+				TEXT("%s: layerThickness %f > %g，夹到上界"),
+				*Context, LayerThickness, MaxLayerThickness));
+			LayerThickness = MaxLayerThickness;
+		}
+
+		OutBand.PeakDepth = float(PeakDepth);
+		OutBand.LayerThickness = float(LayerThickness);
+		OutBand.ReachDepth = float(FMath::Abs(PeakDepth) + ThreeSigma * LayerThickness);
+		return true;
+	}
+
 	bool ParseElementTable(const TSharedPtr<FJsonObject>& Root,
 		TMap<FString, FPlanetGeologyElement>& OutTable,
 		TArray<FString>& OutOrder, FPlanetGeologyLoadReport& Report)
@@ -187,7 +305,8 @@ namespace
 	bool ParsePlanet(const TSharedPtr<FJsonObject>& Root,
 		const TMap<FString, FPlanetGeologyElement>& Table,
 		FPlanetGeologyAppearance& OutAppearance, float& OutGeometryAmplitude,
-		TArray<FPlanetGeologyElement>& OutElements, FPlanetGeologyLoadReport& Report)
+		double PlanetRadiusVoxels, TArray<FPlanetGeologyElement>& OutElements,
+		FPlanetGeologyLoadReport& Report)
 	{
 		ReadVersion(Root, TEXT("Planets/<preset>.json"), Report);
 
@@ -263,58 +382,57 @@ namespace
 				continue;
 			}
 
-			constexpr double MaxAbsPeakDepth = 10000.0;
-			constexpr double MaxLayerThickness = 10000.0;
-
-			double PeakDepth = 0.0;
-			if (ElementObject->TryGetNumberField(TEXT("peakDepth"), PeakDepth))
-			{
-				// 负峰值在 schema 里合法（矿层位于基准球面之上），只限制量级，
-				// 避免 MaxReachDepth 被推到 inf、早退失效。
-				if (!FMath::IsFinite(PeakDepth))
-				{
-					Report.Warnings.Add(FString::Printf(
-						TEXT("行星 JSON: '%s' 的 peakDepth 不是有限数，按 0 处理"), *ElementId));
-					PeakDepth = 0.0;
-				}
-				else if (PeakDepth < -MaxAbsPeakDepth || PeakDepth > MaxAbsPeakDepth)
-				{
-					const double Clamped = FMath::Clamp(
-						PeakDepth, -MaxAbsPeakDepth, MaxAbsPeakDepth);
-					Report.Warnings.Add(FString::Printf(
-						TEXT("行星 JSON: '%s' 的 peakDepth %f 越界，夹到 [-%g, %g]"),
-						*ElementId, PeakDepth, MaxAbsPeakDepth, MaxAbsPeakDepth));
-					PeakDepth = Clamped;
-				}
-			}
-
-			double LayerThickness = 0.0;
-			if (!ElementObject->TryGetNumberField(TEXT("layerThickness"), LayerThickness))
-			{
-				Report.Warnings.Add(FString::Printf(
-					TEXT("行星 JSON: '%s' 的 layerThickness 必须 > 0，按不存在处理"), *ElementId));
-				continue;
-			}
-			if (!FMath::IsFinite(LayerThickness) || LayerThickness <= 0.0)
-			{
-				Report.Warnings.Add(FString::Printf(
-					TEXT("行星 JSON: '%s' 的 layerThickness 必须是有限正数，按不存在处理"),
-					*ElementId));
-				continue;
-			}
-			if (LayerThickness > MaxLayerThickness)
-			{
-				Report.Warnings.Add(FString::Printf(
-					TEXT("行星 JSON: '%s' 的 layerThickness %f > %g，夹到上界"),
-					*ElementId, LayerThickness, MaxLayerThickness));
-				LayerThickness = MaxLayerThickness;
-			}
-
 			FPlanetGeologyElement Element = *Definition;
 			Element.Abundance = Abundance;
-			Element.PeakDepth = float(PeakDepth);
-			Element.LayerThickness = float(LayerThickness);
-			Element.ReachDepth = float(FMath::Abs(PeakDepth) + ThreeSigma * LayerThickness);
+			Element.Bands.Reset();
+			Element.ReachDepth = 0.f;
+
+			const FString ElementContext = FString::Printf(
+				TEXT("行星 JSON: '%s'"), *ElementId);
+
+			const TArray<TSharedPtr<FJsonValue>>* Bands = nullptr;
+			if (ElementObject->TryGetArrayField(TEXT("bands"), Bands) && Bands)
+			{
+				for (int32 BandIndex = 0; BandIndex < Bands->Num(); ++BandIndex)
+				{
+					const TSharedPtr<FJsonObject>* BandPtr = nullptr;
+					if (!TryReadObject((*Bands)[BandIndex], BandPtr))
+					{
+						Report.Warnings.Add(FString::Printf(
+							TEXT("行星 JSON: '%s' 的 bands[%d] 不是对象，跳过"),
+							*ElementId, BandIndex));
+						continue;
+					}
+
+					FPlanetGeologyBand Band;
+					const FString BandContext = FString::Printf(
+						TEXT("行星 JSON: '%s' 的 bands[%d]"), *ElementId, BandIndex);
+					if (!ParseBand(*BandPtr, BandContext, PlanetRadiusVoxels, Band, Report))
+					{
+						continue;
+					}
+					Element.ReachDepth = FMath::Max(Element.ReachDepth, Band.ReachDepth);
+					Element.Bands.Add(Band);
+				}
+			}
+			else
+			{
+				// 旧 schema：顶层 peakDepth / layerThickness 就是唯一一条带。
+				FPlanetGeologyBand Band;
+				if (ParseBand(ElementObject, ElementContext, PlanetRadiusVoxels, Band, Report))
+				{
+					Element.ReachDepth = Band.ReachDepth;
+					Element.Bands.Add(Band);
+				}
+			}
+
+			if (Element.Bands.Num() == 0)
+			{
+				Report.Warnings.Add(FString::Printf(
+					TEXT("%s 没有任何有效矿层，跳过"), *ElementContext));
+				continue;
+			}
+
 			OutElements.Add(Element);
 		}
 		return true;
@@ -336,7 +454,8 @@ namespace
 }
 
 TSharedPtr<const FPlanetGeologyField> FPlanetGeologyField::LoadFromString(
-	const FString& ElementsJson, const FString& PlanetJson, FPlanetGeologyLoadReport& OutReport)
+	const FString& ElementsJson, const FString& PlanetJson, FPlanetGeologyLoadReport& OutReport,
+	double PlanetRadiusVoxels)
 {
 	TSharedPtr<FPlanetGeologyField> Field = MakeShared<FPlanetGeologyField>();
 
@@ -362,7 +481,8 @@ TSharedPtr<const FPlanetGeologyField> FPlanetGeologyField::LoadFromString(
 	TArray<FPlanetGeologyElement> Definitions;
 	FPlanetGeologyAppearance Appearance;
 	float GeometryAmplitude = 1.5f;
-	if (!ParsePlanet(PlanetRoot, Table, Appearance, GeometryAmplitude, Definitions, OutReport))
+	if (!ParsePlanet(PlanetRoot, Table, Appearance, GeometryAmplitude,
+		PlanetRadiusVoxels, Definitions, OutReport))
 	{
 		return Field;
 	}
@@ -389,7 +509,8 @@ TSharedPtr<const FPlanetGeologyField> FPlanetGeologyField::LoadFromString(
 }
 
 TSharedPtr<const FPlanetGeologyField> FPlanetGeologyField::LoadFromFiles(
-	const FString& PresetName, FPlanetGeologyLoadReport& OutReport)
+	const FString& PresetName, FPlanetGeologyLoadReport& OutReport,
+	double PlanetRadiusVoxels)
 {
 	if (!IsValidPresetName(PresetName))
 	{
@@ -414,7 +535,7 @@ TSharedPtr<const FPlanetGeologyField> FPlanetGeologyField::LoadFromFiles(
 		return MakeShared<FPlanetGeologyField>();
 	}
 
-	return LoadFromString(ElementsJson, PlanetJson, OutReport);
+	return LoadFromString(ElementsJson, PlanetJson, OutReport, PlanetRadiusVoxels);
 }
 
 TArray<FString> FPlanetGeologyField::ListPresetNames()
@@ -504,55 +625,68 @@ void FPlanetGeologyField::Accumulate(const FVector& UnitDir, double Depth, bool 
 	{
 		const FElementRuntime& Runtime = Elements[ElementIndex];
 		const FPlanetGeologyElement& Definition = Runtime.Definition;
-		const double LayerThickness = FMath::Max(double(Definition.LayerThickness), 1e-3);
-		const double DepthRatio =
-			(Depth - double(Definition.PeakDepth)) / LayerThickness;
-		const double Gaussian = FMath::Exp(-DepthRatio * DepthRatio);
 
-		// 单元素在任一深度上常常没有贡献；先算 exp 再决定是否花一次分形 Perlin。
-		if (Gaussian < 0.01)
+		// 同一元素的各条带在深度上基本互不重叠：Raw 相加，Norm 取最大。
+		// 单带元素的行为与旧实现逐位一致。
+		double ElementRaw = 0.0;
+		double ElementNorm = 0.0;
+
+		for (const FPlanetGeologyBand& Band : Definition.Bands)
+		{
+			const double LayerThickness = FMath::Max(double(Band.LayerThickness), 1e-3);
+			const double DepthRatio = (Depth - double(Band.PeakDepth)) / LayerThickness;
+			const double Gaussian = FMath::Exp(-DepthRatio * DepthRatio);
+
+			// 单带在任一深度上常常没有贡献；先算 exp 再决定是否花一次分形 Perlin。
+			if (Gaussian < 0.01)
+			{
+				continue;
+			}
+
+			// SampleZ 用无量纲的深度比：GetPerlinFractal_3D 内部会把三个坐标都乘频率，
+			// 直接加体素深度会让噪声随深度剧烈振荡。
+			const double SampleZ =
+				double(UnitDir.Z) + (Depth / LayerThickness) * double(Definition.DepthScale);
+
+			const double RawNoise = double(Runtime.Noise.GetPerlinFractal_3D(
+				v_flt(UnitDir.X), v_flt(UnitDir.Y), v_flt(SampleZ),
+				v_flt(Definition.Frequency), Definition.Octaves));
+
+			// Perlin 输出 [-1,1]，映射到 [0,1] 才是「含量」。
+			const double Noise01 = 0.5 * (RawNoise + 1.0);
+
+			// 矿脉门：阈值以下完全为 0，阈值以上线性升到 1。
+			// 每个元素的门限不同，独立噪声场下同一地点通常只有一种矿在门内，
+			// 于是 Purity 能被推到接近 1，而不是所有元素各占一份的灰色平均值。
+			const double VeinThreshold = FMath::Clamp(double(Definition.VeinThreshold), 0.0, 0.95);
+			const double Vein = VeinThreshold > 0.0
+				? FMath::Clamp((Noise01 - VeinThreshold) / (1.0 - VeinThreshold), 0.0, 1.0)
+				: Noise01;
+
+			ElementRaw += double(Definition.Abundance) * Gaussian * Vein;
+			// 自身强度：去掉丰度，只保留「这一层有多接近峰值 × 脉有多强」。
+			// 低丰度元素（铀 0.10）也能在自己的脉里达到 1，不会被全局总量压死。
+			ElementNorm = FMath::Max(ElementNorm, Gaussian * Vein);
+		}
+
+		if (ElementNorm <= 0.0)
 		{
 			continue;
 		}
 
-		// SampleZ 用无量纲的深度比：GetPerlinFractal_3D 内部会把三个坐标都乘频率，
-		// 直接加体素深度会让噪声随深度剧烈振荡。
-		const double SampleZ =
-			double(UnitDir.Z) + (Depth / LayerThickness) * double(Definition.DepthScale);
-
-		const double RawNoise = double(Runtime.Noise.GetPerlinFractal_3D(
-			v_flt(UnitDir.X), v_flt(UnitDir.Y), v_flt(SampleZ),
-			v_flt(Definition.Frequency), Definition.Octaves));
-
-		// Perlin 输出 [-1,1]，映射到 [0,1] 才是「含量」。
-		const double Noise01 = 0.5 * (RawNoise + 1.0);
-
-		// 矿脉门：阈值以下完全为 0，阈值以上线性升到 1。
-		// 每个元素的门限不同，独立噪声场下同一地点通常只有一种矿在门内，
-		// 于是 Purity 能被推到接近 1，而不是所有元素各占一份的灰色平均值。
-		const double VeinThreshold = FMath::Clamp(double(Definition.VeinThreshold), 0.0, 0.95);
-		const double Vein = VeinThreshold > 0.0
-			? FMath::Clamp((Noise01 - VeinThreshold) / (1.0 - VeinThreshold), 0.0, 1.0)
-			: Noise01;
-
-		const double Raw = double(Definition.Abundance) * Gaussian * Vein;
-		// 自身强度：去掉丰度，只保留「这一层有多接近峰值 × 脉有多强」。
-		// 低丰度元素（铀 0.10）也能在自己的脉里达到 1，不会被全局总量压死。
-		const double Norm = Gaussian * Vein;
-
-		OutAccumulation.Total += Raw;
-		OutAccumulation.MaxRaw = FMath::Max(OutAccumulation.MaxRaw, Raw);
-		if (Norm > OutAccumulation.DominantNorm)
+		OutAccumulation.Total += ElementRaw;
+		OutAccumulation.MaxRaw = FMath::Max(OutAccumulation.MaxRaw, ElementRaw);
+		if (ElementNorm > OutAccumulation.DominantNorm)
 		{
-			OutAccumulation.DominantNorm = Norm;
+			OutAccumulation.DominantNorm = ElementNorm;
 			OutAccumulation.DominantIndex = ElementIndex;
 		}
 
-		if (bComputeColor && Raw > 0.0)
+		if (bComputeColor && ElementRaw > 0.0)
 		{
-			WeightedR += Raw * double(Definition.Color.R);
-			WeightedG += Raw * double(Definition.Color.G);
-			WeightedB += Raw * double(Definition.Color.B);
+			WeightedR += ElementRaw * double(Definition.Color.R);
+			WeightedG += ElementRaw * double(Definition.Color.G);
+			WeightedB += ElementRaw * double(Definition.Color.B);
 		}
 	}
 
