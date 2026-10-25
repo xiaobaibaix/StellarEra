@@ -70,12 +70,13 @@ public:
 	const TArray<FPlanetGeologyElement>& GetElements() const { return Elements; }
 
 	/**
-	 * 等值面网格密度：每轴格数（角点数 = GridResolution + 1）。
+	 * 观测视图密度：一个矿囊直径横向切多少格。
 	 *
-	 * 40 首进约 0.1–0.3 秒；56 约 0.3–0.8 秒，边缘更圆。改动会让缓存失效。
+	 * 12 首进约 0.1–0.3 秒；24 边缘更圆，约 2–4 倍耗时。改动会让缓存失效。
 	 */
-	UPROPERTY(EditAnywhere, Category = "Planet|MineralView", meta = (ClampMin = "16", ClampMax = "96"))
-	int32 GridResolution = 40;
+	UPROPERTY(EditAnywhere, Category = "Planet|MineralView",
+		meta = (ClampMin = "4", ClampMax = "32"))
+	int32 CellsPerPod = 12;
 
 private:
 	bool bActive = false;

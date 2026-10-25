@@ -55,7 +55,7 @@ bool APlanetMineralViewActor::Build(const TArray<FPlanetMineralMesh>& MeshesByEl
 {
 	// 不可重入：MineralMeshes.Reset() 不销毁旧组件，组件名又是固定的，第二次进来
 	// NewObject(..., TEXT("MineralShell") / TEXT("MineralMesh%d")) 会在同一个 Outer 上
-	// 撞名并致命退出。将来做「改 GridResolution 后重建」必须先销毁旧组件再清这里的标志。
+	// 撞名并致命退出。将来做「改 CellsPerPod 后重建」必须先销毁旧组件再清这里的标志。
 	ensureMsgf(!bHasBuilt, TEXT("[矿物] APlanetMineralViewActor::Build 不可重入"));
 	if (bHasBuilt)
 	{

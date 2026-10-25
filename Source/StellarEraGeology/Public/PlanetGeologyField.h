@@ -78,7 +78,22 @@ public:
 
 	float GetMaxGeometryDelta() const { return GeometryAmplitude; }
 	const FPlanetGeologyAppearance& GetAppearance() const { return Appearance; }
-	bool IsEmpty() const { return Elements.Num() == 0; }
+	/** 空场 = 没有元素，**或**所有元素的矿囊数都为 0（spec §3.6）。 */
+	bool IsEmpty() const
+	{
+		if (Elements.Num() == 0)
+		{
+			return true;
+		}
+		for (const FElementRuntime& Element : Elements)
+		{
+			if (Element.Definition.Pods.Num() > 0)
+			{
+				return false;
+			}
+		}
+		return true;
+	}
 	int32 NumElements() const { return Elements.Num(); }
 	float GetTotalAbundance() const { return TotalAbundance; }
 

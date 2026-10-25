@@ -27,15 +27,20 @@ struct FPlanetMineralMesh
 
 namespace PlanetMineralSurface
 {
-	/** 一次构建的输入。半径为 0、体素为 0 或格数 < 8 时 Build 直接给空结果。 */
+	/** 一次构建的输入。半径 ≤ 0、体素 ≤ 0 或 CellsPerPod < 4 时 Build 直接给空结果。 */
 	struct FBuildParams
 	{
 		/** 基准球面半径（厘米），与 AVoxelPlanetActor::GetSurfaceRadiusCm 一致。 */
 		float SurfaceRadiusCm = 0.f;
 		/** 一个体素多少厘米：地质深度以体素计，换回厘米要用它。 */
 		float VoxelSizeCm = 0.f;
-		/** 每轴格数（角点数 = GridResolution + 1）。40 首进约 0.1–0.3 秒。 */
-		int32 GridResolution = 40;
+		/**
+		 * 一个矿囊直径横向切多少格（4..32）。
+		 *
+		 * 这是跟随矿囊的旋钮，与行星直径无关 —— 换一颗大行星，矿囊的相对大小不变，
+		 * 观测视图的清晰度也不变。
+		 */
+		int32 CellsPerPod = 12;
 		/** 等值线，调用方传 Field.GetAppearance().ColorThreshold。 */
 		float IsoValue = 0.f;
 	};
@@ -56,7 +61,7 @@ namespace PlanetMineralSurface
 		float SurfaceRadiusCm = 0.f;
 		/** 行星 Actor 缩放。S ≠ 1 时厘米换算本来就错，进键里至少不会静默复用旧网格。 */
 		FVector Scale = FVector::ZeroVector;
-		int32 GridResolution = 0;
+		int32 CellsPerPod = 0;
 
 		bool operator==(const FCacheKey& Other) const
 		{
@@ -64,7 +69,7 @@ namespace PlanetMineralSurface
 			return Planet == Other.Planet
 				&& FMath::IsNearlyEqual(SurfaceRadiusCm, Other.SurfaceRadiusCm, 0.01f)
 				&& Scale.Equals(Other.Scale, 0.01)
-				&& GridResolution == Other.GridResolution;
+				&& CellsPerPod == Other.CellsPerPod;
 		}
 		bool operator!=(const FCacheKey& Other) const { return !(*this == Other); }
 	};
@@ -72,12 +77,15 @@ namespace PlanetMineralSurface
 	/**
 	 * 逐元素抽等值面。Out 先被清空；参数非法或场为空时返回空结果，不报错。
 	 *
-	 * 只有球外（深度 < 0）的角点按 0 处理、不花噪声求值；球内除退化球心点
-	 * （Distance <= UE_DOUBLE_KINDA_SMALL_NUMBER）外都要按实际深度求值
-	 * （矿囊可以贴到球心，没有「太深」的早退）。
-	 * 顶点会被径向夹到球内（`|v| <= R`）：球外场值为 0，等值线插值会把顶点落到
-	 * 球外，而 spec §7 禁止顶点出球（观察体的半透明壳就画在 R 上）。
-	 * 各元素场独立取面：两种元素同时高于门限的地方，两块矿体会互相穿插（共生矿脉），
+	 * **局部栅格**：按矿囊的空间邻近关系分簇（用未外扩的 AABB 判相交、并查集合并），
+	 * 每簇一套独立栅格，格边 = 2 × 簇内最小矿囊半径 / CellsPerPod，盒子 = 簇包围盒
+	 * 外扩一格。这样分辨率跟着矿囊走，而不是跟着行星直径走。
+	 *
+	 * 外扩一格保证盒子边界上所有角点场值为 0（矿囊表面之外场值恒 0），
+	 * Marching Cubes 因此在盒子内封闭 —— 漏了外扩就会在面上开洞。
+	 *
+	 * 顶点仍会径向夹到球内（`|v| <= R`）：观察体的半透明壳就画在 R 上。
+	 * 各元素场独立取面：两种元素同时高于门限的地方，两块矿体会互相穿插（共生矿囊），
 	 * 不做 winner-take-all —— 布尔场做 MC 会退回方块状边缘。
 	 */
 	STELLARERAMINERALS_API void Build(const FPlanetGeologyField& Field, const FBuildParams& Params,
