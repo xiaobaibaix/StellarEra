@@ -69,6 +69,39 @@ namespace PlanetMineralSurfaceTest
 		}
 		return Count;
 	}
+
+	/**
+	 * 与 PlanetMineralSurface::Build 同一套格边公式（基准 + 两条上限钳制）。
+	 *
+	 * 测试里凡是「顶点最多离矿囊包围盒一格」这类界，都必须用钳制后的格边，
+	 * 否则上限一旦生效（夹具变大 / 改参数）就会假红。
+	 * RawExtentCm 是矿囊包围盒并集的原始边长；外扩量按基准格边计（与 Build 一致）。
+	 */
+	double ExpectedCellSizeCm(double MinRadiusCm, const FVector& RawExtentCm, int32 CellsPerPod)
+	{
+		constexpr int32 MaxCellsPerAxis = 512;
+		constexpr int64 MaxTotalCorners = 8000000;
+
+		double CellSize = 2.0 * MinRadiusCm / double(CellsPerPod);
+		const FVector PaddedExtent = RawExtentCm + FVector(2.0 * CellSize);
+		const double ExtentMax = PaddedExtent.GetMax();
+		CellSize = FMath::Max(CellSize, ExtentMax / double(MaxCellsPerAxis));
+		CellSize = FMath::Max(CellSize,
+			ExtentMax / FMath::Pow(static_cast<double>(MaxTotalCorners), 1.0 / 3.0));
+		return CellSize;
+	}
+
+	/** 两个矿囊的 AABB（归一化空间）是否相交 —— 判据与 Build 的分簇完全相同。 */
+	bool ArePodAabbsOverlapping(const FPlanetGeologyPod& A, const FPlanetGeologyPod& B)
+	{
+		const FVector AMin = A.Center - FVector(A.Radius);
+		const FVector AMax = A.Center + FVector(A.Radius);
+		const FVector BMin = B.Center - FVector(B.Radius);
+		const FVector BMax = B.Center + FVector(B.Radius);
+		return AMin.X <= BMax.X && AMax.X >= BMin.X
+			&& AMin.Y <= BMax.Y && AMax.Y >= BMin.Y
+			&& AMin.Z <= BMax.Z && AMax.Z >= BMin.Z;
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceBuildTest,
@@ -186,7 +219,12 @@ bool FPlanetMineralSurfacePodLocalTest::RunTest(const FString& Parameters)
 			MaxPodRadiusCm = FMath::Max(MaxPodRadiusCm, RadiusCm);
 			PodBounds += FBox(CenterCm - FVector(RadiusCm), CenterCm + FVector(RadiusCm));
 		}
-		const double CellSizeCm = 2.0 * MaxPodRadiusCm / double(Params.CellsPerPod);
+		// 用与 Build 同一套钳制公式算格边上界，避免夹具变大后上限生效时假红。
+		const double BaseCellSizeCm = 2.0 * MaxPodRadiusCm / double(Params.CellsPerPod);
+		const double CellSizeCm = ExpectedCellSizeCm(MaxPodRadiusCm,
+			PodBounds.Max - PodBounds.Min, Params.CellsPerPod);
+		TestTrue(*FString::Printf(TEXT("元素 %d 的夹具不触发格边上限"), ElementIndex),
+			CellSizeCm == BaseCellSizeCm);
 		PodBounds = PodBounds.ExpandBy(FVector(CellSizeCm * 1.5) + FVector::OneVector);
 
 		int32 Outside = 0;
@@ -294,13 +332,19 @@ bool FPlanetMineralSurfaceIsoAccuracyTest::RunTest(const FString& Parameters)
 		// 「被夹回球面」（|v| ≥ R − 1 cm）：球外角点恒为 0（SampleElementNormAtNormalized
 		// 的球外早退），跨球面的网格边上因此有一条台阶，MC 顶点落在台阶近旁时离球面
 		// 最多差一格再多出球外容差（1.0001 R 的 10 cm），这些点上的真值远高于插入值。
-		// 一格的上界取「该元素最大矿囊半径对应的格边」（簇内最小半径 ≤ 该半径）。
+		// 一格的上界取「该元素最大矿囊半径 + 该元素矿囊包围盒并集」代入 Build 的
+		// 同一套钳制公式（簇内最小半径 ≤ 该元素最大半径，所以这里是上界）。
+		FBox ElementBounds(ForceInit);
 		double MaxPodRadiusCm = 0.0;
 		for (const FPlanetGeologyPod& Pod : Field->GetPods(ElementIndex))
 		{
-			MaxPodRadiusCm = FMath::Max(MaxPodRadiusCm, double(Pod.Radius) * RadiusCm);
+			const FVector CenterCm = Pod.Center * RadiusCm;
+			const double PodRadiusCm = double(Pod.Radius) * RadiusCm;
+			MaxPodRadiusCm = FMath::Max(MaxPodRadiusCm, PodRadiusCm);
+			ElementBounds += FBox(CenterCm - FVector(PodRadiusCm), CenterCm + FVector(PodRadiusCm));
 		}
-		const double CellSizeBoundCm = 2.0 * MaxPodRadiusCm / double(Params.CellsPerPod);
+		const double CellSizeBoundCm = ExpectedCellSizeCm(MaxPodRadiusCm,
+			ElementBounds.Max - ElementBounds.Min, Params.CellsPerPod);
 		const double ExcludedRadiusCm = RadiusCm * 1.0001 - CellSizeBoundCm;
 
 		for (int32 Index = 0; Index < Mesh.VerticesCm.Num(); Index += 13)
@@ -636,14 +680,17 @@ bool FPlanetMineralSurfaceRadiusInvarianceTest::RunTest(const FString& Parameter
 {
 	using namespace PlanetMineralSurfaceTest;
 
-	// 本任务的核心目的：分辨率跟着矿囊走，与行星直径解耦。矿囊存的是归一化坐标，
-	// 半径翻倍后几何形状完全不变 —— 局部栅格的三角形数 / 角点数必须逐项相同。
 	UPlanetGeologyPreset* Preset = MakePreset({
 		MakeElement(TEXT("a"), 0.06f, 11),
 		MakeElement(TEXT("b"), 0.05f, 22)});
 	const auto Field = MakeField(*Preset);
 
 	const PlanetMineralSurface::FBuildParams Base = MakeParams(*Field, 12);
+
+	// --- (1) 尺度等变性：补充不变量，**不**单独证明分辨率解耦 ---
+	// 矿囊存的是归一化坐标，半径翻倍后几何形状完全不变，网格应逐项相同。
+	// 但任何尺度等变的实现都能过（包括整球栅格），所以本测试的名字只对它负责；
+	// 「分辨率与行星直径解耦」由下面 (a) 的绝对门槛与 (b) 的外来小矿囊隔离把关。
 	PlanetMineralSurface::FBuildParams Doubled = Base;
 	Doubled.SurfaceRadiusCm = Base.SurfaceRadiusCm * 2.f;
 
@@ -672,10 +719,82 @@ bool FPlanetMineralSurfaceRadiusInvarianceTest::RunTest(const FString& Parameter
 	}
 
 	TestEqual(TEXT("角点数完全不随半径变"), DoubledResult.GridPoints, BaseResult.GridPoints);
-	// 全局 40³ 栅格在同参数下约 6.9 万角点/元素（三元素 240³ ≈ 1.4e7），
-	// 局部栅格是几千 —— 这条把「退回整球栅格」钉死。
-	TestTrue(*FString::Printf(TEXT("角点数 %d 远小于全局栅格"), BaseResult.GridPoints),
-		BaseResult.GridPoints < 1000000);
+
+	// --- (a) 绝对参照：抓「退回整球栅格」 ---
+	// 本夹具两簇各 15³ = 3375 角点，合计约 6750。旧「整球一个栅格」在同参数下
+	// 起点就是 41³ = 68921（每元素），按 CellsPerPod 推则约 240³ ≈ 1.4e7。
+	// 20000 是绝对门槛，不依赖任何相对比较。
+	AddInfo(FString::Printf(TEXT("RadiusInvariance 夹具 GridPoints = %d"), BaseResult.GridPoints));
+	TestTrue(*FString::Printf(TEXT("角点数 %d < 20000（整球栅格 ≥ 68921）"), BaseResult.GridPoints),
+		BaseResult.GridPoints < 20000);
+
+	// --- (b) 外来小矿囊不影响本元素：抓「簇内最小半径 → 全局最小半径」 ---
+	// 场 A：元素 0 一个 r = 0.20 的矿囊。
+	// 场 B：同一个元素 0 同一个矿囊 + 元素 1 一个远离它的 r = 0.01 小矿囊。
+	// 按簇定尺时两簇互不相干 ⇒ 元素 0 的网格完全相同；换成全局最小半径 ⇒
+	// 格边被 0.01 拖小 20 倍 ⇒ 三角形数必然不等。
+	FPlanetGeologyElementParams BigParams = MakeElement(TEXT("big"), 0.20f, 11);
+	const auto AloneField = MakeField(*MakePreset({BigParams}));
+
+	if (!TestEqual(TEXT("场 A 的元素数"), AloneField->NumElements(), 1)
+		|| !TestEqual(TEXT("场 A 的矿囊数"), AloneField->GetPods(0).Num(), 1))
+	{
+		return false;
+	}
+	const FPlanetGeologyPod BigPod = AloneField->GetPods(0)[0];
+
+	// 元素 1 的矿囊位置由种子决定：搜一个与 r = 0.20 矿囊 AABB 不相交的种子，
+	// 读回实际 Center/Radius 自证，不依赖「应该不会碰」。
+	int32 SmallSeed = 0;
+	for (int32 Seed = 1; Seed <= 4096 && SmallSeed == 0; ++Seed)
+	{
+		const FPlanetGeologyElementParams Candidate = MakeElement(TEXT("small"), 0.01f, Seed);
+		const auto ProbeField = MakeField(*MakePreset({BigParams, Candidate}));
+		const TArray<FPlanetGeologyPod>& ProbePods = ProbeField->GetPods(1);
+		if (ProbePods.Num() == 1 && !ArePodAabbsOverlapping(BigPod, ProbePods[0]))
+		{
+			SmallSeed = Seed;
+		}
+	}
+	if (!TestTrue(TEXT("找到与 R=0.20 矿囊 AABB 不相交的 R=0.01 夹具"), SmallSeed != 0))
+	{
+		return false;
+	}
+
+	const FPlanetGeologyElementParams SmallParams = MakeElement(TEXT("small"), 0.01f, SmallSeed);
+	const auto BothField = MakeField(*MakePreset({BigParams, SmallParams}));
+	if (!TestEqual(TEXT("场 B 的元素数"), BothField->NumElements(), 2)
+		|| !TestEqual(TEXT("场 B 的元素 0 矿囊数"), BothField->GetPods(0).Num(), 1)
+		|| !TestEqual(TEXT("场 B 的元素 1 矿囊数"), BothField->GetPods(1).Num(), 1))
+	{
+		return false;
+	}
+	const FPlanetGeologyPod& BothBig = BothField->GetPods(0)[0];
+	const FPlanetGeologyPod& BothSmall = BothField->GetPods(1)[0];
+	TestTrue(TEXT("场 B 的元素 0 矿囊与场 A 完全相同"),
+		BothBig.Center.Equals(BigPod.Center, 0.0) && BothBig.Radius == BigPod.Radius);
+	TestFalse(TEXT("夹具的两矿囊 AABB 确实不相交"),
+		ArePodAabbsOverlapping(BothBig, BothSmall));
+
+	PlanetMineralSurface::FBuildResult AloneResult;
+	PlanetMineralSurface::Build(*AloneField, Base, AloneResult);
+	PlanetMineralSurface::FBuildResult BothResult;
+	PlanetMineralSurface::Build(*BothField, Base, BothResult);
+
+	if (!TestTrue(TEXT("R=0.20 的大矿囊确实出面"),
+		AloneResult.MeshesByElement.IsValidIndex(0)
+		&& AloneResult.MeshesByElement[0].Triangles.Num() > 0)
+		|| !TestEqual(TEXT("场 B 的元素网格数"), BothResult.MeshesByElement.Num(), 2))
+	{
+		return false;
+	}
+
+	TestEqual(TEXT("外来小矿囊不改变本元素三角形数"),
+		BothResult.MeshesByElement[0].Triangles.Num(),
+		AloneResult.MeshesByElement[0].Triangles.Num());
+	TestEqual(TEXT("外来小矿囊不改变本元素占据格数"),
+		BothResult.MeshesByElement[0].OccupiedCells,
+		AloneResult.MeshesByElement[0].OccupiedCells);
 	return true;
 }
 
