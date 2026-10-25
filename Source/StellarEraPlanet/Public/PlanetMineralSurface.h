@@ -60,7 +60,7 @@ namespace PlanetMineralSurface
 
 		bool operator==(const FCacheKey& Other) const
 		{
-			// 半径以厘米计：1 mm 之内视为同一颗行星。
+			// 半径以厘米计：容差 0.01 cm（0.1 mm）之内视为同一颗行星。
 			return Planet == Other.Planet
 				&& FMath::IsNearlyEqual(SurfaceRadiusCm, Other.SurfaceRadiusCm, 0.01f)
 				&& Scale.Equals(Other.Scale, 0.01)

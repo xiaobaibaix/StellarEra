@@ -624,7 +624,7 @@ bool FPlanetMineralSurfaceCacheKeyTest::RunTest(const FString& Parameters)
 
 	PlanetMineralSurface::FCacheKey TinyRadius = Base;
 	TinyRadius.SurfaceRadiusCm = 100000.003f;
-	TestTrue(TEXT("半径差 3 mm 视为同一颗行星"), TinyRadius == Base);
+	TestTrue(TEXT("半径差 0.03 mm 视为同一颗行星"), TinyRadius == Base);
 
 	PlanetMineralSurface::FCacheKey Scale = Base;
 	Scale.Scale = FVector(2.0, 2.0, 2.0);
