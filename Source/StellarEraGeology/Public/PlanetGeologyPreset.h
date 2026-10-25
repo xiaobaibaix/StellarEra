@@ -103,12 +103,12 @@ struct STELLARERAGEOLOGY_API FPlanetGeologyElementParams
 };
 
 /**
- * 一颗行星的地质预设：**目标形态**，当前还没有消费者。
+ * 一颗行星的地质预设。**唯一数据源**：JSON 预设已退役。
  *
- * 运行期目前仍走 JSON 预设（PlanetGeologyField::LoadFromFiles），改这个资产对地形零影响；
- * 消费者在后续任务接入，接入后 JSON 退役。
+ * 消费链：AVoxelPlanetActor::GeologyAsset → UVoxelPlanetGenerator::GeologyPreset
+ * → FPlanetGeologyField::BuildFromPreset。改完资产后调用 ReloadGeology 重建行星。
  *
- * 元素数组的顺序 = 采样顺序 = 图例顺序 = 矿体组件下标，四者共用（消费者接入后生效）。
+ * 元素数组的顺序 = 采样顺序 = 图例顺序 = 矿体组件下标，四者共用。
  */
 UCLASS(BlueprintType)
 class STELLARERAGEOLOGY_API UPlanetGeologyPreset : public UDataAsset

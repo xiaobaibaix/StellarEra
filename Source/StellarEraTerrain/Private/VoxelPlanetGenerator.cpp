@@ -4,6 +4,7 @@
 #include "VoxelPlanetGenerator.h"
 
 #include "PlanetGeologyField.h"
+#include "PlanetGeologyPreset.h"
 #include "VoxelPlanetTerrainModule.h"
 #include "VoxelPlanetSphereTerrain.h"
 
@@ -38,32 +39,29 @@ FVoxelPlanetTerrainContext UVoxelPlanetGenerator::MakeTerrainContext()
 
 TSharedPtr<const FPlanetGeologyField> UVoxelPlanetGenerator::GetGeology()
 {
-	if (GeologyPreset.IsEmpty())
+	if (!GeologyPreset)
 	{
 		return nullptr;
 	}
 
 	const double CacheRadius = double(Radius);
-	if (bGeologyCacheValid
-		&& GeologyCachePreset == GeologyPreset
-		&& GeologyCacheRadius == CacheRadius)
+	const int32 CacheRevision = GeologyPreset->GetRevision();
+	if (GeologyCache.IsValid()
+		&& GeologyCachePreset.Get() == GeologyPreset.Get()
+		&& GeologyCacheRadius == CacheRadius
+		&& GeologyCacheRevision == CacheRevision)
 	{
 		return GeologyCache;
 	}
 
-	FPlanetGeologyLoadReport Report;
-	GeologyCache = FPlanetGeologyField::LoadFromFiles(GeologyPreset, Report, CacheRadius);
+	GeologyCache = FPlanetGeologyField::BuildFromPreset(*GeologyPreset, CacheRadius);
 	GeologyCachePreset = GeologyPreset;
 	GeologyCacheRadius = CacheRadius;
-	bGeologyCacheValid = true;
+	GeologyCacheRevision = CacheRevision;
 
-	for (const FString& Error : Report.Errors)
+	if (GeologyCache->IsEmpty())
 	{
-		UE_LOG(LogTemp, Error, TEXT("行星地质 '%s': %s"), *GeologyPreset, *Error);
-	}
-	for (const FString& Warning : Report.Warnings)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("行星地质 '%s': %s"), *GeologyPreset, *Warning);
+		UE_LOG(LogTemp, Warning, TEXT("行星地质预设 %s 没有任何元素"), *GeologyPreset->GetPathName());
 	}
 
 	return GeologyCache;
@@ -74,5 +72,5 @@ void UVoxelPlanetGenerator::InvalidateGeology()
 	GeologyCache.Reset();
 	GeologyCachePreset.Reset();
 	GeologyCacheRadius = 0.0;
-	bGeologyCacheValid = false;
+	GeologyCacheRevision = 0;
 }

@@ -6,6 +6,7 @@
 #include "Math/RandomStream.h"
 #include "PlanetGeologyField.h"
 #include "PlanetGeologyPreset.h"
+#include "VoxelPlanetGenerator.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -73,10 +74,8 @@ bool FPlanetGeologyPodCoverageTest::RunTest(const FString& Parameters)
 	}
 
 	// 0) 矿囊路径的几何幅度必须真的能生效：MaxReachDepth 不设时 SampleGeometryDelta
-	//    会在 Depth > 0 直接早退，GeometryAmplitude 变成死参数。这两条断言是那个修复的护栏。
-	TestEqual(TEXT("MaxReachDepth 等于行星半径"),
-		Field->GetMaxReachDepth(), float(PlanetRadiusVoxels), 1e-3f);
-
+	//    会在 Depth > 0 直接早退，GeometryAmplitude 变成死参数。下面这条断言是那个修复的护栏。
+	//（GetMaxReachDepth 访问器已在 Task 3 删除，护栏改由公开的 SampleGeometryDelta 承担。）
 	const FPlanetGeologyPod* InnermostPod = nullptr;
 	for (int32 ElementIndex = 0; ElementIndex < 2; ++ElementIndex)
 	{
@@ -419,6 +418,132 @@ bool FPlanetGeologyPodShapeTest::RunTest(const FString& Parameters)
 	const double Ratio = InsideSolid > 0 ? double(InsideVeined) / double(InsideSolid) : 0.0;
 	TestTrue(*FString::Printf(TEXT("囊内高值点占比 %.2f 应在 (0.05, 0.95)"), Ratio),
 		Ratio > 0.05 && Ratio < 0.95);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyDeterminismTest,
+	"StellarEra.Planet.Geology.Determinism",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyDeterminismTest::RunTest(const FString& Parameters)
+{
+	using namespace PlanetGeologyPodTest;
+
+	UPlanetGeologyPreset* Preset = MakePreset({
+		MakeElement(TEXT("a"), 12, 0.05f, 3, 0.3f),
+		MakeElement(TEXT("b"), 9, 0.04f, 4, 0.3f)});
+	const auto First = MakeField(*Preset);
+	const auto Second = MakeField(*Preset);
+
+	FRandomStream Rng(2024);
+	int32 Mismatches = 0;
+	for (int32 SampleIndex = 0; SampleIndex < 500; ++SampleIndex)
+	{
+		const FVector P = RandomPoint(Rng);
+		for (int32 ElementIndex = 0; ElementIndex < 2; ++ElementIndex)
+		{
+			if (First->SampleElementNormAtNormalized(ElementIndex, P)
+				!= Second->SampleElementNormAtNormalized(ElementIndex, P))
+			{
+				++Mismatches;
+			}
+		}
+	}
+
+	TestEqual(TEXT("同一预设两次建场逐点完全相同"), Mismatches, 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyBoundsTest,
+	"StellarEra.Planet.Geology.Bounds",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyBoundsTest::RunTest(const FString& Parameters)
+{
+	using namespace PlanetGeologyPodTest;
+
+	UPlanetGeologyPreset* Preset = MakePreset({
+		MakeElement(TEXT("a"), 20, 0.06f, 11, 0.2f),
+		MakeElement(TEXT("b"), 20, 0.06f, 12, 0.4f)});
+	const auto Field = MakeField(*Preset);
+
+	FRandomStream Rng(5150);
+	for (int32 SampleIndex = 0; SampleIndex < 5000; ++SampleIndex)
+	{
+		const FVector P = RandomPoint(Rng);
+		for (int32 ElementIndex = 0; ElementIndex < 2; ++ElementIndex)
+		{
+			const float Norm = Field->SampleElementNormAtNormalized(ElementIndex, P);
+			if (!TestTrue(*FString::Printf(TEXT("Norm %.4f 在 [0,1]"), Norm),
+				Norm >= 0.f && Norm <= 1.f))
+			{
+				return false;
+			}
+		}
+
+		const FPlanetGeologySample Sample = Field->Sample(P.GetSafeNormal(),
+			(1.0 - double(P.Size())) * PlanetRadiusVoxels);
+		if (!TestTrue(*FString::Printf(TEXT("Total %.4f / Dominant %.4f / Purity %.4f 均在 [0,1]"),
+			Sample.TotalNorm, Sample.DominantNorm, Sample.Purity),
+			Sample.TotalNorm >= 0.f && Sample.TotalNorm <= 1.f
+			&& Sample.DominantNorm >= 0.f && Sample.DominantNorm <= 1.f
+			&& Sample.Purity >= 0.f && Sample.Purity <= 1.f))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyColorTest,
+	"StellarEra.Planet.Geology.Color",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyColorTest::RunTest(const FString& Parameters)
+{
+	using namespace PlanetGeologyPodTest;
+
+	FPlanetGeologyElementParams Red = MakeElement(TEXT("red"), 6, 0.10f, 21, 0.0f);
+	Red.Color = FLinearColor::Red;
+	FPlanetGeologyElementParams Blue = MakeElement(TEXT("blue"), 6, 0.10f, 22, 0.0f);
+	Blue.Color = FLinearColor::Blue;
+
+	UPlanetGeologyPreset* Preset = MakePreset({Red, Blue});
+	const auto Field = MakeField(*Preset);
+
+	// 在红矿囊中心附近找一个红占优的点，颜色必须偏红。
+	for (const FPlanetGeologyPod& Pod : Field->GetPods(0))
+	{
+		const FPlanetGeologySample Sample = Field->Sample(
+			Pod.Center.GetSafeNormal(),
+			(1.0 - double(Pod.Center.Size())) * PlanetRadiusVoxels);
+		if (Sample.DominantIndex == 0 && Sample.MineralColor.R > Sample.MineralColor.B)
+		{
+			return true;
+		}
+	}
+
+	TestTrue(TEXT("至少有一个点由红色元素主导且颜色偏红"), false);
+	return false;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyGeneratorParametersTest,
+	"StellarEra.Planet.Geology.GeneratorParametersSupported",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyGeneratorParametersTest::RunTest(const FString& Parameters)
+{
+	const FProperty* Property = FindFProperty<FProperty>(
+		UVoxelPlanetGenerator::StaticClass(), TEXT("GeologyPreset"));
+	if (!TestNotNull(TEXT("生成器上有 GeologyPreset 属性"), Property))
+	{
+		return false;
+	}
+
+	TestTrue(TEXT("必须是对象指针"), CastField<FObjectProperty>(Property) != nullptr);
+	TestTrue(TEXT("必须带 CPF_Edit"), Property->HasAnyPropertyFlags(CPF_Edit));
+	TestTrue(TEXT("必须同时带 CPF_EditConst（否则 VoxelFree 参数枚举会 ensure）"),
+		Property->HasAnyPropertyFlags(CPF_EditConst));
 	return true;
 }
 

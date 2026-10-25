@@ -14,6 +14,7 @@
 #include "VoxelPlanetTerrainModule.h"
 #include "PlanetSurfaceGridComponent.h"
 #include "PlanetGeologyField.h"
+#include "PlanetGeologyPreset.h"
 #include "HAL/IConsoleManager.h"
 #include "EngineUtils.h"
 #include "Materials/MaterialInterface.h"
@@ -470,7 +471,7 @@ void AVoxelPlanetActor::RebuildPlanet()
 	// 模块本身不带位置和尺寸，同一份资产可以喂给任意多颗行星。
 	PlanetGenerator->Terrain = Terrain;
 	// 地质预设与地形模块一样，是「这颗行星」的参数。
-	PlanetGenerator->GeologyPreset = GeologyPreset;
+	PlanetGenerator->GeologyPreset = GeologyAsset;
 
 	// --- 2. 把世界边长收到刚好裹住星球 ---
 	// AVoxelWorld 的 RenderOctreeDepth 默认是 10，即世界边长 32768 体素，
@@ -692,19 +693,47 @@ void AVoxelPlanetActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	Super::EndPlay(EndPlayReason);
 }
 
+void AVoxelPlanetActor::PostLoad()
+{
+	Super::PostLoad();
+
+	// 迁移：旧关卡存的是 JSON 预设名。找不到资产就原样保留字符串，
+	// 不报错 —— 资产可能还没建（Task 6）。
+	if (!GeologyAsset && !GeologyPreset.IsEmpty())
+	{
+		const FSoftObjectPath LegacyPath = MakeLegacyGeologyAssetPath(GeologyPreset);
+		if (UPlanetGeologyPreset* Loaded = Cast<UPlanetGeologyPreset>(LegacyPath.TryLoad()))
+		{
+			GeologyAsset = Loaded;
+			UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor::PostLoad: %s 的地质预设 '%s' → %s"),
+				*GetName(), *GeologyPreset, *LegacyPath.ToString());
+		}
+	}
+}
+
+FSoftObjectPath AVoxelPlanetActor::MakeLegacyGeologyAssetPath(const FString& LegacyName)
+{
+	FString Name = LegacyName;
+	Name.TrimStartAndEndInline();
+	if (Name.IsEmpty())
+	{
+		return FSoftObjectPath();
+	}
+	Name[0] = FChar::ToUpper(Name[0]);
+
+	const FString AssetName = FString::Printf(TEXT("DA_Geology_%s"), *Name);
+	return FSoftObjectPath(FString::Printf(
+		TEXT("/Game/Geology/Planets/%s.%s"), *AssetName, *AssetName));
+}
+
 void AVoxelPlanetActor::ReloadGeology()
 {
-	// 生成器缓存必须在重建之前作废：重建会重新 GetInstance()，那时才读新 JSON。
+	// 预设在资产里的修订号变了，丢缓存后重建即可。
 	if (PlanetGenerator)
 	{
 		PlanetGenerator->InvalidateGeology();
 	}
 	InvalidateAndRebuild();
-}
-
-TArray<FString> AVoxelPlanetActor::GetGeologyPresetOptions() const
-{
-	return FPlanetGeologyField::ListPresetNames();
 }
 
 float AVoxelPlanetActor::GetSurfaceRadiusCm() const
@@ -919,35 +948,10 @@ uint64 AVoxelPlanetActor::ComputeParamsHash() const
 	const FString TerrainPath = Terrain ? Terrain->GetPathName() : FString();
 	Mix(*TerrainPath, TerrainPath.Len() * sizeof(TCHAR));
 
-	// 地质预设与地形模块同理：只混名字，不混地质场指针。
-	const FString GeologyPresetName = GeologyPreset;
-	Mix(*GeologyPresetName, GeologyPresetName.Len() * sizeof(TCHAR));
+	// 按资产路径混合，不混指针：重载后地址变了、资产没变，混指针会破坏哈希。
+	// 也不混 Revision —— 改预设内容不会重刷已烘焙的体素，那是显式的「重建行星」。
+	const FString GeologyAssetPath = GeologyAsset ? GeologyAsset->GetPathName() : FString();
+	Mix(*GeologyAssetPath, GeologyAssetPath.Len() * sizeof(TCHAR));
 
 	return Hash;
 }
-
-#if WITH_EDITOR
-namespace
-{
-	// 改完 Content/Geology/*.json 的快捷入口，省掉重启编辑器。
-	FAutoConsoleCommandWithWorld ReloadGeologyCommand(
-		TEXT("StellarEra.ReloadGeology"),
-		TEXT("重新读取 Content/Geology 下的 JSON，并重建场景中所有体素行星。"),
-		FConsoleCommandWithWorldDelegate::CreateLambda([](UWorld* World)
-		{
-			if (!World)
-			{
-				return;
-			}
-
-			int32 PlanetCount = 0;
-			for (TActorIterator<AVoxelPlanetActor> It(World); It; ++It)
-			{
-				It->ReloadGeology();
-				++PlanetCount;
-			}
-
-			UE_LOG(LogTemp, Log, TEXT("StellarEra.ReloadGeology: 重建了 %d 颗行星"), PlanetCount);
-		}));
-}
-#endif

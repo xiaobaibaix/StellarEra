@@ -13,6 +13,7 @@
 class UVoxelPlanetGenerator;
 class UVoxelPlanetSphereTerrain;
 class UVoxelPlanetTerrainModule;
+class UPlanetGeologyPreset;
 class FPlanetGeologyField;
 
 /**
@@ -45,17 +46,17 @@ public:
 	FVoxelPlanetTerrainContext MakeTerrainContext();
 
 	/**
-	 * 按 GeologyPreset + Radius 懒加载并缓存。
+	 * 按 GeologyPreset 资产 + Radius 懒加载并缓存。
 	 * - 预设为空 → 返回 nullptr；
-	 * - 加载失败 → 返回**有效空场**（IsValid() 且 IsEmpty()），错误写入日志；
-	 * - 缓存键是「预设名 + 半径」，失败结果同样被缓存，直到 InvalidateGeology()。
+	 * - 预设没有任何元素 → 返回**有效空场**（IsValid() 且 IsEmpty()），并打 Warning；
+	 * - 缓存键是「资产 + 半径 + 资产修订号」，直到 InvalidateGeology()。
 	 *
-	 * 半径进缓存键的原因：行星 JSON 里的深层矿带用半径比例描述，同一预设
-	 * 装在不同大小的行星上会解析出不同的体素深度。
+	 * 半径进缓存键的原因：归一化坐标要把体素深度换算成半径比例，同一预设
+	 * 装在不同大小的行星上，同一个 Depth 对应的归一化点不同。
 	 */
 	TSharedPtr<const FPlanetGeologyField> GetGeology();
 
-	/** 丢弃缓存；下次 GetGeology 重新读盘。 */
+	/** 丢弃缓存；下次 GetGeology 按当前资产重新构建。 */
 	void InvalidateGeology();
 
 	/**
@@ -78,26 +79,22 @@ public:
 	FLinearColor SurfaceColor = FLinearColor(0.18f, 0.42f, 0.16f);
 
 	/**
-	 * 地质预设名：Content/Geology/Planets/<name>.json。空 = 关闭地质。
+	 * 地质预设资产。空 = 关闭地质。
 	 *
-	 * 故意**不做成 EditAnywhere**（VisibleAnywhere = Edit + EditConst）：
-	 * VoxelFree 的 UVoxelGenerator::GetParameters 会枚举每个可编辑属性并构造
-	 * FVoxelGeneratorParameterType，而后者只支持 float/int/bool/object/softobject/
-	 * struct/array/set/map —— FString 会直接命中断言
-	 *（VoxelGeneratorParameters.cpp:176）。在场景大纲里选中行星 Actor 时，
-	 * Details 里继承来的 Generator 选择器会调 GetParameters，于是每次都弹 ensure。
-	 * 作者入口是 AVoxelPlanetActor::GeologyPreset，RebuildPlanet 每次把它推到这里。
+	 * 必须是 **VisibleAnywhere**（= Edit + EditConst），不能是 EditAnywhere：
+	 * VoxelFree 的 UVoxelGenerator::GetParameters 会枚举可编辑属性并构造
+	 * FVoxelGeneratorParameterType。作者入口是 AVoxelPlanetActor::GeologyAsset，
+	 * RebuildPlanet 每次把它推到这里。
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Planet|Geology")
-	FString GeologyPreset;
+	TObjectPtr<UPlanetGeologyPreset> GeologyPreset;
 
 private:
-	/** 地质场缓存。键是 GeologyPreset + GeologyCacheRadius；失败也缓存，避免每个采样点都读盘。 */
 	TSharedPtr<const FPlanetGeologyField> GeologyCache;
-	FString GeologyCachePreset;
-	/** 缓存对应的行星半径（体素）；比例矿带按它换算成绝对深度。 */
+	TWeakObjectPtr<UPlanetGeologyPreset> GeologyCachePreset;
 	double GeologyCacheRadius = 0.0;
-	bool bGeologyCacheValid = false;
+	/** 建缓存时的预设修订号：资产内容变了就重建。 */
+	int32 GeologyCacheRevision = 0;
 
 	/**
 	 * Terrain 为空时代理的那个纯球模块。

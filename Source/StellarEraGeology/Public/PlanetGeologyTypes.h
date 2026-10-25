@@ -1,24 +1,10 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
-// 行星地质系统的值类型：元素定义、采样结果、外观参数、加载诊断。
+// 行星地质系统的值类型：元素定义、矿囊、采样结果、外观参数。
 
 #pragma once
 
 #include "CoreMinimal.h"
 #include "PlanetGeologyTypes.generated.h"
-
-/**
- * 一条高斯矿层的深度剖面。
- *
- * 深度单位是体素，正 = 基准球面以下。同一元素可以有多条带：
- * 浅层带服务地表挖矿，深层带用半径比例描述行星内部结构。
- */
-struct FPlanetGeologyBand
-{
-	float PeakDepth = 0.f;
-	float LayerThickness = 16.f;
-	/** |peakDepth| + 3 * layerThickness，解析时算好。 */
-	float ReachDepth = 0.f;
-};
 
 /** 一个矿囊：归一化空间的球（行星基准半径 = 1）。 */
 struct FPlanetGeologyPod
@@ -35,11 +21,11 @@ struct FPlanetGeologyPodRef
 };
 
 /**
- * 元素表的单条定义。
+ * 元素的运行期定义（预置资产 → 地质场的内部形态）。
  *
  * 刻意不是 USTRUCT：它只在地质系统内部按值传递，不进反射、不进蓝图。
- * 它仍是 JSON 解析与运行期采样的内部类型；可进资产的编辑形态见
- * FPlanetGeologyElementParams（PlanetGeologyPreset.h）。
+ * 可编辑形态见 FPlanetGeologyElementParams（PlanetGeologyPreset.h），
+ * 预设资产是唯一编辑入口。
  */
 struct FPlanetGeologyElement
 {
@@ -47,14 +33,10 @@ struct FPlanetGeologyElement
 	FString DisplayName;
 	FLinearColor Color = FLinearColor::White;
 
-	// --- 行星级参数（解析行星 JSON 时填入） ---
+	/** 只影响颜色混合权重与图例占比，不改几何。 */
 	float Abundance = 0.f;
-	/** 该元素的全部矿层，解析后至少一条。 */
-	TArray<FPlanetGeologyBand> Bands;
-	/** 所有带里最大的 |peakDepth| + 3 * layerThickness，供采样早退。 */
-	float ReachDepth = 0.f;
 
-	// --- 矿囊（预设路径；JSON 路径下为空，走 Bands 分支） ---
+	// --- 矿囊 ---
 	TArray<FPlanetGeologyPod> Pods;
 	/** 名义半径（归一化）。噪声坐标的缩放基准，不随单囊抖动。 */
 	float PodRadius = 0.05f;
@@ -66,9 +48,6 @@ struct FPlanetGeologyElement
 	float Lacunarity = 2.f;
 	float Gain = 0.5f;
 	int32 Seed = 0;
-	/** 旧矿层路径专用：噪声频率与深度缩放。**Task 2 必须留着**，Task 3 与 Bands 一起删。 */
-	float Frequency = 3.f;
-	float DepthScale = 0.3f;
 
 	/**
 	 * 矿脉稀疏阈值（0..0.95，来自元素表 noise.veinThreshold）。
@@ -85,7 +64,7 @@ struct FPlanetGeologySample
 {
 	float TotalNorm = 0.f;
 	/**
-	 * 最强元素自身的归一化强度 = 高斯层因子 × 矿脉因子（raw_i / abundance_i）。
+	 * 最强元素自身的归一化强度 = 矿囊衰减 × 矿脉因子（raw_i / abundance_i）。
 	 *
 	 * 与元素丰度无关：丰度 0.05 的铀在自己的矿脉里也能到 1。
 	 * 颜色显现必须用它而不是 TotalNorm，否则低丰度元素永远够不到阈值。
@@ -114,13 +93,4 @@ struct STELLARERAGEOLOGY_API FPlanetGeologyAppearance
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Appearance",
 		meta = (ClampMin = "0.01", ClampMax = "1.0"))
 	float PurityForFullColor = 0.7f;
-};
-
-/** 解析诊断。Errors 非空时整份配置按「没有矿」处理。 */
-struct FPlanetGeologyLoadReport
-{
-	TArray<FString> Warnings;
-	TArray<FString> Errors;
-
-	bool HasErrors() const { return Errors.Num() > 0; }
 };

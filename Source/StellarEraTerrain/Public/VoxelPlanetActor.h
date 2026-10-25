@@ -13,6 +13,7 @@ class UPlanetSurfaceGridComponent;
 class UVoxelPlanetGenerator;
 class UVoxelPlanetTerrainModule;
 class UVoxelSimpleInvokerComponent;
+class UPlanetGeologyPreset;
 class FPlanetGeologyField;
 
 /**
@@ -47,6 +48,7 @@ public:
 	virtual void OnConstruction(const FTransform& Transform) override;
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void PostLoad() override;
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
@@ -151,21 +153,31 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Terrain")
 	TObjectPtr<UVoxelPlanetTerrainModule> Terrain;
 
-	/**
-	 * 地质预设名：Content/Geology/Planets/<name>.json 的 <name>。
-	 * 空 = 这颗行星没有矿。下拉框由 GetGeologyPresetOptions 提供。
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Geology",
-		meta = (GetOptions = "GetGeologyPresetOptions"))
-	FString GeologyPreset = TEXT("earth");
+	/** 地质预设资产。空 = 这颗行星没有矿。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Geology")
+	TObjectPtr<UPlanetGeologyPreset> GeologyAsset;
 
-	/** 重新读盘并重建这颗行星：改完 JSON 后调用。 */
+	/**
+	 * 旧字段，只用于加载时迁移（存的是 JSON 预设名）。
+	 * PostLoad 会按 MakeLegacyGeologyAssetPath 找资产并写进 GeologyAsset。
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet|Geology",
+		meta = (DeprecatedProperty))
+	FString GeologyPreset;
+
+	/** 重新取地质场并重建这颗行星：改完预设资产后调用。 */
 	UFUNCTION(BlueprintCallable, Category = "Planet|Geology")
 	void ReloadGeology();
 
-	/** 编辑器下拉框的选项：Content/Geology/Planets 下所有预设名。 */
+	/** 当前地质预设资产（编辑器预览订阅它）。 */
 	UFUNCTION(BlueprintPure, Category = "Planet|Geology")
-	TArray<FString> GetGeologyPresetOptions() const;
+	UPlanetGeologyPreset* GetGeologyPresetAsset() const { return GeologyAsset; }
+
+	/**
+	 * 旧字段名 → 预设资产路径：`earth` → `/Game/Geology/Planets/DA_Geology_Earth`。
+	 * 空名返回空路径。纯函数，便于测试。
+	 */
+	static FSoftObjectPath MakeLegacyGeologyAssetPath(const FString& LegacyName);
 
 	//////////////////////////////////////////////////////////////////////////
 	// 性能
