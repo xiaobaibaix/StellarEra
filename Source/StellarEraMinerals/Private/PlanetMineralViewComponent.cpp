@@ -4,6 +4,7 @@
 
 #include "PlanetAtmosphereComponent.h"
 #include "PlanetGeologyField.h"
+#include "PlanetGeologyPreset.h"
 #include "PlanetMineralViewActor.h"
 #include "VoxelPlanetActor.h"
 
@@ -40,6 +41,15 @@ bool UPlanetMineralViewComponent::Activate(AVoxelPlanetActor* InPlanet)
 	{
 		return false;
 	}
+
+	// 编辑器世界与 PIE 是两套世界；用 WorldType 判，不用 GEditor->IsPlaySessionInProgress。
+	// 非编辑器构建里没有「编辑器世界」这个概念，常量折叠成 false；同时也避开了
+	// AActor 上只在 WITH_EDITOR 下才存在的临时隐藏 API（Actor.h 2583 行起）。
+#if WITH_EDITOR
+	const bool bInEditorWorld = World->WorldType == EWorldType::Editor;
+#else
+	const bool bInEditorWorld = false;
+#endif
 
 	const float SurfaceRadiusCm = InPlanet->GetSurfaceRadiusCm();
 	// 地质深度以体素计，换回厘米要用单个体素的厘米尺寸（基类属性，与 Radius 同级）。
@@ -111,6 +121,11 @@ bool UPlanetMineralViewComponent::Activate(AVoxelPlanetActor* InPlanet)
 		PerElementParts.IsEmpty() ? TEXT("(无元素)") : *FString::Join(PerElementParts, TEXT(" ")));
 
 	FActorSpawnParameters SpawnParams;
+	if (bInEditorWorld)
+	{
+		// 永远不写进 umap。
+		SpawnParams.ObjectFlags |= RF_Transient;
+	}
 	// Owner 是 AActor*：组件不能当 Owner，取本组件的宿主 Actor（就是这颗行星）。
 	SpawnParams.Owner = GetOwner();
 	SpawnParams.SpawnCollisionHandlingOverride =
@@ -136,23 +151,50 @@ bool UPlanetMineralViewComponent::Activate(AVoxelPlanetActor* InPlanet)
 	CachedGeology = Geology;
 	Elements = SampledElements;
 
-	// 先存后改：恢复时原样写回，别假设进入前一定是「可见 + 有碰撞」。
-	bSavedPlanetHidden = InPlanet->IsHidden();
-	bSavedCollisionEnabled = InPlanet->GetActorEnableCollision();
-	InPlanet->SetActorEnableCollision(false);
-	InPlanet->SetActorHiddenInGame(true);
+	bEditorPreview = bInEditorWorld;
 
-	if (UPlanetAtmosphereComponent* Atmosphere =
-		InPlanet->FindComponentByClass<UPlanetAtmosphereComponent>())
+	if (bEditorPreview)
 	{
-		bSavedAtmosphereEnabled = Atmosphere->bAtmosphereEnabled;
-		bSavedAtmosphereVisible = Atmosphere->IsVisible();
-		Atmosphere->bAtmosphereEnabled = false;
-		Atmosphere->SetVisibility(false);
+		// 编辑器分支**不改任何 UPROPERTY**：翻 bAtmosphereEnabled / bActorEnableCollision
+		// 会把关卡标脏，退出后留下待提交的脏包。临时隐藏是非序列化状态。
+		// 这两个 API 在 AActor 上是 WITH_EDITOR 专有，非编辑器构建里 bEditorPreview
+		// 恒为 false，所以整段才不会走到。
+#if WITH_EDITOR
+		bSavedPlanetHiddenInEditor = InPlanet->IsTemporarilyHiddenInEditor();
+		InPlanet->SetIsTemporarilyHiddenInEditor(true);
+#endif
+	}
+	else
+	{
+		// 先存后改：恢复时原样写回，别假设进入前一定是「可见 + 有碰撞」。
+		bSavedPlanetHidden = InPlanet->IsHidden();
+		bSavedCollisionEnabled = InPlanet->GetActorEnableCollision();
+		InPlanet->SetActorEnableCollision(false);
+		InPlanet->SetActorHiddenInGame(true);
+
+		if (UPlanetAtmosphereComponent* Atmosphere =
+			InPlanet->FindComponentByClass<UPlanetAtmosphereComponent>())
+		{
+			bSavedAtmosphereEnabled = Atmosphere->bAtmosphereEnabled;
+			bSavedAtmosphereVisible = Atmosphere->IsVisible();
+			Atmosphere->bAtmosphereEnabled = false;
+			Atmosphere->SetVisibility(false);
+		}
 	}
 
+#if WITH_EDITOR
+	if (bEditorPreview)
+	{
+		if (UPlanetGeologyPreset* Preset = InPlanet->GetGeologyPresetAsset())
+		{
+			PresetChangedHandle = Preset->OnPresetChanged.AddUObject(
+				this, &UPlanetMineralViewComponent::OnPreviewPresetChanged);
+		}
+	}
+#endif
+
 	bActive = true;
-	SetComponentTickEnabled(true);
+	SetComponentTickEnabled(!bEditorPreview);
 	return true;
 }
 
@@ -171,24 +213,49 @@ void UPlanetMineralViewComponent::Deactivate()
 	}
 	ViewActor = nullptr;
 
+#if WITH_EDITOR
+	if (PresetChangedHandle.IsValid())
+	{
+		if (AVoxelPlanetActor* SubscribedPlanet = Planet.Get())
+		{
+			if (UPlanetGeologyPreset* Preset = SubscribedPlanet->GetGeologyPresetAsset())
+			{
+				Preset->OnPresetChanged.Remove(PresetChangedHandle);
+			}
+		}
+		PresetChangedHandle.Reset();
+	}
+#endif
+
 	if (AVoxelPlanetActor* RestorePlanet = Planet.Get())
 	{
-		RestorePlanet->SetActorHiddenInGame(bSavedPlanetHidden);
-		RestorePlanet->SetActorEnableCollision(bSavedCollisionEnabled);
-
-		if (UPlanetAtmosphereComponent* Atmosphere =
-			RestorePlanet->FindComponentByClass<UPlanetAtmosphereComponent>())
+		if (bEditorPreview)
 		{
-			Atmosphere->bAtmosphereEnabled = bSavedAtmosphereEnabled;
-			if (bSavedAtmosphereEnabled)
+#if WITH_EDITOR
+			RestorePlanet->SetIsTemporarilyHiddenInEditor(bSavedPlanetHiddenInEditor);
+#endif
+		}
+		else
+		{
+			RestorePlanet->SetActorHiddenInGame(bSavedPlanetHidden);
+			RestorePlanet->SetActorEnableCollision(bSavedCollisionEnabled);
+
+			if (UPlanetAtmosphereComponent* Atmosphere =
+				RestorePlanet->FindComponentByClass<UPlanetAtmosphereComponent>())
 			{
-				// Refresh 末尾会 SetVisibility(true)：必须先刷新、再恢复进入前的
-				// 可见性，否则「enabled 但被手动隐藏」的壳会被强行显示。
-				Atmosphere->RefreshAtmosphereGeometry();
+				Atmosphere->bAtmosphereEnabled = bSavedAtmosphereEnabled;
+				if (bSavedAtmosphereEnabled)
+				{
+					// Refresh 末尾会 SetVisibility(true)：必须先刷新、再恢复进入前的
+					// 可见性，否则「enabled 但被手动隐藏」的壳会被强行显示。
+					Atmosphere->RefreshAtmosphereGeometry();
+				}
+				Atmosphere->SetVisibility(bSavedAtmosphereVisible);
 			}
-			Atmosphere->SetVisibility(bSavedAtmosphereVisible);
 		}
 	}
+
+	bEditorPreview = false;
 
 	Planet.Reset();
 	CachedGeology.Reset();
@@ -257,3 +324,30 @@ void UPlanetMineralViewComponent::SetAllElementsVisible(bool bNewVisible)
 		ViewActor->SetAllElementsVisible(bNewVisible);
 	}
 }
+
+#if WITH_EDITOR
+void UPlanetMineralViewComponent::EnterMineralPreviewInEditor()
+{
+	// 宿主就是行星：组件挂在 AVoxelPlanetActor 上。
+	if (!Activate(Cast<AVoxelPlanetActor>(GetOwner())))
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[矿物] 预览失败：宿主没有地质预设，或采样参数非法（%s）"),
+			*GetNameSafe(GetOwner()));
+	}
+}
+
+void UPlanetMineralViewComponent::ExitMineralPreviewInEditor()
+{
+	Deactivate();
+}
+
+void UPlanetMineralViewComponent::OnPreviewPresetChanged(UPlanetGeologyPreset* Preset)
+{
+	// 重新 Activate：BuildFromPreset 会造新场，缓存键里的地质对象随之改变 → 重建网格。
+	if (AVoxelPlanetActor* InPlanet = Planet.Get())
+	{
+		Activate(InPlanet);
+	}
+}
+#endif

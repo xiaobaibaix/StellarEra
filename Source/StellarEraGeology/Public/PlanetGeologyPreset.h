@@ -8,6 +8,13 @@
 #include "PlanetGeologyTypes.h"
 #include "PlanetGeologyPreset.generated.h"
 
+class UPlanetGeologyPreset;
+
+#if WITH_EDITOR
+/** 预设内容被改动（编辑器）。观察视图用它自动重建。 */
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnPlanetGeologyPresetChanged, UPlanetGeologyPreset*);
+#endif
+
 /**
  * 一种矿的分布参数。
  *
@@ -143,4 +150,12 @@ public:
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Geology")
 	int32 Revision = 1;
+
+#if WITH_EDITOR
+	/**
+	 * 内容变更广播。只在编辑器存在；无人订阅时零成本。
+	 * 用静态多播而不是 UPROPERTY 委托：订阅者是 C++ 组件，不需要蓝图序列化。
+	 */
+	FOnPlanetGeologyPresetChanged OnPresetChanged;
+#endif
 };

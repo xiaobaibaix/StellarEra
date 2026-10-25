@@ -7,5 +7,6 @@ void UPlanetGeologyPreset::PostEditChangeProperty(FPropertyChangedEvent& Propert
 {
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 	++Revision;
+	OnPresetChanged.Broadcast(this);
 }
 #endif

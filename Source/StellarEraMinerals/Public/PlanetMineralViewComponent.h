@@ -12,6 +12,7 @@
 class APlanetMineralViewActor;
 class AVoxelPlanetActor;
 class FPlanetGeologyField;
+class UPlanetGeologyPreset;
 
 /**
  * 行星上的矿物透视组件。观察性质：不改体素、不碰存档、不影响 N 体。
@@ -47,6 +48,21 @@ public:
 	void Deactivate();
 
 	bool IsActive() const { return bActive; }
+
+#if WITH_EDITOR
+	/**
+	 * 在编辑器视口里进入矿物预览（不进 PIE）。
+	 *
+	 * 与 PIE 的差别只有「怎么让行星消失」：这里用非序列化的临时隐藏，
+	 * 不翻任何 UPROPERTY，所以退出后关卡不会留下脏包。
+	 */
+	UFUNCTION(CallInEditor, Category = "Planet|MineralView")
+	void EnterMineralPreviewInEditor();
+
+	/** 退出编辑器预览，撤销临时隐藏。重复调用安全。 */
+	UFUNCTION(CallInEditor, Category = "Planet|MineralView")
+	void ExitMineralPreviewInEditor();
+#endif
 
 	/**
 	 * 元素数，返回 Elements.Num()（运行期采样顺序）。
@@ -103,4 +119,14 @@ private:
 	bool bSavedAtmosphereVisible = true;
 	bool bSavedPlanetHidden = false;
 	bool bSavedCollisionEnabled = true;
+
+	/** 本次激活是编辑器预览而不是 PIE/运行时。 */
+	bool bEditorPreview = false;
+	/** 进入前行星是否已被临时隐藏（编辑器分支的恢复值）。 */
+	bool bSavedPlanetHiddenInEditor = false;
+#if WITH_EDITOR
+	/** 预设变更订阅。 */
+	FDelegateHandle PresetChangedHandle;
+	void OnPreviewPresetChanged(UPlanetGeologyPreset* Preset);
+#endif
 };
