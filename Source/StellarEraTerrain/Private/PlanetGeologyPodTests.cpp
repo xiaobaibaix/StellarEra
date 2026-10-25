@@ -194,6 +194,105 @@ bool FPlanetGeologySpatialIndexTest::RunTest(const FString& Parameters)
 	}
 
 	TestEqual(TEXT("索引查询与暴力遍历逐点一致"), Mismatches, 0);
+
+	// 1) 球外：索引入口的契约是恒 0。暴力版没有球外早退，两版在这里本来就不同，
+	//    所以只钉索引版的契约，不做相等比较。
+	int32 OutsideNonZero = 0;
+	FRandomStream OutsideRng(13579);
+	for (int32 SampleIndex = 0; SampleIndex < 200; ++SampleIndex)
+	{
+		const FVector Outside = OutsideRng.GetUnitVector() * 1.2;
+		for (int32 ElementIndex = 0; ElementIndex < 3; ++ElementIndex)
+		{
+			if (Field->SampleElementNormAtNormalized(ElementIndex, Outside) != 0.f)
+			{
+				++OutsideNonZero;
+			}
+		}
+	}
+	TestEqual(TEXT("球外点索引版恒为 0"), OutsideNonZero, 0);
+
+	// 2) 矿囊边缘：d = r * (1 ± 1e-3)，索引版与暴力版必须一致。
+	//    只取仍在单位球内的探针：球外点两版本就有意不同（见上一条契约）。
+	int32 EdgeMismatches = 0;
+	int32 EdgeChecked = 0;
+	FRandomStream EdgeRng(24680);
+	for (int32 ElementIndex = 0; ElementIndex < 3; ++ElementIndex)
+	{
+		for (const FPlanetGeologyPod& Pod : Field->GetPods(ElementIndex))
+		{
+			for (int32 DirIndex = 0; DirIndex < 6; ++DirIndex)
+			{
+				const FVector Direction = EdgeRng.GetUnitVector();
+				for (const float Sign : {-1.f, 1.f})
+				{
+					const FVector Probe =
+						Pod.Center + Direction * (Pod.Radius * (1.f + Sign * 1e-3f));
+					if (Probe.SizeSquared() > 1.0 + 1e-4)
+					{
+						continue;
+					}
+					++EdgeChecked;
+					const float Indexed = Field->SampleElementNormAtNormalized(ElementIndex, Probe);
+					const float Brute = Field->SampleElementNormBruteForce(ElementIndex, Probe);
+					if (!FMath::IsNearlyEqual(Indexed, Brute, 1e-5f))
+					{
+						++EdgeMismatches;
+					}
+				}
+			}
+		}
+	}
+	TestTrue(TEXT("至少检查到矿囊边缘点"), EdgeChecked > 0);
+	TestEqual(TEXT("矿囊边缘索引版 == 暴力版"), EdgeMismatches, 0);
+
+	// 3) 重叠区：在高密度夹具里找一对相交矿囊，再在连线中点附近比对两版。
+	UPlanetGeologyPreset* DensePreset = MakePreset({
+		MakeElement(TEXT("ov"), 120, 0.18f, 4242, 0.0f)});
+	const auto DenseField = MakeField(*DensePreset);
+	const TArray<FPlanetGeologyPod>& DensePods = DenseField->GetPods(0);
+
+	const FPlanetGeologyPod* PodA = nullptr;
+	const FPlanetGeologyPod* PodB = nullptr;
+	for (int32 IndexA = 0; IndexA < DensePods.Num() && !PodA; ++IndexA)
+	{
+		for (int32 IndexB = IndexA + 1; IndexB < DensePods.Num(); ++IndexB)
+		{
+			if (FVector::Dist(DensePods[IndexA].Center, DensePods[IndexB].Center)
+				< DensePods[IndexA].Radius + DensePods[IndexB].Radius)
+			{
+				PodA = &DensePods[IndexA];
+				PodB = &DensePods[IndexB];
+				break;
+			}
+		}
+	}
+	TestTrue(TEXT("夹具里存在相交矿囊对"), PodA != nullptr && PodB != nullptr);
+	if (PodA && PodB)
+	{
+		int32 OverlapMismatches = 0;
+		FRandomStream OverlapRng(112233);
+		const FVector Midpoint = 0.5 * (PodA->Center + PodB->Center);
+		for (int32 SampleIndex = 0; SampleIndex < 100; ++SampleIndex)
+		{
+			const FVector Probe(
+				Midpoint.X + OverlapRng.FRandRange(-1.f, 1.f) * PodA->Radius * 0.25f,
+				Midpoint.Y + OverlapRng.FRandRange(-1.f, 1.f) * PodA->Radius * 0.25f,
+				Midpoint.Z + OverlapRng.FRandRange(-1.f, 1.f) * PodA->Radius * 0.25f);
+			if (Probe.SizeSquared() > 1.0 + 1e-4)
+			{
+				continue;
+			}
+			const float Indexed = DenseField->SampleElementNormAtNormalized(0, Probe);
+			const float Brute = DenseField->SampleElementNormBruteForce(0, Probe);
+			if (!FMath::IsNearlyEqual(Indexed, Brute, 1e-5f))
+			{
+				++OverlapMismatches;
+			}
+		}
+		TestEqual(TEXT("重叠区索引版 == 暴力版"), OverlapMismatches, 0);
+	}
+
 	return true;
 }
 
@@ -239,42 +338,55 @@ bool FPlanetGeologyPodShapeTest::RunTest(const FString& Parameters)
 {
 	using namespace PlanetGeologyPodTest;
 
-	FPlanetGeologyElementParams Params = MakeElement(TEXT("a"), 8, 0.06f, 55, 0.0f);
+	// 单矿囊夹具：周围没有第二个囊，径向截断的断言才不会被「落在邻囊里」旁路掉。
+	FPlanetGeologyElementParams Params = MakeElement(TEXT("a"), 1, 0.06f, 55, 0.0f);
 	Params.ShapeDetail = 3.0f;
 	UPlanetGeologyPreset* Preset = MakePreset({Params});
 	const auto Field = MakeField(*Preset);
 
 	const TArray<FPlanetGeologyPod>& Pods = Field->GetPods(0);
-	if (!TestEqual(TEXT("矿囊数"), Pods.Num(), 8))
+	if (!TestEqual(TEXT("矿囊数"), Pods.Num(), 1))
 	{
 		return false;
 	}
+	const FPlanetGeologyPod& Pod = Pods[0];
 
+	// 球外 5% 处场值必须精确为 0：这是闭网格的前提。
+	// 朝球心探，避免探针落到单位球外、被球外早退「代为」返 0（那样断言是空转）；
+	// 真落到球外就跳过。
+	const FVector Inward = Pod.Center.IsNearlyZero()
+		? FVector(-1.f, 0.f, 0.f)
+		: (-Pod.Center).GetSafeNormal();
+	const FVector Outside = Pod.Center + Inward * (Pod.Radius * 1.05f);
+	if (Outside.SizeSquared() <= 1.0 + 1e-4)
+	{
+		TestEqual(TEXT("矿囊外场值为 0"), Field->SampleElementNormAtNormalized(0, Outside), 0.f);
+	}
+
+	// 囊内既不是实心球，也不是全空：噪声必须把形状打碎。
+	// 同样跳过球外采样点：它们恒 0，只会把占比往下拉，不代表形状。
 	int32 InsideSolid = 0;
 	int32 InsideVeined = 0;
 	FRandomStream Rng(777);
-	for (const FPlanetGeologyPod& Pod : Pods)
+	for (int32 SampleIndex = 0; SampleIndex < 2000; ++SampleIndex)
 	{
-		// 球外 5% 处场值必须精确为 0：这是闭网格的前提。
-		const FVector Outside = Pod.Center + FVector(Pod.Radius * 1.05f, 0.f, 0.f);
-		TestEqual(TEXT("矿囊外场值为 0"), Field->SampleElementNormAtNormalized(0, Outside), 0.f);
-
-		// 囊内既不是实心球，也不是全空：噪声必须把形状打碎。
-		for (int32 SampleIndex = 0; SampleIndex < 200; ++SampleIndex)
+		const FVector Offset(
+			Rng.FRandRange(-1.f, 1.f) * Pod.Radius,
+			Rng.FRandRange(-1.f, 1.f) * Pod.Radius,
+			Rng.FRandRange(-1.f, 1.f) * Pod.Radius);
+		if (Offset.SizeSquared() > Pod.Radius * Pod.Radius)
 		{
-			const FVector Offset(
-				Rng.FRandRange(-1.f, 1.f) * Pod.Radius,
-				Rng.FRandRange(-1.f, 1.f) * Pod.Radius,
-				Rng.FRandRange(-1.f, 1.f) * Pod.Radius);
-			if (Offset.SizeSquared() > Pod.Radius * Pod.Radius)
-			{
-				continue;
-			}
-			++InsideSolid;
-			if (Field->SampleElementNormAtNormalized(0, Pod.Center + Offset) > 0.3f)
-			{
-				++InsideVeined;
-			}
+			continue;
+		}
+		const FVector Probe = Pod.Center + Offset;
+		if (Probe.SizeSquared() > 1.0 + 1e-4)
+		{
+			continue;
+		}
+		++InsideSolid;
+		if (Field->SampleElementNormAtNormalized(0, Probe) > 0.3f)
+		{
+			++InsideVeined;
 		}
 	}
 

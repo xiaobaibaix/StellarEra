@@ -131,13 +131,17 @@ private:
 	/**
 	 * 矿囊格索引：格边 = 全局最大矿囊半径。
 	 *
-	 * 每囊插入其包围盒覆盖的全部格子（≤ 8 格）。查询只查 P 所在格就够：
+	 * 每囊插入其包围盒覆盖的全部格子（AABB 边长可达 2 格且可跨整数边界，
+	 * 每轴最多 3 格，最多 27 格）。查询只查 P 所在格就够：
 	 * 任何包含 P 的矿囊，其包围盒必覆盖 P 所在格。
 	 */
 	TMap<FIntVector, TArray<FPlanetGeologyPodRef>> PodIndex;
 	float PodIndexCellSize = 0.f;
 
-	/** 归一化换算用的行星半径（体素）。矿层路径与外部签名换算用。 */
+	/**
+	 * 归一化换算用的行星半径（体素）。只有外部签名 (UnitDir, Depth) → 归一化坐标的
+	 * 换算读它；旧矿层分支不读，半径 0 时归一化点退化成方向。
+	 */
 	double RadiusVoxels = 0.0;
 
 	struct FAccumulation

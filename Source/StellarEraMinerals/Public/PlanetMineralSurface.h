@@ -44,7 +44,7 @@ namespace PlanetMineralSurface
 	{
 		/** 下标 = 运行期元素下标（GetSampledElementDefinitions 顺序）；空元素留空网格。 */
 		TArray<FPlanetMineralMesh> MeshesByElement;
-		/** 实际求过噪声的角点数（球外、超深的点不算），只进日志。 */
+		/** 实际求过噪声的角点数（球外点不算），只进日志。 */
 		int32 GridPoints = 0;
 		double BuildSeconds = 0.0;
 	};
@@ -72,7 +72,8 @@ namespace PlanetMineralSurface
 	/**
 	 * 逐元素抽等值面。Out 先被清空；参数非法或场为空时返回空结果，不报错。
 	 *
-	 * 球外（深度 < 0）与深度 > MaxReachDepth 的角点按 0 处理，不花噪声求值。
+	 * 只有球外（深度 < 0）的角点按 0 处理、不花噪声求值；球内所有深度都要求值
+	 * （矿囊可以贴到球心，没有「太深」的早退）。
 	 * 顶点会被径向夹到球内（`|v| <= R`）：球外场值为 0，等值线插值会把顶点落到
 	 * 球外，而 spec §7 禁止顶点出球（观察体的半透明壳就画在 R 上）。
 	 * 各元素场独立取面：两种元素同时高于门限的地方，两块矿体会互相穿插（共生矿脉），

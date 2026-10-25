@@ -462,7 +462,7 @@ namespace
 			FMath::FloorToInt(Point.Z / CellSize));
 	}
 
-	/** 球内线性衰减：中心 1，表面 0。 */
+	/** 球内二次衰减（1 - d²/r²）：中心 1，表面 0，囊外 0。 */
 	float PodInfluence(const FPlanetGeologyPod& Pod, const FVector& Point)
 	{
 		const float RadiusSquared = Pod.Radius * Pod.Radius;
@@ -580,6 +580,10 @@ TSharedPtr<const FPlanetGeologyField> FPlanetGeologyField::BuildFromPreset(
 		Field->TotalAbundance += Definition.Abundance;
 	}
 
+	// 矿囊可及整个球体：可及深度就是行星半径。不设的话 SampleGeometryDelta 的
+	// Depth > MaxReachDepth 早退对任何球内点都成立，GeometryAmplitude 永远不生效。
+	Field->MaxReachDepth = float(FMath::Max(Field->RadiusVoxels, 0.0));
+
 	Field->BuildPodIndex();
 	return Field;
 }
@@ -665,7 +669,7 @@ float FPlanetGeologyField::EvaluateElementNorm(const int32 ElementIndex,
 	// 2) 形状噪声。频率折叠进坐标（ShapeDetail 是「每囊直径的周期数」，
 	//    直径 = 2r），噪声 API 的频率参数固定传 1。
 	const double NoiseScale =
-		2.0 * double(Definition.ShapeDetail) / FMath::Max(double(Definition.PodRadius), 1e-4);
+		double(Definition.ShapeDetail) / (2.0 * FMath::Max(double(Definition.PodRadius), 1e-4));
 	const double SampleX = double(NormalizedPoint.X) * NoiseScale;
 	const double SampleY = double(NormalizedPoint.Y) * NoiseScale;
 	const double SampleZ = double(NormalizedPoint.Z) * NoiseScale;
@@ -720,7 +724,7 @@ float FPlanetGeologyField::SampleElementNormBruteForce(const int32 ElementIndex,
 	}
 
 	const double NoiseScale =
-		2.0 * double(Definition.ShapeDetail) / FMath::Max(double(Definition.PodRadius), 1e-4);
+		double(Definition.ShapeDetail) / (2.0 * FMath::Max(double(Definition.PodRadius), 1e-4));
 	const double RawNoise = double(Runtime.Noise.GetPerlinFractal_3D(
 		v_flt(double(NormalizedPoint.X) * NoiseScale),
 		v_flt(double(NormalizedPoint.Y) * NoiseScale),
