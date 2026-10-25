@@ -169,6 +169,8 @@ namespace
 					Element.Gain, 0.f, 1.f, Context, Report);
 				Element.DepthScale = ReadClampedFloat(Noise, TEXT("depthScale"),
 					Element.DepthScale, 0.01f, 1.f, Context, Report);
+				Element.VeinThreshold = ReadClampedFloat(Noise, TEXT("veinThreshold"),
+					Element.VeinThreshold, 0.f, 0.95f, Context, Report);
 				Element.Octaves = ReadClampedInt(Noise, TEXT("octaves"),
 					Element.Octaves, 1, 6, Context, Report);
 				Element.Seed = ReadClampedInt(Noise, TEXT("seed"),
@@ -448,6 +450,8 @@ FPlanetGeologySample FPlanetGeologyField::Sample(const FVector& UnitDir, double 
 
 	Result.TotalNorm = FMath::Clamp(
 		float(Accumulation.Total / double(TotalAbundance)), 0.f, 1.f);
+	Result.DominantNorm = FMath::Clamp(float(Accumulation.DominantNorm), 0.f, 1.f);
+	Result.DominantIndex = Accumulation.DominantIndex;
 	Result.Purity = FMath::Clamp(
 		float(Accumulation.MaxRaw / Accumulation.Total), 0.f, 1.f);
 	Result.MineralColor = WeightedColor / float(Accumulation.Total);
@@ -492,8 +496,9 @@ void FPlanetGeologyField::Accumulate(const FVector& UnitDir, double Depth, bool 
 	double WeightedG = 0.0;
 	double WeightedB = 0.0;
 
-	for (const FElementRuntime& Runtime : Elements)
+	for (int32 ElementIndex = 0; ElementIndex < Elements.Num(); ++ElementIndex)
 	{
+		const FElementRuntime& Runtime = Elements[ElementIndex];
 		const FPlanetGeologyElement& Definition = Runtime.Definition;
 		const double LayerThickness = FMath::Max(double(Definition.LayerThickness), 1e-3);
 		const double DepthRatio =
@@ -517,10 +522,27 @@ void FPlanetGeologyField::Accumulate(const FVector& UnitDir, double Depth, bool 
 
 		// Perlin 输出 [-1,1]，映射到 [0,1] 才是「含量」。
 		const double Noise01 = 0.5 * (RawNoise + 1.0);
-		const double Raw = double(Definition.Abundance) * Gaussian * Noise01;
+
+		// 矿脉门：阈值以下完全为 0，阈值以上线性升到 1。
+		// 每个元素的门限不同，独立噪声场下同一地点通常只有一种矿在门内，
+		// 于是 Purity 能被推到接近 1，而不是所有元素各占一份的灰色平均值。
+		const double VeinThreshold = FMath::Clamp(double(Definition.VeinThreshold), 0.0, 0.95);
+		const double Vein = VeinThreshold > 0.0
+			? FMath::Clamp((Noise01 - VeinThreshold) / (1.0 - VeinThreshold), 0.0, 1.0)
+			: Noise01;
+
+		const double Raw = double(Definition.Abundance) * Gaussian * Vein;
+		// 自身强度：去掉丰度，只保留「这一层有多接近峰值 × 脉有多强」。
+		// 低丰度元素（铀 0.10）也能在自己的脉里达到 1，不会被全局总量压死。
+		const double Norm = Gaussian * Vein;
 
 		OutAccumulation.Total += Raw;
 		OutAccumulation.MaxRaw = FMath::Max(OutAccumulation.MaxRaw, Raw);
+		if (Norm > OutAccumulation.DominantNorm)
+		{
+			OutAccumulation.DominantNorm = Norm;
+			OutAccumulation.DominantIndex = ElementIndex;
+		}
 
 		if (bComputeColor && Raw > 0.0)
 		{

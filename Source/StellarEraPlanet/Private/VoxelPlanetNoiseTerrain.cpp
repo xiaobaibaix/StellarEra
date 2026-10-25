@@ -257,10 +257,12 @@ FVoxelMaterial FVoxelPlanetNoiseTerrainInstance::GetMaterialImpl(v_flt X, v_flt 
 		GeologySample = Geology->Sample(UnitDir, Depth);
 
 		const FPlanetGeologyAppearance& Appearance = Geology->GetAppearance();
-		if (GeologySample.TotalNorm > Appearance.ColorThreshold)
+		// 用最强元素自身的强度判定显现：TotalNorm 会被「丰度和」稀释，
+		// 铀/钛这类低丰度元素即使在自己的矿脉里也永远够不到阈值。
+		if (GeologySample.DominantNorm > Appearance.ColorThreshold)
 		{
 			const float Presence = FMath::Clamp(
-				(GeologySample.TotalNorm - Appearance.ColorThreshold)
+				(GeologySample.DominantNorm - Appearance.ColorThreshold)
 					/ FMath::Max(Appearance.FadeRange, 1e-4f),
 				0.f, 1.f);
 			const float PurityMix = FMath::Clamp(

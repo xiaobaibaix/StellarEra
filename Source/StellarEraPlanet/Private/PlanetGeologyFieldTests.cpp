@@ -32,7 +32,7 @@ namespace PlanetGeologyTest
       "id": "copper",
       "displayName": "铜",
       "color": [0.9, 0.4, 0.1],
-      "noise": { "frequency": 4.0, "octaves": 2, "lacunarity": 2.0, "gain": 0.5, "seed": 202, "depthScale": 0.3 }
+      "noise": { "frequency": 4.0, "octaves": 2, "lacunarity": 2.0, "gain": 0.5, "seed": 202, "depthScale": 0.3, "veinThreshold": 1.5 }
     }
   ]
 }
@@ -84,13 +84,16 @@ bool FPlanetGeologyParseTest::RunTest(const FString& Parameters)
 	// 未知 id 与非法层厚都必须留下可定位的警告，而不是静默消失。
 	bool bSawUnknown = false;
 	bool bSawBadThickness = false;
+	bool bSawVeinThreshold = false;
 	for (const FString& Warning : Report.Warnings)
 	{
 		bSawUnknown |= Warning.Contains(TEXT("gold"));
 		bSawBadThickness |= Warning.Contains(TEXT("zinc"));
+		bSawVeinThreshold |= Warning.Contains(TEXT("veinThreshold"));
 	}
 	TestTrue(TEXT("未知元素有警告"), bSawUnknown);
 	TestTrue(TEXT("layerThickness <= 0 有警告"), bSawBadThickness);
+	TestTrue(TEXT("veinThreshold 越界有警告"), bSawVeinThreshold);
 
 	// 空元素表是合法的「没有矿」。
 	FPlanetGeologyLoadReport EmptyReport;
@@ -281,6 +284,9 @@ bool FPlanetGeologyBoundsTest::RunTest(const FString& Parameters)
 
 		const FPlanetGeologySample Sample = Field->Sample(Direction, Depth);
 		bSampleBounds &= Sample.TotalNorm >= 0.f && Sample.TotalNorm <= 1.f;
+		bSampleBounds &= Sample.DominantNorm >= 0.f && Sample.DominantNorm <= 1.f;
+		bSampleBounds &= Sample.DominantIndex == INDEX_NONE
+			|| (Sample.DominantIndex >= 0 && Sample.DominantIndex < Field->NumElements());
 		bSampleBounds &= Sample.Purity >= 0.f && Sample.Purity <= 1.f;
 
 		const float Delta = Field->SampleGeometryDelta(Direction, Depth);
@@ -591,7 +597,7 @@ bool FPlanetGeologyPipelineTest::RunTest(const FString& Parameters)
 	double SumPos = 0.0;
 	double SumNeg = 0.0;
 	float MaxPos = 0.f;
-	constexpr int32 NumDirections = 32;
+	constexpr int32 NumDirections = 64;
 	for (int32 Index = 0; Index < NumDirections; ++Index)
 	{
 		const double Z = 1.0 - 2.0 * (double(Index) + 0.5) / double(NumDirections);
@@ -601,11 +607,13 @@ bool FPlanetGeologyPipelineTest::RunTest(const FString& Parameters)
 		const FVector Direction(
 			RadiusXY * FMath::Cos(Angle), RadiusXY * FMath::Sin(Angle), Z);
 
-		const float Pos = Reloaded->Sample(Direction, 30.0).TotalNorm;
+		const FPlanetGeologySample PosSample = Reloaded->Sample(Direction, 30.0);
 		const float Neg = Reloaded->Sample(Direction, -30.0).TotalNorm;
-		SumPos += Pos;
+		SumPos += PosSample.TotalNorm;
 		SumNeg += Neg;
-		MaxPos = FMath::Max(MaxPos, Pos);
+		// 稀疏化后 TotalNorm 会被矿脉门压到阈值附近；「有明显矿层」要用
+		// 与丰度无关的 DominantNorm 判定，否则 64 个方向里可能全是噪声低谷。
+		MaxPos = FMath::Max(MaxPos, PosSample.DominantNorm);
 	}
 
 	TestTrue(*FString::Printf(
@@ -625,6 +633,176 @@ bool FPlanetGeologyPipelineTest::RunTest(const FString& Parameters)
 		v_flt(Generator->Radius + 20.f), 0.f, 0.f, 0, FVoxelItemStack::Empty);
 	TestTrue(TEXT("半径以内密度为负"), InsideValue < 0.f);
 	TestTrue(TEXT("半径以外密度为正"), OutsideValue > 0.f);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeneratorParametersSupportedTest,
+	"StellarEra.Planet.Geology.GeneratorParametersSupported",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeneratorParametersSupportedTest::RunTest(const FString& Parameters)
+{
+	// VoxelFree 的 UVoxelGenerator::GetParameters（VoxelGenerator.cpp:18-63）会把
+	// 每个 CPF_Edit 且非 CPF_EditConst 的属性都塞进 FVoxelGeneratorParameterType
+	//（VoxelGeneratorParameters.cpp:98-178）。后者只认识 Float/Int/Bool/Object/
+	// SoftObject/Struct/Array/Set/Map；FString/FName/FText/FByte 等都会走
+	// ensureMsgf(false) —— 在场景大纲里选中行星 Actor 时，Details 里继承来的
+	// Generator 选择器会调 GetParameters，于是每次都弹 ensure。
+	//
+	// 这条测试就是那条契约：生成器上任何可编辑属性都必须是受支持的类型。
+	// 新增属性时若踩中，这里会指名道姓地失败，而不是等编辑器里才炸。
+	const FStrProperty* PresetProperty = FindFProperty<FStrProperty>(
+		UVoxelPlanetGenerator::StaticClass(),
+		GET_MEMBER_NAME_CHECKED(UVoxelPlanetGenerator, GeologyPreset));
+	TestNotNull(TEXT("GeologyPreset 属性存在"), PresetProperty);
+	if (PresetProperty)
+	{
+		TestTrue(
+			TEXT("GeologyPreset 不能参与生成器参数枚举（CPF_Edit 且非 EditConst 会 ensure）"),
+			!PresetProperty->HasAnyPropertyFlags(CPF_Edit) ||
+			PresetProperty->HasAnyPropertyFlags(CPF_EditConst));
+	}
+
+	int32 EditablePropertyCount = 0;
+	for (TFieldIterator<FProperty> It(UVoxelPlanetGenerator::StaticClass()); It; ++It)
+	{
+		const FProperty* Property = *It;
+		if (!Property->HasAnyPropertyFlags(CPF_Edit) ||
+			Property->HasAnyPropertyFlags(CPF_EditConst))
+		{
+			continue;
+		}
+		++EditablePropertyCount;
+
+		const bool bSupportedType =
+			Property->IsA<FFloatProperty>() ||
+			Property->IsA<FIntProperty>() ||
+			Property->IsA<FBoolProperty>() ||
+			Property->IsA<FObjectProperty>() ||
+			Property->IsA<FSoftObjectProperty>() ||
+			Property->IsA<FStructProperty>() ||
+			Property->IsA<FArrayProperty>() ||
+			Property->IsA<FSetProperty>() ||
+			Property->IsA<FMapProperty>();
+
+		TestTrue(*FString::Printf(
+			TEXT("%s（%s）的类型不在 Voxel 生成器参数系统支持范围内"),
+			*Property->GetNameCPP(), *Property->GetClass()->GetName()),
+			bSupportedType);
+	}
+
+	// 反证：枚举确实看得到东西，避免「一个属性都没遍历到」的假绿。
+	TestTrue(TEXT("至少应枚举到 Terrain/Radius/Center/SurfaceColor 这些可编辑属性"),
+		EditablePropertyCount >= 4);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyVeinTest,
+	"StellarEra.Planet.Geology.Veins",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyVeinTest::RunTest(const FString& Parameters)
+{
+	// 两个元素、同一深度、同一层厚，只有噪声种子和稀疏门不同。
+	// iron 丰度故意压到 0.05：旧实现用 TotalNorm 判显色，它永远不可见；
+	// 新实现用 DominantNorm，低丰度元素也必须能在自己的脉里显色。
+	const TCHAR* SparseElements = TEXT(R"JSON(
+{
+  "version": 1,
+  "elements": [
+    { "id": "iron", "color": [0.9, 0.2, 0.2],
+      "noise": { "frequency": 3.0, "octaves": 2, "lacunarity": 2.0, "gain": 0.5, "seed": 101, "depthScale": 0.3, "veinThreshold": 0.55 } },
+    { "id": "copper", "color": [0.2, 0.4, 0.9],
+      "noise": { "frequency": 5.0, "octaves": 2, "lacunarity": 2.0, "gain": 0.5, "seed": 202, "depthScale": 0.3, "veinThreshold": 0.65 } }
+  ]
+}
+)JSON");
+
+	const TCHAR* DenseElements = TEXT(R"JSON(
+{
+  "version": 1,
+  "elements": [
+    { "id": "iron", "color": [0.9, 0.2, 0.2],
+      "noise": { "frequency": 3.0, "octaves": 2, "lacunarity": 2.0, "gain": 0.5, "seed": 101, "depthScale": 0.3, "veinThreshold": 0.0 } },
+    { "id": "copper", "color": [0.2, 0.4, 0.9],
+      "noise": { "frequency": 5.0, "octaves": 2, "lacunarity": 2.0, "gain": 0.5, "seed": 202, "depthScale": 0.3, "veinThreshold": 0.0 } }
+  ]
+}
+)JSON");
+
+	const TCHAR* Planet = TEXT(R"JSON(
+{
+  "version": 1,
+  "geometryAmplitude": 0.0,
+  "appearance": { "colorThreshold": 0.15, "fadeRange": 0.45, "purityForFullColor": 0.7 },
+  "elements": {
+    "iron":   { "abundance": 0.05, "peakDepth": 0, "layerThickness": 1000 },
+    "copper": { "abundance": 0.90, "peakDepth": 0, "layerThickness": 1000 }
+  }
+}
+)JSON");
+
+	FPlanetGeologyLoadReport SparseReport;
+	FPlanetGeologyLoadReport DenseReport;
+	const TSharedPtr<const FPlanetGeologyField> Sparse =
+		FPlanetGeologyField::LoadFromString(SparseElements, Planet, SparseReport);
+	const TSharedPtr<const FPlanetGeologyField> Dense =
+		FPlanetGeologyField::LoadFromString(DenseElements, Planet, DenseReport);
+	if (!Sparse.IsValid() || !Dense.IsValid())
+	{
+		return false;
+	}
+
+	const FLinearColor IronColor(0.9f, 0.2f, 0.2f, 1.f);
+	const FLinearColor CopperColor(0.2f, 0.4f, 0.9f, 1.f);
+
+	const auto NearColor = [](const FLinearColor& Actual, const FLinearColor& Expected)
+	{
+		return FMath::IsNearlyEqual(Actual.R, Expected.R, 0.02f)
+			&& FMath::IsNearlyEqual(Actual.G, Expected.G, 0.02f)
+			&& FMath::IsNearlyEqual(Actual.B, Expected.B, 0.02f);
+	};
+
+	FRandomStream Stream(987654);
+	int32 SparseOre = 0;
+	int32 DenseOre = 0;
+	int32 IronDominant = 0;
+	int32 CopperDominant = 0;
+	float MaxPurity = 0.f;
+
+	for (int32 Index = 0; Index < 4096; ++Index)
+	{
+		const FVector Direction = Stream.GetUnitVector();
+		if (Dense->Sample(Direction, 0.0).DominantNorm > 0.35f)
+		{
+			++DenseOre;
+		}
+
+		const FPlanetGeologySample Sample = Sparse->Sample(Direction, 0.0);
+		if (Sample.DominantNorm <= 0.35f)
+		{
+			continue;
+		}
+		++SparseOre;
+
+		// 纯脉里另一种矿的 raw 恰好为 0，加权平均色就是主导元素的本色。
+		if (Sample.Purity > 0.95f)
+		{
+			MaxPurity = FMath::Max(MaxPurity, Sample.Purity);
+			IronDominant += NearColor(Sample.MineralColor, IronColor) ? 1 : 0;
+			CopperDominant += NearColor(Sample.MineralColor, CopperColor) ? 1 : 0;
+		}
+	}
+
+	TestTrue(*FString::Printf(TEXT("稀疏场仍有可找到的矿（%d/%d）"), SparseOre, 4096),
+		SparseOre > 0);
+	TestTrue(*FString::Printf(TEXT("稀疏场明显少于无门限场（%d vs %d）"), SparseOre, DenseOre),
+		DenseOre > 0 && SparseOre * 2 < DenseOre);
+	TestTrue(TEXT("存在接近纯矿的采样点"), MaxPurity > 0.95f);
+	TestTrue(*FString::Printf(TEXT("两种矿各自占优（铁 %d / 铜 %d）"), IronDominant, CopperDominant),
+		IronDominant > 0 && CopperDominant > 0);
 
 	return true;
 }
