@@ -6,6 +6,9 @@ using UnrealBuildTool;
 //
 // Planet 是 **Private**：PlanetAtmosphereComponent.cpp 在 .cpp 里
 // Cast<AVoxelPlanetActor>(GetOwner()) 取表面半径，公开头不 include 行星模块。
+//
+// 没有 UnrealEd 依赖：WITH_EDITOR 下的壳材质重建（PlanetAtmosphereMaterialBuilder.cpp
+// 全文在 #if WITH_EDITOR 内）只用 Engine 的材质 API（UMaterial / 表达式节点 / SavePackage）。
 public class StellarEraAtmosphere : ModuleRules
 {
 	public StellarEraAtmosphere(ReadOnlyTargetRules Target) : base(Target)
