@@ -4,6 +4,8 @@
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "PlanetGeologyPreset.h"
+#include "UObject/SoftObjectPath.h"
+#include "VoxelPlanetActor.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -64,5 +66,34 @@ bool FPlanetGeologyPresetRevisionTest::RunTest(const FString& Parameters)
 	return true;
 }
 #endif
+
+// 迁移路径的锚点：PostLoad 拿旧字段去 MakeLegacyGeologyAssetPath 拼路径，而
+// DA_Geology_Earth 这个资产是建资产命令用字符串另外拼出来的。两边一旦漂移，
+// 旧关卡就永久没矿，且症状只是「行星没矿」。这条测试把两边钉在同一路径上。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyLegacyPathTest,
+	"StellarEra.Planet.Geology.LegacyAssetPath",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyLegacyPathTest::RunTest(const FString& Parameters)
+{
+	const FString Expected = TEXT("/Game/Geology/Planets/DA_Geology_Earth");
+
+	TestEqual(TEXT("earth 迁移到 DA_Geology_Earth"),
+		AVoxelPlanetActor::MakeLegacyGeologyAssetPath(TEXT("earth")).GetLongPackageName(),
+		Expected);
+	TestEqual(TEXT("首尾空格被去掉"),
+		AVoxelPlanetActor::MakeLegacyGeologyAssetPath(TEXT("  earth  ")).GetLongPackageName(),
+		Expected);
+	TestEqual(TEXT("首字母大小写不影响"),
+		AVoxelPlanetActor::MakeLegacyGeologyAssetPath(TEXT("Earth")).GetLongPackageName(),
+		Expected);
+	TestTrue(TEXT("空名返回空路径"),
+		AVoxelPlanetActor::MakeLegacyGeologyAssetPath(FString()).IsNull());
+	TestEqual(TEXT("其它名字按同一规则拼"),
+		AVoxelPlanetActor::MakeLegacyGeologyAssetPath(TEXT("mars")).GetLongPackageName(),
+		FString(TEXT("/Game/Geology/Planets/DA_Geology_Mars")));
+
+	return true;
+}
 
 #endif

@@ -30,7 +30,7 @@ Source/
 ├── StellarEra/            主游戏模块（primary game module）：GameMode / PlayerController
 ├── StellarEraCore/        N 体求解器与 Cosmos 单位类型
 ├── StellarEraCosmos/      N 体编排（子系统 / 轨道组件 / 轨迹组件）
-├── StellarEraGeology/     元素表、行星地质场、噪声采样、JSON 预设
+├── StellarEraGeology/     元素表、行星地质场、噪声采样、UDataAsset 预设
 ├── StellarEraTerrain/     行星 Actor / 生成器 / 地形模块 / 行星面射线与网格
 ├── StellarEraAtmosphere/  大气壳与大气参数
 ├── StellarEraMinerals/    矿物等值面 / 观察体 / 矿体材质
@@ -43,6 +43,7 @@ Plugins/
 └── VibeUE/             第三方编辑器 AI 工具，勿改
 Content/
 ├── Maps/               UniverseMap（唯一真实场景）/ NewMap / TestMap
+├── Geology/Planets/    DA_Geology_<名字>（行星矿物预设；JSON 已退役）
 └── Code/               BP_SpaceshipPawn / BP_PlanetCharacter / BP_VoxelPlanet / DA_Terrain_*
 ```
 自定义代码不进第三方插件目录，一律写进上面十一个模块并改对应 `Build.cs`。

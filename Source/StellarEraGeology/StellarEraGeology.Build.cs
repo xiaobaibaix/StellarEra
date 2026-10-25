@@ -12,7 +12,11 @@ using UnrealBuildTool;
 // CoreUObject 是 **Public**：本模块含一个 UDataAsset 子类（UPlanetGeologyPreset）
 // 与两个 USTRUCT（FPlanetGeologyAppearance、FPlanetGeologyElementParams），
 // 反射是真依赖，不再是「与其余模块保持一致」的摆设。
-// 没有 Private 依赖：JSON 路径退役后，.cpp 里只剩 Voxel 的 FastNoise 与 UObject 反射。
+// AssetRegistry 是 **Public**：PlanetGeologyPreset.cpp 末尾的
+// StellarEra.CreateEarthGeologyPreset 命令用 FAssetRegistryModule::AssetCreated 把新建的
+// 资产登记进资产注册表。它只在 #if WITH_EDITOR 下被用到，但 UBT 的依赖表不区分预处理器
+// 分支，所以照样要列出来。它是 Runtime 模块而不是项目模块，模块分层不变。
+// 没有 Private 依赖：.cpp 里用到的 Voxel / UObject 反射 / 资产保存都来自上面的 Public 项。
 public class StellarEraGeology : ModuleRules
 {
 	public StellarEraGeology(ReadOnlyTargetRules Target) : base(Target)
@@ -21,7 +25,7 @@ public class StellarEraGeology : ModuleRules
 
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
-			"Core", "CoreUObject", "Engine", "Voxel",
+			"Core", "CoreUObject", "Engine", "Voxel", "AssetRegistry",
 		});
 	}
 }
