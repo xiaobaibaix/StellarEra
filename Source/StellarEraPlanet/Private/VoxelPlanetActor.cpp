@@ -15,7 +15,6 @@
 #include "PlanetAtmosphereComponent.h"
 #include "PlanetSurfaceGridComponent.h"
 #include "PlanetGeologyField.h"
-#include "PlanetCutawayComponent.h"
 #include "PlanetMineralViewComponent.h"
 #include "HAL/IConsoleManager.h"
 #include "EngineUtils.h"
@@ -117,10 +116,6 @@ AVoxelPlanetActor::AVoxelPlanetActor()
 	// 材质与缩放都在 BeginPlay 里按 GetSurfaceRadiusCm() 定，构造期拿不到最终半径。
 	AtmosphereComponent = CreateDefaultSubobject<UPlanetAtmosphereComponent>(TEXT("PlanetAtmosphere"));
 	AtmosphereComponent->SetupAttachment(RootComponent);
-
-	// 剖面组件默认不 Tick，第一个 Activate 才创建圆盘/圆环并加载资产。
-	CutawayComponent = CreateDefaultSubobject<UPlanetCutawayComponent>(TEXT("PlanetCutaway"));
-	CutawayComponent->SetupAttachment(RootComponent);
 
 	// 矿物透视组件：默认不 Tick，Activate 时才采样并 spawn 观察体。
 	MineralViewComponent = CreateDefaultSubobject<UPlanetMineralViewComponent>(TEXT("PlanetMineralView"));

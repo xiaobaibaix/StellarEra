@@ -17,10 +17,11 @@ using UnrealBuildTool;
 // Core 必须是 **Public**：CosmosSimulationSubsystem.h 按值持有 FNBodySimulator，
 // 而 NBodySimulator.h 在 StellarEraCore 里，该头是本模块公开头的一部分。
 //
-// StellarEraPlanet 保持 **Public**：本模块的公开 API（如 StarMapCameraPawn::FocusOn
-// 与 GetActiveMineralView）以行星类型为参数 / 返回值，下游模块需要看到同样的依赖。
-// 当前公开头只前置声明行星类型，没有直接包含 —— 但保持 Public 不改变依赖图，
-// 挪成 Private 属于独立的重构。
+// StellarEraPlanet 是 **Private**：本模块没有任何公开头 include 行星模块的头，
+// StellarEraPlayerController.h 里的行星类型一律前置声明 + TObjectPtr，用到完整类型的
+// 地方都在 .cpp 里。行星模块的头因而不需要向下游传播。
+// 之所以曾经写成 Public：早期公开头以成员类型引用了行星模块里的一个类型定义，
+// 那处引用已随旧系统一并删除。
 public class StellarEra : ModuleRules
 {
 	public StellarEra(ReadOnlyTargetRules Target) : base(Target)
@@ -29,11 +30,12 @@ public class StellarEra : ModuleRules
 
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
-			"Core", "CoreUObject", "Engine", "StellarEraPlanet",
+			"Core", "CoreUObject", "Engine",
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
+			"StellarEraPlanet", // 行星 Actor / 地质场 / 纹理；只在 .cpp 里 include
 			"StellarEraCore",
 			"StellarEraVehicle",
 			"Voxel",           // StarMapCameraPawn.cpp 的体素调用器（VoxelInvokerComponent.h）

@@ -15,7 +15,6 @@ class UVoxelPlanetGenerator;
 class UVoxelPlanetTerrainModule;
 class UVoxelSimpleInvokerComponent;
 class FPlanetGeologyField;
-class UPlanetCutawayComponent;
 class UPlanetMineralViewComponent;
 
 /**
@@ -228,13 +227,6 @@ public:
 	/** 编辑模式下的表面网格基线。构造时自动创建。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet|Edit")
 	TObjectPtr<UPlanetSurfaceGridComponent> EditGrid;
-
-	/** 矿物剖面视图组件。构造时自动创建；未激活时不 Tick、不建任何资产。 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet|Cutaway")
-	TObjectPtr<UPlanetCutawayComponent> CutawayComponent;
-
-	UFUNCTION(BlueprintPure, Category = "Planet|Cutaway")
-	UPlanetCutawayComponent* GetCutawayComponent() const { return CutawayComponent; }
 
 	/** 矿物透视观察组件。构造时自动创建；未激活时不 Tick、不建任何资产。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet|MineralView")
