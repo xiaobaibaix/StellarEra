@@ -42,6 +42,15 @@ bool UPlanetMineralViewComponent::Activate(AVoxelPlanetActor* InPlanet)
 		return false;
 	}
 
+	// 编辑器预览世界（BP 编辑器预览、资产预览场景）不是关卡世界：在那里临时隐藏
+	// 与包脏度语义都不成立，且掉进运行时分支会翻 bAtmosphereEnabled 等 UPROPERTY。
+	if (World->WorldType == EWorldType::EditorPreview)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[矿物] 编辑器预览世界不支持矿物预览：%s"),
+			*GetNameSafe(GetOwner()));
+		return false;
+	}
+
 	// 编辑器世界与 PIE 是两套世界；用 WorldType 判，不用 GEditor->IsPlaySessionInProgress。
 	// 非编辑器构建里没有「编辑器世界」这个概念，常量折叠成 false；同时也避开了
 	// AActor 上只在 WITH_EDITOR 下才存在的临时隐藏 API（Actor.h 2583 行起）。
@@ -189,6 +198,7 @@ bool UPlanetMineralViewComponent::Activate(AVoxelPlanetActor* InPlanet)
 		{
 			PresetChangedHandle = Preset->OnPresetChanged.AddUObject(
 				this, &UPlanetMineralViewComponent::OnPreviewPresetChanged);
+			SubscribedPreset = Preset;
 		}
 	}
 #endif
@@ -216,15 +226,15 @@ void UPlanetMineralViewComponent::Deactivate()
 #if WITH_EDITOR
 	if (PresetChangedHandle.IsValid())
 	{
-		if (AVoxelPlanetActor* SubscribedPlanet = Planet.Get())
+		// 从「订上的那一份」退订：预览期间若把 GeologyAsset 换掉，用当下的资产会退错对象，
+		// 旧资产上留下一个指向本组件的订阅。
+		if (UPlanetGeologyPreset* Preset = SubscribedPreset.Get())
 		{
-			if (UPlanetGeologyPreset* Preset = SubscribedPlanet->GetGeologyPresetAsset())
-			{
-				Preset->OnPresetChanged.Remove(PresetChangedHandle);
-			}
+			Preset->OnPresetChanged.Remove(PresetChangedHandle);
 		}
 		PresetChangedHandle.Reset();
 	}
+	SubscribedPreset.Reset();
 #endif
 
 	if (AVoxelPlanetActor* RestorePlanet = Planet.Get())
@@ -344,10 +354,23 @@ void UPlanetMineralViewComponent::ExitMineralPreviewInEditor()
 
 void UPlanetMineralViewComponent::OnPreviewPresetChanged(UPlanetGeologyPreset* Preset)
 {
+	// 只认当前订上的那份：换过资产的旧订阅回调到这里就丢掉。
+	if (Preset != SubscribedPreset.Get())
+	{
+		return;
+	}
+
 	// 重新 Activate：BuildFromPreset 会造新场，缓存键里的地质对象随之改变 → 重建网格。
 	if (AVoxelPlanetActor* InPlanet = Planet.Get())
 	{
-		Activate(InPlanet);
+		// Activate 开头已 Deactivate，失败时预览已经消失；这里补一条日志，
+		// 否则「预设的元素表被清空」表现为预览无声无息地没了。
+		if (!Activate(InPlanet))
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("[矿物] 预设改动后重建失败，预览已退出：预设已无矿囊或采样参数非法（%s）"),
+				*GetNameSafe(InPlanet));
+		}
 	}
 }
 #endif

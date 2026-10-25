@@ -20,6 +20,10 @@ class UPlanetGeologyPreset;
  * 生命周期：Activate 时解析采样并 spawn 一个独立的 APlanetMineralViewActor，
  * 同时隐藏行星、关碰撞、关大气；Deactivate 全部恢复，重复调用安全。
  * 只在激活期间 Tick，每帧把观察体钉到行星球心。
+ *
+ * 编辑器预览（EnterMineralPreviewInEditor）是同一套状态的另一种宿主世界：那里只做
+ * 非序列化的临时隐藏行星（不关碰撞、不关大气、不翻任何 UPROPERTY，退出后关卡不脏）、
+ * 不 Tick（编辑器里行星不动，位置已由 spawn 给定）。
  */
 UCLASS(ClassGroup = (StellarEra), meta = (BlueprintSpawnableComponent))
 class STELLARERAMINERALS_API UPlanetMineralViewComponent : public USceneComponent
@@ -127,6 +131,8 @@ private:
 #if WITH_EDITOR
 	/** 预设变更订阅。 */
 	FDelegateHandle PresetChangedHandle;
+	/** 实际订上的那份预设：退订必须找它，不能用「当下」的 GeologyAsset。 */
+	TWeakObjectPtr<UPlanetGeologyPreset> SubscribedPreset;
 	void OnPreviewPresetChanged(UPlanetGeologyPreset* Preset);
 #endif
 };
