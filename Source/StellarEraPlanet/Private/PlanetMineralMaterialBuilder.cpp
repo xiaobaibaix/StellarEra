@@ -3,6 +3,24 @@
 // 匹配头必须是第一个 include（UBT 的 IWYU 检查）；它带了 CoreMinimal.h。
 #include "PlanetMineralMaterialBuilder.h"
 
+// 路径常量与两个 getter 必须在 WITH_EDITOR 之外：APlanetMineralViewActor::Build
+// 在 Game 目标里也要按路径加载资产，只有材质构建本身是编辑器专属。
+namespace
+{
+	const TCHAR* const GhostPath = TEXT("/Game/Materials/M_PlanetGhost");
+	const TCHAR* const BlockPath = TEXT("/Game/Materials/M_MineralBlock");
+} // namespace
+
+const TCHAR* PlanetMineralMaterials::GetGhostMaterialPath()
+{
+	return GhostPath;
+}
+
+const TCHAR* PlanetMineralMaterials::GetBlockMaterialPath()
+{
+	return BlockPath;
+}
+
 #if WITH_EDITOR
 
 #include "HAL/IConsoleManager.h"
@@ -18,8 +36,6 @@
 
 namespace
 {
-	const TCHAR* const GhostPath = TEXT("/Game/Materials/M_PlanetGhost");
-	const TCHAR* const BlockPath = TEXT("/Game/Materials/M_MineralBlock");
 	const TCHAR* const GhostAssetName = TEXT("M_PlanetGhost");
 	const TCHAR* const BlockAssetName = TEXT("M_MineralBlock");
 
@@ -208,16 +224,6 @@ namespace
 		return SaveMaterial(Material, BlockPath, OutError);
 	}
 } // namespace
-
-const TCHAR* PlanetMineralMaterials::GetGhostMaterialPath()
-{
-	return GhostPath;
-}
-
-const TCHAR* PlanetMineralMaterials::GetBlockMaterialPath()
-{
-	return BlockPath;
-}
 
 bool PlanetMineralMaterials::Build(FString& OutError)
 {
