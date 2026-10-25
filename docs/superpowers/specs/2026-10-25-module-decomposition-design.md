@@ -58,7 +58,7 @@
 | # | 模块 | 类型 | 主职责 | Public 依赖 | Private 依赖 |
 |---:|---|---|---|---|---|
 | 1 | `StellarEraCore` | Runtime | 单位（`CosmosUnits`）、N 体求解器、纯数学 | Core, CoreUObject, Engine | — |
-| 2 | `StellarEraGeology` | Runtime | 元素表、`FPlanetGeologyField`、JSON 预设、噪声采样 | Core, CoreUObject | Voxel, Json |
+| 2 | `StellarEraGeology` | Runtime | 元素表、`FPlanetGeologyField`、JSON 预设、噪声采样 | Core, CoreUObject, Voxel | Json |
 | 3 | `StellarEraTerrain` | Runtime | 体素行星 Actor、生成器、地形模块、表面射线、编辑网格、Voxel invoker 修补 | Core, CoreUObject, Engine, Voxel, StellarEraGeology | StellarEraCore, AssetRegistry |
 | 4 | `StellarEraAtmosphere` | Runtime | 大气壳组件、参数推导、大气材质 | Core, CoreUObject, Engine | StellarEraTerrain |
 | 5 | `StellarEraMinerals` | Runtime | 等值面构建、矿物观察 Actor/组件、矿物材质 | Core, CoreUObject, Engine, StellarEraGeology | StellarEraTerrain, StellarEraAtmosphere, GeometryCore, GeometryFramework |
@@ -127,7 +127,8 @@ L3  StellarEraUI ─→ StellarEraCosmos ─→ StellarEraSpaceship ─→ Stell
 
 - 纯单元测试跟随被测类所在模块。
 - 需要同时实例化角色 + 编辑 + 行星的 `PlanetEditTests.cpp` 放 `StellarEra`（Game），因为 Game 依赖全部模块。
-- 星图相关的集成测试放 `StellarEraUI`（UI 依赖 Cosmos/Terrain/PlanetEdit/Spaceship/Character）。
+- `StarMapTests.cpp` 放 `StellarEra`（Game）：它 include `StellarEraPlayerController.h` 并直接调控制器，放进 UI 会让 UI 反向依赖 Game 成环。`StarMapUISystemTests.cpp`、`StarMapCameraInvokerTests.cpp`、`StellarEraHUDTests.cpp`、`MineralLegendTests.cpp` 只测纯函数，进 UI。
+- `PlanetGeologyFieldTests.cpp` 放 `StellarEraTerrain`：它要实例化 `UVoxelPlanetGenerator` / `UVoxelPlanetNoiseTerrain`，放进 Geology 会成环。
 
 ### D6：模块改名与兼容层
 
@@ -135,12 +136,29 @@ L3  StellarEraUI ─→ StellarEraCosmos ─→ StellarEraSpaceship ─→ Stell
 - `StellarEraVehicle` 删除；类分别进 `Character`、`Spaceship`、`PlanetEdit`。
 - `StellarEraCore`、`StellarEra` 名字不变。
 - 所有搬走的 UCLASS 都要在 `Config/DefaultEngine.ini` 的 `[CoreRedirects]` 里加 `+ClassRedirects`；`EPlanetBrushShape` 加 `+EnumRedirects`。
-- 现有 `StellarEra.VoxelPlanetActor → StellarEraPlanet.VoxelPlanetActor` 这类链式重定向，**直接把 `NewName` 改到最终模块**，不要叠成两级链。
+- 重定向要覆盖**两个历史起点**，且都不依赖链式解析（UE 不保证从 A→B→C 能一次解到底）：
+  - 旧条目 `/Script/StellarEra.X`：`NewName` 改成最终模块；
+  - 新条目 `/Script/StellarEraPlanet.X`（或 `/Script/StellarEraVehicle.X`）：也是同一个类，因为关卡与 BP 现在存的就是这个路径，`NewName` 同样指最终模块。
+  例：`VoxelPlanetActor` 要同时有 `StellarEra.` 与 `StellarEraPlanet.` 两条，`NewName` 都是 `/Script/StellarEraTerrain.VoxelPlanetActor`。
 - 重定向是永久兼容层，不删。
 
 ### D7：primary module 不动
 
 `Source/StellarEra/StellarEra.cpp` 里的 `IMPLEMENT_PRIMARY_GAME_MODULE(FDefaultGameModuleImpl, StellarEra, "StellarEra")` 保持原样。
+
+### D8：UI 用窄接口取控制器数据（唯一新增接口）
+
+`StarMapUISystem.cpp` 现在直接 `Cast<AStellarEraPlayerController>` 并用它的四个方法：`GetMousePosition`、`PickBodyUnderScreenPosition`、`ProjectBodyToScreen`、`GetActiveMineralView`。搬到 UI 后这会让 UI 依赖 Game，与 Game → UI 成环。
+
+做法：在 UI 声明 `UINTERFACE IStarMapUIInputs`（四件查询），由 `AStellarEraPlayerController` 实现。UI 只认接口，Game 依赖 UI，方向单行。这是本设计里**唯一**新增的接口 —— D3 说的是不新增行星表面接口，两者不冲突。
+
+### D9：`FindNearestShip` 搬到飞船侧（破 Character ↔ Spaceship 环）
+
+`APlanetCharacter::FindNearestShip()` 的 4 个调用点全在 `AStellarEraPlayerController`。把它改成 `ASpaceshipPawn::FindNearestTo(const UWorld*, const FVector&)` 静态函数，Character 就不再需要 include `SpaceshipPawn.h`，两个模块可以并存。
+
+### D10：组件挪到 BP 必须在拆 Atmosphere/Minerals 之前
+
+`VoxelPlanetActor.cpp` 现在 include 了大气与矿物观察组件的头。只要这两个类还在同一模块，循环不存在；一旦拆出独立模块，Terrain 的 .cpp 仍 include 它们就会成环。所以顺序是：先做 D2（组件挪到 BP、Actor 不再引用），再拆 Geology/Atmosphere/Minerals。
 
 ## 7. 类 → 模块映射
 
@@ -149,16 +167,18 @@ L3  StellarEraUI ─→ StellarEraCosmos ─→ StellarEraSpaceship ─→ Stell
 | 目标模块 | 文件 |
 |---|---|
 | `StellarEraCosmos` | `CosmosOrbitComponent.h/.cpp`、`CosmosOrbitComponentTests.cpp`、`CosmosSimulationSubsystem.h/.cpp`、`CosmosTrajectoryComponent.h/.cpp`、`CosmosTrajectoryComponentTests.cpp` |
-| `StellarEraUI` | `StarMapCameraPawn.h/.cpp`、`StarMapCameraInvokerTests.cpp`、`StarMapUISystem.h/.cpp`、`StarMapUISystemTests.cpp`、`StarMapTests.cpp`、`StellarEraHUD.h/.cpp`、`StellarEraHUDTests.cpp`、`MineralLegendTests.cpp`、`PlanetEditUI.h/.cpp` |
-| `StellarEra` | `StellarEraGameMode.h/.cpp`、`StellarEraPlayerController.h/.cpp`、`PlanetEditTests.cpp`、`StellarEra.cpp/.h`、`StellarEra.Build.cs` |
+| `StellarEraUI` | `StarMapCameraPawn.h/.cpp`、`StarMapCameraInvokerTests.cpp`、`StarMapUISystem.h/.cpp`、`StarMapUISystemTests.cpp`、`StellarEraHUD.h/.cpp`、`StellarEraHUDTests.cpp`、`MineralLegendTests.cpp`、`PlanetEditUI.h/.cpp`、`StarMapUIInputs.h`（新增） |
+| `StellarEra` | `StellarEraGameMode.h/.cpp`、`StellarEraPlayerController.h/.cpp`、`PlanetEditTests.cpp`、`StarMapTests.cpp`、`StellarEra.cpp/.h`、`StellarEra.Build.cs` |
 
 ### 7.2 来自 `StellarEraPlanet`（42 个文件）
 
+> 例外：`PlanetSurfaceRayTests.cpp` 现在位于 `Source/StellarEra/Private/`，随本次拆分搬进 Terrain。
+
 | 目标模块 | 文件 |
 |---|---|
-| `StellarEraTerrain` | `VoxelPlanetActor.h/.cpp`、`VoxelPlanetGenerator.h/.cpp`、`VoxelPlanetTerrainModule.h/.cpp`、`VoxelPlanetNoiseTerrain.h/.cpp`、`VoxelPlanetSphereTerrain.h/.cpp`、`PlanetSurfaceRay.h/.cpp`、`PlanetSurfaceRayTests.cpp`、`PlanetSurfaceGridComponent.h/.cpp`、`PlanetEditGridGeometry.h/.cpp`、`AlwaysLocalVoxelInvokerComponent.h/.cpp`、`PlanetLODTransitionTests.cpp`、`PlanetTerrainGradientNormalTests.cpp` |
-| `StellarEraGeology` | `PlanetGeologyField.h/.cpp`、`PlanetGeologyFieldTests.cpp`、`PlanetGeologyTypes.h` |
-| `StellarEraAtmosphere` | `PlanetAtmosphereComponent.h/.cpp`、`PlanetAtmosphereParams.h/.cpp`、`PlanetAtmosphereParamsTests.cpp`、`PlanetAtmosphereMaterialBuilder.h/.cpp` |
+| `StellarEraTerrain` | `VoxelPlanetActor.h/.cpp`、`VoxelPlanetGenerator.h/.cpp`、`VoxelPlanetTerrainModule.h/.cpp`、`VoxelPlanetNoiseTerrain.h/.cpp`、`VoxelPlanetSphereTerrain.h/.cpp`、`PlanetSurfaceRay.h/.cpp`、`PlanetSurfaceRayTests.cpp`、`PlanetSurfaceGridComponent.h/.cpp`、`PlanetEditGridGeometry.h/.cpp`、`AlwaysLocalVoxelInvokerComponent.h/.cpp`、`PlanetGeologyFieldTests.cpp`、`PlanetLODTransitionTests.cpp`、`PlanetTerrainGradientNormalTests.cpp` |
+| `StellarEraGeology` | `PlanetGeologyField.h/.cpp`、`PlanetGeologyTypes.h` |
+| `StellarEraAtmosphere` | `PlanetAtmosphereComponent.h/.cpp`、`PlanetAtmosphereParams.h/.cpp`、`PlanetAtmosphereParamsTests.cpp`、`PlanetAtmosphereMaterialBuilder.cpp`（无对应 .h，构建函数只在 .cpp 里） |
 | `StellarEraMinerals` | `PlanetMineralSurface.h/.cpp`、`PlanetMineralSurfaceTests.cpp`、`PlanetMineralViewActor.h/.cpp`、`PlanetMineralViewComponent.h/.cpp`、`PlanetMineralViewTests.cpp`、`PlanetMineralMaterialBuilder.h/.cpp` |
 
 ### 7.3 来自 `StellarEraVehicle`（23 个文件）
