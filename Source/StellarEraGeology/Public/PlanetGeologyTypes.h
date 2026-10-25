@@ -24,7 +24,8 @@ struct FPlanetGeologyBand
  * 元素表的单条定义。
  *
  * 刻意不是 USTRUCT：它只在地质系统内部按值传递，不进反射、不进蓝图。
- * JSON 才是唯一的编辑入口。
+ * 它仍是 JSON 解析与运行期采样的内部类型；可进资产的编辑形态见
+ * FPlanetGeologyElementParams（PlanetGeologyPreset.h）。
  */
 struct FPlanetGeologyElement
 {
@@ -85,11 +86,11 @@ struct STELLARERAGEOLOGY_API FPlanetGeologyAppearance
 	float ColorThreshold = 0.22f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Appearance",
-		meta = (ClampMin = "0.0", ClampMax = "1.0"))
+		meta = (ClampMin = "0.001", ClampMax = "1.0"))
 	float FadeRange = 0.15f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Appearance",
-		meta = (ClampMin = "0.0", ClampMax = "1.0"))
+		meta = (ClampMin = "0.01", ClampMax = "1.0"))
 	float PurityForFullColor = 0.7f;
 };
 

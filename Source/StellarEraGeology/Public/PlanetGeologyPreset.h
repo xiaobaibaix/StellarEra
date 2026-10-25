@@ -103,9 +103,12 @@ struct STELLARERAGEOLOGY_API FPlanetGeologyElementParams
 };
 
 /**
- * 一颗行星的地质预设。**唯一数据源**：JSON 预设已退役。
+ * 一颗行星的地质预设：**目标形态**，当前还没有消费者。
  *
- * 元素数组的顺序 = 运行期采样顺序 = 图例顺序 = 矿体组件下标，四者共用。
+ * 运行期目前仍走 JSON 预设（PlanetGeologyField::LoadFromFiles），改这个资产对地形零影响；
+ * 消费者在后续任务接入，接入后 JSON 退役。
+ *
+ * 元素数组的顺序 = 采样顺序 = 图例顺序 = 矿体组件下标，四者共用（消费者接入后生效）。
  */
 UCLASS(BlueprintType)
 class STELLARERAGEOLOGY_API UPlanetGeologyPreset : public UDataAsset
@@ -120,7 +123,7 @@ public:
 	//~ End UObject Interface
 
 	/** 每次编辑自增。缓存键靠它判断「同一份资产的内容变了」。 */
-	uint32 GetRevision() const { return Revision; }
+	int32 GetRevision() const { return Revision; }
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Geology")
 	TArray<FPlanetGeologyElementParams> Elements;
@@ -130,7 +133,7 @@ public:
 
 	/** 矿囊把地表顶起的最大幅度（体素）。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Geology",
-		meta = (ClampMin = "0.0"))
+		meta = (ClampMin = "0.0", ClampMax = "64"))
 	float GeometryAmplitude = 1.5f;
 
 	/**

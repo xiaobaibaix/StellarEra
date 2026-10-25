@@ -27,22 +27,26 @@ bool FPlanetGeologyPresetDefaultsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("默认纯度 0.7"), Preset->Appearance.PurityForFullColor, 0.7f);
 
 	// USTRUCT 只生成 StaticStruct()，GetDefault<T>() 只支持 UObject，这里直接默认构造。
-	const FPlanetGeologyElementParams DefaultInstance;
-	const FPlanetGeologyElementParams* Defaults = &DefaultInstance;
-	TestNotNull(TEXT("元素参数默认值存在"), Defaults);
-	if (Defaults)
-	{
-		TestEqual(TEXT("默认 PodCount 16"), Defaults->PodCount, 16);
-		TestEqual(TEXT("默认 PodRadius 0.05"), Defaults->PodRadius, 0.05f);
-		TestEqual(TEXT("默认 PodRadiusJitter 0.5"), Defaults->PodRadiusJitter, 0.5f);
-		TestEqual(TEXT("默认 PodDepthBias 0"), Defaults->PodDepthBias, 0.0f);
-		TestEqual(TEXT("默认 ShapeDetail 3"), Defaults->ShapeDetail, 3.0f);
-		TestEqual(TEXT("默认 Octaves 2"), Defaults->Octaves, 2);
-	}
+	const FPlanetGeologyElementParams Defaults;
+	TestEqual(TEXT("默认 Abundance 1.0"), Defaults.Abundance, 1.0f);
+	TestEqual(TEXT("默认 PodCount 16"), Defaults.PodCount, 16);
+	TestEqual(TEXT("默认 PodRadius 0.05"), Defaults.PodRadius, 0.05f);
+	TestEqual(TEXT("默认 PodRadiusJitter 0.5"), Defaults.PodRadiusJitter, 0.5f);
+	TestEqual(TEXT("默认 PodDepthBias 0"), Defaults.PodDepthBias, 0.0f);
+	TestEqual(TEXT("默认 PodDepthCenter 0.25"), Defaults.PodDepthCenter, 0.25f);
+	TestEqual(TEXT("默认 PodDepthSpread 0.15"), Defaults.PodDepthSpread, 0.15f);
+	TestEqual(TEXT("默认 ShapeDetail 3"), Defaults.ShapeDetail, 3.0f);
+	TestEqual(TEXT("默认 Octaves 2"), Defaults.Octaves, 2);
+	TestEqual(TEXT("默认 Lacunarity 2.0"), Defaults.Lacunarity, 2.0f);
+	TestEqual(TEXT("默认 Gain 0.5"), Defaults.Gain, 0.5f);
+	TestEqual(TEXT("默认 VeinThreshold 0.5"), Defaults.VeinThreshold, 0.5f);
 
 	return true;
 }
 
+// PostEditChangeProperty / FPropertyChangedEvent 只在编辑器目标存在，
+// 而 WITH_DEV_AUTOMATION_TESTS 在 Game 目标同样为 1，故整块再包一层 WITH_EDITOR。
+#if WITH_EDITOR
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyPresetRevisionTest,
 	"StellarEra.Planet.Geology.PresetRevision",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -50,14 +54,15 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyPresetRevisionTest,
 bool FPlanetGeologyPresetRevisionTest::RunTest(const FString& Parameters)
 {
 	UPlanetGeologyPreset* Preset = NewObject<UPlanetGeologyPreset>();
-	const uint32 Before = Preset->GetRevision();
+	const int32 Before = Preset->GetRevision();
 
 	FPropertyChangedEvent Event(nullptr);
 	Preset->PostEditChangeProperty(Event);
 
-	TestTrue(*FString::Printf(TEXT("改属性后修订号自增（%u → %u）"),
+	TestTrue(*FString::Printf(TEXT("改属性后修订号自增（%d → %d）"),
 		Before, Preset->GetRevision()), Preset->GetRevision() > Before);
 	return true;
 }
+#endif
 
 #endif
