@@ -9,15 +9,35 @@
 
 ## 模块结构（依赖严格分层，无环）
 ```
-StellarEra ─→ StellarEraVehicle ─→ StellarEraPlanet
-     └──────→ StellarEraCore
+StellarEra           ─→ StellarEraUI（Public）, StellarEraCosmos, StellarEraTerrain,
+                         StellarEraMinerals, StellarEraPlanetEdit, StellarEraCharacter,
+                         StellarEraSpaceship, StellarEraCore
+StellarEraUI         ─→ StellarEraCosmos, StellarEraTerrain, StellarEraGeology,
+                         StellarEraMinerals, StellarEraPlanetEdit, StellarEraCharacter,
+                         StellarEraSpaceship, StellarEraCore
+StellarEraCosmos     ─→ StellarEraCore（Public）, StellarEraSpaceship, StellarEraTerrain
+StellarEraSpaceship  ─→ StellarEraCharacter, StellarEraTerrain, StellarEraAtmosphere
+StellarEraCharacter  ─→ StellarEraPlanetEdit, StellarEraTerrain
+StellarEraPlanetEdit ─→ StellarEraTerrain
+StellarEraMinerals   ─→ StellarEraGeology（Public）, StellarEraTerrain, StellarEraAtmosphere
+StellarEraAtmosphere ─→ StellarEraTerrain
+StellarEraTerrain    ─→ StellarEraGeology（Public）
+StellarEraGeology    ─→ 无项目依赖（Voxel 是 Public）
+StellarEraCore       ─→ 无项目依赖
 ```
 ```
 Source/
-├── StellarEra/         主游戏模块：GameMode / PlayerController / 星图 / N 体编排
-├── StellarEraCore/     N 体求解器与 Cosmos 单位类型
-├── StellarEraPlanet/   体素行星 Actor / 生成器 / 地形模块 / 大气（依赖 Voxel 插件）
-└── StellarEraVehicle/  球面角色与移动组件、飞船 Pawn
+├── StellarEra/            主游戏模块（primary game module）：GameMode / PlayerController
+├── StellarEraCore/        N 体求解器与 Cosmos 单位类型
+├── StellarEraCosmos/      N 体编排（子系统 / 轨道组件 / 轨迹组件）
+├── StellarEraGeology/     元素表、行星地质场、噪声采样、JSON 预设
+├── StellarEraTerrain/     行星 Actor / 生成器 / 地形模块 / 行星面射线与网格
+├── StellarEraAtmosphere/  大气壳与大气参数
+├── StellarEraMinerals/    矿物等值面 / 观察体 / 矿体材质
+├── StellarEraPlanetEdit/  行星编辑组件、笔刷几何
+├── StellarEraCharacter/   球面角色与移动组件、动画实例
+├── StellarEraSpaceship/   飞船 Pawn
+└── StellarEraUI/          HUD、星图相机、星图面板、矿物图例、编辑按钮布局
 Plugins/
 ├── VoxelFree/          第三方体素插件，勿改
 └── VibeUE/             第三方编辑器 AI 工具，勿改
@@ -25,8 +45,10 @@ Content/
 ├── Maps/               UniverseMap（唯一真实场景）/ NewMap / TestMap
 └── Code/               BP_SpaceshipPawn / BP_PlanetCharacter / BP_VoxelPlanet / DA_Terrain_*
 ```
-自定义代码不进第三方插件目录，一律写进上面四个模块并改对应 `Build.cs`。
-`StellarEraVehicle` **不能**依赖 `StellarEra`（会成环）。
+自定义代码不进第三方插件目录，一律写进上面十一个模块并改对应 `Build.cs`。
+
+**`StellarEraUI` 不依赖 `StellarEra`**（Game 依赖 UI，反向就成环）。星图 UI 需要控制器数据时走
+`IStarMapUIInputs`（`Source/StellarEraUI/Public/StarMapUIInputs.h`），由 `AStellarEraPlayerController` 实现。
 
 ## 技能与 Agent 路由（强制）
 
