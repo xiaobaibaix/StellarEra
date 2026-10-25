@@ -16,6 +16,7 @@ ArtSource/
 .superpowers/
 .workbuddy/
 .codegraph/
+.codex/
 
 # Claude Code 本地文件（不入库）
 .claude/settings.local.json

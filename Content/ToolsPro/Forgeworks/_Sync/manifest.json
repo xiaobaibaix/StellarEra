@@ -1,0 +1,5318 @@
+{
+  "schemaVersion": 1,
+  "forgeworksVersion": "bridge-0.1.0",
+  "project": {
+    "name": "ToolsPro",
+    "kind": "workspace",
+    "uproject": null,
+    "root": "F:\\workspace\\ue\\StellarEra\\Content\\ToolsPro",
+    "forgeworksRoot": "F:\\workspace\\ue\\StellarEra\\Content\\ToolsPro\\Forgeworks"
+  },
+  "publishedAt": "2026-10-25T06:07:34Z",
+  "assets": {
+    "MC_DRILL": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/地质钻机",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_DRILL.glb",
+            "size": 92492,
+            "sha1": "794c3784ce2ef37b73116443709d2d4b24453a33",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_DRILL_icon.png",
+            "size": 8229,
+            "sha1": "896f68b770b6ee1e366d23a65528c740b5732ee3",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "地质钻机",
+        "category": "采集",
+        "footprint": "2×2",
+        "tier": 0,
+        "triangles": 2580,
+        "triangleBudget": 900,
+        "materials": 5,
+        "sizeCm": [
+          200,
+          279,
+          195
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#c9a227"
+        },
+        "gate": {
+          "triangles": 2580,
+          "budget": 900,
+          "over": true,
+          "severe": true,
+          "sizeCm": [
+            200,
+            279,
+            195
+          ],
+          "materials": 5
+        },
+        "textures": [],
+        "contentHash": "b0947f3e",
+        "styleHash": "ec9e793f",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_HAND": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/手工镐",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_HAND.glb",
+            "size": 92488,
+            "sha1": "2391364950c304effeef7e621764cb29b1dac3a3",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_HAND_icon.png",
+            "size": 6628,
+            "sha1": "fcb6840be79d2163854370899d5e222f0f46d301",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "手工镐",
+        "category": "采集",
+        "footprint": "1×1",
+        "tier": 0,
+        "triangles": 2580,
+        "triangleBudget": 900,
+        "materials": 5,
+        "sizeCm": [
+          100,
+          263,
+          98
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#c9a227"
+        },
+        "gate": {
+          "triangles": 2580,
+          "budget": 900,
+          "over": true,
+          "severe": true,
+          "sizeCm": [
+            100,
+            263,
+            98
+          ],
+          "materials": 5
+        },
+        "textures": [],
+        "contentHash": "f61e8aab",
+        "styleHash": "ec9e793f",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_TIDAL_PUMP": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/潮汐泵",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_TIDAL_PUMP.glb",
+            "size": 92496,
+            "sha1": "a7c55de46163d59ef47862fd96b460fd2e250267",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_TIDAL_PUMP_icon.png",
+            "size": 8947,
+            "sha1": "3232ef2d3701870eeec2c828db0fa2171e247be9",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "潮汐泵",
+        "category": "采集",
+        "footprint": "3×3",
+        "tier": 1,
+        "triangles": 2580,
+        "triangleBudget": 900,
+        "materials": 5,
+        "sizeCm": [
+          300,
+          295,
+          293
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#c9a227"
+        },
+        "gate": {
+          "triangles": 2580,
+          "budget": 900,
+          "over": true,
+          "severe": true,
+          "sizeCm": [
+            300,
+            295,
+            293
+          ],
+          "materials": 5
+        },
+        "textures": [],
+        "contentHash": "936ef97a",
+        "styleHash": "ec9e793f",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_DEEP_DRILL": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/深层钻机",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_DEEP_DRILL.glb",
+            "size": 96060,
+            "sha1": "30f777ef69e5014a657781a05bd0c15771dba801",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_DEEP_DRILL_icon.png",
+            "size": 9521,
+            "sha1": "ceef2a72ee2a78117b1634a7bd76a4ed26fcce4d",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "深层钻机",
+        "category": "采集",
+        "footprint": "4×4",
+        "tier": 3,
+        "triangles": 2640,
+        "triangleBudget": 900,
+        "materials": 5,
+        "sizeCm": [
+          400,
+          312,
+          391
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#c9a227"
+        },
+        "gate": {
+          "triangles": 2640,
+          "budget": 900,
+          "over": true,
+          "severe": true,
+          "sizeCm": [
+            400,
+            312,
+            391
+          ],
+          "materials": 5
+        },
+        "textures": [],
+        "contentHash": "8a5dd7ca",
+        "styleHash": "ec9e793f",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_METEOR_CAP": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/陨石捕获器",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_METEOR_CAP.glb",
+            "size": 92504,
+            "sha1": "633d21707c0c5012394438b8c020aed529f258d3",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_METEOR_CAP_icon.png",
+            "size": 8229,
+            "sha1": "896f68b770b6ee1e366d23a65528c740b5732ee3",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "陨石捕获器",
+        "category": "采集",
+        "footprint": "2×2",
+        "tier": 2,
+        "triangles": 2580,
+        "triangleBudget": 900,
+        "materials": 5,
+        "sizeCm": [
+          200,
+          279,
+          195
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#c9a227"
+        },
+        "gate": {
+          "triangles": 2580,
+          "budget": 900,
+          "over": true,
+          "severe": true,
+          "sizeCm": [
+            200,
+            279,
+            195
+          ],
+          "materials": 5
+        },
+        "textures": [],
+        "contentHash": "18c1fbee",
+        "styleHash": "ec9e793f",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_GAS_TOWER": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/气体采集塔",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_GAS_TOWER.glb",
+            "size": 92500,
+            "sha1": "4a88a56b212540ac4de4fef63a20eeb1a70e2b08",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_GAS_TOWER_icon.png",
+            "size": 8947,
+            "sha1": "3232ef2d3701870eeec2c828db0fa2171e247be9",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "气体采集塔",
+        "category": "采集",
+        "footprint": "3×3",
+        "tier": 2,
+        "triangles": 2580,
+        "triangleBudget": 900,
+        "materials": 5,
+        "sizeCm": [
+          300,
+          295,
+          293
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#c9a227"
+        },
+        "gate": {
+          "triangles": 2580,
+          "budget": 900,
+          "over": true,
+          "severe": true,
+          "sizeCm": [
+            300,
+            295,
+            293
+          ],
+          "materials": 5
+        },
+        "textures": [],
+        "contentHash": "62a2c617",
+        "styleHash": "ec9e793f",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_SORT": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/手选台",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_SORT.glb",
+            "size": 94352,
+            "sha1": "c6e3f3edda692ec4be770f325334f7c10975b962",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_SORT_icon.png",
+            "size": 8159,
+            "sha1": "a21684eac660729d5cbbdee285d4c72e0cdd306c",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "手选台",
+        "category": "分离",
+        "footprint": "2×1",
+        "tier": 0,
+        "triangles": 2708,
+        "triangleBudget": 900,
+        "materials": 6,
+        "sizeCm": [
+          188,
+          189,
+          94
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#5fa8c9"
+        },
+        "gate": {
+          "triangles": 2708,
+          "budget": 900,
+          "over": true,
+          "severe": true,
+          "sizeCm": [
+            188,
+            189,
+            94
+          ],
+          "materials": 6
+        },
+        "textures": [],
+        "contentHash": "adfeed97",
+        "styleHash": "c14b14bd",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_ARC": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/电弧熔炉",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_ARC.glb",
+            "size": 161840,
+            "sha1": "3fc6fbeaab587f49c8f4f87c4c34e8756bd8f296",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_ARC_icon.png",
+            "size": 9734,
+            "sha1": "a32ba9880fcffebb01f7106c91ac51b7b6dda78b",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "电弧熔炉",
+        "category": "冶炼",
+        "footprint": "3×3",
+        "tier": 0,
+        "triangles": 4304,
+        "triangleBudget": 900,
+        "materials": 5,
+        "sizeCm": [
+          300,
+          339,
+          291
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#de7d3c"
+        },
+        "gate": {
+          "triangles": 4304,
+          "budget": 900,
+          "over": true,
+          "severe": true,
+          "sizeCm": [
+            300,
+            339,
+            291
+          ],
+          "materials": 5
+        },
+        "textures": [],
+        "contentHash": "c1c94abe",
+        "styleHash": "4f428389",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_ALLOY_PRESS": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/合金压力机",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_ALLOY_PRESS.glb",
+            "size": 81292,
+            "sha1": "aa1ffe06bbab5b47166547d9fe5d4538f7cb45e9",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_ALLOY_PRESS_icon.png",
+            "size": 11403,
+            "sha1": "c7a3ef3cb35ae5104a2934805a54cd824efc9fd4",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "合金压力机",
+        "category": "合金",
+        "footprint": "4×4",
+        "tier": 1,
+        "triangles": 1836,
+        "triangleBudget": 900,
+        "materials": 5,
+        "sizeCm": [
+          400,
+          292,
+          380
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#5792be"
+        },
+        "gate": {
+          "triangles": 1836,
+          "budget": 900,
+          "over": true,
+          "severe": true,
+          "sizeCm": [
+            400,
+            292,
+            380
+          ],
+          "materials": 5
+        },
+        "textures": [],
+        "contentHash": "e1c91c4c",
+        "styleHash": "59adf0cd",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_EVAP": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/蒸发结晶塔",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_EVAP.glb",
+            "size": 94360,
+            "sha1": "ed0bf0614785a4e79a0e36b5a3fb24300a2824e0",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_EVAP_icon.png",
+            "size": 11480,
+            "sha1": "8d21f277b9727cbba0c706488174431075da4684",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "蒸发结晶塔",
+        "category": "分离",
+        "footprint": "3×3",
+        "tier": 1,
+        "triangles": 2708,
+        "triangleBudget": 900,
+        "materials": 6,
+        "sizeCm": [
+          300,
+          211,
+          277
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#5fa8c9"
+        },
+        "gate": {
+          "triangles": 2708,
+          "budget": 900,
+          "over": true,
+          "severe": true,
+          "sizeCm": [
+            300,
+            211,
+            277
+          ],
+          "materials": 6
+        },
+        "textures": [],
+        "contentHash": "58e3ff4a",
+        "styleHash": "c14b14bd",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_CHLOR_ALKALI": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/氯碱电解池",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_CHLOR_ALKALI.glb",
+            "size": 183804,
+            "sha1": "00588421bfdc8465b3f52f0f9c6f7f7bb089f647",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_CHLOR_ALKALI_icon.png",
+            "size": 11277,
+            "sha1": "bc8229105fb2fb5345ff53a896a62b9f09c1d3e4",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "氯碱电解池",
+        "category": "化工",
+        "footprint": "3×3",
+        "tier": 1,
+        "triangles": 6032,
+        "triangleBudget": 900,
+        "materials": 7,
+        "sizeCm": [
+          288,
+          179,
+          282
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#6cc66c"
+        },
+        "gate": {
+          "triangles": 6032,
+          "budget": 900,
+          "over": true,
+          "severe": true,
+          "sizeCm": [
+            288,
+            179,
+            282
+          ],
+          "materials": 7
+        },
+        "textures": [],
+        "contentHash": "284c6933",
+        "styleHash": "a3daf452",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_VAC_IND": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/真空感应炉",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_VAC_IND.glb",
+            "size": 161852,
+            "sha1": "3167ef6e991a854a18a985cd0350c48b92996bea",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_VAC_IND_icon.png",
+            "size": 10218,
+            "sha1": "7f38e94b07dff5140b7f25f5f20e647091a569ee",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "真空感应炉",
+        "category": "冶炼",
+        "footprint": "4×4",
+        "tier": 2,
+        "triangles": 4304,
+        "triangleBudget": 900,
+        "materials": 5,
+        "sizeCm": [
+          400,
+          339,
+          388
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#de7d3c"
+        },
+        "gate": {
+          "triangles": 4304,
+          "budget": 900,
+          "over": true,
+          "severe": true,
+          "sizeCm": [
+            400,
+            339,
+            388
+          ],
+          "materials": 5
+        },
+        "textures": [],
+        "contentHash": "b219c445",
+        "styleHash": "4f428389",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_DISTILL": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/蒸馏塔",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_DISTILL.glb",
+            "size": 183788,
+            "sha1": "12d86991d7746a609de6b5fb6c97d2ccc8c2d951",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_DISTILL_icon.png",
+            "size": 9921,
+            "sha1": "d20568e7c2395bdd397a74d1b55210473cf0666c",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "蒸馏塔",
+        "category": "化工",
+        "footprint": "2×2",
+        "tier": 2,
+        "triangles": 6032,
+        "triangleBudget": 900,
+        "materials": 7,
+        "sizeCm": [
+          196,
+          167,
+          188
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#6cc66c"
+        },
+        "gate": {
+          "triangles": 6032,
+          "budget": 900,
+          "over": true,
+          "severe": true,
+          "sizeCm": [
+            196,
+            167,
+            188
+          ],
+          "materials": 7
+        },
+        "textures": [],
+        "contentHash": "5ae4bb46",
+        "styleHash": "a3daf452",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_MAG": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/磁选机",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_MAG.glb",
+            "size": 94348,
+            "sha1": "9728b6ac915c34f9b4e33ecac402eae217857571",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_MAG_icon.png",
+            "size": 10029,
+            "sha1": "7c102cf627f2454dc5c6464981ef15f48766e53e",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "磁选机",
+        "category": "分离",
+        "footprint": "3×2",
+        "tier": 2,
+        "triangles": 2708,
+        "triangleBudget": 900,
+        "materials": 6,
+        "sizeCm": [
+          282,
+          189,
+          188
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#5fa8c9"
+        },
+        "gate": {
+          "triangles": 2708,
+          "budget": 900,
+          "over": true,
+          "severe": true,
+          "sizeCm": [
+            282,
+            189,
+            188
+          ],
+          "materials": 6
+        },
+        "textures": [],
+        "contentHash": "e9a04f7e",
+        "styleHash": "c14b14bd",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_CENTRIFUGE": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/同位素离心机",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_CENTRIFUGE.glb",
+            "size": 94368,
+            "sha1": "990a79335f87d006b0b41d2eb4e62af9ce870117",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_CENTRIFUGE_icon.png",
+            "size": 11908,
+            "sha1": "3afb82b823925974abefae13f7c3cb22e0a986cd",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "同位素离心机",
+        "category": "分离",
+        "footprint": "4×4",
+        "tier": 2,
+        "triangles": 2708,
+        "triangleBudget": 900,
+        "materials": 6,
+        "sizeCm": [
+          400,
+          240,
+          369
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#5fa8c9"
+        },
+        "gate": {
+          "triangles": 2708,
+          "budget": 900,
+          "over": true,
+          "severe": true,
+          "sizeCm": [
+            400,
+            240,
+            369
+          ],
+          "materials": 6
+        },
+        "textures": [],
+        "contentHash": "ed0ef27a",
+        "styleHash": "c14b14bd",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_ETCH": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/蚀刻机",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_ETCH.glb",
+            "size": 35896,
+            "sha1": "c5911c96089be707925973173b1000614bfa771d",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_ETCH_icon.png",
+            "size": 10095,
+            "sha1": "7f9786f35fc0267e95193bf4c8617eb7f8437abf",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "蚀刻机",
+        "category": "加工",
+        "footprint": "3×2",
+        "tier": 3,
+        "triangles": 508,
+        "triangleBudget": 900,
+        "materials": 6,
+        "sizeCm": [
+          282,
+          128,
+          188
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#5d90c0"
+        },
+        "gate": {
+          "triangles": 508,
+          "budget": 900,
+          "over": false,
+          "severe": false,
+          "sizeCm": [
+            282,
+            128,
+            188
+          ],
+          "materials": 6
+        },
+        "textures": [],
+        "contentHash": "b13540f1",
+        "styleHash": "a530c738",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_LATHE": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/精密车床",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_LATHE.glb",
+            "size": 35904,
+            "sha1": "feabf09f2f79a09e63c74eebbdcbe2b9690b2485",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_LATHE_icon.png",
+            "size": 10475,
+            "sha1": "e606a122a7a25e58faac740e1eec64acc0341356",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "精密车床",
+        "category": "加工",
+        "footprint": "2×2",
+        "tier": 3,
+        "triangles": 508,
+        "triangleBudget": 900,
+        "materials": 6,
+        "sizeCm": [
+          188,
+          128,
+          188
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#5d90c0"
+        },
+        "gate": {
+          "triangles": 508,
+          "budget": 900,
+          "over": false,
+          "severe": false,
+          "sizeCm": [
+            188,
+            128,
+            188
+          ],
+          "materials": 6
+        },
+        "textures": [],
+        "contentHash": "e5c2a12",
+        "styleHash": "a530c738",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_CARBONIZER": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/炭化炉",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_CARBONIZER.glb",
+            "size": 35908,
+            "sha1": "cc48121b956a0723d87e6a28554310bb288fb9ed",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_CARBONIZER_icon.png",
+            "size": 12019,
+            "sha1": "41e14e66eb91db60f9fba8da7f2f905106b7dcb8",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "炭化炉",
+        "category": "加工",
+        "footprint": "4×4",
+        "tier": 3,
+        "triangles": 508,
+        "triangleBudget": 900,
+        "materials": 6,
+        "sizeCm": [
+          376,
+          128,
+          376
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#5d90c0"
+        },
+        "gate": {
+          "triangles": 508,
+          "budget": 900,
+          "over": false,
+          "severe": false,
+          "sizeCm": [
+            376,
+            128,
+            376
+          ],
+          "materials": 6
+        },
+        "textures": [],
+        "contentHash": "2d19684e",
+        "styleHash": "a530c738",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_MAG_FACTORY": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/磁体工厂",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_MAG_FACTORY.glb",
+            "size": 35912,
+            "sha1": "31f907b567c2abea362c3bdf67620e3ce1a431a3",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_MAG_FACTORY_icon.png",
+            "size": 11689,
+            "sha1": "df15493388f1427ec40452c7dbed1a37617d9929",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "磁体工厂",
+        "category": "加工",
+        "footprint": "3×3",
+        "tier": 3,
+        "triangles": 508,
+        "triangleBudget": 900,
+        "materials": 6,
+        "sizeCm": [
+          282,
+          128,
+          282
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#5d90c0"
+        },
+        "gate": {
+          "triangles": 508,
+          "budget": 900,
+          "over": false,
+          "severe": false,
+          "sizeCm": [
+            282,
+            128,
+            282
+          ],
+          "materials": 6
+        },
+        "textures": [],
+        "contentHash": "6436faa6",
+        "styleHash": "a530c738",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_BATTERY": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/电池工厂",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_BATTERY.glb",
+            "size": 35904,
+            "sha1": "ea8dd69a88cf4b557345fbb92014e88347f5bd6c",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_BATTERY_icon.png",
+            "size": 11689,
+            "sha1": "df15493388f1427ec40452c7dbed1a37617d9929",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "电池工厂",
+        "category": "加工",
+        "footprint": "3×3",
+        "tier": 3,
+        "triangles": 508,
+        "triangleBudget": 900,
+        "materials": 6,
+        "sizeCm": [
+          282,
+          128,
+          282
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#5d90c0"
+        },
+        "gate": {
+          "triangles": 508,
+          "budget": 900,
+          "over": false,
+          "severe": false,
+          "sizeCm": [
+            282,
+            128,
+            282
+          ],
+          "materials": 6
+        },
+        "textures": [],
+        "contentHash": "a7f15699",
+        "styleHash": "a530c738",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_ROLLER": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/轧机",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_ROLLER.glb",
+            "size": 35900,
+            "sha1": "af305316beb46089e7111c937d34f58129e3d38f",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_ROLLER_icon.png",
+            "size": 10475,
+            "sha1": "e606a122a7a25e58faac740e1eec64acc0341356",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "轧机",
+        "category": "加工",
+        "footprint": "2×2",
+        "tier": 3,
+        "triangles": 508,
+        "triangleBudget": 900,
+        "materials": 6,
+        "sizeCm": [
+          188,
+          128,
+          188
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#5d90c0"
+        },
+        "gate": {
+          "triangles": 508,
+          "budget": 900,
+          "over": false,
+          "severe": false,
+          "sizeCm": [
+            188,
+            128,
+            188
+          ],
+          "materials": 6
+        },
+        "textures": [],
+        "contentHash": "fb871684",
+        "styleHash": "a530c738",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_PRESS": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/压制机",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_PRESS.glb",
+            "size": 32336,
+            "sha1": "69c423778b8631700ea3498ac56fcb9181145e40",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_PRESS_icon.png",
+            "size": 10475,
+            "sha1": "e606a122a7a25e58faac740e1eec64acc0341356",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "压制机",
+        "category": "加工",
+        "footprint": "2×2",
+        "tier": 1,
+        "triangles": 448,
+        "triangleBudget": 900,
+        "materials": 6,
+        "sizeCm": [
+          188,
+          128,
+          188
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#5d90c0"
+        },
+        "gate": {
+          "triangles": 448,
+          "budget": 900,
+          "over": false,
+          "severe": false,
+          "sizeCm": [
+            188,
+            128,
+            188
+          ],
+          "materials": 6
+        },
+        "textures": [],
+        "contentHash": "4d5d8e90",
+        "styleHash": "a530c738",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_SUPER_MILL": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/超导拉丝机",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_SUPER_MILL.glb",
+            "size": 35916,
+            "sha1": "2016aa30eb34de319794a451894def5e72369911",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_SUPER_MILL_icon.png",
+            "size": 12019,
+            "sha1": "41e14e66eb91db60f9fba8da7f2f905106b7dcb8",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "超导拉丝机",
+        "category": "加工",
+        "footprint": "4×4",
+        "tier": 4,
+        "triangles": 508,
+        "triangleBudget": 900,
+        "materials": 6,
+        "sizeCm": [
+          376,
+          128,
+          376
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#5d90c0"
+        },
+        "gate": {
+          "triangles": 508,
+          "budget": 900,
+          "over": false,
+          "severe": false,
+          "sizeCm": [
+            376,
+            128,
+            376
+          ],
+          "materials": 6
+        },
+        "textures": [],
+        "contentHash": "e567d531",
+        "styleHash": "a530c738",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_CONCRETE": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/混凝土搅拌机",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_CONCRETE.glb",
+            "size": 118656,
+            "sha1": "a43637bf8b06b50fa00b9cc63c65a51866cdf3a6",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_CONCRETE_icon.png",
+            "size": 9955,
+            "sha1": "6e02dd09838cd167faedb2ef256505a04bb5f37c",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "混凝土搅拌机",
+        "category": "回收",
+        "footprint": "3×3",
+        "tier": 1,
+        "triangles": 4008,
+        "triangleBudget": 900,
+        "materials": 6,
+        "sizeCm": [
+          295,
+          210,
+          265
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#bfa05b"
+        },
+        "gate": {
+          "triangles": 4008,
+          "budget": 900,
+          "over": true,
+          "severe": true,
+          "sizeCm": [
+            295,
+            210,
+            265
+          ],
+          "materials": 6
+        },
+        "textures": [],
+        "contentHash": "48b330cb",
+        "styleHash": "6a4106f5",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_FUEL_SYNTH": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/合成燃料厂",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_FUEL_SYNTH.glb",
+            "size": 122220,
+            "sha1": "a6bb51dbef630d5972871349f19b907d47252bed",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_FUEL_SYNTH_icon.png",
+            "size": 9955,
+            "sha1": "6e02dd09838cd167faedb2ef256505a04bb5f37c",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "合成燃料厂",
+        "category": "回收",
+        "footprint": "3×3",
+        "tier": 3,
+        "triangles": 4068,
+        "triangleBudget": 900,
+        "materials": 6,
+        "sizeCm": [
+          295,
+          210,
+          265
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#bfa05b"
+        },
+        "gate": {
+          "triangles": 4068,
+          "budget": 900,
+          "over": true,
+          "severe": true,
+          "sizeCm": [
+            295,
+            210,
+            265
+          ],
+          "materials": 6
+        },
+        "textures": [],
+        "contentHash": "9759ad5c",
+        "styleHash": "6a4106f5",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_CARBON_CAP": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/碳捕获装置",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_CARBON_CAP.glb",
+            "size": 122220,
+            "sha1": "1c52a3d8499a8053210308e828866944d87e9f11",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_CARBON_CAP_icon.png",
+            "size": 9955,
+            "sha1": "6e02dd09838cd167faedb2ef256505a04bb5f37c",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "碳捕获装置",
+        "category": "回收",
+        "footprint": "3×3",
+        "tier": 3,
+        "triangles": 4068,
+        "triangleBudget": 900,
+        "materials": 6,
+        "sizeCm": [
+          295,
+          210,
+          265
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#bfa05b"
+        },
+        "gate": {
+          "triangles": 4068,
+          "budget": 900,
+          "over": true,
+          "severe": true,
+          "sizeCm": [
+            295,
+            210,
+            265
+          ],
+          "materials": 6
+        },
+        "textures": [],
+        "contentHash": "ac715751",
+        "styleHash": "6a4106f5",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_ASSEMBLY": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/装配机",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_ASSEMBLY.glb",
+            "size": 26948,
+            "sha1": "d7c4eb00b064406b37c4cc0405f2e43d09bec97f",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_ASSEMBLY_icon.png",
+            "size": 11963,
+            "sha1": "03028156a2d5943f7cb519f39ba3d6bd10d29c7c",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "装配机",
+        "category": "组装",
+        "footprint": "3×3",
+        "tier": 0,
+        "triangles": 348,
+        "triangleBudget": 900,
+        "materials": 6,
+        "sizeCm": [
+          245,
+          136,
+          261
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#3fa887"
+        },
+        "gate": {
+          "triangles": 348,
+          "budget": 900,
+          "over": false,
+          "severe": false,
+          "sizeCm": [
+            245,
+            136,
+            261
+          ],
+          "materials": 6
+        },
+        "textures": [],
+        "contentHash": "5fadf310",
+        "styleHash": "d09bfa12",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_PRECISION": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/精密装配厂",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_PRECISION.glb",
+            "size": 30524,
+            "sha1": "3f57313a959e865cd9b14c3568695242e6bc66a0",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_PRECISION_icon.png",
+            "size": 12428,
+            "sha1": "7f8bcda3f98d47849901c2c5b290c2271096aa58",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "精密装配厂",
+        "category": "组装",
+        "footprint": "5×5",
+        "tier": 3,
+        "triangles": 408,
+        "triangleBudget": 900,
+        "materials": 6,
+        "sizeCm": [
+          409,
+          151,
+          435
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#3fa887"
+        },
+        "gate": {
+          "triangles": 408,
+          "budget": 900,
+          "over": false,
+          "severe": false,
+          "sizeCm": [
+            409,
+            151,
+            435
+          ],
+          "materials": 6
+        },
+        "textures": [],
+        "contentHash": "d943a0dd",
+        "styleHash": "d09bfa12",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_LIFEFAB": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/生保工厂",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_LIFEFAB.glb",
+            "size": 30520,
+            "sha1": "80afd3c2bdb8ca13f5f04007d94983bdefb9096d",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_LIFEFAB_icon.png",
+            "size": 12597,
+            "sha1": "26b4281ddff8f7a00e9f4e89c9e127cc7b3fa0e1",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "生保工厂",
+        "category": "组装",
+        "footprint": "4×4",
+        "tier": 3,
+        "triangles": 408,
+        "triangleBudget": 900,
+        "materials": 6,
+        "sizeCm": [
+          327,
+          144,
+          348
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#3fa887"
+        },
+        "gate": {
+          "triangles": 408,
+          "budget": 900,
+          "over": false,
+          "severe": false,
+          "sizeCm": [
+            327,
+            144,
+            348
+          ],
+          "materials": 6
+        },
+        "textures": [],
+        "contentHash": "8b670915",
+        "styleHash": "d09bfa12",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_WINDER": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/绕线车间",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_WINDER.glb",
+            "size": 30508,
+            "sha1": "5e748484e91fabd280667571f28d5d037d36c685",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_WINDER_icon.png",
+            "size": 11963,
+            "sha1": "03028156a2d5943f7cb519f39ba3d6bd10d29c7c",
+            "mtime": "2026-10-25T06:07:33Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:33Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "绕线车间",
+        "category": "组装",
+        "footprint": "3×3",
+        "tier": 3,
+        "triangles": 408,
+        "triangleBudget": 900,
+        "materials": 6,
+        "sizeCm": [
+          245,
+          136,
+          261
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#3fa887"
+        },
+        "gate": {
+          "triangles": 408,
+          "budget": 900,
+          "over": false,
+          "severe": false,
+          "sizeCm": [
+            245,
+            136,
+            261
+          ],
+          "materials": 6
+        },
+        "textures": [],
+        "contentHash": "31f2d2a0",
+        "styleHash": "d09bfa12",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_CLEANROOM": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/洁净室",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_CLEANROOM.glb",
+            "size": 92884,
+            "sha1": "a9012c3b593ce9ed19b236a1c0e4aa06257cf7d8",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_CLEANROOM_icon.png",
+            "size": 13284,
+            "sha1": "4d2bf9d266f5057f3f04fef0d01b42dbee6e007e",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "洁净室",
+        "category": "组装",
+        "footprint": "6×6",
+        "tier": 4,
+        "triangles": 2648,
+        "triangleBudget": 900,
+        "materials": 6,
+        "sizeCm": [
+          491,
+          245,
+          522
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#3fa887"
+        },
+        "gate": {
+          "triangles": 2648,
+          "budget": 900,
+          "over": true,
+          "severe": true,
+          "sizeCm": [
+            491,
+            245,
+            522
+          ],
+          "materials": 6
+        },
+        "textures": [],
+        "contentHash": "6c284745",
+        "styleHash": "d09bfa12",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_ORBITAL_DOCK": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/轨道建造坞",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_ORBITAL_DOCK.glb",
+            "size": 92900,
+            "sha1": "fee7da23062b7c52b09aeee3b568d08e50a1546c",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_ORBITAL_DOCK_icon.png",
+            "size": 13471,
+            "sha1": "416d09a8e07d95171aedeb92be37d93e8b7a70e7",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "轨道建造坞",
+        "category": "组装",
+        "footprint": "12×12",
+        "tier": 4,
+        "triangles": 2648,
+        "triangleBudget": 900,
+        "materials": 6,
+        "sizeCm": [
+          981,
+          301,
+          1044
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#3fa887"
+        },
+        "gate": {
+          "triangles": 2648,
+          "budget": 900,
+          "over": true,
+          "severe": true,
+          "sizeCm": [
+            981,
+            301,
+            1044
+          ],
+          "materials": 6
+        },
+        "textures": [],
+        "contentHash": "338d777f",
+        "styleHash": "d09bfa12",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "MC_CORE_DRILL": {
+      "kind": "machine",
+      "state": "exported",
+      "sourceDir": "_Source/机器/岩芯地质钻机",
+      "files": {
+        "mesh": [
+          {
+            "path": "MC_CORE_DRILL.glb",
+            "size": 92504,
+            "sha1": "f7a9f6fcd04549e2bfe77520cd436b72641a6ea7",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ],
+        "icon": [
+          {
+            "path": "MC_CORE_DRILL_icon.png",
+            "size": 8947,
+            "sha1": "3232ef2d3701870eeec2c828db0fa2171e247be9",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "岩芯地质钻机",
+        "category": "采集",
+        "footprint": "3×3",
+        "tier": 1,
+        "triangles": 2580,
+        "triangleBudget": 900,
+        "materials": 5,
+        "sizeCm": [
+          300,
+          295,
+          293
+        ],
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业",
+          "accent": "#c9a227"
+        },
+        "gate": {
+          "triangles": 2580,
+          "budget": 900,
+          "over": true,
+          "severe": true,
+          "sizeCm": [
+            300,
+            295,
+            293
+          ],
+          "materials": 5
+        },
+        "textures": [],
+        "contentHash": "ce2247b2",
+        "styleHash": "ec9e793f",
+        "blender": {
+          "state": "unavailable",
+          "error": "未找到 Blender"
+        }
+      }
+    },
+    "ORE_FE": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/铁质混合矿",
+      "files": {
+        "icon": [
+          {
+            "path": "ORE_FE.png",
+            "size": 7732,
+            "sha1": "4502c8e15bc00e1c2dfea16a1e9b2ed9a04ff720",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "铁质混合矿",
+        "type": "raw",
+        "visual": null,
+        "tier": 0,
+        "color": "#8b6b4a",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "9eeed242"
+      }
+    },
+    "ORE_SI": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/硅质混合矿",
+      "files": {
+        "icon": [
+          {
+            "path": "ORE_SI.png",
+            "size": 9146,
+            "sha1": "904b483c26058e180002dd6460f94776e64a172e",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "硅质混合矿",
+        "type": "raw",
+        "visual": null,
+        "tier": 0,
+        "color": "#8a8f98",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "9da5656"
+      }
+    },
+    "ORE_AL": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/铝质混合矿",
+      "files": {
+        "icon": [
+          {
+            "path": "ORE_AL.png",
+            "size": 7634,
+            "sha1": "fd05f636163fce6b28ff80513ca33b89e32d13a6",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "铝质混合矿",
+        "type": "raw",
+        "visual": null,
+        "tier": 0,
+        "color": "#a8adb5",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "e839d41e"
+      }
+    },
+    "ORE_C": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/煤化混合矿",
+      "files": {
+        "icon": [
+          {
+            "path": "ORE_C.png",
+            "size": 7786,
+            "sha1": "8ebe1b8a36f467456401287ce7b48e9fcc9a199d",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "煤化混合矿",
+        "type": "raw",
+        "visual": null,
+        "tier": 0,
+        "color": "#3d3d3b",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "be4659e7"
+      }
+    },
+    "ORE_TI": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/钛质混合矿",
+      "files": {
+        "icon": [
+          {
+            "path": "ORE_TI.png",
+            "size": 9342,
+            "sha1": "98a87b963e1e2c81a3611963754aa82cd8bdd569",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "钛质混合矿",
+        "type": "raw",
+        "visual": null,
+        "tier": 0,
+        "color": "#7d7f86",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "657913dd"
+      }
+    },
+    "ORE_NI": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/镍质混合矿",
+      "files": {
+        "icon": [
+          {
+            "path": "ORE_NI.png",
+            "size": 8902,
+            "sha1": "64968d451e6842912c828025be3af4818c297086",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "镍质混合矿",
+        "type": "raw",
+        "visual": null,
+        "tier": 0,
+        "color": "#5d5b57",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "5f8101df"
+      }
+    },
+    "ORE_BRINE": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/卤水结晶矿",
+      "files": {
+        "icon": [
+          {
+            "path": "ORE_BRINE.png",
+            "size": 7818,
+            "sha1": "7ffdf8427b2b33f742192e1ed5a1fddbd61a4ae0",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "卤水结晶矿",
+        "type": "concentrate",
+        "visual": null,
+        "tier": 1,
+        "color": "#9fb8c9",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "c7ca6c30"
+      }
+    },
+    "ORE_METEOR": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/陨铁混合矿",
+      "files": {
+        "icon": [
+          {
+            "path": "ORE_METEOR.png",
+            "size": 8694,
+            "sha1": "f46c47555ff8372cb9bf99b361c37a78901a301a",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "陨铁混合矿",
+        "type": "raw",
+        "visual": null,
+        "tier": 0,
+        "color": "#6a6560",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "9fcf6fda"
+      }
+    },
+    "ORE_U": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/富铀混合矿",
+      "files": {
+        "icon": [
+          {
+            "path": "ORE_U.png",
+            "size": 8634,
+            "sha1": "4acebcaba92b5de57a65601b9b882b259a9393ce",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "富铀混合矿",
+        "type": "raw",
+        "visual": null,
+        "tier": 0,
+        "color": "#5f9e4f",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "11ce6b89"
+      }
+    },
+    "ORE_RARE": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/稀有元素矿",
+      "files": {
+        "icon": [
+          {
+            "path": "ORE_RARE.png",
+            "size": 9076,
+            "sha1": "e8329ca72fa0ddc7d674e3471a5990cc4137f4b3",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "稀有元素矿",
+        "type": "raw",
+        "visual": null,
+        "tier": 0,
+        "color": "#9a5fa0",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "25636cc"
+      }
+    },
+    "ORE_CU": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/铜质混合矿",
+      "files": {
+        "icon": [
+          {
+            "path": "ORE_CU.png",
+            "size": 9189,
+            "sha1": "c8cabfa14e7ab0ef4f52305d32e371b06d548218",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "铜质混合矿",
+        "type": "raw",
+        "visual": null,
+        "tier": 0,
+        "color": "#b87333",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "ca9a6ddf"
+      }
+    },
+    "ORE_CR": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/铬质混合矿",
+      "files": {
+        "icon": [
+          {
+            "path": "ORE_CR.png",
+            "size": 7634,
+            "sha1": "3bd08e0c23744a10c71fc76c697f3ce4578f6825",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "铬质混合矿",
+        "type": "raw",
+        "visual": null,
+        "tier": 0,
+        "color": "#6b7280",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "b3b8e229"
+      }
+    },
+    "ORE_ZN": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/锌质混合矿",
+      "files": {
+        "icon": [
+          {
+            "path": "ORE_ZN.png",
+            "size": 8829,
+            "sha1": "89be5a47ef4826b9249e931508f23411382f0222",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "锌质混合矿",
+        "type": "raw",
+        "visual": null,
+        "tier": 0,
+        "color": "#6e7480",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "1d84c98f"
+      }
+    },
+    "ORE_HE": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/液氦矿脉",
+      "files": {
+        "icon": [
+          {
+            "path": "ORE_HE.png",
+            "size": 9619,
+            "sha1": "d2cabf69f800474f2e9a43dac0f89afd995e4cbc",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "液氦矿脉",
+        "type": "raw",
+        "visual": null,
+        "tier": 0,
+        "color": "#7ac4e0",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "a44f577e"
+      }
+    },
+    "CONC_FE": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/高纯铁矿",
+      "files": {
+        "icon": [
+          {
+            "path": "CONC_FE.png",
+            "size": 7818,
+            "sha1": "d028c8e6186c9dcf542838b6feb19a1f633895b8",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "高纯铁矿",
+        "type": "concentrate",
+        "visual": null,
+        "tier": 1,
+        "color": "#c08a5a",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "91c3bfca"
+      }
+    },
+    "CONC_C": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/煤化料",
+      "files": {
+        "icon": [
+          {
+            "path": "CONC_C.png",
+            "size": 7795,
+            "sha1": "0b4f24319589ff7773943b38f6556b9906076385",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "煤化料",
+        "type": "concentrate",
+        "visual": null,
+        "tier": 1,
+        "color": "#4a4a48",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "49d2f6a0"
+      }
+    },
+    "CONC_SI": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/高纯硅矿",
+      "files": {
+        "icon": [
+          {
+            "path": "CONC_SI.png",
+            "size": 7825,
+            "sha1": "be1d77c496b2f30d9fcd2a1b1a3b2080e66eeda4",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "高纯硅矿",
+        "type": "concentrate",
+        "visual": null,
+        "tier": 1,
+        "color": "#b0b5bd",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "170a89e2"
+      }
+    },
+    "CONC_AL": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/高纯铝矿",
+      "files": {
+        "icon": [
+          {
+            "path": "CONC_AL.png",
+            "size": 7884,
+            "sha1": "1eadd7fee4f611b77d29981630a118c516490b66",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "高纯铝矿",
+        "type": "concentrate",
+        "visual": null,
+        "tier": 1,
+        "color": "#c0c4cb",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "20680d23"
+      }
+    },
+    "CONC_CU": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/高纯铜矿",
+      "files": {
+        "icon": [
+          {
+            "path": "CONC_CU.png",
+            "size": 7766,
+            "sha1": "0230748bba51f55d564c96062b0d80f43fd95616",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "高纯铜矿",
+        "type": "concentrate",
+        "visual": null,
+        "tier": 1,
+        "color": "#d08a4a",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "3ac354d4"
+      }
+    },
+    "CONC_TI": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/高纯钛矿",
+      "files": {
+        "icon": [
+          {
+            "path": "CONC_TI.png",
+            "size": 7923,
+            "sha1": "729acf8ed451fae09fc4eafe02a7e8bd2759ae66",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "高纯钛矿",
+        "type": "concentrate",
+        "visual": null,
+        "tier": 1,
+        "color": "#8a8c93",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "5c146aca"
+      }
+    },
+    "CONC_NI": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/高纯镍料",
+      "files": {
+        "icon": [
+          {
+            "path": "CONC_NI.png",
+            "size": 7785,
+            "sha1": "6ca59d93f8d3d9e17e2e9691991bb10d7ffe3ca2",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "高纯镍料",
+        "type": "concentrate",
+        "visual": null,
+        "tier": 1,
+        "color": "#77746f",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "6f485abd"
+      }
+    },
+    "CONC_CR": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/高纯铬料",
+      "files": {
+        "icon": [
+          {
+            "path": "CONC_CR.png",
+            "size": 7771,
+            "sha1": "497bad784a28535ef11b07da065fbe6329229e5b",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "高纯铬料",
+        "type": "concentrate",
+        "visual": null,
+        "tier": 1,
+        "color": "#7d838c",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "d466732e"
+      }
+    },
+    "CONC_ZN": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/高纯锌料",
+      "files": {
+        "icon": [
+          {
+            "path": "CONC_ZN.png",
+            "size": 7919,
+            "sha1": "10db394f3ee1f6f6f3afa74f4378e49892e2125e",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "高纯锌料",
+        "type": "concentrate",
+        "visual": null,
+        "tier": 1,
+        "color": "#8a9098",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "c8727c87"
+      }
+    },
+    "CONC_U": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/富铀料",
+      "files": {
+        "icon": [
+          {
+            "path": "CONC_U.png",
+            "size": 7737,
+            "sha1": "741d98afd8ed54cd188308c2716876e16bc6ea5e",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "富铀料",
+        "type": "concentrate",
+        "visual": null,
+        "tier": 1,
+        "color": "#6fae5f",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "4a70d74f"
+      }
+    },
+    "CONC_RARE": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/稀土元素料",
+      "files": {
+        "icon": [
+          {
+            "path": "CONC_RARE.png",
+            "size": 7770,
+            "sha1": "9e3a1dd1ad64e7759a80affaab8d03a4f40748ba",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "稀土元素料",
+        "type": "concentrate",
+        "visual": null,
+        "tier": 1,
+        "color": "#a86fae",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "2ec10260"
+      }
+    },
+    "CONC_LI": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/碳酸锂",
+      "files": {
+        "icon": [
+          {
+            "path": "CONC_LI.png",
+            "size": 7852,
+            "sha1": "eb2f59784d7efc2a0d857ed82b5c120d2f66ff81",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "碳酸锂",
+        "type": "concentrate",
+        "visual": null,
+        "tier": 1,
+        "color": "#b58fd4",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "e01f5c27"
+      }
+    },
+    "ING_PIG": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/生铁锭",
+      "files": {
+        "icon": [
+          {
+            "path": "ING_PIG.png",
+            "size": 5548,
+            "sha1": "23af726d697226c366b3c5e3993ec3d65ed1b046",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "生铁锭",
+        "type": "ingot",
+        "visual": null,
+        "tier": 2,
+        "color": "#7d5a48",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "ecfc887e"
+      }
+    },
+    "ING_STEEL": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/钢锭",
+      "files": {
+        "icon": [
+          {
+            "path": "ING_STEEL.png",
+            "size": 5817,
+            "sha1": "afd6ef289f577c4c1225379d4079c025cdc05b29",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "钢锭",
+        "type": "ingot",
+        "visual": null,
+        "tier": 2,
+        "color": "#8a8d92",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "7cd70bba"
+      }
+    },
+    "ING_SI": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/硅锭",
+      "files": {
+        "icon": [
+          {
+            "path": "ING_SI.png",
+            "size": 5639,
+            "sha1": "ac45dff94668de4fb6548936f9a748d548dd8318",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "硅锭",
+        "type": "ingot",
+        "visual": null,
+        "tier": 2,
+        "color": "#7f868e",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "814d81f6"
+      }
+    },
+    "ING_CU": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/铜锭",
+      "files": {
+        "icon": [
+          {
+            "path": "ING_CU.png",
+            "size": 5566,
+            "sha1": "1a4d4ebeba18e0f892c57f840e54543180d0e1ed",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "铜锭",
+        "type": "ingot",
+        "visual": null,
+        "tier": 2,
+        "color": "#c07a3a",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "bcadfdfe"
+      }
+    },
+    "ING_AL": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/铝锭",
+      "files": {
+        "icon": [
+          {
+            "path": "ING_AL.png",
+            "size": 6242,
+            "sha1": "8c2366974f91d4a08d59a34f02fa78779e734d9f",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "铝锭",
+        "type": "ingot",
+        "visual": null,
+        "tier": 2,
+        "color": "#c2c7cd",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "221e8db7"
+      }
+    },
+    "ING_TI": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/钛锭",
+      "files": {
+        "icon": [
+          {
+            "path": "ING_TI.png",
+            "size": 6033,
+            "sha1": "6fec6b15999b63dea7b4bbd054d82102648b4208",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "钛锭",
+        "type": "ingot",
+        "visual": null,
+        "tier": 2,
+        "color": "#989ba1",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "e411b2b"
+      }
+    },
+    "ING_CR": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/铬锭",
+      "files": {
+        "icon": [
+          {
+            "path": "ING_CR.png",
+            "size": 5435,
+            "sha1": "06856ef1efc05a0a75d5558326f15162b310eaf0",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "铬锭",
+        "type": "ingot",
+        "visual": null,
+        "tier": 2,
+        "color": "#79808a",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "46c4fb8b"
+      }
+    },
+    "ING_ZN": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/锌锭",
+      "files": {
+        "icon": [
+          {
+            "path": "ING_ZN.png",
+            "size": 5499,
+            "sha1": "11b90d7ab763cec77e887a2a2d5e989f5355aae6",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "锌锭",
+        "type": "ingot",
+        "visual": null,
+        "tier": 2,
+        "color": "#8f959d",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "891c4f0c"
+      }
+    },
+    "ING_S": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/硫磺",
+      "files": {
+        "icon": [
+          {
+            "path": "ING_S.png",
+            "size": 5930,
+            "sha1": "6c690ce128b338926efe730aedf483c1311a1571",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "硫磺",
+        "type": "ingot",
+        "visual": null,
+        "tier": 2,
+        "color": "#c8b53a",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "7503278a"
+      }
+    },
+    "ING_HE3": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/氦-3",
+      "files": {
+        "icon": [
+          {
+            "path": "ING_HE3.png",
+            "size": 5773,
+            "sha1": "740f85411b8d9b2f7d9f9c5bb30ba4cbec0a3a26",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "氦-3",
+        "type": "ingot",
+        "visual": null,
+        "tier": 2,
+        "color": "#6fb3d9",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "f26a5790"
+      }
+    },
+    "ING_H2": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/氢气",
+      "files": {
+        "icon": [
+          {
+            "path": "ING_H2.png",
+            "size": 10626,
+            "sha1": "194f64a6302e3e31a16247d0b182ce3851748c1a",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "氢气",
+        "type": "fluid",
+        "visual": null,
+        "tier": 2,
+        "color": "#6fc4e8",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "cff53b7"
+      }
+    },
+    "ING_CL": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/氯气",
+      "files": {
+        "icon": [
+          {
+            "path": "ING_CL.png",
+            "size": 10415,
+            "sha1": "2026632a98863242f89ed14f724f1baa0545c6dd",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "氯气",
+        "type": "fluid",
+        "visual": null,
+        "tier": 2,
+        "color": "#7fc47f",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "fb5b1688"
+      }
+    },
+    "PLATE_SS": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/不锈钢板",
+      "files": {
+        "icon": [
+          {
+            "path": "PLATE_SS.png",
+            "size": 5934,
+            "sha1": "8965d96c18f51bdac893cfea6f3b447156405711",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "不锈钢板",
+        "type": "material",
+        "visual": null,
+        "tier": 3,
+        "color": "#aeb4ba",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "4d065ed7"
+      }
+    },
+    "PLATE_TI": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/钛合金板",
+      "files": {
+        "icon": [
+          {
+            "path": "PLATE_TI.png",
+            "size": 5867,
+            "sha1": "d837ff42665933cde3b700eaed2861d3ca56b8d2",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "钛合金板",
+        "type": "material",
+        "visual": null,
+        "tier": 3,
+        "color": "#b4b8bd",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "cc4cc1fe"
+      }
+    },
+    "PLATE_TI_HARD": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/高强钛板",
+      "files": {
+        "icon": [
+          {
+            "path": "PLATE_TI_HARD.png",
+            "size": 5867,
+            "sha1": "d837ff42665933cde3b700eaed2861d3ca56b8d2",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "高强钛板",
+        "type": "material",
+        "visual": null,
+        "tier": 3,
+        "color": "#c2c6cb",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "7b87be54"
+      }
+    },
+    "ROD_BRASS": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/黄铜棒",
+      "files": {
+        "icon": [
+          {
+            "path": "ROD_BRASS.png",
+            "size": 5958,
+            "sha1": "050b557ec61b871ae5b181ee0ba52f8b47359f22",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "黄铜棒",
+        "type": "material",
+        "visual": null,
+        "tier": 3,
+        "color": "#c4a45e",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "8478396c"
+      }
+    },
+    "FOIL_CU": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/铜箔",
+      "files": {
+        "icon": [
+          {
+            "path": "FOIL_CU.png",
+            "size": 5920,
+            "sha1": "67df69f67f580caf63ed38951d068c7892247ec1",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "铜箔",
+        "type": "material",
+        "visual": null,
+        "tier": 3,
+        "color": "#d08a4a",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "32fa19d4"
+      }
+    },
+    "PART_GEAR": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/齿轮组",
+      "files": {
+        "icon": [
+          {
+            "path": "PART_GEAR.png",
+            "size": 12695,
+            "sha1": "2a0e969fb5aa616ef647e0019d0428449bf71847",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "齿轮组",
+        "type": "part",
+        "visual": null,
+        "tier": 3,
+        "color": "#9099a3",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "649979a0"
+      }
+    },
+    "PART_SHAFT": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/传动轴",
+      "files": {
+        "icon": [
+          {
+            "path": "PART_SHAFT.png",
+            "size": 12685,
+            "sha1": "13af23b1a35988a771915514e2629144313cf484",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "传动轴",
+        "type": "part",
+        "visual": null,
+        "tier": 3,
+        "color": "#8d949c",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "f7053caa"
+      }
+    },
+    "PART_PCB": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/电路基板",
+      "files": {
+        "icon": [
+          {
+            "path": "PART_PCB.png",
+            "size": 12403,
+            "sha1": "fdabd3fb28acda7cfaeb3acdd79c7113dd5fe320",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "电路基板",
+        "type": "part",
+        "visual": null,
+        "tier": 3,
+        "color": "#3f7a4a",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "9d6468f1"
+      }
+    },
+    "PART_PRISM": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/光学棱镜",
+      "files": {
+        "icon": [
+          {
+            "path": "PART_PRISM.png",
+            "size": 12513,
+            "sha1": "fb6851988edbaf053c2a45e7988290665051dc1c",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "光学棱镜",
+        "type": "part",
+        "visual": null,
+        "tier": 3,
+        "color": "#9fd8e8",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "319e5ac6"
+      }
+    },
+    "PART_MAGNET": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/永磁体",
+      "files": {
+        "icon": [
+          {
+            "path": "PART_MAGNET.png",
+            "size": 12555,
+            "sha1": "6d9a237f3c7f27a401e713f0afac647a8320a6ca",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "永磁体",
+        "type": "part",
+        "visual": null,
+        "tier": 3,
+        "color": "#7a5a8a",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "249ed20a"
+      }
+    },
+    "PART_BATTERY": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/电池组",
+      "files": {
+        "icon": [
+          {
+            "path": "PART_BATTERY.png",
+            "size": 12443,
+            "sha1": "9cd7bacf562693d9617f125d838697228d125cea",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "电池组",
+        "type": "part",
+        "visual": null,
+        "tier": 3,
+        "color": "#4a6e8a",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "e983d52e"
+      }
+    },
+    "PART_CARBON": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/碳纤维布",
+      "files": {
+        "icon": [
+          {
+            "path": "PART_CARBON.png",
+            "size": 5922,
+            "sha1": "a8c659c4fdce91b900ab5a9676b523d71c2e59bd",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "碳纤维布",
+        "type": "material",
+        "visual": null,
+        "tier": 3,
+        "color": "#333336",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "884bce55"
+      }
+    },
+    "PART_BRICK": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/隔热砖",
+      "files": {
+        "icon": [
+          {
+            "path": "PART_BRICK.png",
+            "size": 5952,
+            "sha1": "470569c21fd9de893ea8d956aec376e77b8a3ad0",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "隔热砖",
+        "type": "material",
+        "visual": null,
+        "tier": 3,
+        "color": "#a08a72",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "c82babec"
+      }
+    },
+    "BLOCK_CEMENT": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/混凝土块",
+      "files": {
+        "icon": [
+          {
+            "path": "BLOCK_CEMENT.png",
+            "size": 5908,
+            "sha1": "22ddac1b59078ce7eda6f632d6745577e74c72a7",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "混凝土块",
+        "type": "material",
+        "visual": null,
+        "tier": 3,
+        "color": "#8e8d88",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "7d9bf2be"
+      }
+    },
+    "PART_WIRE": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/超导线",
+      "files": {
+        "icon": [
+          {
+            "path": "PART_WIRE.png",
+            "size": 5919,
+            "sha1": "4b3816616c1bfe1ee63a57cf2507aae8e0c46e37",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "超导线",
+        "type": "material",
+        "visual": null,
+        "tier": 3,
+        "color": "#5fa8c4",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "4b317c13"
+      }
+    },
+    "PART_COIL": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/铜线圈",
+      "files": {
+        "icon": [
+          {
+            "path": "PART_COIL.png",
+            "size": 12585,
+            "sha1": "e2b69a431f41fe3d78b20b9da75c6713248676d2",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "铜线圈",
+        "type": "part",
+        "visual": null,
+        "tier": 3,
+        "color": "#b87a3a",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "bd145c1f"
+      }
+    },
+    "PART_RESIN": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/环氧树脂",
+      "files": {
+        "icon": [
+          {
+            "path": "PART_RESIN.png",
+            "size": 12423,
+            "sha1": "a5d7c33f5261458ec29ed588d35ca44fae18e9b4",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "环氧树脂",
+        "type": "part",
+        "visual": null,
+        "tier": 3,
+        "color": "#9a8a5a",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "5eb0a0e0"
+      }
+    },
+    "PART_TUBE": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/铜管",
+      "files": {
+        "icon": [
+          {
+            "path": "PART_TUBE.png",
+            "size": 12432,
+            "sha1": "45e95ff6d72e733c4e54dde161543e809be81060",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "铜管",
+        "type": "part",
+        "visual": null,
+        "tier": 3,
+        "color": "#c08a4a",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "e4af2061"
+      }
+    },
+    "PART_FUELPIPE": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/燃料管",
+      "files": {
+        "icon": [
+          {
+            "path": "PART_FUELPIPE.png",
+            "size": 12454,
+            "sha1": "aa35be6d51b045296f931e7751d8d0a679ab9acd",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "燃料管",
+        "type": "part",
+        "visual": null,
+        "tier": 3,
+        "color": "#6a6a72",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "16638ec1"
+      }
+    },
+    "MOD_AUTOMATION": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/自动化模块",
+      "files": {
+        "icon": [
+          {
+            "path": "MOD_AUTOMATION.png",
+            "size": 6752,
+            "sha1": "105d98ce5219cdc0538d7e0eece0aebc4331f6e0",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "自动化模块",
+        "type": "module",
+        "visual": null,
+        "tier": 4,
+        "color": "#1d9e75",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "be2cd93"
+      }
+    },
+    "MOD_THRUSTER": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/离子推进模块",
+      "files": {
+        "icon": [
+          {
+            "path": "MOD_THRUSTER.png",
+            "size": 6774,
+            "sha1": "43872e0de98af9c40233a478457d60e42fc2c4a8",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "离子推进模块",
+        "type": "module",
+        "visual": null,
+        "tier": 4,
+        "color": "#378add",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "9d6f89f1"
+      }
+    },
+    "MOD_LIFE": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/生保循环体",
+      "files": {
+        "icon": [
+          {
+            "path": "MOD_LIFE.png",
+            "size": 6698,
+            "sha1": "ec79945947cafcb30baf314a41e67755d7c29452",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "生保循环体",
+        "type": "module",
+        "visual": null,
+        "tier": 4,
+        "color": "#5dc aa5",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "baa41a48"
+      }
+    },
+    "MOD_POWER": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/发电机模块",
+      "files": {
+        "icon": [
+          {
+            "path": "MOD_POWER.png",
+            "size": 6758,
+            "sha1": "5c382908d9c6faf2925d391805efd6eb4c3da487",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "发电机模块",
+        "type": "module",
+        "visual": null,
+        "tier": 4,
+        "color": "#ef9f27",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "71c5b7e9"
+      }
+    },
+    "MOD_SENSOR": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/深空传感器",
+      "files": {
+        "icon": [
+          {
+            "path": "MOD_SENSOR.png",
+            "size": 6773,
+            "sha1": "98bddb2dfc4aae04a2c25515206903395275ccf0",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "深空传感器",
+        "type": "module",
+        "visual": null,
+        "tier": 4,
+        "color": "#a3b1c4",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "f9307dfb"
+      }
+    },
+    "MOD_QUANTUM": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/量子计算核心",
+      "files": {
+        "icon": [
+          {
+            "path": "MOD_QUANTUM.png",
+            "size": 6752,
+            "sha1": "2fa4f436a7cbadab1e424f9b9c4c69af5af16835",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "量子计算核心",
+        "type": "module",
+        "visual": null,
+        "tier": 4,
+        "color": "#7f77dd",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "bd99b6d7"
+      }
+    },
+    "MEGA_ELEVATOR": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/空间电梯段",
+      "files": {
+        "icon": [
+          {
+            "path": "MEGA_ELEVATOR.png",
+            "size": 21660,
+            "sha1": "0c14dcd7538b47db0cf95e277ac7d5274cf226a2",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "空间电梯段",
+        "type": "mega",
+        "visual": null,
+        "tier": 5,
+        "color": "#534ab7",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "293cb362"
+      }
+    },
+    "MEGA_FUSION": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/轨道聚变环",
+      "files": {
+        "icon": [
+          {
+            "path": "MEGA_FUSION.png",
+            "size": 20961,
+            "sha1": "f62da1171a0b5f83872773a38df2cf0c6d198e2a",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "轨道聚变环",
+        "type": "mega",
+        "visual": null,
+        "tier": 5,
+        "color": "#a32d2d",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "40ecf6a7"
+      }
+    },
+    "MEGA_DYSON": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/戴森帆阵列",
+      "files": {
+        "icon": [
+          {
+            "path": "MEGA_DYSON.png",
+            "size": 21527,
+            "sha1": "f6af4767f148baf0fed8d0f35bd24bd674099450",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "戴森帆阵列",
+        "type": "mega",
+        "visual": null,
+        "tier": 5,
+        "color": "#185fa5",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "1bba0a6"
+      }
+    },
+    "WASTE_TAIL": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/尾矿",
+      "files": {
+        "icon": [
+          {
+            "path": "WASTE_TAIL.png",
+            "size": 6673,
+            "sha1": "887b4eedcbcfab3a2db605e0787038fecea22408",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "尾矿",
+        "type": "byproduct",
+        "visual": null,
+        "tier": 1,
+        "color": "#7a736a",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "b0bda2af"
+      }
+    },
+    "WASTE_WATER": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/废水",
+      "files": {
+        "icon": [
+          {
+            "path": "WASTE_WATER.png",
+            "size": 6651,
+            "sha1": "2ff19745921cb242b93150e36cb879113f2c310b",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "废水",
+        "type": "byproduct",
+        "visual": null,
+        "tier": 1,
+        "color": "#7a9ab0",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "2b49ebd7"
+      }
+    },
+    "WASTE_SLAG": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/炉渣",
+      "files": {
+        "icon": [
+          {
+            "path": "WASTE_SLAG.png",
+            "size": 6644,
+            "sha1": "8719ccbaec935b1f879ab6d37d7ef627b918893a",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "炉渣",
+        "type": "byproduct",
+        "visual": null,
+        "tier": 2,
+        "color": "#6a6560",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "a9de41e"
+      }
+    },
+    "WASTE_GAS": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/废气",
+      "files": {
+        "icon": [
+          {
+            "path": "WASTE_GAS.png",
+            "size": 6714,
+            "sha1": "ba1dc4b71275769ce9187b9ddf15ce92f2fc983d",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "废气",
+        "type": "byproduct",
+        "visual": null,
+        "tier": 2,
+        "color": "#9a9a92",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "6da90a68"
+      }
+    },
+    "GAS_ARGON": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/氩气",
+      "files": {
+        "icon": [
+          {
+            "path": "GAS_ARGON.png",
+            "size": 10629,
+            "sha1": "0b171e828a1ad1c0d2980f886a0df43b0fe382f2",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "氩气",
+        "type": "fluid",
+        "visual": null,
+        "tier": 2,
+        "color": "#7a95a8",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "a44da1d5"
+      }
+    },
+    "HEAT_WASTE": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/废热",
+      "files": {
+        "icon": [
+          {
+            "path": "HEAT_WASTE.png",
+            "size": 10551,
+            "sha1": "e16066bea18e53c45fa1033e54e9d0352485e15d",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "废热",
+        "type": "fluid",
+        "visual": null,
+        "tier": 1,
+        "color": "#c47a4a",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "cbbcb7e3"
+      }
+    },
+    "ORE_BRINE_LIQ": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/卤水",
+      "files": {
+        "icon": [
+          {
+            "path": "ORE_BRINE_LIQ.png",
+            "size": 10608,
+            "sha1": "cd0201a6d9c0601146466f35f28d9f0776900eb6",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "卤水",
+        "type": "raw",
+        "visual": "fluid",
+        "tier": 0,
+        "color": "#6fa8c4",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "7af9464"
+      }
+    },
+    "ORE_HE3_GAS": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/巨行星大气",
+      "files": {
+        "icon": [
+          {
+            "path": "ORE_HE3_GAS.png",
+            "size": 10591,
+            "sha1": "d7fbd4bcbf2968b11684e4980babe1f6ef79718a",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "巨行星大气",
+        "type": "raw",
+        "visual": "fluid",
+        "tier": 0,
+        "color": "#8fd0e8",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "860a2012"
+      }
+    },
+    "FLUID_HE": {
+      "kind": "item",
+      "state": "exported",
+      "sourceDir": "_Source/物品/图标/液态氦",
+      "files": {
+        "icon": [
+          {
+            "path": "FLUID_HE.png",
+            "size": 10838,
+            "sha1": "d36151ec526f51957059dc489dbbe35ab98be347",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "液态氦",
+        "type": "fluid",
+        "visual": null,
+        "tier": 3,
+        "color": "#7ac4e0",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "1a5cd301"
+      }
+    },
+    "Fe": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/铁",
+      "files": {
+        "icon": [
+          {
+            "path": "Fe.png",
+            "size": 20190,
+            "sha1": "ba41b314e1f018e0c5782f00b8ecb7e8b281ff00",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "铁",
+        "symbol": "Fe",
+        "tier": 0,
+        "color": "#9a6b4f",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "d54c85df"
+      }
+    },
+    "Si": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/硅",
+      "files": {
+        "icon": [
+          {
+            "path": "Si.png",
+            "size": 21276,
+            "sha1": "f2c8082149df5d9f09ec43f47917ac53d1a2eefa",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "硅",
+        "symbol": "Si",
+        "tier": 0,
+        "color": "#8a8f98",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "f7265e39"
+      }
+    },
+    "Al": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/铝",
+      "files": {
+        "icon": [
+          {
+            "path": "Al.png",
+            "size": 20230,
+            "sha1": "0099b4dc12e76d6f618afbd0cc8f497230d48d6b",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "铝",
+        "symbol": "Al",
+        "tier": 0,
+        "color": "#a8adb5",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "9be3326c"
+      }
+    },
+    "Cu": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/铜",
+      "files": {
+        "icon": [
+          {
+            "path": "Cu.png",
+            "size": 20365,
+            "sha1": "a54f95837a099b2487cb1e695b007a310a0844f4",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "铜",
+        "symbol": "Cu",
+        "tier": 0,
+        "color": "#b87333",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "66c7c848"
+      }
+    },
+    "C": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/碳",
+      "files": {
+        "icon": [
+          {
+            "path": "C.png",
+            "size": 18336,
+            "sha1": "3182fe468d00a7243195b7f5ee3e7f2874769208",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "碳",
+        "symbol": "C",
+        "tier": 0,
+        "color": "#3d3d3b",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "6db333b4"
+      }
+    },
+    "H2O": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/水",
+      "files": {
+        "icon": [
+          {
+            "path": "H2O.png",
+            "size": 22619,
+            "sha1": "5c96f8dff48302c425b36a55b65515100856521c",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "水",
+        "symbol": "H₂O",
+        "tier": 0,
+        "color": "#4a90c4",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "e351543"
+      }
+    },
+    "Ti": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/钛",
+      "files": {
+        "icon": [
+          {
+            "path": "Ti.png",
+            "size": 17627,
+            "sha1": "e3a20554cfce1e6ba4b9fafd708ef3e5ca8e8290",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "钛",
+        "symbol": "Ti",
+        "tier": 1,
+        "color": "#7d7f86",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "744a406a"
+      }
+    },
+    "Ni": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/镍",
+      "files": {
+        "icon": [
+          {
+            "path": "Ni.png",
+            "size": 19788,
+            "sha1": "e16678a616d422e61378baf70e1ae1ab13198a95",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "镍",
+        "symbol": "Ni",
+        "tier": 1,
+        "color": "#5d5b57",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "415d6316"
+      }
+    },
+    "Zn": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/锌",
+      "files": {
+        "icon": [
+          {
+            "path": "Zn.png",
+            "size": 20164,
+            "sha1": "eb314894e73507b33b7150055024e4f9c99aacd6",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "锌",
+        "symbol": "Zn",
+        "tier": 1,
+        "color": "#6e7480",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "698098a3"
+      }
+    },
+    "Na": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/钠",
+      "files": {
+        "icon": [
+          {
+            "path": "Na.png",
+            "size": 20868,
+            "sha1": "7fce72eff5edac156ff444ae7f70f219e48eb1c0",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "钠",
+        "symbol": "Na",
+        "tier": 1,
+        "color": "#8d6bb0",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "ccdc79"
+      }
+    },
+    "Cl": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/氯",
+      "files": {
+        "icon": [
+          {
+            "path": "Cl.png",
+            "size": 18069,
+            "sha1": "3b0264e79a7ad32d020c1b167499f34e47ae7e6b",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "氯",
+        "symbol": "Cl",
+        "tier": 1,
+        "color": "#4f9a4f",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "b7616c90"
+      }
+    },
+    "S": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/硫",
+      "files": {
+        "icon": [
+          {
+            "path": "S.png",
+            "size": 18922,
+            "sha1": "23850d23b35e4ab0964b5055d1fe154f1d455d0a",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "硫",
+        "symbol": "S",
+        "tier": 1,
+        "color": "#c8b53a",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "6ef489e6"
+      }
+    },
+    "Cr": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/铬",
+      "files": {
+        "icon": [
+          {
+            "path": "Cr.png",
+            "size": 20032,
+            "sha1": "199bd5cdba939e67d37912c74d4962dbbf081d61",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "铬",
+        "symbol": "Cr",
+        "tier": 1,
+        "color": "#6b7280",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "37c7d994"
+      }
+    },
+    "W": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/钨",
+      "files": {
+        "icon": [
+          {
+            "path": "W.png",
+            "size": 21496,
+            "sha1": "15aceed30c7cd312225280e1af59e2038aaeee8f",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "钨",
+        "symbol": "W",
+        "tier": 2,
+        "color": "#5c6266",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "f74fd3b2"
+      }
+    },
+    "Mo": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/钼",
+      "files": {
+        "icon": [
+          {
+            "path": "Mo.png",
+            "size": 22629,
+            "sha1": "6becea5601693f05087ed62483da0f044a0bc108",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "钼",
+        "symbol": "Mo",
+        "tier": 2,
+        "color": "#5a5f66",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "662a24d3"
+      }
+    },
+    "Re": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/铼",
+      "files": {
+        "icon": [
+          {
+            "path": "Re.png",
+            "size": 21186,
+            "sha1": "68e971d55fcc21b6405f69099b9f09e95e2f13b7",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "铼",
+        "symbol": "Re",
+        "tier": 2,
+        "color": "#4f5b63",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "ccb98910"
+      }
+    },
+    "Au": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/金",
+      "files": {
+        "icon": [
+          {
+            "path": "Au.png",
+            "size": 20643,
+            "sha1": "f4cbe50699b14ddd5f00d17437e178a846245336",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "金",
+        "symbol": "Au",
+        "tier": 2,
+        "color": "#d4af37",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "fbd555ac"
+      }
+    },
+    "Ag": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/银",
+      "files": {
+        "icon": [
+          {
+            "path": "Ag.png",
+            "size": 22719,
+            "sha1": "8a3ae3fdf4b1a0b24a1acaf3291bdac566fa34ff",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "银",
+        "symbol": "Ag",
+        "tier": 2,
+        "color": "#b8bcc0",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "24f4620c"
+      }
+    },
+    "Pt": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/铂",
+      "files": {
+        "icon": [
+          {
+            "path": "Pt.png",
+            "size": 19824,
+            "sha1": "6a62b1cabc1c9904a79b2b6c447a7922a0b2e1f1",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "铂",
+        "symbol": "Pt",
+        "tier": 2,
+        "color": "#c8cbd0",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "5b454948"
+      }
+    },
+    "U": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/铀",
+      "files": {
+        "icon": [
+          {
+            "path": "U.png",
+            "size": 19835,
+            "sha1": "36e0a620782e5377f5c3edf202b77b266e090450",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "铀",
+        "symbol": "U",
+        "tier": 2,
+        "color": "#5f9e4f",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "2a9d68bb"
+      }
+    },
+    "Th": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/钍",
+      "files": {
+        "icon": [
+          {
+            "path": "Th.png",
+            "size": 18394,
+            "sha1": "b4c2e1b8b915fe7ca2a38e4e72b98a206785afe9",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "钍",
+        "symbol": "Th",
+        "tier": 2,
+        "color": "#4a8a72",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "60651168"
+      }
+    },
+    "D": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/氘",
+      "files": {
+        "icon": [
+          {
+            "path": "D.png",
+            "size": 20423,
+            "sha1": "b425fea8e4eed29aa98f6fcba2ae01e107892387",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "氘",
+        "symbol": "D",
+        "tier": 2,
+        "color": "#4a7fc4",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "8971991"
+      }
+    },
+    "He3": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/氦-3",
+      "files": {
+        "icon": [
+          {
+            "path": "He3.png",
+            "size": 21861,
+            "sha1": "2b3e6fe65303416d7c793fc33c4aba3af6e39206",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "氦-3",
+        "symbol": "He³",
+        "tier": 2,
+        "color": "#6fb3d9",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "7ded5738"
+      }
+    },
+    "Li": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/锂",
+      "files": {
+        "icon": [
+          {
+            "path": "Li.png",
+            "size": 19465,
+            "sha1": "669924bc17e1cb4230f19f9bddd3334040a0da3b",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "锂",
+        "symbol": "Li",
+        "tier": 3,
+        "color": "#a07ec4",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "ea972861"
+      }
+    },
+    "Ge": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/锗",
+      "files": {
+        "icon": [
+          {
+            "path": "Ge.png",
+            "size": 21402,
+            "sha1": "be31064ea0d455d0260c1ef67aa728df0f861bbb",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "锗",
+        "symbol": "Ge",
+        "tier": 3,
+        "color": "#5c6e7a",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "67a63a91"
+      }
+    },
+    "Ga": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/镓",
+      "files": {
+        "icon": [
+          {
+            "path": "Ga.png",
+            "size": 22024,
+            "sha1": "5a16a02f3cbfe85777ffec826e9f607eaddb00a1",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "镓",
+        "symbol": "Ga",
+        "tier": 3,
+        "color": "#7a6a8a",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "7aa6a33c"
+      }
+    },
+    "In": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/铟",
+      "files": {
+        "icon": [
+          {
+            "path": "In.png",
+            "size": 18562,
+            "sha1": "6a8b9e1e2355b8b91ed96f44272c62da35c8bb5b",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "铟",
+        "symbol": "In",
+        "tier": 3,
+        "color": "#6a7a8a",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "d19015ce"
+      }
+    },
+    "Te": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/碲",
+      "files": {
+        "icon": [
+          {
+            "path": "Te.png",
+            "size": 19670,
+            "sha1": "02f80a12bf039e29db770733c2ee48d5131577b2",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "碲",
+        "symbol": "Te",
+        "tier": 3,
+        "color": "#7a6a5a",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "332127d2"
+      }
+    },
+    "REE": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/稀土",
+      "files": {
+        "icon": [
+          {
+            "path": "REE.png",
+            "size": 19420,
+            "sha1": "6c898b19fbbe69b6743077a885212b1316dfd0e9",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "稀土",
+        "symbol": "REE",
+        "tier": 3,
+        "color": "#9a5fa0",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "35a8b08a"
+      }
+    },
+    "Ar": {
+      "kind": "element",
+      "state": "exported",
+      "sourceDir": "_Source/元素/氩",
+      "files": {
+        "icon": [
+          {
+            "path": "Ar.png",
+            "size": 20714,
+            "sha1": "bfb89d81030c0bd9452bf719541a19459fb2c925",
+            "mtime": "2026-10-25T06:07:34Z"
+          }
+        ]
+      },
+      "exportedAt": "2026-10-25T06:07:34Z",
+      "exportedBy": "bridge-0.1.0",
+      "meta": {
+        "name": "氩",
+        "symbol": "Ar",
+        "tier": 3,
+        "color": "#5a8fa0",
+        "customIcon": false,
+        "size": 256,
+        "style": {
+          "presetId": "voxel-industrial",
+          "name": "体素工业"
+        },
+        "iconHash": "f87e9f35"
+      }
+    }
+  }
+}
