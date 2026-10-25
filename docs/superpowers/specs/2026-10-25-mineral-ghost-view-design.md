@@ -85,7 +85,10 @@ PIE 里看成一粒粒彼此分离的小正方体，不符合「矿脉应是一�
   与球壳同一坐标系，沿用「行星 Actor 等比缩放 S = 1」假设。
 - 材质 `M_MineralBlock`：仍为 Unlit、`BlockColor` 向量 → Emissive，每元素一个 MID，
   颜色 = 元素 `Color`，`Brightness` 1.4。为了在纯色下看出体积，Emissive 乘一个轻量
-  法线项 `(0.6 + 0.4 × saturate(dot(N, V)))`，整体亮度量级不变。
+  法线项 `(0.6 + 0.4 × |dot(N, V)|)`，材质 `TwoSided = true`，整体亮度量级不变。
+  用绝对值而不是 `saturate`：MC 的绕序全局一致但不保证朝外，单面 + `saturate` 会让
+  一半矿体的背面被剔掉或变成死平。偏离理由见计划
+  `docs/superpowers/plans/2026-10-25-mineral-isosurface.md` 的「与 spec 的两处实现级偏离」。
 - 进入耗时预算：**首进 ≤ 0.3 秒**（40³、earth 6 元素量级，预计 0.1–0.3 s）。
   结果按（行星弱指针、`SurfaceRadiusCm`、行星 `GetActorScale3D()`）缓存在组件上，
   同一颗行星第二次进入直接复用；三者任一变化则重算。
@@ -136,7 +139,6 @@ struct FPlanetMineralMesh
 {
     TArray<FVector3f> VerticesCm;   // 相对球心
     TArray<int32> Triangles;
-    TArray<FVector3f> Normals;
     int32 OccupiedCells = 0;        // 场值高于等值线的格数，供日志
 };
 
@@ -173,7 +175,10 @@ namespace PlanetMineralSurface
    同一 `Bounds` / `CubeSize`、`bEnableValueCaching = false`、`bParallelCompute = true`；
    `Implicit` 只做网格三线性插值，不再调地质场。
 4. 按元素下标收集网格；空元素照样占一个空槽，保证下标与图例、数字键对齐。
-5. `OccupiedCells` = 该元素场值高于等值线的角点数；`BuildSeconds` 只进日志。
+5. 每个元素收集完后把顶点径向夹到球内：`|v| > R` 时按 `R / |v|` 缩短（用 double 算，
+   写回 `FVector3f`）。球外场值恒为 0，MC 会在「内侧正值」与「球外 0」之间线性插值，
+   把顶点放到球外，而 §7 要求 `|p| <= R`（观察体的半透明壳正好画在 R 上）。
+6. `OccupiedCells` = 该元素场值高于等值线的角点数；`BuildSeconds` 只进日志。
 
 地质场新增按元素的公开出口（内部由现有 `Accumulate` 一次循环填充，旧调用点不变）：
 

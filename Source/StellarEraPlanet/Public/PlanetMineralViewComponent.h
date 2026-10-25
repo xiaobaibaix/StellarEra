@@ -86,6 +86,13 @@ private:
 	/** 上一次构建的结果。Deactivate 不清：再进同一颗行星即时出图。 */
 	PlanetMineralSurface::FBuildResult CachedSurface;
 	PlanetMineralSurface::FCacheKey CachedKey;
+	/**
+	 * 产出 CachedSurface 的那份地质对象。Deactivate 不清：它是缓存有效性的判据。
+	 *
+	 * 必须是共享指针而不是裸指针：ReloadGeology() 会换一个新对象，旧对象若已被释放、
+	 * 新对象又落在同一地址，裸指针会假相等。持有它同时保证地址不会被复用。
+	 */
+	TSharedPtr<const FPlanetGeologyField> CachedSurfaceGeology;
 	bool bHasCachedSurface = false;
 
 	UPROPERTY(Transient)

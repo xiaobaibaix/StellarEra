@@ -129,6 +129,76 @@ bool FPlanetMineralViewActorTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralViewEmptySlotTest,
+	"StellarEra.Planet.MineralView.EmptySlot",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetMineralViewEmptySlotTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = FindMineralViewEditorWorld();
+	if (!TestNotNull(TEXT("编辑器世界"), World))
+	{
+		return false;
+	}
+
+	APlanetMineralViewActor* View = World->SpawnActor<APlanetMineralViewActor>();
+	if (!TestNotNull(TEXT("观察体 spawn 成功"), View))
+	{
+		return false;
+	}
+
+	// 槽 0 空、槽 1 一个三角形：空元素仍要占一个组件槽，否则图例、数字键的
+	// 下标会整体错位。
+	TArray<FPlanetMineralMesh> Meshes;
+	Meshes.SetNum(2);
+	Meshes[1] = MakeMineralViewTriangleMesh(1);
+
+	TArray<FPlanetGeologyElement> Elements;
+	Elements.SetNum(2);
+	Elements[0].Id = TEXT("a");
+	Elements[0].DisplayName = TEXT("A");
+	Elements[0].Color = FLinearColor::Red;
+	Elements[1].Id = TEXT("b");
+	Elements[1].DisplayName = TEXT("B");
+	Elements[1].Color = FLinearColor::Blue;
+
+	const bool bBuilt = View->Build(Meshes, FLinearColor::Gray,
+		/*SurfaceRadiusCm=*/100000.f, Elements);
+	TestTrue(TEXT("Build 成功"), bBuilt);
+	if (!bBuilt)
+	{
+		View->Destroy();
+		return false;
+	}
+
+	TestEqual(TEXT("两个元素两个组件槽"), View->NumElements(), 2);
+
+	UDynamicMeshComponent* EmptyComponent = View->GetElementMesh(0);
+	UDynamicMeshComponent* OneComponent = View->GetElementMesh(1);
+	if (!TestNotNull(TEXT("空槽也有组件"), EmptyComponent)
+		|| !TestNotNull(TEXT("非空槽的组件"), OneComponent))
+	{
+		View->Destroy();
+		return false;
+	}
+
+	const UE::Geometry::FDynamicMesh3* EmptyMesh = EmptyComponent->GetMesh();
+	const UE::Geometry::FDynamicMesh3* OneMesh = OneComponent->GetMesh();
+	if (!TestNotNull(TEXT("空槽的动态网格"), EmptyMesh)
+		|| !TestNotNull(TEXT("非空槽的动态网格"), OneMesh))
+	{
+		View->Destroy();
+		return false;
+	}
+
+	TestEqual(TEXT("空槽没有三角形"), EmptyMesh->TriangleCount(), 0);
+	TestEqual(TEXT("非空槽有一个三角形"), OneMesh->TriangleCount(), 1);
+	TestTrue(TEXT("空槽默认仍然可见"), View->IsElementVisible(0));
+
+	View->Destroy();
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralViewActorEmptyTest,
 	"StellarEra.Planet.MineralView.Empty",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

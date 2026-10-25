@@ -670,7 +670,7 @@ void AStellarEraPlayerController::PlayerTick(float DeltaTime)
 	Super::PlayerTick(DeltaTime);
 
 	// 矿物透视绑在「选中的那颗行星」上。焦点被改选、或 Pawn 已经不是星图相机，
-	// 就立刻退出 —— 否则球壳与方块会跟着一颗已取消选中的行星。
+	// 就立刻退出 —— 否则球壳与矿体会跟着一颗已取消选中的行星。
 	if (ActiveMineralView)
 	{
 		UCosmosSimulationSubsystem* ViewSubsystem = GetWorld()

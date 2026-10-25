@@ -66,4 +66,10 @@ private:
 	/** 下标 = 运行期元素下标；空元素对应一个没有三角形的组件。 */
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UDynamicMeshComponent>> MineralMeshes;
+
+	/**
+	 * Build 已经建过组件。Build 不可重入：旧组件不会被销毁、组件名又是固定的，
+	 * 第二次 NewObject 会在同一个 Outer 上撞名（致命错误），所以入口直接断言。
+	 */
+	bool bHasBuilt = false;
 };

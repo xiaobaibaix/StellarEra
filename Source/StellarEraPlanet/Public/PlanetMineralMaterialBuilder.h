@@ -1,5 +1,5 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
-// 矿物透视模式的两张材质：半透明球壳、不透明方块。
+// 矿物透视模式的两张材质：半透明球壳、不透明矿体（等值面 mesh）。
 
 #pragma once
 

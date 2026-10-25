@@ -53,6 +53,15 @@ bool APlanetMineralViewActor::Build(const TArray<FPlanetMineralMesh>& MeshesByEl
 	const FLinearColor& ShellColor, float SurfaceRadiusCm,
 	const TArray<FPlanetGeologyElement>& Elements)
 {
+	// 不可重入：MineralMeshes.Reset() 不销毁旧组件，组件名又是固定的，第二次进来
+	// NewObject(..., TEXT("MineralShell") / TEXT("MineralMesh%d")) 会在同一个 Outer 上
+	// 撞名并致命退出。将来做「改 GridResolution 后重建」必须先销毁旧组件再清这里的标志。
+	ensureMsgf(!bHasBuilt, TEXT("[矿物] APlanetMineralViewActor::Build 不可重入"));
+	if (bHasBuilt)
+	{
+		return false;
+	}
+
 	if (SurfaceRadiusCm <= 0.f)
 	{
 		UE_LOG(LogTemp, Error, TEXT("[矿物] 参数非法：半径 %.1f cm"), SurfaceRadiusCm);
@@ -81,6 +90,9 @@ bool APlanetMineralViewActor::Build(const TArray<FPlanetMineralMesh>& MeshesByEl
 		return false;
 	}
 
+	// 到这里已经没有「什么都没建就失败」的退路了：从这里开始建组件，重入必然撞名。
+	bHasBuilt = true;
+
 	// --- 球壳：引擎球是 100 cm 直径，缩放到行星直径 ---
 	// 运行期建的组件必须在 RegisterComponent 之前设好 Mobility：注册之后再改会走
 	// 重新注册的路径，而这块网格从第一帧起就要跟着行星移动。
@@ -100,6 +112,10 @@ bool APlanetMineralViewActor::Build(const TArray<FPlanetMineralMesh>& MeshesByEl
 	{
 		ShellMaterial->SetVectorParameterValue(TEXT("ShellColor"), ShellColor);
 		ShellMesh->SetMaterial(0, ShellMaterial);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[矿物] 球壳动态材质创建失败，球壳将留在默认材质"));
 	}
 
 	// --- 每个元素一个动态网格 ---
@@ -123,6 +139,11 @@ bool APlanetMineralViewActor::Build(const TArray<FPlanetMineralMesh>& MeshesByEl
 		{
 			MID->SetVectorParameterValue(TEXT("BlockColor"), Elements[ElementIndex].Color);
 			Component->SetMaterial(0, MID);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("[矿物] 元素 #%d 的动态材质创建失败，矿体将留在默认材质"), ElementIndex);
 		}
 
 		UE::Geometry::FDynamicMesh3 Mesh;

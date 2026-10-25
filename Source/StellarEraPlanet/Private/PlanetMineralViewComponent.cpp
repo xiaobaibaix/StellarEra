@@ -57,19 +57,25 @@ bool UPlanetMineralViewComponent::Activate(AVoxelPlanetActor* InPlanet)
 	// 等值线跟地表着色共用一份参数：矿体边界与地表明暗是同一套判据。
 	Params.IsoValue = Geology->GetAppearance().ColorThreshold;
 
-	// 键里不含 IsoValue / VoxelSizeCm：两者都由行星的地质数据与体素尺寸定，而键里已经
-	// 有行星本身。GridResolution 是组件上可编辑的属性，所以必须进键。
+	// 键里不含 IsoValue / VoxelSizeCm / 元素表：它们都来自地质场，而地质场**不在键里**。
+	// ReloadGeology()（含 StellarEra.ReloadGeology 命令）会用新的地质对象替换旧的，而行星、
+	// 半径、缩放全不变 —— 只比键会静默复用旧几何，再按新元素表上色（同元素数），
+	// 或直接让观察体的「网格数 == 元素数」校验失败（不同元素数）。所以另外单独比对
+	// 地质对象本身：共享指针相等才算同一份数据。GridResolution 是组件上可编辑的属性，
+	// 必须进键。
 	PlanetMineralSurface::FCacheKey Key;
 	Key.Planet = InPlanet;
 	Key.SurfaceRadiusCm = SurfaceRadiusCm;
 	Key.Scale = InPlanet->GetActorScale3D();
 	Key.GridResolution = GridResolution;
 
-	const bool bReused = bHasCachedSurface && CachedKey == Key;
+	const bool bReused = bHasCachedSurface && CachedSurfaceGeology == Geology
+		&& CachedKey == Key;
 	if (!bReused)
 	{
 		PlanetMineralSurface::Build(*Geology, Params, CachedSurface);
 		CachedKey = Key;
+		CachedSurfaceGeology = Geology;
 		bHasCachedSurface = true;
 	}
 
@@ -91,7 +97,7 @@ bool UPlanetMineralViewComponent::Activate(AVoxelPlanetActor* InPlanet)
 			SampledElements.IsValidIndex(Index) && !SampledElements[Index].DisplayName.IsEmpty()
 			? SampledElements[Index].DisplayName
 			: FString::Printf(TEXT("#%d"), Index);
-		PerElementParts.Add(FString::Printf(TEXT("元素%s:%d格/%d面"), *Label,
+		PerElementParts.Add(FString::Printf(TEXT("元素%s:%d角点/%d面"), *Label,
 			CachedSurface.MeshesByElement[Index].OccupiedCells,
 			CachedSurface.MeshesByElement[Index].Triangles.Num() / 3));
 	}

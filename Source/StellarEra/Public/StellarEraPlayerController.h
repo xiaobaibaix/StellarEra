@@ -66,7 +66,7 @@ public:
 	 */
 	static ASpaceshipPawn* ResolveStarMapFocusShip(APawn* EnteringPawn);
 
-	/** 当前激活的矿物透视组件；未激活时为空。星图 UI 用它画图例、喂方块显隐。 */
+	/** 当前激活的矿物透视组件；未激活时为空。星图 UI 用它画图例、喂矿体显隐。 */
 	UPlanetMineralViewComponent* GetActiveMineralView() const { return ActiveMineralView; }
 
 protected:

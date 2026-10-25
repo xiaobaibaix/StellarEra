@@ -95,13 +95,33 @@ namespace PlanetMineralSurfaceTest
 		return (100000.0 - DistanceCm) / 100.0;
 	}
 
-	/** 元素 id → 峰值深度（体素）；未知 id 返回 -1。 */
-	double PeakDepthVoxels(const FString& Id)
+	/**
+	 * 浅部矿带夹具：与 Content/Geology/Planets/earth.json 的硅带同形
+	 * （peakDepth 5 体素、layerThickness 22、colorThreshold 0.05）。
+	 *
+	 * 高斯在 |深度 - 峰值| = sqrt(ln 20) × 22 ≈ 38 体素处降到 0.05，而峰值只有
+	 * 5 体素深 —— 带的外沿整个跨过球面。球外角点恒为 0，于是 MC 会在「内侧正值」
+	 * 与「球外 0」之间做线性插值，把顶点放到球外。现有夹具的带都在 150/450/750
+	 * 体素深，离球面足够远，永远碰不到这一条。
+	 */
+	const TCHAR* SurfaceBandPlanetJson = TEXT(R"JSON(
+{
+  "version": 1,
+  "geometryAmplitude": 1.5,
+  "appearance": { "colorThreshold": 0.05, "fadeRange": 0.12, "purityForFullColor": 0.45 },
+  "elements": {
+    "a": { "abundance": 1.0, "peakDepth": 5, "layerThickness": 22 }
+  }
+}
+)JSON");
+
+	TSharedPtr<const FPlanetGeologyField> MakeSurfaceBandField()
 	{
-		if (Id == TEXT("a")) { return 150.0; }
-		if (Id == TEXT("b")) { return 450.0; }
-		if (Id == TEXT("c")) { return 750.0; }
-		return -1.0;
+		FPlanetGeologyLoadReport Report;
+		TSharedPtr<const FPlanetGeologyField> Field = FPlanetGeologyField::LoadFromString(
+			ElementsJson, SurfaceBandPlanetJson, Report, /*PlanetRadiusVoxels=*/1000.0);
+		check(Field.IsValid());
+		return Field;
 	}
 } // namespace PlanetMineralSurfaceTest
 
@@ -283,6 +303,10 @@ bool FPlanetMineralSurfaceBuildTest::RunTest(const FString& Parameters)
 
 	PlanetMineralSurface::FBuildResult Result;
 	PlanetMineralSurface::Build(*Field, Params, Result);
+
+	// 0.3 秒预算关心的是这两个数：耗时进日志，headless 跑也能留下证据。
+	AddInfo(FString::Printf(TEXT("构建 %.1f ms，求值角点 %d（网格 %d³）"),
+		Result.BuildSeconds * 1000.0, Result.GridPoints, Params.GridResolution));
 
 	if (!TestEqual(TEXT("每个元素一个槽"), Result.MeshesByElement.Num(), Field->NumElements()))
 	{
@@ -600,6 +624,106 @@ bool FPlanetMineralSurfaceDeterministicTest::RunTest(const FString& Parameters)
 			Differing, 0);
 	}
 
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceBandTest,
+	"StellarEra.Planet.MineralSurface.SurfaceBand",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetMineralSurfaceBandTest::RunTest(const FString& Parameters)
+{
+	const TSharedPtr<const FPlanetGeologyField> Field =
+		PlanetMineralSurfaceTest::MakeSurfaceBandField();
+	const PlanetMineralSurface::FBuildParams Params =
+		PlanetMineralSurfaceTest::MakeParams(*Field, /*GridResolution=*/40);
+	const double RadiusCm = double(Params.SurfaceRadiusCm);
+
+	PlanetMineralSurface::FBuildResult Result;
+	PlanetMineralSurface::Build(*Field, Params, Result);
+
+	int32 TotalTriangles = 0;
+	double MaxRatio = 0.0;
+	for (const FPlanetMineralMesh& Mesh : Result.MeshesByElement)
+	{
+		TotalTriangles += Mesh.Triangles.Num() / 3;
+		for (const FVector3f& Vertex : Mesh.VerticesCm)
+		{
+			MaxRatio = FMath::Max(MaxRatio,
+				FVector3d(double(Vertex.X), double(Vertex.Y), double(Vertex.Z)).Size()
+				/ RadiusCm);
+		}
+	}
+
+	// 极大值也进日志：没有夹取时它就是红态证据，夹取之后必须正好是 1.0。
+	AddInfo(FString::Printf(TEXT("浅部带：%d 个三角形，max |p| / R = %.6f"),
+		TotalTriangles, MaxRatio));
+
+	TestTrue(TEXT("浅部带真的在等值线之上（有三角形）"), TotalTriangles > 0);
+	TestTrue(*FString::Printf(TEXT("所有顶点都在球内（max |p| / R = %.6f）"), MaxRatio),
+		MaxRatio <= 1.0 + 1e-6);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceEmptySlotsTest,
+	"StellarEra.Planet.MineralSurface.EmptySlots",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetMineralSurfaceEmptySlotsTest::RunTest(const FString& Parameters)
+{
+	const TSharedPtr<const FPlanetGeologyField> Field = PlanetMineralSurfaceTest::MakeField();
+	PlanetMineralSurface::FBuildParams Params =
+		PlanetMineralSurfaceTest::MakeParams(*Field, /*GridResolution=*/20);
+	// Norm 归一化到 [0,1]；等值线取 2，任何角点都在门限以下 → 全部元素空网格。
+	Params.IsoValue = 2.f;
+
+	PlanetMineralSurface::FBuildResult Result;
+	PlanetMineralSurface::Build(*Field, Params, Result);
+
+	if (!TestEqual(TEXT("空元素照样占槽，元素数不变"),
+		Result.MeshesByElement.Num(), Field->NumElements()))
+	{
+		return false;
+	}
+	for (int32 Index = 0; Index < Result.MeshesByElement.Num(); ++Index)
+	{
+		TestEqual(*FString::Printf(TEXT("元素 #%d 没有三角形"), Index),
+			Result.MeshesByElement[Index].Triangles.Num(), 0);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceGridResolutionTest,
+	"StellarEra.Planet.MineralSurface.GridResolution",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetMineralSurfaceGridResolutionTest::RunTest(const FString& Parameters)
+{
+	const TSharedPtr<const FPlanetGeologyField> Field = PlanetMineralSurfaceTest::MakeField();
+	auto CountTriangles = [](const PlanetMineralSurface::FBuildResult& Result)
+	{
+		int32 Count = 0;
+		for (const FPlanetMineralMesh& Mesh : Result.MeshesByElement)
+		{
+			Count += Mesh.Triangles.Num() / 3;
+		}
+		return Count;
+	};
+
+	// 缓存键测试只证明 GridResolution 进得了键；这条证明它真的接进了 FBuildParams
+	// 并改变了网格。同一份场、只改格数。
+	PlanetMineralSurface::FBuildResult Coarse;
+	PlanetMineralSurface::FBuildResult Fine;
+	PlanetMineralSurface::Build(*Field, PlanetMineralSurfaceTest::MakeParams(*Field, 20), Coarse);
+	PlanetMineralSurface::Build(*Field, PlanetMineralSurfaceTest::MakeParams(*Field, 40), Fine);
+
+	const int32 CoarseTriangles = CountTriangles(Coarse);
+	const int32 FineTriangles = CountTriangles(Fine);
+	AddInfo(FString::Printf(TEXT("格数 20 → %d 个三角形；格数 40 → %d 个三角形"),
+		CoarseTriangles, FineTriangles));
+
+	TestTrue(TEXT("两个格数都抽出几何"), CoarseTriangles > 0 && FineTriangles > 0);
+	TestTrue(TEXT("格数变化改变了三角形数"), CoarseTriangles != FineTriangles);
 	return true;
 }
 

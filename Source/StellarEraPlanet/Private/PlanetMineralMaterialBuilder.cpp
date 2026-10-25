@@ -160,7 +160,7 @@ namespace
 	 *
 	 * 不透明度 = Lerp(Opacity, EdgeOpacity, Fresnel)。BaseReflectFraction 设 0，
 	 * 于是正对相机的像素菲涅尔为 0（只剩 Opacity），掠射角接近 1（吃到 EdgeOpacity）——
-	 * 球体轮廓清楚，正面又足够透，能看见里面的方块。
+	 * 球体轮廓清楚，正面又足够透，能看见里面的矿体。
 	 */
 	bool BuildGhostMaterial(FString& OutError)
 	{

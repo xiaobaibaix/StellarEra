@@ -79,7 +79,7 @@ public:
 	/**
 	 * 元素定义的副本（**运行期采样顺序**），与该顺序下的 DominantIndex 对齐。
 	 *
-	 * 图例、数字键、方块组下标都读这个。和 GetElementDefinitions 的区别：那个按
+	 * 图例、数字键、矿体组件下标都读这个。和 GetElementDefinitions 的区别：那个按
 	 * Elements.json 的 ElementOrder 顺序输出，只作对照 / 测试用；这里的顺序是
 	 * 采样器实际遍历的顺序（给矿物块归属用）。两者通常不同 —— 行星 JSON 的
 	 * elements 是对象，解析后按哈希顺序落进 Elements。

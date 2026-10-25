@@ -139,7 +139,15 @@ void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildP
 		Mesh.VerticesCm.Reserve(Marching.Vertices.Num());
 		for (const UE::Math::TVector<double>& Vertex : Marching.Vertices)
 		{
-			Mesh.VerticesCm.Add(FVector3f(float(Vertex.X), float(Vertex.Y), float(Vertex.Z)));
+			// 球外角点恒为 0（上面早退），内侧角点为正：MC 在这对端点间线性插值时，
+			// 顶点会落到 1 - Iso/fa 的外侧比例上，也就是球外。观察体的半透明壳正好
+			// 画在 R 上，伸出去的顶点会戳出玻璃球，所以这里逐个径向夹回球面。
+			const double LengthCm = Vertex.Size();
+			const double ScaleFactor = LengthCm > RadiusCm ? RadiusCm / LengthCm : 1.0;
+			Mesh.VerticesCm.Add(FVector3f(
+				float(Vertex.X * ScaleFactor),
+				float(Vertex.Y * ScaleFactor),
+				float(Vertex.Z * ScaleFactor)));
 		}
 
 		Mesh.Triangles.Reserve(Marching.Triangles.Num() * 3);

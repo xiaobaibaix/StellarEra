@@ -40,7 +40,7 @@ struct FMineralLegendEntry
 {
 	FString DisplayName;
 
-	/** 色块颜色 —— 与球内该元素方块的显示色一致。 */
+	/** 色块颜色 —— 与球内该元素矿体的显示色一致。 */
 	FLinearColor Color = FLinearColor::White;
 
 	/** 该元素在行星总含量里的份额（0..1，各行相加约为 1）。 */
