@@ -28,7 +28,8 @@ public class StellarEraUI : ModuleRules
 			"StellarEraCore",    // CosmosTypes.h（StarMapUISystemTests.cpp）
 			"StellarEraCosmos",  // 选中天体、轨迹、星图状态
 			"StellarEraPlanet",  // 行星 Actor、地质场、矿物观察（临时）
-			"StellarEraVehicle", // 角色、飞船、编辑组件（临时）
+			"StellarEraVehicle", // 角色、飞船（临时）
+			"StellarEraPlanetEdit", // 编辑组件/笔刷（临时，Task 7 再核）
 			"Voxel",             // StarMapCameraInvokerTests.cpp 的体素调用器
 		});
 	}

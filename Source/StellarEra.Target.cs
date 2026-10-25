@@ -18,6 +18,7 @@ public class StellarEraTarget : TargetRules
 			"StellarEraPlanet",    // 体素星球
 			"StellarEraVehicle",   // 角色载具
 			"StellarEraUI",    // 显示与控制
+			"StellarEraPlanetEdit",  // 行星编辑
 		});
 	}
 }

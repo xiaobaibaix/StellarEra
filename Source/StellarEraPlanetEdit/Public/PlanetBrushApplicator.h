@@ -28,7 +28,7 @@ namespace PlanetBrushApplicator
 	 * 判据是工具写回的 OutModifiedValues 数量：它只记录值真的变了的
 	 * 体素。插件的 OutEditedBounds 不能用，宏会无条件把它设成请求包围盒。
 	 */
-	STELLARERAVEHICLE_API bool Apply(
+	STELLARERAPLANETEDIT_API bool Apply(
 		AVoxelPlanetActor& Planet,
 		const FVector& CenterWorld,
 		EPlanetBrushShape Shape,

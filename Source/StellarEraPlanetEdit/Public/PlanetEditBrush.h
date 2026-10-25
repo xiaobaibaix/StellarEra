@@ -63,20 +63,20 @@ namespace PlanetEditBrush
 	constexpr int32 MaxStarMapSizeVoxels = 128;
 
 	/** 夹到 [MinSizeVoxels, MaxSizeVoxels]。 */
-	STELLARERAVEHICLE_API int32 ClampSize(int32 SizeVoxels);
+	STELLARERAPLANETEDIT_API int32 ClampSize(int32 SizeVoxels);
 
 	/**
 	 * 夹到 [MinSize, MaxSize]。
 	 *
 	 * 下限被抬到至少 1（尺寸 0 会造出空盒）；MinSize > MaxSize 时以下限为准。
 	 */
-	STELLARERAVEHICLE_API int32 ClampSize(int32 SizeVoxels, int32 MinSize, int32 MaxSize);
+	STELLARERAPLANETEDIT_API int32 ClampSize(int32 SizeVoxels, int32 MinSize, int32 MaxSize);
 
 	/** 球半径 / 方块半边长，单位厘米。两者同式：Size * VoxelSize / 2。 */
-	STELLARERAVEHICLE_API float GetHalfExtentCm(int32 SizeVoxels, float VoxelSizeCm);
+	STELLARERAPLANETEDIT_API float GetHalfExtentCm(int32 SizeVoxels, float VoxelSizeCm);
 
 	/** 区间版：先按 [MinSize, MaxSize] 夹尺寸，再算半边长。 */
-	STELLARERAVEHICLE_API float GetHalfExtentCm(int32 SizeVoxels, float VoxelSizeCm,
+	STELLARERAPLANETEDIT_API float GetHalfExtentCm(int32 SizeVoxels, float VoxelSizeCm,
 		int32 MinSize, int32 MaxSize);
 
 	/**
@@ -85,11 +85,11 @@ namespace PlanetEditBrush
 	 * 挖：就是命中点，笔刷半埋在表面里。
 	 * 放：沿命中法线外移一个半边长，让球 / 方块与地表相切而不是半埋。
 	 */
-	STELLARERAVEHICLE_API FVector GetEditCenterWorld(const FVector& HitLocation, const FVector& HitNormal,
+	STELLARERAPLANETEDIT_API FVector GetEditCenterWorld(const FVector& HitLocation, const FVector& HitNormal,
 		int32 SizeVoxels, float VoxelSizeCm, bool bPlace);
 
 	/** 区间版：放的偏移量与笔刷半边长一致（用同一套 Min/Max 夹）。 */
-	STELLARERAVEHICLE_API FVector GetEditCenterWorld(const FVector& HitLocation, const FVector& HitNormal,
+	STELLARERAPLANETEDIT_API FVector GetEditCenterWorld(const FVector& HitLocation, const FVector& HitNormal,
 		int32 SizeVoxels, float VoxelSizeCm, bool bPlace, int32 MinSize, int32 MaxSize);
 
 	/**
@@ -99,17 +99,17 @@ namespace PlanetEditBrush
 	 * 用 ±Size/2 会得到 3 格——本盒的 Min 与 Max **两端都含**。
 	 * 转成 FVoxelIntBox 时注意它的 Max 是开区间，要 `Max + 1` 才能保持格数。
 	 */
-	STELLARERAVEHICLE_API FPlanetEditBox MakeBox(const FVector& LocalCenterVoxels, int32 SizeVoxels);
+	STELLARERAPLANETEDIT_API FPlanetEditBox MakeBox(const FVector& LocalCenterVoxels, int32 SizeVoxels);
 
 	/** 区间版：每轴跨度等于夹到 [MinSize, MaxSize] 之后的 SizeVoxels 格数。 */
-	STELLARERAVEHICLE_API FPlanetEditBox MakeBox(const FVector& LocalCenterVoxels, int32 SizeVoxels,
+	STELLARERAPLANETEDIT_API FPlanetEditBox MakeBox(const FVector& LocalCenterVoxels, int32 SizeVoxels,
 		int32 MinSize, int32 MaxSize);
 
 	/**
 	 * 把两端都含的 FPlanetEditBox 换成右端开区间。
 	 * FVoxelIntBox 的 Max 是开区间（"Exclusive"）：直接透传会让方块少一格。
 	 */
-	STELLARERAVEHICLE_API FPlanetEditVoxelBox MakeVoxelBox(const FPlanetEditBox& Box);
+	STELLARERAPLANETEDIT_API FPlanetEditVoxelBox MakeVoxelBox(const FPlanetEditBox& Box);
 
 	/** 球体预览每条大圆的分段数。 */
 	constexpr int32 PreviewSegmentsPerCircle = 32;
@@ -120,7 +120,7 @@ namespace PlanetEditBrush
 	 * **世界空间**：Center 与 RadiusCm 都直接是调用方算好的世界坐标，
 	 * 球体对旋转不敏感，不需要行星变换。
 	 */
-	STELLARERAVEHICLE_API void BuildSpherePreviewSegments(const FVector& Center, float RadiusCm,
+	STELLARERAPLANETEDIT_API void BuildSpherePreviewSegments(const FVector& Center, float RadiusCm,
 		TArray<FPlanetEditSegment>& OutSegments);
 
 	/**
@@ -130,6 +130,6 @@ namespace PlanetEditBrush
 	 * AVoxelWorld::LocalToGlobalFloat 换到世界空间。边界必须来自真正的
 	 * MakeVoxelBox 结果，预览才会与挖/放的格子逐格一致。
 	 */
-	STELLARERAVEHICLE_API void BuildBoxPreviewSegments(const FIntVector& MinVoxels,
+	STELLARERAPLANETEDIT_API void BuildBoxPreviewSegments(const FIntVector& MinVoxels,
 		const FIntVector& MaxExclusiveVoxels, TArray<FPlanetEditSegment>& OutSegments);
 }

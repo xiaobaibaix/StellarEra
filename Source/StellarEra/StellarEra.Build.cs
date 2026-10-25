@@ -53,6 +53,7 @@ public class StellarEra : ModuleRules
 			"StellarEraPlanet", // 行星 Actor / 地质场 / 纹理；只在 .cpp 里 include
 			"StellarEraCore",
 			"StellarEraVehicle",
+			"StellarEraPlanetEdit", // 编辑组件 / 笔刷；只在 .cpp 与测试里 include
 			"StellarEraCosmos", // N 体编排；公开头只在 .cpp 里 include
 			"Voxel",           // 已无直接 include（星图代码搬到 StellarEraUI），待清理
 			"InputCore",

@@ -35,7 +35,7 @@ using FPlanetEditTargetResolver = TFunction<bool(
 	FPlanetEditTarget& OutTarget)>;
 
 UCLASS(ClassGroup = (StellarEra), meta = (BlueprintSpawnableComponent))
-class STELLARERAVEHICLE_API UPlanetEditComponent : public UActorComponent
+class STELLARERAPLANETEDIT_API UPlanetEditComponent : public UActorComponent
 {
 	GENERATED_BODY()
 

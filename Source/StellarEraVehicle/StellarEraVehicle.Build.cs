@@ -15,6 +15,6 @@ public class StellarEraVehicle : ModuleRules
 
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine" });
 
-		PrivateDependencyModuleNames.AddRange(new string[] { "StellarEraPlanet", "Voxel" });
+		PrivateDependencyModuleNames.AddRange(new string[] { "StellarEraPlanet", "Voxel", "StellarEraPlanetEdit" });
 	}
 }
