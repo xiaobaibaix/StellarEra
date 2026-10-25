@@ -24,7 +24,7 @@ class UStaticMeshComponent;
  * 矿体顶点相对本 Actor 原点（= 球心），组件不随行星旋转缩放。
  */
 UCLASS()
-class STELLARERAPLANET_API APlanetMineralViewActor : public AActor
+class STELLARERAMINERALS_API APlanetMineralViewActor : public AActor
 {
 	GENERATED_BODY()
 

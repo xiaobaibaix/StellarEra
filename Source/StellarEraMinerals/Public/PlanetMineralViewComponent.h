@@ -21,7 +21,7 @@ class FPlanetGeologyField;
  * 只在激活期间 Tick，每帧把观察体钉到行星球心。
  */
 UCLASS(ClassGroup = (StellarEra), meta = (BlueprintSpawnableComponent))
-class STELLARERAPLANET_API UPlanetMineralViewComponent : public USceneComponent
+class STELLARERAMINERALS_API UPlanetMineralViewComponent : public USceneComponent
 {
 	GENERATED_BODY()
 

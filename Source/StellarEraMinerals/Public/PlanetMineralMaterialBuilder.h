@@ -12,10 +12,10 @@
 namespace PlanetMineralMaterials
 {
 	/** `/Game/Materials/M_PlanetGhost`（包路径，不含 `.AssetName`）。 */
-	STELLARERAPLANET_API const TCHAR* GetGhostMaterialPath();
+	STELLARERAMINERALS_API const TCHAR* GetGhostMaterialPath();
 
 	/** `/Game/Materials/M_MineralBlock`（包路径，不含 `.AssetName`）。 */
-	STELLARERAPLANET_API const TCHAR* GetBlockMaterialPath();
+	STELLARERAMINERALS_API const TCHAR* GetBlockMaterialPath();
 
 #if WITH_EDITOR
 	/**
@@ -27,6 +27,6 @@ namespace PlanetMineralMaterials
 	 *
 	 * 仅编辑器可用：Game 目标不编译实现，运行时请按上面的路径加载资产。
 	 */
-	STELLARERAPLANET_API bool Build(FString& OutError);
+	STELLARERAMINERALS_API bool Build(FString& OutError);
 #endif // WITH_EDITOR
 }

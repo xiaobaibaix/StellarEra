@@ -51,6 +51,7 @@ public class StellarEra : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"StellarEraPlanet", // 行星 Actor / 地质场 / 纹理；只在 .cpp 里 include
+			"StellarEraMinerals", // 矿物观察体 / 等值面；只在 .cpp 里 include
 			"StellarEraCore",
 			"StellarEraSpaceship",
 			"StellarEraCharacter", // 角色；只在 .cpp 与测试里 include

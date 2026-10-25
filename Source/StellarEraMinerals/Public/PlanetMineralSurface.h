@@ -78,6 +78,6 @@ namespace PlanetMineralSurface
 	 * 各元素场独立取面：两种元素同时高于门限的地方，两块矿体会互相穿插（共生矿脉），
 	 * 不做 winner-take-all —— 布尔场做 MC 会退回方块状边缘。
 	 */
-	STELLARERAPLANET_API void Build(const FPlanetGeologyField& Field, const FBuildParams& Params,
+	STELLARERAMINERALS_API void Build(const FPlanetGeologyField& Field, const FBuildParams& Params,
 		FBuildResult& Out);
 }

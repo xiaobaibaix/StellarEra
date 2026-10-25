@@ -27,8 +27,9 @@ public class StellarEraUI : ModuleRules
 		{
 			"StellarEraCore",    // CosmosTypes.h（StarMapUISystemTests.cpp）
 			"StellarEraCosmos",  // 选中天体、轨迹、星图状态
-			"StellarEraPlanet",  // 行星 Actor、矿物观察（临时）
+			"StellarEraPlanet",  // 行星 Actor（临时）；矿物观察已搬去 StellarEraMinerals
 			"StellarEraGeology", // 地质场/元素类型（StarMapUISystem.cpp 直接用）
+			"StellarEraMinerals", // 矿物等值面 / 观察体 / 矿体材质（StarMapUISystem.cpp 直接用）
 			"StellarEraSpaceship", // 飞船（StellarEraHUD.cpp 用 ASpaceshipPawn）
 			"StellarEraPlanetEdit", // 编辑组件/笔刷（临时，Task 7 再核）
 			"StellarEraCharacter", // 角色（StellarEraHUD.cpp 用 APlanetCharacter）
