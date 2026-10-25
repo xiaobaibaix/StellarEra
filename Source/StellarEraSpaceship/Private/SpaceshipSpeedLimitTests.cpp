@@ -69,7 +69,7 @@ namespace
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSpeedLimitTaperTest,
-	"StellarEra.Vehicle.SpeedLimitTaper",
+	"StellarEra.Spaceship.SpeedLimitTaper",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FStellarEraSpeedLimitTaperTest::RunTest(const FString& Parameters)
@@ -98,7 +98,7 @@ bool FStellarEraSpeedLimitTaperTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSpeedLimitThrustTest,
-	"StellarEra.Vehicle.SpeedLimitThrustProfile",
+	"StellarEra.Spaceship.SpeedLimitThrustProfile",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FStellarEraSpeedLimitThrustTest::RunTest(const FString& Parameters)

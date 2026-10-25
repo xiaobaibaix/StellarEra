@@ -18,7 +18,7 @@ namespace
 	 * 取编辑器世界。
 	 *
 	 * 不能写 GEngine->GetEditorWorldContext()：那个方法是 UEditorEngine 的，而本模块
-	 * 刻意不带 UnrealEd 依赖（见 StellarEraTerrain.Build.cs 末尾）。这里按 WorldType
+	 * 刻意不带 UnrealEd 依赖（理由见 StellarEraMinerals.Build.cs 顶部）。这里按 WorldType
 	 * 扫一遍 UEngine 的世界上下文，与 UEditorEngine::GetEditorWorldContext 的实现
 	 * （EditorEngine.cpp 里取第一个 EWorldType::Editor）等价。
 	 */

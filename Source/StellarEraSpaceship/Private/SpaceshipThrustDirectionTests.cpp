@@ -12,7 +12,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraShipThrustDirectionTest,
-	"StellarEra.Vehicle.ShipThrustDirection",
+	"StellarEra.Spaceship.ShipThrustDirection",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FStellarEraShipThrustDirectionTest::RunTest(const FString& Parameters)

@@ -1,4 +1,4 @@
-// Copyright Voxel Plugin SAS. All Rights Reserved.
+﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 // 行星地形模块的抽象基类：地形长什么样归模块，在哪、多大归行星。
 
 #include "VoxelPlanetTerrainModule.h"

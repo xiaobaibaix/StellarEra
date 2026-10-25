@@ -18,7 +18,8 @@ enum class EPlanetBrushShape : uint8
  * 轴对齐的体素方块范围。
  *
  * 用裸 FIntVector 而不是插件的 FVoxelIntBox：本头在 StellarEraPlanetEdit 的公开
- * 目录里，而 Voxel 是该模块的私有依赖。转换成 FVoxelIntBox 的活放在 .cpp。
+ * 目录里，而 Voxel 在 StellarEraPlanetEdit.Build.cs 里是 PrivateDependencyModuleNames，
+ * 插件的类型不该从这里泄漏出去。转换成 FVoxelIntBox 的活放在 .cpp。
  *
  * **Min 与 Max 两端都含**（宽度 = Max - Min + 1）。注意与 FVoxelIntBox 不同：
  * 后者 Min 含、Max **不含**，换算时要把 Max 加 1 才能保持同样的格子数。

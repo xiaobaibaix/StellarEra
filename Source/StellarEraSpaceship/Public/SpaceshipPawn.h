@@ -95,8 +95,9 @@ struct FSpaceshipStatus
  * UCosmosSimulationSubsystem 每帧下来读走、换算成 AU/年² 写进它那个 FCosmosBodyState。
  * 位置与速度都由求解器写回（SetActorLocation + SetCosmosVelocity）。
  *
- * 力只能是这个方向：StellarEraSpaceship 不能依赖 StellarEra（会成环），所以飞船
- * 既不能 include CosmosOrbitComponent.h，也不能调那个子系统。
+ * 力只能是这个方向：依赖是 **Cosmos → Spaceship**（子系统要 Cast 到 ASpaceshipPawn
+ * 读推力与阻尼），所以 Spaceship 不能反向依赖 Cosmos —— 既不能 include
+ * CosmosOrbitComponent.h，也不能调那个子系统。
  *
  * 鼠标给的是角速度冲量而不是直接设朝向，松手后指数衰减 —— 这是"开飞机"的惯性感
  * 来源，也是《戴森球计划》伊卡洛斯的做法。姿态是**运动学**的：它只决定推力朝哪，

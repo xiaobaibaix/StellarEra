@@ -2,10 +2,13 @@
 
 using UnrealBuildTool;
 
-// 体素星球层：星球 Actor、生成器、地形模块与两种地形实现。
+// 体素星球层：行星 Actor、生成器、地形模块与两种地形实现、行星面射线与网格、
+// LOD 体素调用器。矿物与大气已分别拆到 StellarEraMinerals / StellarEraAtmosphere。
 //
-// Voxel 必须是 **Public** 依赖：本模块的 5 个公开头直接 include 插件头并继承
-// 插件类型（如 AVoxelPlanetActor : public AVoxelWorld），下游模块要用这些类型
+// Voxel 必须是 **Public** 依赖：本模块的 6 个公开头直接 include 插件头
+// （AlwaysLocalVoxelInvokerComponent.h、VoxelPlanetActor.h、VoxelPlanetGenerator.h、
+// VoxelPlanetNoiseTerrain.h、VoxelPlanetSphereTerrain.h、VoxelPlanetTerrainModule.h）
+// 并继承插件类型（如 AVoxelPlanetActor : public AVoxelWorld），下游模块要用这些类型
 // 就必须拿到插件的包含路径 —— 依赖声明为 Public 才会向下游传递。
 public class StellarEraTerrain : ModuleRules
 {
@@ -13,12 +16,14 @@ public class StellarEraTerrain : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		// 地质场：本模块的公开头直接 include PlanetGeologyTypes.h，并在
-		// VoxelPlanetTerrainModule.h 等公开结构体里暴露 FPlanetGeologyField，
-		// 下游模块要用就必须拿到它的包含路径，所以是 Public。
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
 			"Core", "CoreUObject", "Engine", "Voxel",
+			// 地质场：本模块的公开头并不 include PlanetGeologyTypes.h，只**前置声明**
+			// FPlanetGeologyField 并用 TSharedPtr<const FPlanetGeologyField> 持有
+			// （VoxelPlanetActor.h、VoxelPlanetGenerator.h、VoxelPlanetNoiseTerrain.h、
+			// VoxelPlanetTerrainModule.h），编译期不需要它的定义。仍声明为 Public 是刻意的：
+			// 下游模块要用地质类型，得直接从这条依赖拿到包含路径。
 			"StellarEraGeology",
 		});
 

@@ -26,7 +26,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSpaceshipCollisionTest,
-	"StellarEra.Vehicle.SpaceshipCollision",
+	"StellarEra.Spaceship.SpaceshipCollision",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FStellarEraSpaceshipCollisionTest::RunTest(const FString& Parameters)
@@ -95,7 +95,7 @@ bool FStellarEraSpaceshipCollisionTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraShipContactProbesTest,
-	"StellarEra.Vehicle.ShipContactProbes",
+	"StellarEra.Spaceship.ShipContactProbes",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FStellarEraShipContactProbesTest::RunTest(const FString& Parameters)
@@ -185,7 +185,7 @@ bool FStellarEraShipContactProbesTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraShipContactProbesActorLocalTest,
-	"StellarEra.Vehicle.ContactProbesAreActorLocal",
+	"StellarEra.Spaceship.ContactProbesAreActorLocal",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FStellarEraShipContactProbesActorLocalTest::RunTest(const FString& Parameters)
@@ -262,7 +262,7 @@ bool FStellarEraShipContactProbesActorLocalTest::RunTest(const FString& Paramete
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraShipLandingDetectionTest,
-	"StellarEra.Vehicle.LandingDetectionReachesHullBottom",
+	"StellarEra.Spaceship.LandingDetectionReachesHullBottom",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FStellarEraShipLandingDetectionTest::RunTest(const FString& Parameters)

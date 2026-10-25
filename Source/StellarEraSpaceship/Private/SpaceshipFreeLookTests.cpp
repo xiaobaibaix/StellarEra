@@ -13,7 +13,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraShipFreeLookTest,
-	"StellarEra.Vehicle.ShipFreeLook",
+	"StellarEra.Spaceship.ShipFreeLook",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FStellarEraShipFreeLookTest::RunTest(const FString& Parameters)

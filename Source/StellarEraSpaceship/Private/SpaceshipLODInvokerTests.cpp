@@ -18,7 +18,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSpaceshipLODInvokerTest,
-	"StellarEra.Vehicle.SpaceshipLODInvokers",
+	"StellarEra.Spaceship.SpaceshipLODInvokers",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FStellarEraSpaceshipLODInvokerTest::RunTest(const FString& Parameters)

@@ -50,14 +50,13 @@ public class StellarEra : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			"StellarEraTerrain", // 行星 Actor / 地质场 / 纹理；只在 .cpp 里 include
+			"StellarEraTerrain", // 行星 Actor / 行星面网格与网格几何（VoxelPlanetActor.h、PlanetSurfaceGridComponent.h、PlanetEditGridGeometry.h）；只在 .cpp 与测试里 include
 			"StellarEraMinerals", // 矿物观察体 / 等值面；只在 .cpp 里 include
 			"StellarEraCore",
 			"StellarEraSpaceship",
 			"StellarEraCharacter", // 角色；只在 .cpp 与测试里 include
 			"StellarEraPlanetEdit", // 编辑组件 / 笔刷；只在 .cpp 与测试里 include
-			"StellarEraCosmos", // N 体编排；公开头只在 .cpp 里 include
-			"Voxel",           // 已无直接 include（星图代码搬到 StellarEraUI），待清理
+			"StellarEraCosmos", // N 体编排（子系统 / 轨道组件 / 轨迹组件）；Cosmos 的头只在 .cpp 与测试里 include，公开头不出现
 			"InputCore",
 			"EnhancedInput",   // 只有 StellarEraPlayerController.cpp 用到
 		});

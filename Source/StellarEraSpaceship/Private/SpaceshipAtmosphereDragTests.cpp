@@ -19,7 +19,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraAtmosphereDensityTest,
-	"StellarEra.Vehicle.AtmosphereDensityProfile",
+	"StellarEra.Spaceship.AtmosphereDensityProfile",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FStellarEraAtmosphereDensityTest::RunTest(const FString& Parameters)
@@ -63,7 +63,7 @@ bool FStellarEraAtmosphereDensityTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraAtmosphereDragTest,
-	"StellarEra.Vehicle.AtmosphereDragAcceleration",
+	"StellarEra.Spaceship.AtmosphereDragAcceleration",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FStellarEraAtmosphereDragTest::RunTest(const FString& Parameters)
@@ -107,7 +107,7 @@ bool FStellarEraAtmosphereDragTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraRelativeVelocityTest,
-	"StellarEra.Vehicle.RelativeVelocityToPlanet",
+	"StellarEra.Spaceship.RelativeVelocityToPlanet",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FStellarEraRelativeVelocityTest::RunTest(const FString& Parameters)

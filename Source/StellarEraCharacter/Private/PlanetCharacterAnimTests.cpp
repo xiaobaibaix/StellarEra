@@ -18,7 +18,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraPlanetCharacterAnimationAssetsTest,
-	"StellarEra.Vehicle.AnimationAssets",
+	"StellarEra.Character.AnimationAssets",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FStellarEraPlanetCharacterAnimationAssetsTest::RunTest(const FString& Parameters)

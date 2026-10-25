@@ -10,8 +10,12 @@ using UnrealBuildTool;
 // 本模块**不能**依赖 StellarEra（primary game module）—— Game 依赖 UI，
 // UI 再依赖 Game 就成环。需要控制器数据的地方走 IStarMapUIInputs。
 //
-// StellarEraTerrain（Task 12 由行星模块改名而来）：行星 Actor 与行星面射线由它提供。
-// 角色与飞船已分别由 StellarEraCharacter / StellarEraSpaceship 提供，不再是临时项。
+// 下面这些是本模块依赖的功能模块，各管一摊：
+//   StellarEraCosmos（天体 / 轨迹 / 星图状态）、StellarEraTerrain（行星 Actor、
+//   行星面射线、体素调用器）、StellarEraGeology（地质场与元素类型）、
+//   StellarEraMinerals（矿物观察体组件）、StellarEraCharacter（行星角色）、
+//   StellarEraSpaceship（飞船）、StellarEraPlanetEdit（编辑组件与笔刷）、
+//   StellarEraCore（Cosmos 单位类型）。
 public class StellarEraUI : ModuleRules
 {
 	public StellarEraUI(ReadOnlyTargetRules Target) : base(Target)
@@ -27,11 +31,11 @@ public class StellarEraUI : ModuleRules
 		{
 			"StellarEraCore",    // CosmosTypes.h（StarMapUISystemTests.cpp）
 			"StellarEraCosmos",  // 选中天体、轨迹、星图状态
-			"StellarEraTerrain",  // 行星 Actor / 行星面射线；矿物观察已搬去 StellarEraMinerals
+			"StellarEraTerrain",  // 行星 Actor / 行星面射线 / 体素调用器（StarMapCameraPawn.cpp、StarMapUISystem.cpp）
 			"StellarEraGeology", // 地质场/元素类型（StarMapUISystem.cpp 直接用）
-			"StellarEraMinerals", // 矿物等值面 / 观察体 / 矿体材质（StarMapUISystem.cpp 直接用）
+			"StellarEraMinerals", // 矿物观察体组件 PlanetMineralViewComponent.h（StarMapUISystem.cpp 直接用）
 			"StellarEraSpaceship", // 飞船（StellarEraHUD.cpp 用 ASpaceshipPawn）
-			"StellarEraPlanetEdit", // 编辑组件/笔刷（临时，Task 7 再核）
+			"StellarEraPlanetEdit", // 编辑组件 / 笔刷 / 编辑面板布局（StarMapCameraPawn.cpp、StellarEraHUD.cpp）
 			"StellarEraCharacter", // 角色（StellarEraHUD.cpp 用 APlanetCharacter）
 			"Voxel",             // StarMapCameraInvokerTests.cpp 的体素调用器
 		});
