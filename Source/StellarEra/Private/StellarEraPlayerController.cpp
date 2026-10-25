@@ -676,8 +676,10 @@ void AStellarEraPlayerController::PlayerTick(float DeltaTime)
 		UCosmosSimulationSubsystem* ViewSubsystem = GetWorld()
 			? GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>()
 			: nullptr;
-		const bool bSamePlanet = ViewSubsystem &&
-			ViewSubsystem->GetSelectedBody() == ActiveMineralView->GetViewPlanet();
+		// 视图行星本身也要非空：两颗都为空时 == 会判成「同一颗」，视图就退不出去。
+		const AVoxelPlanetActor* ViewPlanet = ActiveMineralView->GetViewPlanet();
+		const bool bSamePlanet = ViewSubsystem && ViewPlanet != nullptr &&
+			ViewSubsystem->GetSelectedBody() == ViewPlanet;
 		if (!Cast<AStarMapCameraPawn>(GetPawn()) || !bSamePlanet)
 		{
 			ExitMineralViewIfActive();

@@ -21,7 +21,9 @@ using UnrealBuildTool;
 // StellarEraPlayerController.h 里的行星类型一律前置声明 + TObjectPtr，用到完整类型的
 // 地方都在 .cpp 里。行星模块的头因而不需要向下游传播。
 // 之所以曾经写成 Public：早期公开头以成员类型引用了行星模块里的一个类型定义，
-// 那处引用已随旧系统一并删除。
+// 那处引用已随旧系统一并删除。现在公开头只以前置声明 + 指针接触行星模块的类型，
+// 例如 AStellarEraPlayerController::GetActiveMineralView() 返回
+// UPlanetMineralViewComponent*，完整类型只在 .cpp 里用到。
 public class StellarEra : ModuleRules
 {
 	public StellarEra(ReadOnlyTargetRules Target) : base(Target)

@@ -159,7 +159,10 @@ protected:
 	/** 数字键 0：全部打开。 */
 	void OnMineralShowAll(const FInputActionValue& Value);
 
-	/** 退出矿物透视（幂等）。退出星图 / 换 Pawn / 选中变化 / EndPlay 都走这里。 */
+	/**
+	 * 退出矿物透视（幂等）。退出星图 / 换 Pawn / 选中变化都走这里；
+	 * 关卡结束时由组件自身的 EndPlay 兜底恢复，控制器不覆写 EndPlay。
+	 */
 	void ExitMineralViewIfActive();
 
 	/** 带时长的提示：几秒后自动消失，与每帧刷新的 ShowPrompt 分开。 */
