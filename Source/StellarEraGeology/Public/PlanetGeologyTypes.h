@@ -20,6 +20,20 @@ struct FPlanetGeologyBand
 	float ReachDepth = 0.f;
 };
 
+/** 一个矿囊：归一化空间的球（行星基准半径 = 1）。 */
+struct FPlanetGeologyPod
+{
+	FVector Center = FVector::ZeroVector;
+	float Radius = 0.f;
+};
+
+/** 空间索引里的一条引用：哪个元素的第几个矿囊。 */
+struct FPlanetGeologyPodRef
+{
+	int32 ElementIndex = INDEX_NONE;
+	int32 PodIndex = INDEX_NONE;
+};
+
 /**
  * 元素表的单条定义。
  *
@@ -40,12 +54,20 @@ struct FPlanetGeologyElement
 	/** 所有带里最大的 |peakDepth| + 3 * layerThickness，供采样早退。 */
 	float ReachDepth = 0.f;
 
-	// --- 噪声参数（来自元素表） ---
-	float Frequency = 3.f;
+	// --- 矿囊（预设路径；JSON 路径下为空，走 Bands 分支） ---
+	TArray<FPlanetGeologyPod> Pods;
+	/** 名义半径（归一化）。噪声坐标的缩放基准，不随单囊抖动。 */
+	float PodRadius = 0.05f;
+	/** 一个矿囊直径内大约几个噪声周期。 */
+	float ShapeDetail = 3.f;
+
+	// --- 噪声参数 ---
 	int32 Octaves = 2;
 	float Lacunarity = 2.f;
 	float Gain = 0.5f;
 	int32 Seed = 0;
+	/** 旧矿层路径专用：噪声频率与深度缩放。**Task 2 必须留着**，Task 3 与 Bands 一起删。 */
+	float Frequency = 3.f;
 	float DepthScale = 0.3f;
 
 	/**
@@ -101,18 +123,4 @@ struct FPlanetGeologyLoadReport
 	TArray<FString> Errors;
 
 	bool HasErrors() const { return Errors.Num() > 0; }
-};
-
-/** 一个矿囊：归一化空间的球（行星基准半径 = 1）。 */
-struct FPlanetGeologyPod
-{
-	FVector Center = FVector::ZeroVector;
-	float Radius = 0.f;
-};
-
-/** 空间索引里的一条引用：哪个元素的第几个矿囊。 */
-struct FPlanetGeologyPodRef
-{
-	int32 ElementIndex = INDEX_NONE;
-	int32 PodIndex = INDEX_NONE;
 };

@@ -38,7 +38,6 @@ void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildP
 	const double HalfExtent = RadiusCm * (1.0 + 1e-9);
 	const double GridMin = -HalfExtent;
 	const double InvCube = 1.0 / CubeSize;
-	const double MaxDepth = double(Field.GetMaxReachDepth());
 	const double VoxelSizeCm = double(Params.VoxelSizeCm);
 
 	// [点][元素] 稠密场：一次并行采样，后面每个元素各取一面，不重复调噪声。
@@ -65,9 +64,9 @@ void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildP
 		}
 
 		const double Depth = (RadiusCm - Distance) / VoxelSizeCm;
-		if (Depth < 0.0 || Depth > MaxDepth)
+		if (Depth < 0.0)
 		{
-			return; // 高斯尾部之外没有任何元素有贡献
+			return; // 球外
 		}
 
 		TArray<float> PointNorms;
