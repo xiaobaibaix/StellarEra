@@ -31,7 +31,10 @@
     -unattended -nopause -nullrhi -nosplash -stdout \
     -abslog="F:/workspace/ue/StellarEra/Saved/Logs/MineralTests.log"
   ```
-  通过与否**只认日志计数**：`grep -c "Result={Passed}"` 与 `grep -c "Result={Failed}"`。
+  通过与否**只认日志计数**：`grep -c "Result={Success}"` 与 `grep -c "Result={Fail}"`。
+  （UE 5.8 的标记就是这两个词：`AutomationControllerManager.cpp:43` 的
+  `Test Completed. Result={%s}` 填入 `EAutomationState` 的显示名；
+  写成 `Passed` / `Failed` 的 grep 恒为 0。「Automation Test Queue Empty」同理。）
   editor world 里 `BeginPlay` 不执行 —— 本计划的自动化测试都不依赖 BeginPlay。
 - **含中文的 `.h`/`.cpp` 必须是 UTF-8 with BOM**（MSVC 按 GBK 读会报假错）。Write 工具写出来**没有 BOM**，每个任务里都有一道补 BOM 的步骤，别跳过。
 - **不要统一换行符**：仓库本来就是 CRLF/LF 混合，`autocrlf=true` 下 CRLF 是稳定态。
@@ -628,11 +631,11 @@ head -c 3 Source/StellarEraPlanet/Public/PlanetMineralBlocks.h | od -An -tx1
   -TestExit="Automation Test Queue Empty" \
   -unattended -nopause -nullrhi -nosplash -stdout \
   -abslog="F:/workspace/ue/StellarEra/Saved/Logs/MineralTests.log"
-grep -c "Result={Passed}" F:/workspace/ue/StellarEra/Saved/Logs/MineralTests.log
-grep -c "Result={Failed}" F:/workspace/ue/StellarEra/Saved/Logs/MineralTests.log
+grep -c "Result={Success}" F:/workspace/ue/StellarEra/Saved/Logs/MineralTests.log
+grep -c "Result={Fail}" F:/workspace/ue/StellarEra/Saved/Logs/MineralTests.log
 ```
 
-预期：`Passed` = 6，`Failed` = 0。任何一条 Failed 都先看日志里的 `Error:` 行，别继续往下做。
+预期：`Success` = 6，`Fail` = 0。任何一条 Fail 都先看日志里的 `Error:` 行，别继续往下做。
 
 - [ ] **Step 8: 提交**
 
@@ -1829,11 +1832,11 @@ head -c 3 Source/StellarEraPlanet/Public/PlanetMineralViewComponent.h | od -An -
   -TestExit="Automation Test Queue Empty" \
   -unattended -nopause -nullrhi -nosplash -stdout \
   -abslog="F:/workspace/ue/StellarEra/Saved/Logs/MineralViewTests.log"
-grep -c "Result={Passed}" F:/workspace/ue/StellarEra/Saved/Logs/MineralViewTests.log
-grep -c "Result={Failed}" F:/workspace/ue/StellarEra/Saved/Logs/MineralViewTests.log
+grep -c "Result={Success}" F:/workspace/ue/StellarEra/Saved/Logs/MineralViewTests.log
+grep -c "Result={Fail}" F:/workspace/ue/StellarEra/Saved/Logs/MineralViewTests.log
 ```
 
-预期 `Passed` = 2，`Failed` = 0。
+预期 `Success` = 2，`Fail` = 0。
 
 若 `ActorBuild` 失败在 `Build 成功` 这一条上，先看日志里 `[矿物] 材质生成失败` / `网格或材质加载失败` 行 —— 多半是 Task 2 的 `.uasset` 没提交或没生成。
 
@@ -2343,11 +2346,11 @@ head -c 3 Source/StellarEra/Private/MineralLegendTests.cpp | od -An -tx1
   -TestExit="Automation Test Queue Empty" \
   -unattended -nopause -nullrhi -nosplash -stdout \
   -abslog="F:/workspace/ue/StellarEra/Saved/Logs/MineralLegendTests.log"
-grep -c "Result={Passed}" F:/workspace/ue/StellarEra/Saved/Logs/MineralLegendTests.log
-grep -c "Result={Failed}" F:/workspace/ue/StellarEra/Saved/Logs/MineralLegendTests.log
+grep -c "Result={Success}" F:/workspace/ue/StellarEra/Saved/Logs/MineralLegendTests.log
+grep -c "Result={Fail}" F:/workspace/ue/StellarEra/Saved/Logs/MineralLegendTests.log
 ```
 
-预期 `Passed` = 4，`Failed` = 0。
+预期 `Success` = 4，`Fail` = 0。
 
 - [ ] **Step 8: 提交**
 
@@ -2744,12 +2747,12 @@ git rm Source/StellarEra/Private/CutawayLegendTests.cpp
   -TestExit="Automation Test Queue Empty" \
   -unattended -nopause -nullrhi -nosplash -stdout \
   -abslog="F:/workspace/ue/StellarEra/Saved/Logs/MineralSwitchTests.log"
-grep -c "Result={Passed}" F:/workspace/ue/StellarEra/Saved/Logs/MineralSwitchTests.log
-grep -c "Result={Failed}" F:/workspace/ue/StellarEra/Saved/Logs/MineralSwitchTests.log
-grep "Result={Failed}" F:/workspace/ue/StellarEra/Saved/Logs/MineralSwitchTests.log
+grep -c "Result={Success}" F:/workspace/ue/StellarEra/Saved/Logs/MineralSwitchTests.log
+grep -c "Result={Fail}" F:/workspace/ue/StellarEra/Saved/Logs/MineralSwitchTests.log
+grep "Result={Fail}" F:/workspace/ue/StellarEra/Saved/Logs/MineralSwitchTests.log
 ```
 
-预期 `Failed` = 0；`Passed` 至少 12（Task 1 的 6 + Task 3 的 2 + Task 4 的 4）。把实际数字记进汇报。
+预期 `Fail` = 0；`Success` 至少 12（Task 1 的 6 + Task 3 的 2 + Task 4 的 4）。把实际数字记进汇报。
 
 - [ ] **Step 7: 提交**
 
@@ -2915,22 +2918,22 @@ echo "exit=$?"
   -TestExit="Automation Test Queue Empty" \
   -unattended -nopause -nullrhi -nosplash -stdout \
   -abslog="F:/workspace/ue/StellarEra/Saved/Logs/MineralCleanupTests.log"
-grep -c "Result={Passed}" F:/workspace/ue/StellarEra/Saved/Logs/MineralCleanupTests.log
-grep "Result={Failed}" F:/workspace/ue/StellarEra/Saved/Logs/MineralCleanupTests.log
+grep -c "Result={Success}" F:/workspace/ue/StellarEra/Saved/Logs/MineralCleanupTests.log
+grep "Result={Fail}" F:/workspace/ue/StellarEra/Saved/Logs/MineralCleanupTests.log
 ```
 
-预期 `Failed` 无输出。**把 Passed 数字和 Task 5 的对照**：本任务删掉的是
+预期 `Fail` 无输出。**把 Success 数字和 Task 5 的对照**：本任务删掉的是
 `PlanetCutawayTests.cpp` 里的 8 条 `StellarEra.Planet.Cutaway.*`（`Math.*` 5 条 +
 `Image.*` 3 条），`CutawayLegendTests.cpp` 的 2 条已在 Task 5 删除。
-所以 Passed 应当**正好**比 Task 5 少 8。用下面这条机械核对，`0` 才是对的：
+所以 Success 应当**正好**比 Task 5 少 8。用下面这条机械核对，`0` 才是对的：
 
 ```bash
-grep -cE "Result=\{(Passed|Failed)\}.*StellarEra\.(Planet|StarMap)\.Cutaway" \
+grep -cE "Result=\{(Success|Fail)\}.*StellarEra\.(Planet|StarMap)\.Cutaway" \
   F:/workspace/ue/StellarEra/Saved/Logs/MineralCleanupTests.log
 ```
 
 （若日志里测试名与结果不在同一行，改成先 `grep "StellarEra.*Cutaway"` 看有没有输出，
-无输出即可。若 Passed 少的不止 8，说明误删了别的测试文件，回头查 `git status`。）
+无输出即可。若 Success 少的不止 8，说明误删了别的测试文件，回头查 `git status`。）
 
 - [ ] **Step 7: 提交**
 
