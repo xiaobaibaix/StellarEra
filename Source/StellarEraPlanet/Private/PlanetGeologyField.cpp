@@ -724,3 +724,14 @@ TArray<FPlanetGeologyElement> FPlanetGeologyField::GetElementDefinitions() const
 
 	return Out;
 }
+
+TArray<FPlanetGeologyElement> FPlanetGeologyField::GetSampledElementDefinitions() const
+{
+	TArray<FPlanetGeologyElement> Out;
+	Out.Reserve(Elements.Num());
+	for (const FElementRuntime& Runtime : Elements)
+	{
+		Out.Add(Runtime.Definition);
+	}
+	return Out;
+}

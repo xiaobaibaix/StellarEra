@@ -59,6 +59,15 @@ public:
 	/** 元素定义的副本（元素表顺序），给矿物剖面图例用。 */
 	TArray<FPlanetGeologyElement> GetElementDefinitions() const;
 
+	/**
+	 * 元素定义的副本（**运行期采样顺序**），与该顺序下的 DominantIndex 对齐。
+	 *
+	 * 和 GetElementDefinitions 的区别：那个按 Elements.json 数组顺序（给人看的图例），
+	 * 这个是采样器实际遍历的顺序（给矿物块归属用）。两者通常不同 —— 行星 JSON 的
+	 * elements 是对象，解析后按哈希顺序落进 Elements。
+	 */
+	TArray<FPlanetGeologyElement> GetSampledElementDefinitions() const;
+
 private:
 	struct FElementRuntime
 	{
