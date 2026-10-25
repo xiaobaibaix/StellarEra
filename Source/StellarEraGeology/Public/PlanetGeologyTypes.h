@@ -4,6 +4,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "PlanetGeologyTypes.generated.h"
 
 /**
  * 一条高斯矿层的深度剖面。
@@ -73,11 +74,22 @@ struct FPlanetGeologySample
 	int32 DominantIndex = INDEX_NONE;
 };
 
-/** 行星级的外观参数（来自 Planets/<preset>.json 的 appearance 段）。 */
-struct FPlanetGeologyAppearance
+/** 行星级的外观参数。改 USTRUCT 是为了能在 UDataAsset 里编辑。 */
+USTRUCT(BlueprintType)
+struct STELLARERAGEOLOGY_API FPlanetGeologyAppearance
 {
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Appearance",
+		meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float ColorThreshold = 0.22f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Appearance",
+		meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float FadeRange = 0.15f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Appearance",
+		meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float PurityForFullColor = 0.7f;
 };
 
@@ -88,4 +100,18 @@ struct FPlanetGeologyLoadReport
 	TArray<FString> Errors;
 
 	bool HasErrors() const { return Errors.Num() > 0; }
+};
+
+/** 一个矿囊：归一化空间的球（行星基准半径 = 1）。 */
+struct FPlanetGeologyPod
+{
+	FVector Center = FVector::ZeroVector;
+	float Radius = 0.f;
+};
+
+/** 空间索引里的一条引用：哪个元素的第几个矿囊。 */
+struct FPlanetGeologyPodRef
+{
+	int32 ElementIndex = INDEX_NONE;
+	int32 PodIndex = INDEX_NONE;
 };

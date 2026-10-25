@@ -6,10 +6,11 @@ using UnrealBuildTool;
 //
 // Voxel 是 **Public**：PlanetGeologyField.h 在公开头里 include
 // FastNoise/VoxelFastNoise.h（FVoxelFastNoise 按值持有）。
-// CoreUObject 是 **Public**：本模块其实没有 UCLASS / USTRUCT / UENUM ——
-// PlanetGeologyTypes.h 里的值类型是刻意不进反射的裸 struct，公开头只需 CoreMinimal。
-// 仍与 Core 一起列为 Public 是为了和其余模块的 Core / CoreUObject 依赖保持一致；
-// 要收紧的话可以先试 Private。
+// Engine 是 **Public**：PlanetGeologyPreset.h 在公开头里继承 UDataAsset
+// （include Engine/DataAsset.h），UDataAsset 来自 Engine 模块。
+// CoreUObject 是 **Public**：本模块含一个 UDataAsset 子类（UPlanetGeologyPreset）
+// 与两个 USTRUCT（FPlanetGeologyAppearance、FPlanetGeologyElementParams），
+// 反射是真依赖，不再是「与其余模块保持一致」的摆设。
 // Json 只在 .cpp 里用。
 public class StellarEraGeology : ModuleRules
 {
@@ -19,7 +20,7 @@ public class StellarEraGeology : ModuleRules
 
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
-			"Core", "CoreUObject", "Voxel",
+			"Core", "CoreUObject", "Engine", "Voxel",
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]

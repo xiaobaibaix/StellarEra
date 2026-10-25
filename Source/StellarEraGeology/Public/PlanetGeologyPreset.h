@@ -1,0 +1,143 @@
+﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
+// 行星地质预设资产：一颗行星的元素表 + 外观 + 几何参数。
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Engine/DataAsset.h"
+#include "PlanetGeologyTypes.h"
+#include "PlanetGeologyPreset.generated.h"
+
+/**
+ * 一种矿的分布参数。
+ *
+ * 全部是「这颗行星上这种矿长什么样」的旋钮，与地形模块的地位相同：资产里调，
+ * 改完重建行星即可看到。距离一律是归一化空间的半径比例，换行星大小不改变相对尺寸。
+ */
+USTRUCT(BlueprintType)
+struct STELLARERAGEOLOGY_API FPlanetGeologyElementParams
+{
+	GENERATED_BODY()
+
+	/** 稳定标识，只用于日志、随机种子派生。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Element")
+	FName Id;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Element")
+	FString DisplayName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Element")
+	FLinearColor Color = FLinearColor::White;
+
+	/**
+	 * 只影响颜色混合权重与图例占比，**不改几何**。
+	 * 想改矿囊密度请调 PodCount / PodRadius。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Element",
+		meta = (ClampMin = "0.0"))
+	float Abundance = 1.0f;
+
+	/** 撒多少个矿囊。0 = 这个元素在这颗行星上不存在。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pods",
+		meta = (ClampMin = "0", ClampMax = "512"))
+	int32 PodCount = 16;
+
+	/**
+	 * 矿囊名义半径（占行星基准半径的比例）。
+	 *
+	 * 重叠对的数量按 PodCount² × (2·r)³ 增长：半径砍半，重叠少 8 倍。
+	 * 想看不同元素互相穿插，就把这个值调大，别只加 PodCount。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pods",
+		meta = (ClampMin = "0.001", ClampMax = "0.25"))
+	float PodRadius = 0.05f;
+
+	/** 每囊半径的随机抖动幅度（±比例）。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pods",
+		meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float PodRadiusJitter = 0.5f;
+
+	/**
+	 * 深度偏好强度。**0 = 全深度体积均匀**（默认，也是「不要分层」的语义）。
+	 * 大于 0 时按 PodDepthCenter/Spread 做带权拒绝采样，越深越偏。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pods|Depth",
+		meta = (ClampMin = "0.0", ClampMax = "0.9"))
+	float PodDepthBias = 0.0f;
+
+	/** 偏好深度（占半径比例，0 = 地表，1 = 球心）。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pods|Depth",
+		meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float PodDepthCenter = 0.25f;
+
+	/** 偏好深度的高斯宽度（占半径比例）。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pods|Depth",
+		meta = (ClampMin = "0.01", ClampMax = "1.0"))
+	float PodDepthSpread = 0.15f;
+
+	/** 一个矿囊直径内大约几个噪声周期。越大概括破碎。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shape",
+		meta = (ClampMin = "0.5"))
+	float ShapeDetail = 3.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shape",
+		meta = (ClampMin = "1", ClampMax = "6"))
+	int32 Octaves = 2;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shape",
+		meta = (ClampMin = "1.0"))
+	float Lacunarity = 2.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shape",
+		meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float Gain = 0.5f;
+
+	/** 0 时由 Hash(Id) 派生，保证不同元素默认不相关。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shape")
+	int32 Seed = 0;
+
+	/** 噪声稀疏阈值，越高矿囊越破碎。0 = 不稀疏。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shape",
+		meta = (ClampMin = "0.0", ClampMax = "0.95"))
+	float VeinThreshold = 0.5f;
+};
+
+/**
+ * 一颗行星的地质预设。**唯一数据源**：JSON 预设已退役。
+ *
+ * 元素数组的顺序 = 运行期采样顺序 = 图例顺序 = 矿体组件下标，四者共用。
+ */
+UCLASS(BlueprintType)
+class STELLARERAGEOLOGY_API UPlanetGeologyPreset : public UDataAsset
+{
+	GENERATED_BODY()
+
+public:
+	//~ Begin UObject Interface
+#if WITH_EDITOR
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
+	//~ End UObject Interface
+
+	/** 每次编辑自增。缓存键靠它判断「同一份资产的内容变了」。 */
+	uint32 GetRevision() const { return Revision; }
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Geology")
+	TArray<FPlanetGeologyElementParams> Elements;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Geology")
+	FPlanetGeologyAppearance Appearance;
+
+	/** 矿囊把地表顶起的最大幅度（体素）。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Geology",
+		meta = (ClampMin = "0.0"))
+	float GeometryAmplitude = 1.5f;
+
+	/**
+	 * 内容修订号。非 0 起，每次 PostEditChangeProperty 自增。
+	 *
+	 * 只做缓存失效用，不是数据：场景里改资产而不保存，读到的也是新内容。
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Geology")
+	int32 Revision = 1;
+};
