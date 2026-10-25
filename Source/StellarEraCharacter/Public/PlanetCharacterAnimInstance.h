@@ -14,7 +14,7 @@
  * 会把沿半径的跳跃/坠落速度也算成地面速度，Walk/Run 切换会在半空抽风。
  */
 UCLASS()
-class STELLARERAVEHICLE_API UPlanetCharacterAnimInstance : public UAnimInstance
+class STELLARERACHARACTER_API UPlanetCharacterAnimInstance : public UAnimInstance
 {
 	GENERATED_BODY()
 

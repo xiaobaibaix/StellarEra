@@ -16,5 +16,8 @@ public class StellarEraVehicle : ModuleRules
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine" });
 
 		PrivateDependencyModuleNames.AddRange(new string[] { "StellarEraPlanet", "Voxel", "StellarEraPlanetEdit" });
+
+		// 角色模块：飞船持有 APlanetCharacter*（见 SetBoardedCharacter）。
+		PrivateDependencyModuleNames.AddRange(new string[] { "StellarEraCharacter" });
 	}
 }

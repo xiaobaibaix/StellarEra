@@ -29,7 +29,7 @@
  * **完全不受影响** —— 本类只拿走「底座会移动我」这一件事。
  */
 UCLASS()
-class STELLARERAVEHICLE_API UPlanetCharacterMovementComponent : public UCharacterMovementComponent
+class STELLARERACHARACTER_API UPlanetCharacterMovementComponent : public UCharacterMovementComponent
 {
 	GENERATED_BODY()
 

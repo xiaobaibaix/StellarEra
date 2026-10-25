@@ -655,7 +655,7 @@ bool AStellarEraPlayerController::EnterNearestShip()
 		return false;
 	}
 
-	ASpaceshipPawn* Ship = PawnCharacter->FindNearestShip();
+	ASpaceshipPawn* Ship = ASpaceshipPawn::FindNearestTo(GetWorld(), PawnCharacter->GetActorLocation());
 	if (!Ship)
 	{
 		return false;
@@ -689,7 +689,7 @@ void AStellarEraPlayerController::PlayerTick(float DeltaTime)
 	// 提示只在“站在飞船旁”时出现，所以每帧重算一次距离。
 	if (APlanetCharacter* PawnCharacter = Cast<APlanetCharacter>(GetPawn()))
 	{
-		ASpaceshipPawn* Ship = PawnCharacter->FindNearestShip();
+		ASpaceshipPawn* Ship = ASpaceshipPawn::FindNearestTo(GetWorld(), PawnCharacter->GetActorLocation());
 		if (Ship && Ship->CanBoardFrom(PawnCharacter->GetActorLocation()))
 		{
 			ShowPrompt(TEXT("按 E 登船"));
@@ -741,7 +741,7 @@ void AStellarEraPlayerController::OnInteract(const FInputActionValue& Value)
 {
 	if (APlanetCharacter* PawnCharacter = Cast<APlanetCharacter>(GetPawn()))
 	{
-		ASpaceshipPawn* Ship = PawnCharacter->FindNearestShip();
+		ASpaceshipPawn* Ship = ASpaceshipPawn::FindNearestTo(GetWorld(), PawnCharacter->GetActorLocation());
 		if (Ship && Ship->CanBoardFrom(PawnCharacter->GetActorLocation()))
 		{
 			BoardShip(Ship);
@@ -823,7 +823,7 @@ ASpaceshipPawn* AStellarEraPlayerController::ResolveStarMapFocusShip(APawn* Ente
 	// 画面与普通视角完全一样 —— 玩家会以为 M 键没生效。
 	if (APlanetCharacter* Character = Cast<APlanetCharacter>(EnteringPawn))
 	{
-		return Character->FindNearestShip();
+		return ASpaceshipPawn::FindNearestTo(Character->GetWorld(), Character->GetActorLocation());
 	}
 
 	return nullptr;

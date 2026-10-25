@@ -7,7 +7,6 @@
 #include "GameFramework/Character.h"
 #include "PlanetCharacter.generated.h"
 
-class ASpaceshipPawn;
 class AVoxelPlanetActor;
 class UCameraComponent;
 class UAnimInstance;
@@ -24,7 +23,7 @@ class UVoxelSimpleInvokerComponent;
  * 斜坡、台阶、跳跃就都在“重力空间”里成立了。
  */
 UCLASS()
-class STELLARERAVEHICLE_API APlanetCharacter : public ACharacter
+class STELLARERACHARACTER_API APlanetCharacter : public ACharacter
 {
 	GENERATED_BODY()
 
@@ -57,9 +56,6 @@ public:
 	 * 不关的话角色的胶囊会卡在飞船的碰撞体里。
 	 */
 	void SetBoarded(bool bBoarded);
-
-	/** 找离角色最近的飞船；找不到返回 nullptr。 */
-	ASpaceshipPawn* FindNearestShip() const;
 
 	/** 把角色摆到球面正上方，胶囊底贴住表面，并把朝向摆正。 */
 	void SnapToPlanetSurface();

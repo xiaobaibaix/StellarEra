@@ -38,6 +38,11 @@
 			"Name": "StellarEraPlanetEdit",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "StellarEraCharacter",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
 		}
 	],
 	"Plugins": [

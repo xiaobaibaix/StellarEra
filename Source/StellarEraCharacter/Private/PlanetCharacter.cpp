@@ -5,7 +5,6 @@
 #include "PlanetCharacterMovementComponent.h"
 #include "PlanetEditComponent.h"
 #include "VoxelPlanetActor.h"
-#include "SpaceshipPawn.h"
 #include "AlwaysLocalVoxelInvokerComponent.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -624,21 +623,4 @@ void APlanetCharacter::SetBoarded(bool bBoarded)
 		// 让下一帧立刻重找最近的行星，而不是拿着旧星的重力方向等半秒。
 		PlanetReevaluateTimer = 0.f;
 	}
-}
-
-ASpaceshipPawn* APlanetCharacter::FindNearestShip() const
-{
-	ASpaceshipPawn* Nearest = nullptr;
-	float NearestDistSq = TNumericLimits<float>::Max();
-
-	for (TActorIterator<ASpaceshipPawn> It(GetWorld()); It; ++It)
-	{
-		const float DistSq = FVector::DistSquared(It->GetActorLocation(), GetActorLocation());
-		if (DistSq < NearestDistSq)
-		{
-			NearestDistSq = DistSq;
-			Nearest = *It;
-		}
-	}
-	return Nearest;
 }

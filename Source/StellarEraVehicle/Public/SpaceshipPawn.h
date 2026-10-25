@@ -205,6 +205,14 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Spaceship")
 	bool CanBoardFrom(const FVector& CharacterLocation) const;
 
+	/**
+	 * 找离 FromLocation 最近的飞船；找不到返回 nullptr。
+	 *
+	 * 放在飞船侧而不是角色侧：角色模块若不 include 飞船模块就与飞船模块成环
+	 * （飞船持有 APlanetCharacter*）。调用方是 AStellarEraPlayerController。
+	 */
+	static ASpaceshipPawn* FindNearestTo(const UWorld* World, const FVector& FromLocation);
+
 	/** 记录登船的角色；传 nullptr 表示离船。 */
 	void SetBoardedCharacter(APlanetCharacter* Character);
 

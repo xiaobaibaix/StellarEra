@@ -258,7 +258,7 @@ void ASpaceshipPawn::OnConstruction(const FTransform& Transform)
 	// 让飞船退出 World Partition 的空间加载。
 	//
 	// 按空间加载的 Actor 会被烘进流送单元，PIE 启动后随流送被卸载。实测开局登船那
-	// 5 秒重试窗口里 FindNearestShip 一艘船都找不到（同一时刻关卡里明明摆着一艘），
+	// 5 秒重试窗口里 FindNearestTo 一艘船都找不到（同一时刻关卡里明明摆着一艘），
 	// 于是玩家拿到的是角色而不是飞船。行星 Actor 早就用同样的办法退出了流送
 	// （见 AVoxelPlanetActor::OnConstruction 的 bAlwaysLoaded），这里保持一致。
 	//
@@ -794,6 +794,28 @@ bool ASpaceshipPawn::IsLanded() const
 bool ASpaceshipPawn::CanBoardFrom(const FVector& CharacterLocation) const
 {
 	return FVector::DistSquared(CharacterLocation, GetActorLocation()) <= FMath::Square(BoardingRadius);
+}
+
+ASpaceshipPawn* ASpaceshipPawn::FindNearestTo(const UWorld* World, const FVector& FromLocation)
+{
+	if (!World)
+	{
+		return nullptr;
+	}
+
+	ASpaceshipPawn* Nearest = nullptr;
+	float NearestDistSq = TNumericLimits<float>::Max();
+
+	for (TActorIterator<ASpaceshipPawn> It(World); It; ++It)
+	{
+		const float DistSq = FVector::DistSquared(It->GetActorLocation(), FromLocation);
+		if (DistSq < NearestDistSq)
+		{
+			NearestDistSq = DistSq;
+			Nearest = *It;
+		}
+	}
+	return Nearest;
 }
 
 void ASpaceshipPawn::SetBoardedCharacter(APlanetCharacter* Character)
