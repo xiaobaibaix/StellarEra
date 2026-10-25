@@ -39,8 +39,12 @@ namespace
 	const TCHAR* const GhostAssetName = TEXT("M_PlanetGhost");
 	const TCHAR* const BlockAssetName = TEXT("M_MineralBlock");
 
+	// 名字带 Mineral 前缀是必须的：本文件与 PlanetAtmosphereMaterialBuilder.cpp 会被
+	// UBT 的 unity 构建拼进同一个翻译单元，两个匿名 namespace 会合并，同名的
+	// AddScalarParam / AddVectorParam 直接 C2084 重定义。别把它们改回通用名。
+
 	/** 建一个标量参数节点并登记到材质。 */
-	UMaterialExpressionScalarParameter* AddScalarParam(UMaterial* Material, const TCHAR* Name,
+	UMaterialExpressionScalarParameter* AddMineralScalarParam(UMaterial* Material, const TCHAR* Name,
 		float Default, int32 PosX, int32 PosY)
 	{
 		UMaterialExpressionScalarParameter* Expr =
@@ -55,7 +59,7 @@ namespace
 	}
 
 	/** 建一个向量参数节点并登记到材质。 */
-	UMaterialExpressionVectorParameter* AddVectorParam(UMaterial* Material, const TCHAR* Name,
+	UMaterialExpressionVectorParameter* AddMineralVectorParam(UMaterial* Material, const TCHAR* Name,
 		FLinearColor Default, int32 PosX, int32 PosY)
 	{
 		UMaterialExpressionVectorParameter* Expr =
@@ -130,13 +134,13 @@ namespace
 			return false;
 		}
 
-		UMaterialExpressionVectorParameter* ShellColor = AddVectorParam(Material,
+		UMaterialExpressionVectorParameter* ShellColor = AddMineralVectorParam(Material,
 			TEXT("ShellColor"), FLinearColor(0.06f, 0.15f, 0.06f, 1.f), -900, -300);
-		UMaterialExpressionScalarParameter* Opacity = AddScalarParam(Material,
+		UMaterialExpressionScalarParameter* Opacity = AddMineralScalarParam(Material,
 			TEXT("Opacity"), 0.12f, -900, -200);
-		UMaterialExpressionScalarParameter* EdgeOpacity = AddScalarParam(Material,
+		UMaterialExpressionScalarParameter* EdgeOpacity = AddMineralScalarParam(Material,
 			TEXT("EdgeOpacity"), 0.35f, -900, -100);
-		UMaterialExpressionScalarParameter* EdgeExponent = AddScalarParam(Material,
+		UMaterialExpressionScalarParameter* EdgeExponent = AddMineralScalarParam(Material,
 			TEXT("EdgeExponent"), 5.f, -900, 0);
 
 		UMaterialExpressionFresnel* Fresnel = NewObject<UMaterialExpressionFresnel>(Material);
@@ -190,9 +194,9 @@ namespace
 			return false;
 		}
 
-		UMaterialExpressionVectorParameter* BlockColor = AddVectorParam(Material,
+		UMaterialExpressionVectorParameter* BlockColor = AddMineralVectorParam(Material,
 			TEXT("BlockColor"), FLinearColor::White, -700, -200);
-		UMaterialExpressionScalarParameter* Brightness = AddScalarParam(Material,
+		UMaterialExpressionScalarParameter* Brightness = AddMineralScalarParam(Material,
 			TEXT("Brightness"), 1.4f, -700, -100);
 
 		UMaterialExpressionMultiply* Multiply =
