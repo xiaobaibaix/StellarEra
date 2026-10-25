@@ -1,0 +1,35 @@
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
+
+using UnrealBuildTool;
+
+// 显示与控制层：HUD、星图相机、星图面板、矿物图例、编辑按钮布局。
+//
+// 这是唯一允许同时依赖多个功能模块的模块。反向依赖一律禁止：
+// 功能模块不得 include 本模块的头。
+//
+// 本模块**不能**依赖 StellarEra（primary game module）—— Game 依赖 UI，
+// UI 再依赖 Game 就成环。需要控制器数据的地方走 IStarMapUIInputs。
+//
+// StellarEraPlanet / StellarEraVehicle 现在是临时依赖，Task 6 / 7 / 12 会换成
+// Terrain / Character / Spaceship / Minerals / Geology。
+public class StellarEraUI : ModuleRules
+{
+	public StellarEraUI(ReadOnlyTargetRules Target) : base(Target)
+	{
+		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
+
+		PublicDependencyModuleNames.AddRange(new string[]
+		{
+			"Core", "CoreUObject", "Engine",
+		});
+
+		PrivateDependencyModuleNames.AddRange(new string[]
+		{
+			"StellarEraCore",    // CosmosTypes.h（StarMapUISystemTests.cpp）
+			"StellarEraCosmos",  // 选中天体、轨迹、星图状态
+			"StellarEraPlanet",  // 行星 Actor、地质场、矿物观察（临时）
+			"StellarEraVehicle", // 角色、飞船、编辑组件（临时）
+			"Voxel",             // StarMapCameraInvokerTests.cpp 的体素调用器
+		});
+	}
+}

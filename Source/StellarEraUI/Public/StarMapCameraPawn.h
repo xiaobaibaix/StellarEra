@@ -63,7 +63,7 @@ struct FPlanetEditTarget;
  * 看得见、点得中。
  */
 UCLASS()
-class AStarMapCameraPawn : public APawn
+class STELLARERAUI_API AStarMapCameraPawn : public APawn
 {
 	GENERATED_BODY()
 

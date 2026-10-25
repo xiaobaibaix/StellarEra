@@ -29,7 +29,7 @@ struct FSpaceshipStatus;
  * —— 若屏幕上的「按 E 登船」显示正常，这里就正常。
  */
 UCLASS()
-class AStellarEraHUD : public AHUD
+class STELLARERAUI_API AStellarEraHUD : public AHUD
 {
 	GENERATED_BODY()
 

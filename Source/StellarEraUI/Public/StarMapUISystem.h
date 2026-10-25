@@ -124,7 +124,7 @@ namespace MineralLegendLayout
  * 现拉选中/悬停天体、现算布局、现画。纯函数单独暴露，便于无头测试。
  */
 UCLASS()
-class UStarMapUISystem : public UObject
+class STELLARERAUI_API UStarMapUISystem : public UObject
 {
 	GENERATED_BODY()
 

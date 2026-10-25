@@ -2,7 +2,7 @@
 
 using UnrealBuildTool;
 
-// 框架层：游戏框架（GameMode / PlayerController / HUD / 星图）。
+// 框架层：游戏框架（GameMode / PlayerController）。HUD 与星图已搬到 StellarEraUI。
 //
 // 本模块**保留原名 StellarEra**，因此它仍是 primary game module ——
 // StellarEra.cpp 里的 IMPLEMENT_PRIMARY_GAME_MODULE 不动。
@@ -12,8 +12,14 @@ using UnrealBuildTool;
 // DefaultEngine.ini 的 [CoreRedirects] 兜底。
 //
 // 依赖方向（严格分层，无环）：
-//     StellarEra ─→ StellarEraCosmos ─→ StellarEraVehicle ─→ StellarEraPlanet
+//     StellarEra ─→ StellarEraUI ─→ StellarEraCosmos ─→ StellarEraVehicle ─→ StellarEraPlanet
+//          │            └──────→ StellarEraCore
 //          └──────→ StellarEraCore
+//
+// StellarEraUI 是 **Private**：本模块没有下游模块（Vehicle 不能依赖 Game），
+// 所以即使 StellarEraPlayerController.h 这个公开头 include 了 UI 侧的
+// StarMapUIInputs.h，私有依赖也不会让任何别的模块断链。
+// 反向（UI → Game）禁止，需要控制器数据的地方走 IStarMapUIInputs。
 //
 // Core 是 **Public**：拆分前 CosmosSimulationSubsystem.h（按值持有 FNBodySimulator）
 // 是本模块公开头的一部分；那部分已随 Cosmos 搬走，这里保留 Public 只是沿用既有
@@ -43,7 +49,8 @@ public class StellarEra : ModuleRules
 			"StellarEraCore",
 			"StellarEraVehicle",
 			"StellarEraCosmos", // N 体编排；公开头只在 .cpp 里 include
-			"Voxel",           // StarMapCameraPawn.cpp 的体素调用器（VoxelInvokerComponent.h）
+			"StellarEraUI",    // HUD / 星图相机 / 星图面板；只在 .cpp 里 include
+			"Voxel",           // 已无直接 include（星图代码搬到 StellarEraUI），待清理
 			"InputCore",
 			"EnhancedInput",   // 只有 StellarEraPlayerController.cpp 用到
 		});

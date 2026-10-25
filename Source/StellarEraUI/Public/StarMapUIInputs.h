@@ -24,7 +24,7 @@ class UStarMapUIInputs : public UInterface
  *
  * 只放 UI 真正用到的查询。控制器自己的输入处理、上下船、模式切换都不在这里。
  */
-class STELLARERA_API IStarMapUIInputs
+class STELLARERAUI_API IStarMapUIInputs
 {
 	GENERATED_BODY()
 

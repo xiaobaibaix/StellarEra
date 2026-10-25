@@ -15,6 +15,11 @@
 			"LoadingPhase": "Default"
 		},
 		{
+			"Name": "StellarEraUI",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
 			"Name": "StellarEraCore",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
