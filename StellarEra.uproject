@@ -25,7 +25,7 @@
 			"LoadingPhase": "Default"
 		},
 		{
-			"Name": "StellarEraPlanet",
+			"Name": "StellarEraTerrain",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
 		},

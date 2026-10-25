@@ -36,7 +36,7 @@ class FPlanetGeologyField;
  * 非等比缩放被有意忽略：它会剪切体素网格，把行星扭成一团畸形。
  */
 UCLASS(Blueprintable)
-class STELLARERAPLANET_API AVoxelPlanetActor : public AVoxelWorld
+class STELLARERATERRAIN_API AVoxelPlanetActor : public AVoxelWorld
 {
 	GENERATED_BODY()
 

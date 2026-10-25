@@ -21,7 +21,7 @@ public class StellarEraCosmos : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			"StellarEraPlanet",
+			"StellarEraTerrain",
 			"StellarEraSpaceship",
 		});
 	}

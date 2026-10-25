@@ -22,7 +22,7 @@ class ULineBatchComponent;
  * 再乘行星变换。行星在 N 体里每帧移动，所以缓存不能是世界坐标。
  */
 UCLASS(ClassGroup = (StellarEra), meta = (BlueprintSpawnableComponent))
-class STELLARERAPLANET_API UPlanetSurfaceGridComponent : public UActorComponent
+class STELLARERATERRAIN_API UPlanetSurfaceGridComponent : public UActorComponent
 {
 	GENERATED_BODY()
 

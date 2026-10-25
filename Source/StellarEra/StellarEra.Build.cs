@@ -12,7 +12,7 @@ using UnrealBuildTool;
 // DefaultEngine.ini 的 [CoreRedirects] 兜底。
 //
 // 依赖方向（严格分层，无环）：
-//     StellarEra ─→ StellarEraUI ─→ StellarEraCosmos ─→ StellarEraSpaceship ─→ StellarEraPlanet / StellarEraCharacter
+//     StellarEra ─→ StellarEraUI ─→ StellarEraCosmos ─→ StellarEraSpaceship ─→ StellarEraTerrain / StellarEraCharacter
 //          │            └──────→ StellarEraCore
 //          └──────→ StellarEraCore
 //
@@ -27,7 +27,7 @@ using UnrealBuildTool;
 // 是本模块公开头的一部分；那部分已随 Cosmos 搬走，这里保留 Public 只是沿用既有
 // 声明，不影响任何下游。
 //
-// StellarEraPlanet 是 **Private**：本模块没有任何公开头 include 行星模块的头，
+// StellarEraTerrain 是 **Private**：本模块没有任何公开头 include 行星模块的头，
 // StellarEraPlayerController.h 里的行星类型一律前置声明 + TObjectPtr，用到完整类型的
 // 地方都在 .cpp 里。行星模块的头因而不需要向下游传播。
 // 之所以曾经写成 Public：早期公开头以成员类型引用了行星模块里的一个类型定义，
@@ -50,7 +50,7 @@ public class StellarEra : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			"StellarEraPlanet", // 行星 Actor / 地质场 / 纹理；只在 .cpp 里 include
+			"StellarEraTerrain", // 行星 Actor / 地质场 / 纹理；只在 .cpp 里 include
 			"StellarEraMinerals", // 矿物观察体 / 等值面；只在 .cpp 里 include
 			"StellarEraCore",
 			"StellarEraSpaceship",

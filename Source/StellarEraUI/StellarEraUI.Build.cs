@@ -10,7 +10,7 @@ using UnrealBuildTool;
 // 本模块**不能**依赖 StellarEra（primary game module）—— Game 依赖 UI，
 // UI 再依赖 Game 就成环。需要控制器数据的地方走 IStarMapUIInputs。
 //
-// StellarEraPlanet 现在仍是临时依赖：Task 12 会把它换成 Terrain / Minerals / Geology。
+// StellarEraTerrain（Task 12 由行星模块改名而来）：行星 Actor 与行星面射线由它提供。
 // 角色与飞船已分别由 StellarEraCharacter / StellarEraSpaceship 提供，不再是临时项。
 public class StellarEraUI : ModuleRules
 {
@@ -27,7 +27,7 @@ public class StellarEraUI : ModuleRules
 		{
 			"StellarEraCore",    // CosmosTypes.h（StarMapUISystemTests.cpp）
 			"StellarEraCosmos",  // 选中天体、轨迹、星图状态
-			"StellarEraPlanet",  // 行星 Actor（临时）；矿物观察已搬去 StellarEraMinerals
+			"StellarEraTerrain",  // 行星 Actor / 行星面射线；矿物观察已搬去 StellarEraMinerals
 			"StellarEraGeology", // 地质场/元素类型（StarMapUISystem.cpp 直接用）
 			"StellarEraMinerals", // 矿物等值面 / 观察体 / 矿体材质（StarMapUISystem.cpp 直接用）
 			"StellarEraSpaceship", // 飞船（StellarEraHUD.cpp 用 ASpaceshipPawn）

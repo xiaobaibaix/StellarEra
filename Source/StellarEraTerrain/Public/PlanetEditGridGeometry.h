@@ -26,12 +26,12 @@ namespace PlanetEditGrid
 	 * 纬线：跳过两极（在极点会退化成重复点），每条 LonCount 个点并闭合。
 	 * 数量：经线 LonCount 条、纬线 LatCount-1 条。
 	 */
-	STELLARERAPLANET_API void BuildLines(float StepDegrees, TArray<FPlanetEditGridLine>& OutLines);
+	STELLARERATERRAIN_API void BuildLines(float StepDegrees, TArray<FPlanetEditGridLine>& OutLines);
 
 	/** 顶点方向与「球心 → 相机」方向同向（点积 > 0）即可见。 */
-	STELLARERAPLANET_API bool IsDirectionVisible(const FVector& UnitDirection, const FVector& CameraDirection);
+	STELLARERATERRAIN_API bool IsDirectionVisible(const FVector& UnitDirection, const FVector& CameraDirection);
 
 	/** 线段只要有一端可见就整段提交；两端都在背面才剔除。 */
-	STELLARERAPLANET_API bool IsSegmentVisible(const FVector& UnitDirectionA, const FVector& UnitDirectionB,
+	STELLARERATERRAIN_API bool IsSegmentVisible(const FVector& UnitDirectionA, const FVector& UnitDirectionB,
 		const FVector& CameraDirection);
 }

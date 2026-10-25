@@ -24,7 +24,7 @@ public class StellarEraMinerals : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			"StellarEraPlanet",  // AVoxelPlanetActor（.cpp）
+			"StellarEraTerrain",  // AVoxelPlanetActor（.cpp）
 			"StellarEraAtmosphere", // UPlanetAtmosphereComponent（.cpp，FindComponentByClass）
 			"GeometryCore",      // FMarchingCubes / FDynamicMesh3 / FMeshNormals
 			"GeometryFramework", // UDynamicMeshComponent

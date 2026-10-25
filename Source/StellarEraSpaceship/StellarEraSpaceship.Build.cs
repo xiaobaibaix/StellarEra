@@ -30,7 +30,7 @@ public class StellarEraSpaceship : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			"StellarEraPlanet",
+			"StellarEraTerrain",
 			"StellarEraAtmosphere",
 			"StellarEraCharacter",
 			"Voxel",

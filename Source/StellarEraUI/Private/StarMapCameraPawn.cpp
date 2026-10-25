@@ -231,7 +231,7 @@ double AStarMapCameraPawn::RaySphereFirstHitCm(
 	const FVector& SphereCenter,
 	double SphereRadiusCm)
 {
-	// 实现搬到了 StellarEraPlanet/PlanetSurfaceRay：行星编辑的射线也要用它。
+	// 实现搬到了 StellarEraTerrain/PlanetSurfaceRay：行星编辑的射线也要用它。
 	// 这里保留同名静态函数，星图现有的调用点与测试都不用改。
 	return PlanetSurfaceRay::RaySphereFirstHit(RayOrigin, UnitDir, SphereCenter, SphereRadiusCm);
 }

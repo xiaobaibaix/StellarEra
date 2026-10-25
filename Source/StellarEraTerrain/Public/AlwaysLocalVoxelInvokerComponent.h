@@ -29,7 +29,7 @@
  * （回来时不用重新生成）。都是想要的方向。
  */
 UCLASS()
-class STELLARERAPLANET_API UAlwaysLocalVoxelInvokerComponent : public UVoxelSimpleInvokerComponent
+class STELLARERATERRAIN_API UAlwaysLocalVoxelInvokerComponent : public UVoxelSimpleInvokerComponent
 {
 	GENERATED_BODY()
 
@@ -46,7 +46,7 @@ public:
  * 是父子关系，但 IsLocalInvoker 的覆写不能共用 —— 两个 UCLASS 各继承各的。
  */
 UCLASS()
-class STELLARERAPLANET_API UAlwaysLocalVoxelInvokerWithPredictionComponent
+class STELLARERATERRAIN_API UAlwaysLocalVoxelInvokerWithPredictionComponent
 	: public UVoxelInvokerWithPredictionComponent
 {
 	GENERATED_BODY()

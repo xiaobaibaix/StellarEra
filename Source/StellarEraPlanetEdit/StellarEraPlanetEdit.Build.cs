@@ -19,7 +19,7 @@ public class StellarEraPlanetEdit : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			"StellarEraPlanet",
+			"StellarEraTerrain",
 			"Voxel",
 		});
 	}

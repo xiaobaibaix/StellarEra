@@ -28,7 +28,7 @@ public class StellarEraCharacter : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			"StellarEraPlanet",
+			"StellarEraTerrain",
 			"StellarEraPlanetEdit",
 			"Voxel",
 		});

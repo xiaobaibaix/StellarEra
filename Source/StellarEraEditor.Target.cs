@@ -15,7 +15,7 @@ public class StellarEraEditorTarget : TargetRules
 			"StellarEra",          // 框架（primary game module）
 			"StellarEraCosmos",    // 万有引力
 			"StellarEraCore",      // 天体力学
-			"StellarEraPlanet",    // 体素星球
+			"StellarEraTerrain",    // 体素星球
 			"StellarEraGeology",   // 地质
 			"StellarEraAtmosphere", // 大气
 			"StellarEraMinerals",  // 矿物

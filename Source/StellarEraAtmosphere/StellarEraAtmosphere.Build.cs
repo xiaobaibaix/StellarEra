@@ -23,7 +23,7 @@ public class StellarEraAtmosphere : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			"StellarEraPlanet",
+			"StellarEraTerrain",
 		});
 	}
 }

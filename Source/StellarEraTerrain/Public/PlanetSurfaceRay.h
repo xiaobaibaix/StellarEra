@@ -16,7 +16,7 @@ namespace PlanetSurfaceRay
 	 * 本函数原来叫 AStarMapCameraPawn::RaySphereFirstHitCm（星图摄像机用它做
 	 * 行星遮挡夹取）；搬到本模块后两边共用一个实现，星图那个函数只做转发。
 	 */
-	STELLARERAPLANET_API double RaySphereFirstHit(
+	STELLARERATERRAIN_API double RaySphereFirstHit(
 		const FVector& RayOrigin, const FVector& UnitDir,
 		const FVector& SphereCenter, double SphereRadiusCm);
 
@@ -30,7 +30,7 @@ namespace PlanetSurfaceRay
 	 * 坐标：调用方给**同一原点的局部坐标**（起点、方向、半径都是），本函数不关心
 	 * 它是世界空间还是体素空间。半径采样回调吃单位方向、吐半径。
 	 */
-	STELLARERAPLANET_API bool SolveAnalyticHit(
+	STELLARERATERRAIN_API bool SolveAnalyticHit(
 		const FVector& LocalOrigin,
 		const FVector& LocalDir,
 		double BaseRadiusCm,
