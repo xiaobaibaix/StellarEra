@@ -310,7 +310,7 @@ const TArray<FPlanetGeologyPod>& FPlanetGeologyField::GetPods(const int32 Elemen
 FPlanetGeologySample FPlanetGeologyField::Sample(const FVector& UnitDir, double Depth) const
 {
 	FPlanetGeologySample Result;
-	if (Elements.Num() == 0 || TotalAbundance <= 0.f)
+	if (Elements.Num() == 0)
 	{
 		return Result;
 	}
@@ -319,15 +319,20 @@ FPlanetGeologySample FPlanetGeologyField::Sample(const FVector& UnitDir, double 
 	FLinearColor WeightedColor = FLinearColor::Black;
 	Accumulate(UnitDir, Depth, true, Accumulation, WeightedColor);
 
-	if (Accumulation.Total <= UE_DOUBLE_KINDA_SMALL_NUMBER)
+	// DominantNorm / DominantIndex 只依赖各元素 Norm，与丰度无关：即使全元素
+	// Abundance = 0（退化配置）也要给出，否则会与 SampleElementNorms 的契约分叉
+	//（观察体照长、地形照凸，而 Sample 却说「没有矿」）。
+	Result.DominantNorm = FMath::Clamp(float(Accumulation.DominantNorm), 0.f, 1.f);
+	Result.DominantIndex = Accumulation.DominantIndex;
+
+	if (TotalAbundance <= 0.f || Accumulation.Total <= UE_DOUBLE_KINDA_SMALL_NUMBER)
 	{
+		// 没有颜色权重（丰度和为 0）：TotalNorm / Purity / 颜色留默认值。
 		return Result;
 	}
 
 	Result.TotalNorm = FMath::Clamp(
 		float(Accumulation.Total / double(TotalAbundance)), 0.f, 1.f);
-	Result.DominantNorm = FMath::Clamp(float(Accumulation.DominantNorm), 0.f, 1.f);
-	Result.DominantIndex = Accumulation.DominantIndex;
 	Result.Purity = FMath::Clamp(
 		float(Accumulation.MaxRaw / Accumulation.Total), 0.f, 1.f);
 	Result.MineralColor = WeightedColor / float(Accumulation.Total);

@@ -44,6 +44,9 @@ public:
 	 * DominantIndex 就是它的下标（并列时取靠前的那个）。等值面构建器要按元素各取一面，
 	 * 必须拿到整条数组；Sample 只给最大值。
 	 *
+	 * 契约**包括全元素 Abundance = 0 的退化配置**：Sample 仍给出 DominantNorm /
+	 * DominantIndex（它们只依赖 Norm），只是没有颜色权重（TotalNorm / 颜色为默认值）。
+	 *
 	 * 内部走同一个 Accumulate，一次循环填完，不额外调噪声。
 	 */
 	void SampleElementNorms(const FVector& UnitDir, double Depth, TArray<float>& OutNorms) const;

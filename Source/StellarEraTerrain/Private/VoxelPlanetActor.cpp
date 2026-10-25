@@ -709,6 +709,11 @@ void AVoxelPlanetActor::PostLoad()
 			GeologyAsset = Loaded;
 			UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor::PostLoad: %s 的地质预设 '%s' → %s"),
 				*GetName(), *GeologyPreset, *LegacyPath.ToString());
+			// 迁移成功后清空旧字段：清空值会随关卡保存持久化，于是
+			// (a) 之后的加载不再重复迁移；(b) 作者把 GeologyAsset 清空后，才能真正
+			//     得到一颗无矿行星，而不是下次加载又被迁回 earth。
+			// 找不到资产时仍原样保留字符串（Task 6 之前的状态不变）。
+			GeologyPreset.Reset();
 		}
 	}
 }

@@ -472,9 +472,31 @@ bool FPlanetGeologyDeterminismTest::RunTest(const FString& Parameters)
 	FRandomStream Rng(2024);
 	int32 Mismatches = 0;
 	int32 NonZeroSamples = 0;
-	for (int32 SampleIndex = 0; SampleIndex < 2000; ++SampleIndex)
+	const int32 SampleCount = 2000;
+	for (int32 SampleIndex = 0; SampleIndex < SampleCount; ++SampleIndex)
 	{
-		const FVector P = RandomPoint(Rng);
+		FVector P;
+		if (SampleIndex % 2 == 0)
+		{
+			// 一半探针贴着矿囊取样：矿囊体积占比不到 1%，全靠随机球内点的话，
+			// 「逐点一致」几乎全是 0 == 0，挡不住「矿囊大量丢失」。
+			const int32 ElementIndex = (SampleIndex / 2) % 2;
+			const TArray<FPlanetGeologyPod>& Pods = First->GetPods(ElementIndex);
+			const FPlanetGeologyPod& Pod = Pods[(SampleIndex / 4) % Pods.Num()];
+			P = Pod.Center + FVector(
+				Rng.FRandRange(-1.f, 1.f) * Pod.Radius * 0.5f,
+				Rng.FRandRange(-1.f, 1.f) * Pod.Radius * 0.5f,
+				Rng.FRandRange(-1.f, 1.f) * Pod.Radius * 0.5f);
+			if (P.SizeSquared() > 1.f)
+			{
+				P = Pod.Center; // SampleElementNormAtNormalized 对球外点恒 0，换成囊心
+			}
+		}
+		else
+		{
+			P = RandomPoint(Rng);
+		}
+
 		for (int32 ElementIndex = 0; ElementIndex < 2; ++ElementIndex)
 		{
 			const float FirstNorm = First->SampleElementNormAtNormalized(ElementIndex, P);
@@ -488,9 +510,11 @@ bool FPlanetGeologyDeterminismTest::RunTest(const FString& Parameters)
 	}
 
 	TestEqual(TEXT("同一预设两次建场逐点完全相同"), Mismatches, 0);
-	// 反假绿：矿囊体积占比不到 1%，若比较的几乎全是 0==0，这条测试就形同虚设。
-	TestTrue(*FString::Printf(TEXT("采样中确实有非零矿（%d 个）"), NonZeroSamples),
-		NonZeroSamples >= 5);
+	// 反假绿：一半探针在矿囊内（1000 个探针 × 2 元素 = 2000 次比较），
+	// 阈值取实测非零数的一个有余量的下界，挡得住「矿囊大量丢失」。
+	AddInfo(FString::Printf(TEXT("非零采样 %d/%d"), NonZeroSamples, SampleCount * 2));
+	TestTrue(*FString::Printf(TEXT("采样中确实有非零矿（%d 个，需 >= 200）"), NonZeroSamples),
+		NonZeroSamples >= 200);
 	return true;
 }
 
@@ -715,37 +739,79 @@ bool FPlanetGeologyElementNormsTest::RunTest(const FString& Parameters)
 	// DominantNorm / DominantIndex。观测视图与地形分别走这两条路，契约一破就是「两批矿」。
 	// 两边都只在严格大于时换赢家，所以并列时也选同一个下标。
 	FRandomStream Random(2026);
-	const double Probes[] = { 0.0, 5000.0, 20000.0, 36000.0 };
 	TArray<float> Norms;
+	int32 NonZeroNormProbes = 0;
+	int32 ValidProbes = 0;
 
-	for (int32 Iteration = 0; Iteration < 64; ++Iteration)
+	const auto CheckProbe = [&](const FVector& NormalizedPoint) -> bool
 	{
-		const FVector UnitDir = Random.GetUnitVector();
-		for (const double Depth : Probes)
-		{
-			Field->SampleElementNorms(UnitDir, Depth, Norms);
-			if (!TestEqual(TEXT("每个元素一个强度"), Norms.Num(), Field->NumElements()))
-			{
-				return false;
-			}
+		const FVector UnitDir = NormalizedPoint.IsNearlyZero()
+			? FVector::UpVector
+			: NormalizedPoint.GetSafeNormal();
+		const double Depth = (1.0 - double(NormalizedPoint.Size())) * PlanetRadiusVoxels;
 
-			float MaxNorm = 0.f;
-			int32 MaxIndex = INDEX_NONE;
-			for (int32 Index = 0; Index < Norms.Num(); ++Index)
+		Field->SampleElementNorms(UnitDir, Depth, Norms);
+		if (!TestEqual(TEXT("每个元素一个强度"), Norms.Num(), Field->NumElements()))
+		{
+			return false;
+		}
+
+		bool bAnyNonZero = false;
+		float MaxNorm = 0.f;
+		int32 MaxIndex = INDEX_NONE;
+		for (int32 Index = 0; Index < Norms.Num(); ++Index)
+		{
+			bAnyNonZero |= Norms[Index] > 0.f;
+			if (Norms[Index] > MaxNorm)
 			{
-				if (Norms[Index] > MaxNorm)
+				MaxNorm = Norms[Index];
+				MaxIndex = Index;
+			}
+		}
+		NonZeroNormProbes += bAnyNonZero ? 1 : 0;
+		++ValidProbes;
+
+		const FPlanetGeologySample Sample = Field->Sample(UnitDir, Depth);
+		TestTrue(TEXT("最大值等于 DominantNorm"),
+			FMath::IsNearlyEqual(MaxNorm, float(Sample.DominantNorm), 1e-6f));
+		TestEqual(TEXT("argmax 等于 DominantIndex"), MaxIndex, Sample.DominantIndex);
+		return true;
+	};
+
+	// 探针必须从矿囊里取样：随机球内点打中矿囊的概率不到 1%（体积占比），
+	// 256 个随机探针里往往只有个位数落点，测试会退化成 INDEX_NONE == INDEX_NONE。
+	for (int32 ElementIndex = 0; ElementIndex < Field->NumElements(); ++ElementIndex)
+	{
+		const TArray<FPlanetGeologyPod>& Pods = Field->GetPods(ElementIndex);
+		const int32 PodStride = FMath::Max(1, Pods.Num() / 4);
+		for (int32 PodIndex = 0; PodIndex < Pods.Num(); PodIndex += PodStride)
+		{
+			const FPlanetGeologyPod& Pod = Pods[PodIndex];
+			for (int32 SampleIndex = 0; SampleIndex < 4; ++SampleIndex)
+			{
+				const FVector Offset(
+					Random.FRandRange(-1.f, 1.f) * Pod.Radius * 0.5f,
+					Random.FRandRange(-1.f, 1.f) * Pod.Radius * 0.5f,
+					Random.FRandRange(-1.f, 1.f) * Pod.Radius * 0.5f);
+				const FVector P = Pod.Center + Offset;
+				if (P.SizeSquared() <= 1.f)
 				{
-					MaxNorm = Norms[Index];
-					MaxIndex = Index;
+					CheckProbe(P);
 				}
 			}
-
-			const FPlanetGeologySample Sample = Field->Sample(UnitDir, Depth);
-			TestTrue(TEXT("最大值等于 DominantNorm"),
-				FMath::IsNearlyEqual(MaxNorm, float(Sample.DominantNorm), 1e-6f));
-			TestEqual(TEXT("argmax 等于 DominantIndex"), MaxIndex, Sample.DominantIndex);
 		}
 	}
+
+	// 少量零值对照：|P| = 6 远在所有矿囊之外，两条出口都必须返 0。
+	for (int32 SampleIndex = 0; SampleIndex < 8; ++SampleIndex)
+	{
+		CheckProbe(Random.GetUnitVector() * 6.0);
+	}
+
+	// 硬守卫：样本里必须有足够多的非零 Norm，否则上面的契约比较可能是空转。
+	AddInfo(FString::Printf(TEXT("非零 Norm 的探针 %d/%d"), NonZeroNormProbes, ValidProbes));
+	TestTrue(*FString::Printf(TEXT("非零 Norm 的探针数 >= 20（实测 %d/%d）"),
+		NonZeroNormProbes, ValidProbes), NonZeroNormProbes >= 20);
 
 	return true;
 }
@@ -856,6 +922,39 @@ bool FPlanetGeologyAssetClampsTest::RunTest(const FString& Parameters)
 	const auto LowField = MakeField(*LowPreset);
 	TestEqual(TEXT("负 GeometryAmplitude 夹到 0"), LowField->GetMaxGeometryDelta(), 0.f);
 	TestEqual(TEXT("负 Abundance 夹到 0"), LowField->GetTotalAbundance(), 0.f);
+
+	// 全元素 Abundance = 0 的退化配置：Sample 仍必须给出 DominantNorm/Index，
+	// 与 SampleElementNorms 同源 —— 否则观察体照长、地形照凸，而 Sample 说「没有矿」。
+	// 取该元素唯一矿囊的中心，保证 Norm > 0，避免 0 == 0 的空转。
+	const TArray<FPlanetGeologyPod>& Pods = LowField->GetPods(0);
+	if (TestEqual(TEXT("低丰度夹具仍有矿囊"), Pods.Num(), 1))
+	{
+		const FVector UnitDir = Pods[0].Center.IsNearlyZero()
+			? FVector::UpVector
+			: Pods[0].Center.GetSafeNormal();
+		const double Depth = (1.0 - double(Pods[0].Center.Size())) * PlanetRadiusVoxels;
+
+		TArray<float> Norms;
+		LowField->SampleElementNorms(UnitDir, Depth, Norms);
+		float MaxNorm = 0.f;
+		int32 MaxIndex = INDEX_NONE;
+		for (int32 Index = 0; Index < Norms.Num(); ++Index)
+		{
+			if (Norms[Index] > MaxNorm)
+			{
+				MaxNorm = Norms[Index];
+				MaxIndex = Index;
+			}
+		}
+
+		const FPlanetGeologySample DegenerateSample = LowField->Sample(UnitDir, Depth);
+		TestTrue(*FString::Printf(TEXT("退化配置下 DominantNorm 仍同源（%.4f vs %.4f）"),
+			MaxNorm, DegenerateSample.DominantNorm),
+			FMath::IsNearlyEqual(MaxNorm, float(DegenerateSample.DominantNorm), 1e-6f));
+		TestEqual(TEXT("退化配置下 DominantIndex 仍同源"),
+			MaxIndex, DegenerateSample.DominantIndex);
+		TestEqual(TEXT("退化配置下没有颜色权重"), DegenerateSample.TotalNorm, 0.f);
+	}
 
 	return true;
 }
