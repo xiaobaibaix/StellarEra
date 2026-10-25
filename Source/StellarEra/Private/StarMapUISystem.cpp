@@ -225,11 +225,10 @@ void UStarMapUISystem::ComputeMineralLegendLayout(
 	OutRowRects.Reset();
 	OutRowRects.Reserve(SlotCount);
 
-	// 行区起点 = 内边距 + 标题 + 上分隔线（与 DrawMineralLegend 的排版同源）。
+	// 行区起点 = 内边距 + 标题 + 上分隔块（与 DrawMineralLegend 同一处算式）。
 	const float RowsTop = OutPanel.Y + MineralLegendLayout::Padding
 		+ MineralLegendLayout::TitleLineHeight
-		+ MineralLegendLayout::SeparatorSpacing + MineralLegendLayout::SeparatorThickness
-		+ MineralLegendLayout::SeparatorSpacing;
+		+ MineralLegendLayout::TitleToRowsTopOffset();
 
 	for (int32 SlotIndex = 0; SlotIndex < SlotCount; ++SlotIndex)
 	{
@@ -540,12 +539,11 @@ void UStarMapUISystem::DrawMineralLegend(
 			RowRects[0].Y, Font, TextScale);
 	}
 
-	// 提示行贴面板底：行数变化时提示不跟着上下跳。
-	const float HintY = Panel.Y + Panel.H - MineralLegendLayout::Padding
-		- MineralLegendLayout::HintLineHeight;
+	// 提示行贴面板底：行数变化时提示不跟着上下跳。落点由布局命名空间给出，
+	// 与 PanelHeightPx 的高度预算同源，避免两处算式再次漂移。
+	const float HintY = MineralLegendLayout::HintTextTopY(Panel);
 	Hud.DrawRect(Gold, Panel.X + MineralLegendLayout::Padding,
-		HintY - MineralLegendLayout::SeparatorSpacing
-			- MineralLegendLayout::SeparatorThickness,
+		MineralLegendLayout::HintSeparatorY(Panel),
 		Panel.W - MineralLegendLayout::Padding * 2.f,
 		MineralLegendLayout::SeparatorThickness);
 	Hud.DrawText(Lines.Last(), Dim, Panel.X + MineralLegendLayout::Padding, HintY,

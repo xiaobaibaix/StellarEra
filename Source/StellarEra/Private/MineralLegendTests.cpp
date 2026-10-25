@@ -156,4 +156,40 @@ bool FMineralLegendEmptyTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMineralLegendSpacingTest,
+	"StellarEra.StarMap.MineralLegend.Spacing",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMineralLegendSpacingTest::RunTest(const FString& Parameters)
+{
+	// 断言的是「高度预算与排布同源」：提示分隔线不得压到最后一行的命中带，
+	// 提示文字不得越出面板底边的内边距。提示区块的落点全部取自
+	// MineralLegendLayout::Hint*，测试不另写一份公式。
+	// 三个 N 都跑：1 是占位边界、3 是常规、9 是长表，防「只在某个 N 恰好对上」。
+	const int32 EntryCounts[] = { 1, 3, 9 };
+	for (const int32 EntryCount : EntryCounts)
+	{
+		FStarMapPanelRect Panel;
+		TArray<FStarMapPanelRect> Rows;
+		MineralLegendTest::BuildLayout(Panel, Rows, EntryCount);
+
+		TestEqual(*FString::Printf(TEXT("N=%d 行矩形数量"), EntryCount),
+			Rows.Num(), EntryCount);
+		TestEqual(*FString::Printf(TEXT("N=%d 面板高度与公式一致"), EntryCount),
+			Panel.H, MineralLegendLayout::PanelHeightPx(EntryCount));
+
+		const float LastRowBottom = Rows.Last().Y + Rows.Last().H;
+		const float SeparatorY = MineralLegendLayout::HintSeparatorY(Panel);
+		TestTrue(*FString::Printf(TEXT("N=%d 提示分隔线不低于最后一行下沿 + 间距"), EntryCount),
+			SeparatorY >= LastRowBottom + MineralLegendLayout::SeparatorSpacing - 0.01f);
+
+		const float HintBottom = MineralLegendLayout::HintTextTopY(Panel)
+			+ MineralLegendLayout::HintLineHeight;
+		TestTrue(*FString::Printf(TEXT("N=%d 提示文字底部不越出面板底边 - 内边距"), EntryCount),
+			HintBottom <= Panel.Y + Panel.H - MineralLegendLayout::Padding + 0.01f);
+	}
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

@@ -72,13 +72,47 @@ namespace MineralLegendLayout
 	/** 命中判定的上下缩进：点在两行接缝上时不误命中相邻行。 */
 	constexpr float HitInsetY = 2.f;
 
-	/** 面板高度（夹进视口之前）。EntryCount = 0 时仍留一行占位。 */
+	/**
+	 * 标题文字下沿 → 第一行顶部：上下各留一次间距，中间夹一条分隔线。
+	 * 面板高度预算与 ComputeMineralLegendLayout 的行起点共用这一处算式。
+	 */
+	FORCEINLINE float TitleToRowsTopOffset()
+	{
+		return SeparatorSpacing + SeparatorThickness + SeparatorSpacing;
+	}
+
+	/**
+	 * 最后一行下沿 → 提示文字顶部：与标题段同构（间距 / 分隔线 / 间距）。
+	 * 面板高度预算与绘制时的提示区块共用这一处算式。
+	 */
+	FORCEINLINE float RowsBottomToHintTopOffset()
+	{
+		return SeparatorSpacing + SeparatorThickness + SeparatorSpacing;
+	}
+
+	/**
+	 * 面板高度（夹进视口之前）。EntryCount = 0 时仍留一行占位。
+	 *
+	 * 两段分隔块都要计入：只算 SeparatorSpacing + SeparatorThickness 会短 12 px，
+	 * 缺口全挤在「最后一行 ↔ 提示行」之间，提示分隔线会画进最后一行。
+	 */
 	FORCEINLINE float PanelHeightPx(int32 EntryCount)
 	{
 		const int32 Slots = EntryCount > 0 ? EntryCount : 1;
-		return Padding * 2.f + TitleLineHeight
-			+ (SeparatorSpacing + SeparatorThickness) * 2.f
-			+ RowSlotHeight * Slots + HintLineHeight;
+		return Padding * 2.f + TitleLineHeight + RowSlotHeight * Slots + HintLineHeight
+			+ TitleToRowsTopOffset() + RowsBottomToHintTopOffset();
+	}
+
+	/** 提示文字顶部的 Y：贴面板底，只留 Padding。 */
+	FORCEINLINE float HintTextTopY(const FStarMapPanelRect& Panel)
+	{
+		return Panel.Y + Panel.H - Padding - HintLineHeight;
+	}
+
+	/** 提示分隔线的 Y：位于提示文字上方的一个间距块之后（与标题段同构）。 */
+	FORCEINLINE float HintSeparatorY(const FStarMapPanelRect& Panel)
+	{
+		return HintTextTopY(Panel) - SeparatorSpacing - SeparatorThickness;
 	}
 }
 
