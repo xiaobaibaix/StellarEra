@@ -566,7 +566,7 @@ bool FPlanetGeologyDefaultContentTest::RunTest(const FString& Parameters)
 	TestTrue(*FString::Printf(TEXT("触达深度伸到行星内部（%f）"), Field->GetMaxReachDepth()),
 		Field->GetMaxReachDepth() > float(PlanetRadiusVoxels * 0.9));
 
-	// 剖面盘上每个深层环带都必须真的采样得到矿，否则切面仍会是一整块暗绿。
+	// 每个深层环带都必须真的采样得到矿，否则这一深度的矿带在采样结果里不可见。
 	// 用 256 个 Fibonacci 方向取最大值：单个方向可能正好落在矿脉门之外。
 	constexpr int32 NumDirections = 256;
 	const double BandRatios[] = { 0.06, 0.17, 0.29, 0.41, 0.55, 0.85 };

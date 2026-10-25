@@ -47,6 +47,13 @@ public:
 
 	bool IsActive() const { return bActive; }
 
+	/**
+	 * 元素数，返回 Elements.Num()（运行期采样顺序）。
+	 *
+	 * 与观察体的 ISM 组数相等 —— 这个前提由 APlanetMineralViewActor::Build 的
+	 * 「组数 == 元素数」校验保证（不等时 Build 直接失败）。若将来允许部分构建，
+	 * 图例布局与命中测试必须改用 ViewActor->NumElements()。
+	 */
 	int32 NumElements() const;
 	bool IsElementVisible(int32 Index) const;
 	/** 参数不能叫 bVisible：USceneComponent 已有同名私有位域，MSVC 的 C4458 在

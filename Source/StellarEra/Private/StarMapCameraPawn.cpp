@@ -208,19 +208,6 @@ void AStarMapCameraPawn::AddZoom(float Value)
 	OrbitDistanceCm = FMath::Clamp(NewAltitudeCm + FocusRadiusCm, MinCm, MaxCm);
 }
 
-void AStarMapCameraPawn::OrientToDirection(const FVector& Direction)
-{
-	if (Direction.IsNearlyZero())
-	{
-		return;
-	}
-
-	FRotator Rotation = Direction.Rotation();
-	Rotation.Pitch = FMath::Clamp(Rotation.Pitch, -89.0, 89.0);
-	Rotation.Roll = 0.0;
-	OrbitRotation = Rotation;
-}
-
 double AStarMapCameraPawn::ZoomAltitudeCm(
 	double AltitudeCm,
 	double StepFactor,

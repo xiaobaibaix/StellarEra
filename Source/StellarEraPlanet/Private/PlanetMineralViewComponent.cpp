@@ -67,12 +67,29 @@ bool UPlanetMineralViewComponent::Activate(AVoxelPlanetActor* InPlanet)
 	{
 		BlockCount += Group.Num();
 	}
+	const TArray<FPlanetGeologyElement> SampledElements =
+		Geology->GetSampledElementDefinitions();
+
+	// 每元素方块数：诊断时「全都没生成」与「某个元素为 0」是两回事，
+	// 光看总数分不出来。顺序 = Elements（运行期采样顺序），下标与 ISM 组一致。
+	TArray<FString> PerElementParts;
+	for (int32 Index = 0; Index < Blocks.BlocksByElement.Num(); ++Index)
+	{
+		const FString Label =
+			SampledElements.IsValidIndex(Index) && !SampledElements[Index].DisplayName.IsEmpty()
+			? SampledElements[Index].DisplayName
+			: FString::Printf(TEXT("#%d"), Index);
+		PerElementParts.Add(FString::Printf(TEXT("元素%s:%d"),
+			*Label, Blocks.BlocksByElement[Index].Num()));
+	}
+
 	UE_LOG(LogTemp, Display, TEXT("[矿物] %s：采样 %d 点，生成 %d 个方块，用时 %.1f ms"),
 		*InPlanet->GetName(), Blocks.SampleCount, BlockCount,
 		(FPlatformTime::Seconds() - BuildStartSeconds) * 1000.0);
+	UE_LOG(LogTemp, Display, TEXT("[矿物] %s：每元素方块数 %s"),
+		*InPlanet->GetName(),
+		PerElementParts.IsEmpty() ? TEXT("(无元素)") : *FString::Join(PerElementParts, TEXT(" ")));
 
-	const TArray<FPlanetGeologyElement> SampledElements =
-		Geology->GetSampledElementDefinitions();
 	const float BlockSizeCm = SurfaceRadiusCm * SpacingRatio * BlockSizeRatio;
 
 	FActorSpawnParameters SpawnParams;

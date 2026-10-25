@@ -101,15 +101,6 @@ public:
 	/** 滚轮 → 按倍率缩放相机到**地表的高度**。Value 每格 ±1，正值为拉近。 */
 	void AddZoom(float Value);
 
-	/**
-	 * 把「相机 → 焦点」的视线方向设为 Direction（不必归一化）。
-	 *
-	 * 与 FocusOn 的分工：FocusOn 只改焦点与距离（平滑拉远），朝向在被调用时取
-	 * 「当前位置 → 新焦点」；本函数用于之后再把朝向校正到指定方向 —— 剖面入口
-	 * 要保证相机正对球心。pitch 夹在 ±89°、roll 恒为 0，避免万向节翻面。
-	 */
-	void OrientToDirection(const FVector& Direction);
-
 	/** 当前选中的天体（每帧从子系统读，不自己存）。 */
 	AActor* ResolveSelectedBody() const;
 

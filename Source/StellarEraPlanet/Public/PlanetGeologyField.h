@@ -56,7 +56,12 @@ public:
 	int32 NumElements() const { return Elements.Num(); }
 	float GetTotalAbundance() const { return TotalAbundance; }
 
-	/** 元素定义的副本（元素表顺序），给矿物剖面图例用。 */
+	/**
+	 * 元素定义的副本（元素表顺序）。
+	 *
+	 * 生产调用点为零：图例用的是 GetSampledElementDefinitions()。保留本函数只作
+	 * **运行期采样顺序的对照 / 测试用**（测试拿它确认两种顺序确实可能不同）。
+	 */
 	TArray<FPlanetGeologyElement> GetElementDefinitions() const;
 
 	/**
