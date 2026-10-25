@@ -61,7 +61,7 @@ TSharedPtr<const FPlanetGeologyField> UVoxelPlanetGenerator::GetGeology()
 
 	if (GeologyCache->IsEmpty())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("行星地质预设 %s 没有任何元素"), *GeologyPreset->GetPathName());
+		UE_LOG(LogTemp, Warning, TEXT("行星地质预设 %s 没有任何矿囊"), *GeologyPreset->GetPathName());
 	}
 
 	return GeologyCache;

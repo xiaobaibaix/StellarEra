@@ -32,7 +32,7 @@ namespace PlanetMineralSurface
 	{
 		/** 基准球面半径（厘米），与 AVoxelPlanetActor::GetSurfaceRadiusCm 一致。 */
 		float SurfaceRadiusCm = 0.f;
-		/** 一个体素多少厘米：地质深度以体素计，换回厘米要用它。 */
+		/** 仅保留作合法性校验（≤ 0 即拒绝）；矿囊取面不再经过体素深度。 */
 		float VoxelSizeCm = 0.f;
 		/**
 		 * 一个矿囊直径横向切多少格（4..32）。
@@ -49,7 +49,10 @@ namespace PlanetMineralSurface
 	{
 		/** 下标 = 运行期元素下标（GetSampledElementDefinitions 顺序）；空元素留空网格。 */
 		TArray<FPlanetMineralMesh> MeshesByElement;
-		/** 实际求过噪声的角点数（球外点不算），只进日志。 */
+		/**
+		 * 实际求过场的角点数，只进日志：按（簇 × 元素）累加。
+		 * 含球外角点与簇内其他元素占用过的角点，**会重复计数**。
+		 */
 		int32 GridPoints = 0;
 		double BuildSeconds = 0.0;
 	};

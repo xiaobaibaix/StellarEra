@@ -163,7 +163,8 @@ bool FPlanetMineralSurfacePodLocalTest::RunTest(const FString& Parameters)
 	const auto Field = MakeField(*Preset);
 
 	PlanetMineralSurface::FBuildResult Result;
-	PlanetMineralSurface::Build(*Field, MakeParams(*Field, 12), Result);
+	const PlanetMineralSurface::FBuildParams Params = MakeParams(*Field, 12);
+	PlanetMineralSurface::Build(*Field, Params, Result);
 
 	for (int32 ElementIndex = 0; ElementIndex < Result.MeshesByElement.Num(); ++ElementIndex)
 	{
@@ -173,16 +174,20 @@ bool FPlanetMineralSurfacePodLocalTest::RunTest(const FString& Parameters)
 			continue;
 		}
 
-		// 该元素所有矿囊包围盒的并集，外扩得多一点（插值 + 夹回球面会略微出界）。
+		// 该元素所有矿囊包围盒的并集，外扩「1 格」（spec §7.3）。格边按簇内最小
+		// 半径算，簇里可能混着更小的矿囊 —— 取该元素最大矿囊半径当上界就够；
+		// 再乘 1.5 吸收三线性插值（顶点最多离矿囊包围盒一格）。
 		FBox PodBounds(ForceInit);
+		double MaxPodRadiusCm = 0.0;
 		for (const FPlanetGeologyPod& Pod : Field->GetPods(ElementIndex))
 		{
 			const FVector CenterCm = Pod.Center * SurfaceRadiusCm;
-			const float RadiusCm = Pod.Radius * SurfaceRadiusCm;
+			const double RadiusCm = double(Pod.Radius) * double(SurfaceRadiusCm);
+			MaxPodRadiusCm = FMath::Max(MaxPodRadiusCm, RadiusCm);
 			PodBounds += FBox(CenterCm - FVector(RadiusCm), CenterCm + FVector(RadiusCm));
 		}
-		PodBounds = PodBounds.ExpandBy(
-			FVector(PodBounds.GetExtent().GetMax() * 0.5) + FVector::OneVector);
+		const double CellSizeCm = 2.0 * MaxPodRadiusCm / double(Params.CellsPerPod);
+		PodBounds = PodBounds.ExpandBy(FVector(CellSizeCm * 1.5) + FVector::OneVector);
 
 		int32 Outside = 0;
 		for (const FVector3f& Vertex : Mesh.VerticesCm)
@@ -225,11 +230,11 @@ bool FPlanetMineralSurfaceCellsPerPodTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceEmptyTest,
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceInvalidParamsTest,
 	"StellarEra.Planet.MineralSurface.InvalidParams",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FPlanetMineralSurfaceEmptyTest::RunTest(const FString& Parameters)
+bool FPlanetMineralSurfaceInvalidParamsTest::RunTest(const FString& Parameters)
 {
 	using namespace PlanetMineralSurfaceTest;
 
@@ -456,9 +461,18 @@ bool FPlanetMineralSurfaceDeterministicTest::RunTest(const FString& Parameters)
 {
 	using namespace PlanetMineralSurfaceTest;
 
-	UPlanetGeologyPreset* Preset = MakePreset({
-		MakeElement(TEXT("a"), 0.06f, 11),
-		MakeElement(TEXT("b"), 0.05f, 22)});
+	// 三元素 × 16 囊 = 48 囊：保证多簇、多元素合并与混合元素簇都被走到，
+	// 否则「两囊两簇」根本验不到合并顺序与簇级并行。
+	FPlanetGeologyElementParams ElementA = MakeElement(TEXT("a"), 0.050f, 11);
+	ElementA.PodCount = 16;
+	ElementA.PodRadiusJitter = 0.2f;
+	FPlanetGeologyElementParams ElementB = MakeElement(TEXT("b"), 0.045f, 22);
+	ElementB.PodCount = 16;
+	ElementB.PodRadiusJitter = 0.2f;
+	FPlanetGeologyElementParams ElementC = MakeElement(TEXT("c"), 0.040f, 33);
+	ElementC.PodCount = 16;
+	ElementC.PodRadiusJitter = 0.2f;
+	UPlanetGeologyPreset* Preset = MakePreset({ElementA, ElementB, ElementC});
 	const auto Field = MakeField(*Preset);
 
 	PlanetMineralSurface::FBuildResult First;
@@ -611,6 +625,57 @@ bool FPlanetMineralSurfaceOutcropTest::RunTest(const FString& Parameters)
 
 	TestEqual(*FString::Printf(TEXT("顶点全部夹在球内或球面上（越界 %d）"), Outside), Outside, 0);
 	TestTrue(*FString::Printf(TEXT("露头顶点被夹到球面（%d 个）"), Clamped), Clamped > 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceRadiusInvarianceTest,
+	"StellarEra.Planet.MineralSurface.RadiusInvariance",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetMineralSurfaceRadiusInvarianceTest::RunTest(const FString& Parameters)
+{
+	using namespace PlanetMineralSurfaceTest;
+
+	// 本任务的核心目的：分辨率跟着矿囊走，与行星直径解耦。矿囊存的是归一化坐标，
+	// 半径翻倍后几何形状完全不变 —— 局部栅格的三角形数 / 角点数必须逐项相同。
+	UPlanetGeologyPreset* Preset = MakePreset({
+		MakeElement(TEXT("a"), 0.06f, 11),
+		MakeElement(TEXT("b"), 0.05f, 22)});
+	const auto Field = MakeField(*Preset);
+
+	const PlanetMineralSurface::FBuildParams Base = MakeParams(*Field, 12);
+	PlanetMineralSurface::FBuildParams Doubled = Base;
+	Doubled.SurfaceRadiusCm = Base.SurfaceRadiusCm * 2.f;
+
+	PlanetMineralSurface::FBuildResult BaseResult;
+	PlanetMineralSurface::Build(*Field, Base, BaseResult);
+	PlanetMineralSurface::FBuildResult DoubledResult;
+	PlanetMineralSurface::Build(*Field, Doubled, DoubledResult);
+
+	if (!TestEqual(TEXT("元素数一致"),
+		DoubledResult.MeshesByElement.Num(), BaseResult.MeshesByElement.Num()))
+	{
+		return false;
+	}
+
+	// 先证明夹具真有几何，否则下面的「三角形数相同」会是 0 == 0 的空转。
+	TestTrue(TEXT("夹具至少有元素出面"), CountNonEmptyMeshes(BaseResult) > 0);
+
+	for (int32 ElementIndex = 0; ElementIndex < BaseResult.MeshesByElement.Num(); ++ElementIndex)
+	{
+		TestEqual(*FString::Printf(TEXT("元素 %d 三角形索引数不随半径变"), ElementIndex),
+			DoubledResult.MeshesByElement[ElementIndex].Triangles.Num(),
+			BaseResult.MeshesByElement[ElementIndex].Triangles.Num());
+		TestEqual(*FString::Printf(TEXT("元素 %d 顶点数不随半径变"), ElementIndex),
+			DoubledResult.MeshesByElement[ElementIndex].VerticesCm.Num(),
+			BaseResult.MeshesByElement[ElementIndex].VerticesCm.Num());
+	}
+
+	TestEqual(TEXT("角点数完全不随半径变"), DoubledResult.GridPoints, BaseResult.GridPoints);
+	// 全局 40³ 栅格在同参数下约 6.9 万角点/元素（三元素 240³ ≈ 1.4e7），
+	// 局部栅格是几千 —— 这条把「退回整球栅格」钉死。
+	TestTrue(*FString::Printf(TEXT("角点数 %d 远小于全局栅格"), BaseResult.GridPoints),
+		BaseResult.GridPoints < 1000000);
 	return true;
 }
 

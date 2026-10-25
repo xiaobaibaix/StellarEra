@@ -136,6 +136,14 @@ void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildP
 		ClusterMembers.Add(MoveTemp(Pair.Value));
 	}
 
+	// 分簇顺序决定顶点缓冲区布局。TMap 的迭代顺序在同一份数据下确实是确定的，
+	// 但那是「哈希恰好稳定」而不是机制 —— 显式按簇内最小 PodIndex 排序，
+	// 让两次构建的顶点顺序由排序规则保证。（Members 内的下标本来就递增。）
+	ClusterMembers.Sort([](const TArray<int32>& A, const TArray<int32>& B)
+	{
+		return A[0] < B[0];
+	});
+
 	// --- 3. 每簇一套局部栅格，并行抽面 ---
 	struct FClusterMesh
 	{
@@ -163,9 +171,23 @@ void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildP
 			return;
 		}
 
-		const double CellSize = 2.0 * double(MinRadiusCm) / double(Params.CellsPerPod);
+		double CellSize = 2.0 * double(MinRadiusCm) / double(Params.CellsPerPod);
 
-		// 外扩一格，并把盒子拉到整数格：FMarchingCubes 按 Width/CubeSize + 1 定角点数。
+		// 每轴格数上限。超限时只能放大格边（分辨率下降），不能让引擎去改 CubeSize ——
+		// 引擎的 SetDimensions 会在 MaxDim > SafetyMaxDimension（4096）时静默改写
+		// CubeSize，而 Implicit 闭包捕获的是我们自己算的 CellSize，两者错位后
+		// 求值点与顶点就落在不同空间，只表现为「矿形怪」。
+		constexpr int32 MaxCellsPerAxis = 512;
+		const double PaddedExtent = FMath::Max3(
+			Box.Max.X - Box.Min.X,
+			Box.Max.Y - Box.Min.Y,
+			Box.Max.Z - Box.Min.Z) + 2.0 * CellSize;
+		CellSize = FMath::Max(CellSize, PaddedExtent / double(MaxCellsPerAxis));
+
+		// 外扩一格，并把盒子拉到整数格。引擎按 (int)(Width / CubeSize) + 1 定**格数**
+		// （截断）：Width == CellCount * CellSize 在 double 下可能被截成 CellCount - 1，
+		// 最外一圈就会被裁掉。这里多给一格，无论截断与否都安全（边界外那层角点场值
+		// 恒 0，网格盒比矿囊包围盒至少外扩一格）。
 		const FVector PaddedMin = Box.Min - FVector(CellSize);
 		const FVector PaddedMax = Box.Max + FVector(CellSize);
 		const FIntVector CellCount(
@@ -175,10 +197,30 @@ void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildP
 
 		const FVector BoxMin = PaddedMin;
 		const FVector BoxMax = BoxMin + FVector(
-			double(CellCount.X) * CellSize,
-			double(CellCount.Y) * CellSize,
-			double(CellCount.Z) * CellSize);
+			double(CellCount.X + 1) * CellSize,
+			double(CellCount.Y + 1) * CellSize,
+			double(CellCount.Z + 1) * CellSize);
 		const FIntVector CornerCount = CellCount + FIntVector(1);
+
+		// 512 为什么安全：格边最大只放大到「外扩后最长边 / 512」，于是每轴格数
+		// ≤ 512 + 2（两端外扩各一格），远低于引擎的 SafetyMaxDimension（4096）——
+		// SetDimensions 永远不会走到改写 CubeSize 的分支，Implicit 的 CellSize 与引擎一致。
+		checkf(FMath::Max3(CellCount.X, CellCount.Y, CellCount.Z) < 4096,
+			TEXT("矿囊簇格数 %d×%d×%d 触及 FMarchingCubes 的 SafetyMaxDimension"),
+			CellCount.X, CellCount.Y, CellCount.Z);
+
+		// 角点数用 int64 求积：格数上限只挡单轴，512³ 仍会溢出 int32。超过 6400 万
+		// 就跳过该簇并留一条 Warning —— 不崩、也不静默出半个网格。
+		const int64 TotalCorners64 =
+			int64(CornerCount.X) * int64(CornerCount.Y) * int64(CornerCount.Z);
+		if (TotalCorners64 > 64000000)
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("[矿物] 跳过过大的矿囊簇：%lld 个角点（%d × %d × %d，格边 %.1f cm）"),
+				TotalCorners64, CornerCount.X, CornerCount.Y, CornerCount.Z, CellSize);
+			return;
+		}
+		const int32 TotalCorners = int32(TotalCorners64);
 
 		// 本簇涉及哪些元素
 		TSet<int32> ElementSet;
@@ -196,11 +238,13 @@ void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildP
 			FClusterMesh& Target = Results[ResultIndex];
 			Target.ElementIndex = ElementIndex;
 
-			const int32 TotalCorners = CornerCount.X * CornerCount.Y * CornerCount.Z;
 			TArray<float> Norms;
-			Norms.SetNumZeroed(TotalCorners);
+			// 下面逐下标写满，无需先清零。
+			Norms.SetNumUninitialized(TotalCorners);
 
-			ParallelFor(TotalCorners, [&](int32 LinearIndex)
+			// 内层串行：每次只是纯函数求值，切分开销与工作同量级；并行度由外层
+			// 「按簇并行」提供（确定性也因此与内层无关）。
+			for (int32 LinearIndex = 0; LinearIndex < TotalCorners; ++LinearIndex)
 			{
 				const int32 X = LinearIndex % CornerCount.X;
 				const int32 Y = (LinearIndex / CornerCount.X) % CornerCount.Y;
@@ -212,7 +256,7 @@ void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildP
 					BoxMin.Z + double(Z) * CellSize);
 
 				Norms[LinearIndex] = Field.SampleElementNormAtNormalized(ElementIndex, P / RadiusCm);
-			});
+			}
 
 			UE::Geometry::FMarchingCubes Marching;
 			Marching.Bounds.Min = UE::Math::TVector<double>(BoxMin.X, BoxMin.Y, BoxMin.Z);
@@ -292,11 +336,8 @@ void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildP
 	{
 		for (const FClusterMesh& Result : Results)
 		{
-			if (!Out.MeshesByElement.IsValidIndex(Result.ElementIndex))
-			{
-				continue;
-			}
-
+			// ElementIndex 来自 FPodInstance，取值恒在 [0, ElementCount)，而
+			// MeshesByElement 的长度就是 ElementCount —— 无需再判越界。
 			FPlanetMineralMesh& Mesh = Out.MeshesByElement[Result.ElementIndex];
 			const int32 VertexOffset = Mesh.VerticesCm.Num();
 			Mesh.VerticesCm.Append(Result.Mesh.VerticesCm);
