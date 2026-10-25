@@ -24,7 +24,7 @@ class ADirectionalLight;
  * 与行星半径变化在编辑视图里实时跟上。
  */
 UCLASS(ClassGroup = (StellarEra), meta = (BlueprintSpawnableComponent))
-class STELLARERAPLANET_API UPlanetAtmosphereComponent : public UStaticMeshComponent
+class STELLARERAATMOSPHERE_API UPlanetAtmosphereComponent : public UStaticMeshComponent
 {
 	GENERATED_BODY()
 

@@ -35,6 +35,11 @@
 			"LoadingPhase": "Default"
 		},
 		{
+			"Name": "StellarEraAtmosphere",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
 			"Name": "StellarEraMinerals",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"

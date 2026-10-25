@@ -17,6 +17,7 @@ public class StellarEraTarget : TargetRules
 			"StellarEraCore",      // 天体力学
 			"StellarEraPlanet",    // 体素星球
 			"StellarEraGeology",   // 地质
+			"StellarEraAtmosphere", // 大气
 			"StellarEraMinerals",  // 矿物
 			"StellarEraSpaceship", // 飞船
 			"StellarEraUI",    // 显示与控制

@@ -5,10 +5,12 @@ using UnrealBuildTool;
 // 飞船层：街机飞船 Pawn。位移由 N 体求解器推进，本模块只给推力与阻尼。
 //
 // 飞船**不能**依赖 StellarEraCosmos（那会成环）：推力加速度由子系统每帧下来读走。
-// 大气组件现在仍在 StellarEraPlanet 里，Task 10 会换成 StellarEraAtmosphere。
+// 大气组件住在 StellarEraAtmosphere（Task 10 已拆出）。
 //
 // Planet / Character 是 **Private**：公开头 SpaceshipPawn.h 只 include
 // CoreMinimal.h 与 Pawn.h，行星、角色、体素调用器的完整类型只在 .cpp 与测试里用到。
+// Atmosphere 同样是 **Private**：SpaceshipPawn.cpp include PlanetAtmosphereComponent.h
+// 并 FindComponentByClass 取壳，公开头不出现大气类型。
 //
 // Voxel 必须**显式**列出，尽管本模块的公开头不 include 任何插件头：
 // Planet 把 Voxel 声明成 Public，编译期 include 路径确实传了下来；
@@ -29,6 +31,7 @@ public class StellarEraSpaceship : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"StellarEraPlanet",
+			"StellarEraAtmosphere",
 			"StellarEraCharacter",
 			"Voxel",
 		});

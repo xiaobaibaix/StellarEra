@@ -37,7 +37,7 @@ namespace PlanetAtmosphere
 	inline const FVector3f EarthRayleighScatteringColor(0.175287f, 0.409607f, 1.0f);
 
 	/** 壳半径（cm）= 表面半径 × (1 + 厚度比)。 */
-	STELLARERAPLANET_API float ComputeShellRadiusCm(float SurfaceRadiusCm, float AtmosphereHeightRatio);
+	STELLARERAATMOSPHERE_API float ComputeShellRadiusCm(float SurfaceRadiusCm, float AtmosphereHeightRatio);
 
 	/** 引擎原生大气按行星半径缩放后的参数。长度单位 km，系数单位 1/km。 */
 	struct FSkyAtmosphereScaleParams
@@ -71,7 +71,7 @@ namespace PlanetAtmosphere
 	 * ASkyAtmosphere）。这个函数连同它的自动化测试一起留着，是为了以后把引擎
 	 * 大气加回来时不用重写 —— 别当死代码删。
 	 */
-	STELLARERAPLANET_API FSkyAtmosphereScaleParams ComputeSkyAtmosphereScaleParams(
+	STELLARERAATMOSPHERE_API FSkyAtmosphereScaleParams ComputeSkyAtmosphereScaleParams(
 		float SurfaceRadiusKm, float AtmosphereHeightRatio);
 
 	/** 壳的散射参数。系数单位 1/cm，长度单位 cm。 */
@@ -94,7 +94,7 @@ namespace PlanetAtmosphere
 	 * @param RayleighScaleHeightRatio  瑞利标高 / 壳半径，默认 0.015
 	 * @param MieScaleHeightRatio       米氏标高 / 壳半径，默认 0.003
 	 */
-	STELLARERAPLANET_API FShellScatteringParams ComputeShellScatteringParams(
+	STELLARERAATMOSPHERE_API FShellScatteringParams ComputeShellScatteringParams(
 		float ShellRadiusCm, float RayleighScaleHeightRatio, float MieScaleHeightRatio);
 
 } // namespace PlanetAtmosphere
