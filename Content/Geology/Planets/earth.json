@@ -2,16 +2,16 @@
   "version": 1,
   "geometryAmplitude": 1.5,
   "appearance": {
-    "colorThreshold": 0.22,
-    "fadeRange": 0.15,
+    "colorThreshold": 0.15,
+    "fadeRange": 0.45,
     "purityForFullColor": 0.7
   },
   "elements": {
+    "silicon":  { "abundance": 0.60, "peakDepth": 5,   "layerThickness": 22 },
+    "water":    { "abundance": 0.20, "peakDepth": 10,  "layerThickness": 8 },
     "iron":     { "abundance": 0.75, "peakDepth": 30,  "layerThickness": 20 },
-    "copper":   { "abundance": 0.45, "peakDepth": 65,  "layerThickness": 42 },
-    "silicon":  { "abundance": 0.60, "peakDepth": 48,  "layerThickness": 31 },
-    "titanium": { "abundance": 0.15, "peakDepth": 110, "layerThickness": 72 },
-    "uranium":  { "abundance": 0.10, "peakDepth": 190, "layerThickness": 124 },
-    "water":    { "abundance": 0.30, "peakDepth": 12,  "layerThickness": 12 }
+    "copper":   { "abundance": 0.45, "peakDepth": 50,  "layerThickness": 24 },
+    "titanium": { "abundance": 0.15, "peakDepth": 78,  "layerThickness": 30 },
+    "uranium":  { "abundance": 0.10, "peakDepth": 130, "layerThickness": 55 }
   }
 }
