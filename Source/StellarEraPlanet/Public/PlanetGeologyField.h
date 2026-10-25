@@ -44,6 +44,18 @@ public:
 	FPlanetGeologySample Sample(const FVector& UnitDir, double Depth) const;
 
 	/**
+	 * 每个元素的强度（∈ [0,1]），下标 = 运行期元素下标
+	 * （即 GetSampledElementDefinitions 的顺序）。
+	 *
+	 * 与 Sample().DominantNorm / DominantIndex 同源：DominantNorm 就是本数组的最大值、
+	 * DominantIndex 就是它的下标（并列时取靠前的那个）。等值面构建器要按元素各取一面，
+	 * 必须拿到整条数组；Sample 只给最大值。
+	 *
+	 * 内部走同一个 Accumulate，一次循环填完，不额外调噪声。
+	 */
+	void SampleElementNorms(const FVector& UnitDir, double Depth, TArray<float>& OutNorms) const;
+
+	/**
 	 * 矿脉造成的地表外凸量（体素，∈ [0, GetMaxGeometryDelta()]）。
 	 * 密度场和地表查询必须都走它，否则脚下与眼睛看到的不是同一个面。
 	 */
@@ -90,9 +102,11 @@ private:
 		int32 DominantIndex = INDEX_NONE;
 	};
 
-	/** 单遍累加；bComputeColor 为假时跳过加权颜色，供几何查询用。 */
+	/** 单遍累加；bComputeColor 为假时跳过加权颜色，供几何查询用。
+	 *  OutElementNorms 非空时按元素下标写入每个元素的 Norm（含 0），长度由调用方保证。 */
 	void Accumulate(const FVector& UnitDir, double Depth, bool bComputeColor,
-		FAccumulation& OutAccumulation, FLinearColor& OutWeightedColor) const;
+		FAccumulation& OutAccumulation, FLinearColor& OutWeightedColor,
+		TArray<float>* OutElementNorms = nullptr) const;
 
 	FPlanetGeologyAppearance Appearance;
 	float GeometryAmplitude = 1.5f;

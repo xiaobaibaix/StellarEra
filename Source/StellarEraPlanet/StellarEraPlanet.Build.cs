@@ -22,6 +22,10 @@ public class StellarEraPlanet : ModuleRules
 		// JSON 只在 PlanetGeologyField.cpp 里用，不需要向下游传递。
 		PrivateDependencyModuleNames.AddRange(new string[] { "Json" });
 
+		// 矿物等值面：FMarchingCubes / FDynamicMesh3 / FMeshNormals 都在 GeometryCore
+		// 的运行时模块里（不是编辑器模块）。头文件不向下游暴露这些类型，所以是 Private。
+		PrivateDependencyModuleNames.AddRange(new string[] { "GeometryCore" });
+
 		// 没有 UnrealEd 依赖：编辑器里的大气材质重建（PlanetAtmosphereMaterialBuilder.cpp）
 		// 只用 Engine 模块的 UMaterial / 表达式节点 / SavePackage 接口。
 		// 早先这里有 UnrealEd，是为了从活动视口取相机位置（GEditor / FEditorViewportClient）；

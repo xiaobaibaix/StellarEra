@@ -611,8 +611,24 @@ float FPlanetGeologyField::SampleGeometryDelta(const FVector& UnitDir, double De
 	return GeometryAmplitude * TotalNorm;
 }
 
+void FPlanetGeologyField::SampleElementNorms(const FVector& UnitDir, double Depth,
+	TArray<float>& OutNorms) const
+{
+	OutNorms.Reset();
+	OutNorms.SetNumZeroed(Elements.Num());
+	if (Elements.Num() == 0)
+	{
+		return;
+	}
+
+	FAccumulation Accumulation;
+	FLinearColor UnusedColor = FLinearColor::Black;
+	Accumulate(UnitDir, Depth, false, Accumulation, UnusedColor, &OutNorms);
+}
+
 void FPlanetGeologyField::Accumulate(const FVector& UnitDir, double Depth, bool bComputeColor,
-	FAccumulation& OutAccumulation, FLinearColor& OutWeightedColor) const
+	FAccumulation& OutAccumulation, FLinearColor& OutWeightedColor,
+	TArray<float>* OutElementNorms) const
 {
 	OutAccumulation = FAccumulation();
 	OutWeightedColor = FLinearColor::Black;
@@ -667,6 +683,11 @@ void FPlanetGeologyField::Accumulate(const FVector& UnitDir, double Depth, bool 
 			// 自身强度：去掉丰度，只保留「这一层有多接近峰值 × 脉有多强」。
 			// 低丰度元素（铀 0.10）也能在自己的脉里达到 1，不会被全局总量压死。
 			ElementNorm = FMath::Max(ElementNorm, Gaussian * Vein);
+		}
+
+		if (OutElementNorms && OutElementNorms->IsValidIndex(ElementIndex))
+		{
+			(*OutElementNorms)[ElementIndex] = float(ElementNorm);
 		}
 
 		if (ElementNorm <= 0.0)
