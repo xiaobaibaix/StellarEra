@@ -46,6 +46,8 @@ public:
 	 *
 	 * 契约**包括全元素 Abundance = 0 的退化配置**：Sample 仍给出 DominantNorm /
 	 * DominantIndex（它们只依赖 Norm），只是没有颜色权重（TotalNorm / 颜色为默认值）。
+	 * 同理，混合丰度下若只命中 `Abundance = 0` 的元素，也照样给出它们的 Norm 与下标，
+	 * 只是该元素不贡献颜色。
 	 *
 	 * 内部走同一个 Accumulate，一次循环填完，不额外调噪声。
 	 */

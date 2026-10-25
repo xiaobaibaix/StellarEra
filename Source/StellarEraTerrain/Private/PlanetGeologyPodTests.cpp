@@ -466,8 +466,15 @@ bool FPlanetGeologyDeterminismTest::RunTest(const FString& Parameters)
 	const auto Second = MakeField(*Preset);
 
 	// 先钉住矿囊真的撒出来了：PlacePods 全失效时两次建场同样「逐点一致」。
-	TestEqual(TEXT("元素 a 矿囊数"), First->GetPods(0).Num(), 12);
-	TestEqual(TEXT("元素 b 矿囊数"), First->GetPods(1).Num(), 9);
+	// 这里必须用返回值提前退出 —— 下面的贴囊探针要对 Pods.Num() 取模，
+	// 矿囊数为 0 时继续跑会是除零崩溃，而这正是本测试要防的回归。
+	const TArray<FPlanetGeologyPod>& PodsA = First->GetPods(0);
+	const TArray<FPlanetGeologyPod>& PodsB = First->GetPods(1);
+	if (!TestEqual(TEXT("元素 a 矿囊数"), PodsA.Num(), 12)
+		|| !TestEqual(TEXT("元素 b 矿囊数"), PodsB.Num(), 9))
+	{
+		return false;
+	}
 
 	FRandomStream Rng(2024);
 	int32 Mismatches = 0;
@@ -479,9 +486,9 @@ bool FPlanetGeologyDeterminismTest::RunTest(const FString& Parameters)
 		if (SampleIndex % 2 == 0)
 		{
 			// 一半探针贴着矿囊取样：矿囊体积占比不到 1%，全靠随机球内点的话，
-			// 「逐点一致」几乎全是 0 == 0，挡不住「矿囊大量丢失」。
-			const int32 ElementIndex = (SampleIndex / 2) % 2;
-			const TArray<FPlanetGeologyPod>& Pods = First->GetPods(ElementIndex);
+			// 「逐点一致」几乎全是 0 == 0。PodsA/PodsB 已在上方断言非空。
+			const TArray<FPlanetGeologyPod>& Pods =
+				((SampleIndex / 2) % 2) == 0 ? PodsA : PodsB;
 			const FPlanetGeologyPod& Pod = Pods[(SampleIndex / 4) % Pods.Num()];
 			P = Pod.Center + FVector(
 				Rng.FRandRange(-1.f, 1.f) * Pod.Radius * 0.5f,
@@ -510,8 +517,8 @@ bool FPlanetGeologyDeterminismTest::RunTest(const FString& Parameters)
 	}
 
 	TestEqual(TEXT("同一预设两次建场逐点完全相同"), Mismatches, 0);
-	// 反假绿：一半探针在矿囊内（1000 个探针 × 2 元素 = 2000 次比较），
-	// 阈值取实测非零数的一个有余量的下界，挡得住「矿囊大量丢失」。
+	// 分工：**精确计数断言**（上面的 12 / 9）挡「矿囊数量变化」；本阈值挡的是
+	// 「矿囊还在、但求值恒 0」—— 探针跟着现存矿囊走，矿囊少到 1/10 时非零数几乎不变。
 	AddInfo(FString::Printf(TEXT("非零采样 %d/%d"), NonZeroSamples, SampleCount * 2));
 	TestTrue(*FString::Printf(TEXT("采样中确实有非零矿（%d 个，需 >= 200）"), NonZeroSamples),
 		NonZeroSamples >= 200);
@@ -948,6 +955,11 @@ bool FPlanetGeologyAssetClampsTest::RunTest(const FString& Parameters)
 		}
 
 		const FPlanetGeologySample DegenerateSample = LowField->Sample(UnitDir, Depth);
+		AddInfo(FString::Printf(TEXT("退化丰度夹具：MaxNorm = %.4f，TotalNorm = %.4f"),
+			MaxNorm, DegenerateSample.TotalNorm));
+		// 先证明探针确实命中矿囊，否则下面的「同源」比较会是 0 == 0 的空转。
+		TestTrue(*FString::Printf(TEXT("退化夹具的探针确实命中矿囊（MaxNorm = %.4f）"), MaxNorm),
+			MaxNorm > 0.f);
 		TestTrue(*FString::Printf(TEXT("退化配置下 DominantNorm 仍同源（%.4f vs %.4f）"),
 			MaxNorm, DegenerateSample.DominantNorm),
 			FMath::IsNearlyEqual(MaxNorm, float(DegenerateSample.DominantNorm), 1e-6f));
