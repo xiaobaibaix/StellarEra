@@ -6,7 +6,7 @@ using UnrealBuildTool;
 //
 // Geology 是 **Public**：PlanetMineralViewActor.h / PlanetMineralViewComponent.h
 // 在公开头里 include PlanetGeologyTypes.h。
-// Planet 只在 .cpp 里用它的**完整类型**：PlanetMineralViewComponent.cpp include 了
+// Terrain 只在 .cpp 里用它的**完整类型**：PlanetMineralViewComponent.cpp include 了
 // VoxelPlanetActor.h。公开头 PlanetMineralViewComponent.h 里仍有 AVoxelPlanetActor
 // 的前置声明、参数、返回值与 TWeakObjectPtr 成员，但都不需要完整定义。
 // Atmosphere 也是 **Private**：同文件 include PlanetAtmosphereComponent.h 并

@@ -35,7 +35,7 @@ public class StellarEraUI : ModuleRules
 			"StellarEraGeology", // 地质场/元素类型（StarMapUISystem.cpp 直接用）
 			"StellarEraMinerals", // 矿物观察体组件 PlanetMineralViewComponent.h（StarMapUISystem.cpp 直接用）
 			"StellarEraSpaceship", // 飞船（StellarEraHUD.cpp 用 ASpaceshipPawn）
-			"StellarEraPlanetEdit", // 编辑组件 / 笔刷 / 编辑面板布局（StarMapCameraPawn.cpp、StellarEraHUD.cpp）
+			"StellarEraPlanetEdit", // 编辑组件 / 笔刷（StarMapCameraPawn.cpp、StellarEraHUD.cpp）
 			"StellarEraCharacter", // 角色（StellarEraHUD.cpp 用 APlanetCharacter）
 			"Voxel",             // StarMapCameraInvokerTests.cpp 的体素调用器
 		});

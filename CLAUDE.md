@@ -133,7 +133,7 @@ N 体数据分四层，**编辑器里只填人类单位**：
 | 设计层（手填） | 地球质量 M⊕ | km/s（物理速度） | AU / 年 | `UCosmosOrbitComponent`、`ASpaceshipPawn` |
 | 求解器层 | M☉ | AU/年 | AU / 年 | `FNBodySimulator`、`FCosmosBodyState` |
 | 世界层 | — | 厘米/秒 | 厘米 / 秒 | Actor 位置、碰撞、体素、HUD 换算 |
-| 换算层 | — | — | — | 只允许 `CosmosUnits::`（`CosmosTypes.h`）；`StellarEraVehicle` 不能依赖 Core，本地保留 `1e5` 一项 |
+| 换算层 | — | — | — | 只允许 `CosmosUnits::`（`CosmosTypes.h`）；`StellarEraSpaceship` 不依赖 Core（设计选择，不是防环——Core 没有项目依赖），本地保留 `1e5` 一项（`CentimetersPerKilometer`） |
 
 - `MassEarth` 单位 M⊕；`InitialVelocityKmPerSecond` 单位 km/s；`ThrustAccelerationKmPerS2` 单位 km/s²。
 - **物理速度 ≠ 世界速度**：1 AU/年 = 4.74047 km/s = 3330 厘米/秒（默认标定）。

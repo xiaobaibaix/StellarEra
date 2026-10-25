@@ -74,7 +74,7 @@ docs/superpowers/       设计规格（specs/）与实施计划（plans/）
 ```
 
 模块依赖方向是严格无环的：`StellarEra → StellarEraUI → StellarEraCosmos → StellarEraSpaceship → StellarEraCharacter → StellarEraPlanetEdit → StellarEraTerrain → StellarEraGeology`，
-`StellarEraCosmos → StellarEraCore`。**`StellarEraUI` 不能依赖 `StellarEra`**（反向就成环）。
+`StellarEraCosmos → StellarEraCore`。**`StellarEraUI` 不能依赖 `StellarEra`**（反向就成环）。上面是主链的简化画法，完整依赖清单见 `CLAUDE.md`。
 
 ## 编辑器 AI 工具（MCP）
 

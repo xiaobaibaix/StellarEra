@@ -79,17 +79,17 @@ Content/
 | 类 | 模块 | 职责 |
 |---|---|---|
 | `FNBodySimulator` | Core | O(N²) 引力，Velocity Verlet；AU / AU每年 / M☉，双精度 |
-| `UCosmosSimulationSubsystem` | StellarEra | 唯一 N 体驱动：注册、推进、写回、诊断、轨迹预测 |
-| `UCosmosOrbitComponent` | StellarEra | 天体参数（质量、初速） |
-| `UCosmosTrajectoryComponent` | StellarEra | 预测轨迹、拖尾、速度/引力箭头 |
+| `UCosmosSimulationSubsystem` | Cosmos | 唯一 N 体驱动：注册、推进、写回、诊断、轨迹预测 |
+| `UCosmosOrbitComponent` | Cosmos | 天体参数（质量、初速） |
+| `UCosmosTrajectoryComponent` | Cosmos | 预测轨迹、拖尾、速度/引力箭头 |
 | `AStellarEraGameMode` | StellarEra | 出生点、飞船生成与登船 |
 | `AStellarEraPlayerController` | StellarEra | 运行时构造输入资产、上下船、星图模式 |
-| `AStarMapCameraPawn` | StellarEra | 星图相机；不 Tick，位置在 `CalcCamera` 现算 |
-| `AVoxelPlanetActor` | Planet | 体素行星根 Actor；gizmo 移动 / 等比缩放即改行星 |
-| `UVoxelPlanetGenerator` | Planet | 行星与共享地形模块 `UVoxelPlanetTerrainModule` 的适配器 |
-| `APlanetCharacter` / `UPlanetCharacterMovementComponent` | Vehicle | 球面行走；重力方向喂给 CMC |
-| `ASpaceshipPawn` | Vehicle | 街机飞船；推力交给 N 体求解器 |
-| `UPlanetAtmosphereComponent` | Planet | 大气壳（球外可见、球内被背面剔除） |
+| `AStarMapCameraPawn` | UI | 星图相机；不 Tick，位置在 `CalcCamera` 现算 |
+| `AVoxelPlanetActor` | Terrain | 体素行星根 Actor；gizmo 移动 / 等比缩放即改行星 |
+| `UVoxelPlanetGenerator` | Terrain | 行星与共享地形模块 `UVoxelPlanetTerrainModule` 的适配器 |
+| `APlanetCharacter` / `UPlanetCharacterMovementComponent` | Character | 球面行走；重力方向喂给 CMC |
+| `ASpaceshipPawn` | Spaceship | 街机飞船；推力交给 N 体求解器 |
+| `UPlanetAtmosphereComponent` | Atmosphere | 大气壳（球外可见、球内被背面剔除） |
 
 ## 关卡
 - `UniverseMap`：**唯一有体素行星、球面重力、N 体与飞船的关卡**，PIE 验证都在这里。
@@ -133,7 +133,7 @@ N 体数据分四层，**编辑器里只填人类单位**：
 | 设计层（手填） | 地球质量 M⊕ | km/s（物理速度） | AU / 年 | `UCosmosOrbitComponent`、`ASpaceshipPawn` |
 | 求解器层 | M☉ | AU/年 | AU / 年 | `FNBodySimulator`、`FCosmosBodyState` |
 | 世界层 | — | 厘米/秒 | 厘米 / 秒 | Actor 位置、碰撞、体素、HUD 换算 |
-| 换算层 | — | — | — | 只允许 `CosmosUnits::`（`CosmosTypes.h`）；`StellarEraVehicle` 不能依赖 Core，本地保留 `1e5` 一项 |
+| 换算层 | — | — | — | 只允许 `CosmosUnits::`（`CosmosTypes.h`）；`StellarEraSpaceship` 不依赖 Core（设计选择，不是防环——Core 没有项目依赖），本地保留 `1e5` 一项（`CentimetersPerKilometer`） |
 
 - `MassEarth` 单位 M⊕；`InitialVelocityKmPerSecond` 单位 km/s；`ThrustAccelerationKmPerS2` 单位 km/s²。
 - **物理速度 ≠ 世界速度**：1 AU/年 = 4.74047 km/s = 3330 厘米/秒（默认标定）。

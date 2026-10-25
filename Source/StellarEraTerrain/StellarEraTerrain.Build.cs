@@ -22,8 +22,9 @@ public class StellarEraTerrain : ModuleRules
 			// 地质场：本模块的公开头并不 include PlanetGeologyTypes.h，只**前置声明**
 			// FPlanetGeologyField 并用 TSharedPtr<const FPlanetGeologyField> 持有
 			// （VoxelPlanetActor.h、VoxelPlanetGenerator.h、VoxelPlanetNoiseTerrain.h、
-			// VoxelPlanetTerrainModule.h），编译期不需要它的定义。仍声明为 Public 是刻意的：
-			// 下游模块要用地质类型，得直接从这条依赖拿到包含路径。
+			// VoxelPlanetTerrainModule.h），编译期不需要它的定义。
+			// 保留 Public 是沿用既有声明；目前没有下游依赖这条传递路径
+			// （StellarEraMinerals 与 StellarEraUI 都自己直接声明了 StellarEraGeology）。
 			"StellarEraGeology",
 		});
 

@@ -4,7 +4,7 @@ using UnrealBuildTool;
 
 // 大气层：球外可见的大气壳、参数推导、壳材质。
 //
-// Planet 是 **Private**：PlanetAtmosphereComponent.cpp 在 .cpp 里
+// Terrain 是 **Private**：PlanetAtmosphereComponent.cpp 在 .cpp 里
 // Cast<AVoxelPlanetActor>(GetOwner()) 取表面半径，公开头不 include 行星模块。
 //
 // 没有 UnrealEd 依赖：壳材质重建（PlanetAtmosphereMaterialBuilder.cpp）在
