@@ -26,8 +26,9 @@ public:
 	 * 从预设资产生成场。**必须在游戏线程调用**（要读 UObject），构造函数用
 	 * check(IsInGameThread()) 兜住。建完即不可变，可跨线程共享。
 	 *
-	 * PlanetRadiusVoxels 只用来把外部签名 (UnitDir, Depth) 换算成归一化坐标；
-	 * 矿囊本身存的是归一化空间的位置，与行星大小无关。
+	 * PlanetRadiusVoxels 的用途：(1) 把外部签名 (UnitDir, Depth) 换算成归一化坐标；
+	 * (2) 用它设 MaxReachDepth（矿囊可及整个球体）。矿囊本身存的是归一化空间的位置，
+	 * 与行星大小无关。
 	 */
 	static TSharedPtr<const FPlanetGeologyField> BuildFromPreset(
 		const UPlanetGeologyPreset& Preset, double PlanetRadiusVoxels);
@@ -139,8 +140,10 @@ private:
 	float PodIndexCellSize = 0.f;
 
 	/**
-	 * 归一化换算用的行星半径（体素）。只有外部签名 (UnitDir, Depth) → 归一化坐标的
-	 * 换算读它；旧矿层分支不读，半径 0 时归一化点退化成方向。
+	 * 归一化换算用的行星半径（体素）。用途：
+	 * (1) `Accumulate` 把外部签名 (UnitDir, Depth) 换算成归一化坐标；
+	 * (2) `BuildFromPreset` 用它设 MaxReachDepth（矿囊可及整个球体）。
+	 * 旧矿层分支不读它；半径 0 时归一化点退化成方向。
 	 */
 	double RadiusVoxels = 0.0;
 

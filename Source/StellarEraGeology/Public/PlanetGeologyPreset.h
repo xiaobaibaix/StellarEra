@@ -75,9 +75,9 @@ struct STELLARERAGEOLOGY_API FPlanetGeologyElementParams
 		meta = (ClampMin = "0.01", ClampMax = "1.0"))
 	float PodDepthSpread = 0.15f;
 
-	/** 一个矿囊直径内大约几个噪声周期。越大概括破碎。 */
+	/** 一个矿囊直径内大约几个噪声周期。越大概括破碎；低于 1 会让整个矿囊落在噪声谷里而消失。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shape",
-		meta = (ClampMin = "0.5"))
+		meta = (ClampMin = "1.0"))
 	float ShapeDetail = 3.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shape",

@@ -564,7 +564,7 @@ TSharedPtr<const FPlanetGeologyField> FPlanetGeologyField::BuildFromPreset(
 			? Params.Seed
 			: int32(GetTypeHash(Params.Id) & 0x7fffffffu);
 		Definition.PodRadius = FMath::Clamp(Params.PodRadius, 0.001f, 0.25f);
-		Definition.ShapeDetail = FMath::Max(Params.ShapeDetail, 0.5f);
+		Definition.ShapeDetail = FMath::Max(Params.ShapeDetail, 1.f);
 		Definition.VeinThreshold = FMath::Clamp(Params.VeinThreshold, 0.f, 0.95f);
 
 		PlacePods(Definition, Params);
@@ -668,8 +668,10 @@ float FPlanetGeologyField::EvaluateElementNorm(const int32 ElementIndex,
 
 	// 2) 形状噪声。频率折叠进坐标（ShapeDetail 是「每囊直径的周期数」，
 	//    直径 = 2r），噪声 API 的频率参数固定传 1。
+	// 低于 1 时波长比矿囊直径还长，整囊可能落进噪声谷而消失（meta 可能被旧数据绕过）。
+	const double ShapeDetail = FMath::Max(double(Definition.ShapeDetail), 1.0);
 	const double NoiseScale =
-		double(Definition.ShapeDetail) / (2.0 * FMath::Max(double(Definition.PodRadius), 1e-4));
+		ShapeDetail / (2.0 * FMath::Max(double(Definition.PodRadius), 1e-4));
 	const double SampleX = double(NormalizedPoint.X) * NoiseScale;
 	const double SampleY = double(NormalizedPoint.Y) * NoiseScale;
 	const double SampleZ = double(NormalizedPoint.Z) * NoiseScale;
@@ -723,8 +725,10 @@ float FPlanetGeologyField::SampleElementNormBruteForce(const int32 ElementIndex,
 		return 0.f;
 	}
 
+	// 低于 1 时波长比矿囊直径还长，整囊可能落进噪声谷而消失（meta 可能被旧数据绕过）。
+	const double ShapeDetail = FMath::Max(double(Definition.ShapeDetail), 1.0);
 	const double NoiseScale =
-		double(Definition.ShapeDetail) / (2.0 * FMath::Max(double(Definition.PodRadius), 1e-4));
+		ShapeDetail / (2.0 * FMath::Max(double(Definition.PodRadius), 1e-4));
 	const double RawNoise = double(Runtime.Noise.GetPerlinFractal_3D(
 		v_flt(double(NormalizedPoint.X) * NoiseScale),
 		v_flt(double(NormalizedPoint.Y) * NoiseScale),

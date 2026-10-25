@@ -72,6 +72,32 @@ bool FPlanetGeologyPodCoverageTest::RunTest(const FString& Parameters)
 		return false;
 	}
 
+	// 0) 矿囊路径的几何幅度必须真的能生效：MaxReachDepth 不设时 SampleGeometryDelta
+	//    会在 Depth > 0 直接早退，GeometryAmplitude 变成死参数。这两条断言是那个修复的护栏。
+	TestEqual(TEXT("MaxReachDepth 等于行星半径"),
+		Field->GetMaxReachDepth(), float(PlanetRadiusVoxels), 1e-3f);
+
+	const FPlanetGeologyPod* InnermostPod = nullptr;
+	for (int32 ElementIndex = 0; ElementIndex < 2; ++ElementIndex)
+	{
+		for (const FPlanetGeologyPod& Pod : Field->GetPods(ElementIndex))
+		{
+			if (!InnermostPod || Pod.Center.Size() < InnermostPod->Center.Size())
+			{
+				InnermostPod = &Pod;
+			}
+		}
+	}
+	TestTrue(TEXT("夹具里存在明显在球内的矿囊"),
+		InnermostPod && InnermostPod->Center.Size() < 0.99);
+	if (InnermostPod && InnermostPod->Center.Size() < 0.99)
+	{
+		const FVector UnitDir = InnermostPod->Center.GetSafeNormal();
+		const double Depth = (1.0 - InnermostPod->Center.Size()) * PlanetRadiusVoxels;
+		TestTrue(*FString::Printf(TEXT("矿囊中心处几何幅度 > 0（深度 %.1f）"),
+			Depth), Field->SampleGeometryDelta(UnitDir, Depth) > 0.f);
+	}
+
 	// 1) 矿囊中心半径必须铺满整个球体 —— 这是「不分层」的直接证据。
 	for (int32 ElementIndex = 0; ElementIndex < 2; ++ElementIndex)
 	{
