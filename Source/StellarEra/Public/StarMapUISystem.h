@@ -47,6 +47,53 @@ struct FCutawayLegendEntry
 	float Abundance = 0.f;
 };
 
+/** 矿物观察图例的一行。纯数据，不含 UObject 引用。 */
+struct FMineralLegendEntry
+{
+	FString DisplayName;
+
+	/** 色块颜色 —— 与球内该元素方块的显示色一致。 */
+	FLinearColor Color = FLinearColor::White;
+
+	/** 该元素在行星总含量里的份额（0..1，各行相加约为 1）。 */
+	float Abundance = 0.f;
+
+	/** 当前是否显示。关掉的行整行变暗。 */
+	bool bVisible = true;
+};
+
+/**
+ * 矿物观察图例的固定布局。
+ *
+ * 宽度与字体无关：输入回调（鼠标命中）里拿不到 AHUD::Canvas，量不了字，
+ * 所以宽度写死、高度只随行数变。绘制与命中各自调一次，几何完全一致。
+ */
+namespace MineralLegendLayout
+{
+	constexpr float Padding = 10.f;
+	constexpr float SeparatorSpacing = 6.f;
+	constexpr float SeparatorThickness = 1.f;
+	/** 每行占的高度。行与行之间没有缝，命中判定直接用这个矩形。 */
+	constexpr float RowSlotHeight = 24.f;
+	/** 标题 / 提示行高：固定值，不量字体。 */
+	constexpr float TitleLineHeight = 22.f;
+	constexpr float HintLineHeight = 22.f;
+	/** 面板宽度：按最长的一行提示（约 34 个汉字宽）留出的固定值。 */
+	constexpr float PanelWidthPx = 460.f;
+	constexpr float MarginPx = 8.f;
+	/** 命中判定的上下缩进：点在两行接缝上时不误命中相邻行。 */
+	constexpr float HitInsetY = 2.f;
+
+	/** 面板高度（夹进视口之前）。EntryCount = 0 时仍留一行占位。 */
+	FORCEINLINE float PanelHeightPx(int32 EntryCount)
+	{
+		const int32 Slots = EntryCount > 0 ? EntryCount : 1;
+		return Padding * 2.f + TitleLineHeight
+			+ (SeparatorSpacing + SeparatorThickness) * 2.f
+			+ RowSlotHeight * Slots + HintLineHeight;
+	}
+}
+
 /**
  * 星图模式的信息 UI 控制系统。
  *
@@ -79,6 +126,27 @@ public:
 		const FString& PlanetName,
 		TArrayView<const FCutawayLegendEntry> Entries);
 
+	/**
+	 * 矿物观察图例的文本行：标题「矿物观察 — 行星名」，其后每元素一行
+	 * 「名称  百分比  开/关」，最后一行是操作提示。
+	 * 纯函数，便于无头测试。
+	 */
+	static TArray<FString> FormatMineralLegendLines(
+		const FString& PlanetName,
+		TArrayView<const FMineralLegendEntry> Entries);
+
+	/** 算面板与每一行的矩形。EntryCount = 0 时 OutRowRects 里仍有一行（占位行）。 */
+	static void ComputeMineralLegendLayout(
+		const FVector2D& ViewportSizePx,
+		int32 EntryCount,
+		FStarMapPanelRect& OutPanel,
+		TArray<FStarMapPanelRect>& OutRowRects);
+
+	/** 屏幕坐标命中哪一行；没命中返回 INDEX_NONE。 */
+	static int32 HitTestMineralLegendRow(
+		const TArray<FStarMapPanelRect>& RowRects,
+		const FVector2D& ScreenPosPx);
+
 	/** 天体表面重力，单位 m/s²。质量或半径无效时返回 0。 */
 	static double ComputeSurfaceGravityMps2(double MassEarth, double RadiusKm);
 
@@ -106,5 +174,11 @@ private:
 		AStellarEraHUD& Hud,
 		const FString& PlanetName,
 		const TArray<FCutawayLegendEntry>& Entries,
+		const FVector2D& ViewportSizePx);
+
+	void DrawMineralLegend(
+		AStellarEraHUD& Hud,
+		const FString& PlanetName,
+		const TArray<FMineralLegendEntry>& Entries,
 		const FVector2D& ViewportSizePx);
 };

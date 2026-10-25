@@ -207,6 +207,88 @@ TArray<FString> UStarMapUISystem::FormatCutawayLegendLines(
 	return Lines;
 }
 
+TArray<FString> UStarMapUISystem::FormatMineralLegendLines(
+	const FString& PlanetName,
+	TArrayView<const FMineralLegendEntry> Entries)
+{
+	TArray<FString> Lines;
+	Lines.Reserve(Entries.Num() + 2);
+
+	Lines.Add(FString::Printf(TEXT("矿物观察 — %s"), *PlanetName));
+
+	if (Entries.Num() == 0)
+	{
+		Lines.Add(TEXT("（无矿物元素）"));
+	}
+	else
+	{
+		for (const FMineralLegendEntry& Entry : Entries)
+		{
+			const FString Name = Entry.DisplayName.IsEmpty()
+				? FString(TEXT("?"))
+				: Entry.DisplayName;
+			const int32 Percent = FMath::RoundToInt(
+				FMath::Clamp(Entry.Abundance, 0.f, 1.f) * 100.f);
+			Lines.Add(FString::Printf(TEXT("%s  %d%%  %s"), *Name, Percent,
+				Entry.bVisible ? TEXT("开") : TEXT("关")));
+		}
+	}
+
+	Lines.Add(TEXT("H 退出   点击图例/数字键筛选   右键拖转视角   滚轮缩放"));
+	return Lines;
+}
+
+void UStarMapUISystem::ComputeMineralLegendLayout(
+	const FVector2D& ViewportSizePx,
+	int32 EntryCount,
+	FStarMapPanelRect& OutPanel,
+	TArray<FStarMapPanelRect>& OutRowRects)
+{
+	OutPanel = PlacePanelBesideAnchor(
+		FVector2D(MineralLegendLayout::MarginPx, MineralLegendLayout::MarginPx),
+		0.f,
+		FVector2D(MineralLegendLayout::PanelWidthPx,
+			MineralLegendLayout::PanelHeightPx(EntryCount)),
+		ViewportSizePx, 0.f, MineralLegendLayout::MarginPx);
+
+	const int32 SlotCount = FMath::Max(EntryCount, 1);
+	OutRowRects.Reset();
+	OutRowRects.Reserve(SlotCount);
+
+	// 行区起点 = 内边距 + 标题 + 上分隔线（与 DrawMineralLegend 的排版同源）。
+	const float RowsTop = OutPanel.Y + MineralLegendLayout::Padding
+		+ MineralLegendLayout::TitleLineHeight
+		+ MineralLegendLayout::SeparatorSpacing + MineralLegendLayout::SeparatorThickness
+		+ MineralLegendLayout::SeparatorSpacing;
+
+	for (int32 SlotIndex = 0; SlotIndex < SlotCount; ++SlotIndex)
+	{
+		FStarMapPanelRect& Row = OutRowRects.AddDefaulted_GetRef();
+		Row.X = OutPanel.X + MineralLegendLayout::Padding;
+		Row.Y = RowsTop + SlotIndex * MineralLegendLayout::RowSlotHeight;
+		Row.W = OutPanel.W - MineralLegendLayout::Padding * 2.f;
+		Row.H = MineralLegendLayout::RowSlotHeight;
+	}
+}
+
+int32 UStarMapUISystem::HitTestMineralLegendRow(
+	const TArray<FStarMapPanelRect>& RowRects,
+	const FVector2D& ScreenPosPx)
+{
+	for (int32 RowIndex = 0; RowIndex < RowRects.Num(); ++RowIndex)
+	{
+		const FStarMapPanelRect& Row = RowRects[RowIndex];
+		// 上下各缩 HitInsetY：两行之间没有缝，不缩边会让接缝算作命中。
+		if (ScreenPosPx.X >= Row.X && ScreenPosPx.X <= Row.X + Row.W
+			&& ScreenPosPx.Y >= Row.Y + MineralLegendLayout::HitInsetY
+			&& ScreenPosPx.Y <= Row.Y + Row.H - MineralLegendLayout::HitInsetY)
+		{
+			return RowIndex;
+		}
+	}
+	return INDEX_NONE;
+}
+
 FStarMapPanelRect UStarMapUISystem::PlacePanelBesideAnchor(
 	const FVector2D& AnchorPx,
 	float AnchorRadiusPx,
@@ -517,4 +599,91 @@ void UStarMapUISystem::DrawCutawayLegend(
 	CursorY += 1.f + SeparatorSpacing;
 
 	Hud.DrawText(Hint, Dim, Rect.X + Padding, CursorY, Font, TextScale);
+}
+
+void UStarMapUISystem::DrawMineralLegend(
+	AStellarEraHUD& Hud,
+	const FString& PlanetName,
+	const TArray<FMineralLegendEntry>& Entries,
+	const FVector2D& ViewportSizePx)
+{
+	UFont* Font = GEngine ? GEngine->GetMediumFont() : nullptr;
+	if (!Font)
+	{
+		return;
+	}
+
+	const TArray<FString> Lines = FormatMineralLegendLines(PlanetName, Entries);
+	if (Lines.Num() < 3)
+	{
+		return;
+	}
+
+	constexpr float TextScale = 1.f;
+	constexpr float SwatchSize = 14.f;
+	constexpr float SwatchGap = 8.f;
+
+	FStarMapPanelRect Panel;
+	TArray<FStarMapPanelRect> RowRects;
+	ComputeMineralLegendLayout(ViewportSizePx, Entries.Num(), Panel, RowRects);
+
+	const FLinearColor Background(0.f, 0.f, 0.f, 0.65f);
+	const FLinearColor Gold(1.f, 0.85f, 0.30f, 1.f);
+	const FLinearColor White(1.f, 1.f, 1.f, 1.f);
+	const FLinearColor Dim(0.75f, 0.75f, 0.75f, 1.f);
+
+	Hud.DrawRect(Background, Panel.X, Panel.Y, Panel.W, Panel.H);
+	Hud.DrawRect(Gold, Panel.X, Panel.Y, Panel.W, MineralLegendLayout::SeparatorThickness);
+	Hud.DrawRect(Gold, Panel.X, Panel.Y + Panel.H - MineralLegendLayout::SeparatorThickness,
+		Panel.W, MineralLegendLayout::SeparatorThickness);
+	Hud.DrawRect(Gold, Panel.X, Panel.Y, MineralLegendLayout::SeparatorThickness, Panel.H);
+	Hud.DrawRect(Gold, Panel.X + Panel.W - MineralLegendLayout::SeparatorThickness, Panel.Y,
+		MineralLegendLayout::SeparatorThickness, Panel.H);
+
+	const float TitleY = Panel.Y + MineralLegendLayout::Padding;
+	Hud.DrawText(Lines[0], Gold, Panel.X + MineralLegendLayout::Padding, TitleY,
+		Font, TextScale);
+
+	const float SeparatorY = TitleY + MineralLegendLayout::TitleLineHeight
+		+ MineralLegendLayout::SeparatorSpacing;
+	Hud.DrawRect(Gold, Panel.X + MineralLegendLayout::Padding, SeparatorY,
+		Panel.W - MineralLegendLayout::Padding * 2.f,
+		MineralLegendLayout::SeparatorThickness);
+
+	if (Entries.Num() > 0)
+	{
+		for (int32 Index = 0; Index < Entries.Num(); ++Index)
+		{
+			const FMineralLegendEntry& Entry = Entries[Index];
+			const FStarMapPanelRect& Row = RowRects[Index];
+			const float SwatchY = Row.Y + (Row.H - SwatchSize) * 0.5f;
+
+			// 关掉的元素整行变暗：色块压到 35% 亮度，文字用 Dim。
+			const FLinearColor SwatchColor = Entry.bVisible
+				? Entry.Color
+				: FLinearColor(Entry.Color.R * 0.35f, Entry.Color.G * 0.35f,
+					Entry.Color.B * 0.35f, Entry.Color.A);
+			Hud.DrawRect(SwatchColor, Panel.X + MineralLegendLayout::Padding, SwatchY,
+				SwatchSize, SwatchSize);
+			Hud.DrawText(Lines[Index + 1], Entry.bVisible ? White : Dim,
+				Panel.X + MineralLegendLayout::Padding + SwatchSize + SwatchGap,
+				Row.Y, Font, TextScale);
+		}
+	}
+	else
+	{
+		Hud.DrawText(Lines[1], Dim, Panel.X + MineralLegendLayout::Padding,
+			RowRects[0].Y, Font, TextScale);
+	}
+
+	// 提示行贴面板底：行数变化时提示不跟着上下跳。
+	const float HintY = Panel.Y + Panel.H - MineralLegendLayout::Padding
+		- MineralLegendLayout::HintLineHeight;
+	Hud.DrawRect(Gold, Panel.X + MineralLegendLayout::Padding,
+		HintY - MineralLegendLayout::SeparatorSpacing
+			- MineralLegendLayout::SeparatorThickness,
+		Panel.W - MineralLegendLayout::Padding * 2.f,
+		MineralLegendLayout::SeparatorThickness);
+	Hud.DrawText(Lines.Last(), Dim, Panel.X + MineralLegendLayout::Padding, HintY,
+		Font, TextScale);
 }
