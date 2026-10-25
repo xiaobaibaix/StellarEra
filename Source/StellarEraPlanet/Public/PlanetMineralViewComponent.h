@@ -6,6 +6,7 @@
 #include "CoreMinimal.h"
 #include "Components/SceneComponent.h"
 #include "PlanetGeologyTypes.h"
+#include "PlanetMineralSurface.h"
 #include "PlanetMineralViewComponent.generated.h"
 
 class APlanetMineralViewActor;
@@ -50,8 +51,8 @@ public:
 	/**
 	 * 元素数，返回 Elements.Num()（运行期采样顺序）。
 	 *
-	 * 与观察体的 ISM 组数相等 —— 这个前提由 APlanetMineralViewActor::Build 的
-	 * 「组数 == 元素数」校验保证（不等时 Build 直接失败）。若将来允许部分构建，
+	 * 与观察体的动态网格组件数相等 —— 这个前提由 APlanetMineralViewActor::Build 的
+	 * 「网格数 == 元素数」校验保证（不等时 Build 直接失败）。若将来允许部分构建，
 	 * 图例布局与命中测试必须改用 ViewActor->NumElements()。
 	 */
 	int32 NumElements() const;
@@ -65,26 +66,27 @@ public:
 	AVoxelPlanetActor* GetViewPlanet() const { return Planet.Get(); }
 	TSharedPtr<const FPlanetGeologyField> GetGeologyField() const { return CachedGeology; }
 
-	/** 运行期元素定义（采样顺序）；图例、数字键、方块组下标共用它。 */
+	/** 运行期元素定义（采样顺序）；图例、数字键、矿体组件下标共用它。 */
 	const TArray<FPlanetGeologyElement>& GetElements() const { return Elements; }
 
-	/** 采样间距 / 表面半径。太大没细节，太小方块数与进入耗时爆炸。 */
-	UPROPERTY(EditAnywhere, Category = "Planet|MineralView", meta = (ClampMin = "0.01", ClampMax = "0.25"))
-	float SpacingRatio = 1.f / 16.f;
-
-	/** 方块边长 / 采样间距。1.0 会让相邻方块互相顶住。 */
-	UPROPERTY(EditAnywhere, Category = "Planet|MineralView", meta = (ClampMin = "0.05", ClampMax = "1.0"))
-	float BlockSizeRatio = 0.45f;
-
-	/** 抖动种子；同种子生成同一套方块。 */
-	UPROPERTY(EditAnywhere, Category = "Planet|MineralView")
-	int32 Seed = 1337;
+	/**
+	 * 等值面网格密度：每轴格数（角点数 = GridResolution + 1）。
+	 *
+	 * 40 首进约 0.1–0.3 秒；56 约 0.3–0.8 秒，边缘更圆。改动会让缓存失效。
+	 */
+	UPROPERTY(EditAnywhere, Category = "Planet|MineralView", meta = (ClampMin = "16", ClampMax = "96"))
+	int32 GridResolution = 40;
 
 private:
 	bool bActive = false;
 	TWeakObjectPtr<AVoxelPlanetActor> Planet;
 	TSharedPtr<const FPlanetGeologyField> CachedGeology;
 	TArray<FPlanetGeologyElement> Elements;
+
+	/** 上一次构建的结果。Deactivate 不清：再进同一颗行星即时出图。 */
+	PlanetMineralSurface::FBuildResult CachedSurface;
+	PlanetMineralSurface::FCacheKey CachedKey;
+	bool bHasCachedSurface = false;
 
 	UPROPERTY(Transient)
 	TObjectPtr<APlanetMineralViewActor> ViewActor;

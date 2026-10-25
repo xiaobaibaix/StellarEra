@@ -4,12 +4,10 @@
 
 #include "PlanetAtmosphereComponent.h"
 #include "PlanetGeologyField.h"
-#include "PlanetMineralBlocks.h"
 #include "PlanetMineralViewActor.h"
 #include "VoxelPlanetActor.h"
 
 #include "Engine/World.h"
-#include "HAL/PlatformTime.h"
 
 UPlanetMineralViewComponent::UPlanetMineralViewComponent()
 {
@@ -52,45 +50,59 @@ bool UPlanetMineralViewComponent::Activate(AVoxelPlanetActor* InPlanet)
 		return false;
 	}
 
-	PlanetMineralBlocks::FBuildParams Params;
+	PlanetMineralSurface::FBuildParams Params;
 	Params.SurfaceRadiusCm = SurfaceRadiusCm;
 	Params.VoxelSizeCm = VoxelSizeCm;
-	Params.SpacingRatio = SpacingRatio;
-	Params.Seed = Seed;
+	Params.GridResolution = GridResolution;
+	// 等值线跟地表着色共用一份参数：矿体边界与地表明暗是同一套判据。
+	Params.IsoValue = Geology->GetAppearance().ColorThreshold;
 
-	PlanetMineralBlocks::FBuildResult Blocks;
-	const double BuildStartSeconds = FPlatformTime::Seconds();
-	PlanetMineralBlocks::Build(*Geology, Params, Blocks);
+	// 键里不含 IsoValue / VoxelSizeCm：两者都由行星的地质数据与体素尺寸定，而键里已经
+	// 有行星本身。GridResolution 是组件上可编辑的属性，所以必须进键。
+	PlanetMineralSurface::FCacheKey Key;
+	Key.Planet = InPlanet;
+	Key.SurfaceRadiusCm = SurfaceRadiusCm;
+	Key.Scale = InPlanet->GetActorScale3D();
+	Key.GridResolution = GridResolution;
 
-	int32 BlockCount = 0;
-	for (const TArray<FPlanetMineralBlock>& Group : Blocks.BlocksByElement)
+	const bool bReused = bHasCachedSurface && CachedKey == Key;
+	if (!bReused)
 	{
-		BlockCount += Group.Num();
+		PlanetMineralSurface::Build(*Geology, Params, CachedSurface);
+		CachedKey = Key;
+		bHasCachedSurface = true;
 	}
+
 	const TArray<FPlanetGeologyElement> SampledElements =
 		Geology->GetSampledElementDefinitions();
 
-	// 每元素方块数：诊断时「全都没生成」与「某个元素为 0」是两回事，
-	// 光看总数分不出来。顺序 = Elements（运行期采样顺序），下标与 ISM 组一致。
+	int32 TotalTriangles = 0;
+	for (const FPlanetMineralMesh& Mesh : CachedSurface.MeshesByElement)
+	{
+		TotalTriangles += Mesh.Triangles.Num() / 3;
+	}
+
+	// 每元素「占据格数 / 面数」：诊断「全都没生成」与「某个元素为 0」是两回事，
+	// 光看总数分不出来。顺序 = Elements（运行期采样顺序），下标与组件一致。
 	TArray<FString> PerElementParts;
-	for (int32 Index = 0; Index < Blocks.BlocksByElement.Num(); ++Index)
+	for (int32 Index = 0; Index < CachedSurface.MeshesByElement.Num(); ++Index)
 	{
 		const FString Label =
 			SampledElements.IsValidIndex(Index) && !SampledElements[Index].DisplayName.IsEmpty()
 			? SampledElements[Index].DisplayName
 			: FString::Printf(TEXT("#%d"), Index);
-		PerElementParts.Add(FString::Printf(TEXT("元素%s:%d"),
-			*Label, Blocks.BlocksByElement[Index].Num()));
+		PerElementParts.Add(FString::Printf(TEXT("元素%s:%d格/%d面"), *Label,
+			CachedSurface.MeshesByElement[Index].OccupiedCells,
+			CachedSurface.MeshesByElement[Index].Triangles.Num() / 3));
 	}
 
-	UE_LOG(LogTemp, Display, TEXT("[矿物] %s：采样 %d 点，生成 %d 个方块，用时 %.1f ms"),
-		*InPlanet->GetName(), Blocks.SampleCount, BlockCount,
-		(FPlatformTime::Seconds() - BuildStartSeconds) * 1000.0);
-	UE_LOG(LogTemp, Display, TEXT("[矿物] %s：每元素方块数 %s"),
+	UE_LOG(LogTemp, Display, TEXT("[矿物] %s：网格 %d³（%d 个角点），%d 个三角形，构建 %.1f ms%s"),
+		*InPlanet->GetName(), GridResolution, CachedSurface.GridPoints, TotalTriangles,
+		CachedSurface.BuildSeconds * 1000.0,
+		bReused ? TEXT("（复用缓存，耗时为首建）") : TEXT(""));
+	UE_LOG(LogTemp, Display, TEXT("[矿物] %s：每元素矿体 %s"),
 		*InPlanet->GetName(),
 		PerElementParts.IsEmpty() ? TEXT("(无元素)") : *FString::Join(PerElementParts, TEXT(" ")));
-
-	const float BlockSizeCm = SurfaceRadiusCm * SpacingRatio * BlockSizeRatio;
 
 	FActorSpawnParameters SpawnParams;
 	// Owner 是 AActor*：组件不能当 Owner，取本组件的宿主 Actor（就是这颗行星）。
@@ -102,8 +114,8 @@ bool UPlanetMineralViewComponent::Activate(AVoxelPlanetActor* InPlanet)
 		InPlanet->GetActorLocation(), FRotator::ZeroRotator, SpawnParams);
 
 	if (!ViewActor
-		|| !ViewActor->Build(Blocks.BlocksByElement, InPlanet->SurfaceColor,
-			SurfaceRadiusCm, BlockSizeCm, SampledElements))
+		|| !ViewActor->Build(CachedSurface.MeshesByElement, InPlanet->SurfaceColor,
+			SurfaceRadiusCm, SampledElements))
 	{
 		UE_LOG(LogTemp, Error, TEXT("[矿物] 观察体创建失败：%s"), *InPlanet->GetName());
 		if (ViewActor)
@@ -193,7 +205,7 @@ void UPlanetMineralViewComponent::TickComponent(
 		return;
 	}
 
-	// 只跟位置：N 体只平移，行星不转向也不缩放；跟着转会把方块拧歪。
+	// 只跟位置：N 体只平移，行星不转向也不缩放；跟着转会把矿体拧歪。
 	if (const AVoxelPlanetActor* PlanetActor = Planet.Get())
 	{
 		if (ViewActor)

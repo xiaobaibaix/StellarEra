@@ -271,4 +271,370 @@ bool FPlanetGeologySampledDefinitionsTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceBuildTest,
+	"StellarEra.Planet.MineralSurface.Build",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetMineralSurfaceBuildTest::RunTest(const FString& Parameters)
+{
+	const TSharedPtr<const FPlanetGeologyField> Field = PlanetMineralSurfaceTest::MakeField();
+	const PlanetMineralSurface::FBuildParams Params =
+		PlanetMineralSurfaceTest::MakeParams(*Field, /*GridResolution=*/80);
+
+	PlanetMineralSurface::FBuildResult Result;
+	PlanetMineralSurface::Build(*Field, Params, Result);
+
+	if (!TestEqual(TEXT("每个元素一个槽"), Result.MeshesByElement.Num(), Field->NumElements()))
+	{
+		return false;
+	}
+
+	TestTrue(TEXT("求过噪声的角点非空"), Result.GridPoints > 0);
+	TestTrue(TEXT("构建耗时在合理量级"),
+		Result.BuildSeconds > 0.0 && Result.BuildSeconds < 30.0);
+
+	const double RadiusCm = double(Params.SurfaceRadiusCm);
+	const double MaxDepth = double(Field->GetMaxReachDepth());
+
+	int32 TotalTriangles = 0;
+	for (int32 ElementIndex = 0; ElementIndex < Result.MeshesByElement.Num(); ++ElementIndex)
+	{
+		const FPlanetMineralMesh& Mesh = Result.MeshesByElement[ElementIndex];
+		TestTrue(*FString::Printf(TEXT("元素 #%d 有几何"), ElementIndex), !Mesh.IsEmpty());
+		TestEqual(TEXT("三角形下标数组长度是 3 的倍数"), Mesh.Triangles.Num() % 3, 0);
+		TotalTriangles += Mesh.Triangles.Num() / 3;
+
+		int32 BadIndices = 0;
+		for (const int32 VertexIndex : Mesh.Triangles)
+		{
+			if (!Mesh.VerticesCm.IsValidIndex(VertexIndex))
+			{
+				++BadIndices;
+			}
+		}
+		TestEqual(TEXT("三角形下标全部合法"), BadIndices, 0);
+
+		int32 OutsideSphere = 0;
+		int32 OutsideDepth = 0;
+		for (const FVector3f& Vertex : Mesh.VerticesCm)
+		{
+			const double DistanceCm =
+				FVector3d(double(Vertex.X), double(Vertex.Y), double(Vertex.Z)).Size();
+			// 允许 1e-4 的相对越界：等值面端点就是最外一圈角点本身。
+			if (DistanceCm > RadiusCm * (1.0 + 1e-4))
+			{
+				++OutsideSphere;
+			}
+			const double Depth = PlanetMineralSurfaceTest::VertexDepthVoxels(Vertex);
+			if (Depth < -1e-2 || Depth > MaxDepth + 1e-2)
+			{
+				++OutsideDepth;
+			}
+		}
+		TestEqual(TEXT("顶点都在球内"), OutsideSphere, 0);
+		TestEqual(TEXT("顶点深度都在可达范围内"), OutsideDepth, 0);
+	}
+
+	TestTrue(TEXT("总三角形数非零"), TotalTriangles > 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceIsoAccuracyTest,
+	"StellarEra.Planet.MineralSurface.IsoAccuracy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetMineralSurfaceIsoAccuracyTest::RunTest(const FString& Parameters)
+{
+	const TSharedPtr<const FPlanetGeologyField> Field = PlanetMineralSurfaceTest::MakeField();
+	const PlanetMineralSurface::FBuildParams Params =
+		PlanetMineralSurfaceTest::MakeParams(*Field, /*GridResolution=*/80);
+
+	PlanetMineralSurface::FBuildResult Result;
+	PlanetMineralSurface::Build(*Field, Params, Result);
+
+	const double RadiusCm = double(Params.SurfaceRadiusCm);
+	const double VoxelSizeCm = double(Params.VoxelSizeCm);
+	const float Iso = Params.IsoValue;
+	// MC 抽的是「网格三线性插值场」的等值面，顶点处再回采真实场会有插值误差；
+	// 0.15 是等值线的 3 倍，宽到不抖，又窄到随机曲面必挂。
+	const float Tolerance = 0.15f;
+
+	TArray<float> Norms;
+	for (int32 ElementIndex = 0; ElementIndex < Result.MeshesByElement.Num(); ++ElementIndex)
+	{
+		const FPlanetMineralMesh& Mesh = Result.MeshesByElement[ElementIndex];
+		int32 Probes = 0;
+		int32 Violations = 0;
+		// 每隔 13 个顶点取一个：几千个探针够定性，全量会让测试跑到十几秒。
+		for (int32 Index = 0; Index < Mesh.VerticesCm.Num(); Index += 13)
+		{
+			const FVector3f& Vertex = Mesh.VerticesCm[Index];
+			const FVector3d Position(double(Vertex.X), double(Vertex.Y), double(Vertex.Z));
+			const double DistanceCm = Position.Size();
+			if (DistanceCm <= UE_DOUBLE_KINDA_SMALL_NUMBER)
+			{
+				continue;
+			}
+
+			const double Depth = (RadiusCm - DistanceCm) / VoxelSizeCm;
+			Field->SampleElementNorms(FVector(Position / DistanceCm), Depth, Norms);
+			if (!Norms.IsValidIndex(ElementIndex))
+			{
+				continue;
+			}
+
+			++Probes;
+			if (FMath::Abs(Norms[ElementIndex] - Iso) > Tolerance)
+			{
+				++Violations;
+			}
+		}
+
+		TestTrue(*FString::Printf(TEXT("元素 #%d 采到了顶点"), ElementIndex), Probes > 0);
+		TestTrue(*FString::Printf(TEXT("元素 #%d 的顶点都在等值线附近（%d/%d 越界）"),
+			ElementIndex, Violations, Probes), Violations * 10 <= Probes);
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceElementOrderTest,
+	"StellarEra.Planet.MineralSurface.ElementOrder",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetMineralSurfaceElementOrderTest::RunTest(const FString& Parameters)
+{
+	const TSharedPtr<const FPlanetGeologyField> Field = PlanetMineralSurfaceTest::MakeField();
+	const PlanetMineralSurface::FBuildParams Params =
+		PlanetMineralSurfaceTest::MakeParams(*Field, /*GridResolution=*/80);
+
+	PlanetMineralSurface::FBuildResult Result;
+	PlanetMineralSurface::Build(*Field, Params, Result);
+
+	const TArray<FPlanetGeologyElement> Sampled = Field->GetSampledElementDefinitions();
+	const double RadiusCm = double(Params.SurfaceRadiusCm);
+	const double VoxelSizeCm = double(Params.VoxelSizeCm);
+
+	for (int32 ElementIndex = 0; ElementIndex < Result.MeshesByElement.Num(); ++ElementIndex)
+	{
+		const FPlanetMineralMesh& Mesh = Result.MeshesByElement[ElementIndex];
+		int32 Probes = 0;
+		int32 Mismatches = 0;
+		for (int32 Index = 0; Index < Mesh.VerticesCm.Num(); Index += 17)
+		{
+			const FVector3f& Vertex = Mesh.VerticesCm[Index];
+			const FVector3d Position(double(Vertex.X), double(Vertex.Y), double(Vertex.Z));
+			const double DistanceCm = Position.Size();
+			if (DistanceCm <= UE_DOUBLE_KINDA_SMALL_NUMBER)
+			{
+				continue;
+			}
+
+			// 三条矿带互不重叠，所以顶点处的「最强元素」必须就是这份网格的元素。
+			// 若 Build 把网格下标与 Sampled 顺序对错了，这条会立刻红。
+			const double Depth = (RadiusCm - DistanceCm) / VoxelSizeCm;
+			const FPlanetGeologySample Sample =
+				Field->Sample(FVector(Position / DistanceCm), Depth);
+			if (!Sampled.IsValidIndex(Sample.DominantIndex))
+			{
+				continue;
+			}
+
+			++Probes;
+			if (Sample.DominantIndex != ElementIndex)
+			{
+				++Mismatches;
+			}
+		}
+
+		TestTrue(*FString::Printf(TEXT("元素 #%d 采到了顶点"), ElementIndex), Probes > 0);
+		TestTrue(*FString::Printf(TEXT("元素 #%d 的顶点归它自己（%d/%d 错配）"),
+			ElementIndex, Mismatches, Probes), Mismatches * 20 <= Probes);
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceThresholdTest,
+	"StellarEra.Planet.MineralSurface.Threshold",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetMineralSurfaceThresholdTest::RunTest(const FString& Parameters)
+{
+	auto CountTriangles = [](const PlanetMineralSurface::FBuildResult& Result)
+	{
+		int32 Count = 0;
+		for (const FPlanetMineralMesh& Mesh : Result.MeshesByElement)
+		{
+			Count += Mesh.Triangles.Num() / 3;
+		}
+		return Count;
+	};
+	auto CountOccupied = [](const PlanetMineralSurface::FBuildResult& Result)
+	{
+		int32 Count = 0;
+		for (const FPlanetMineralMesh& Mesh : Result.MeshesByElement)
+		{
+			Count += Mesh.OccupiedCells;
+		}
+		return Count;
+	};
+
+	const TSharedPtr<const FPlanetGeologyField> Field = PlanetMineralSurfaceTest::MakeField();
+
+	PlanetMineralSurface::FBuildParams LowParams =
+		PlanetMineralSurfaceTest::MakeParams(*Field, /*GridResolution=*/80);
+	LowParams.IsoValue = 0.05f;
+
+	// 0.5 对应矿带半厚 ±42 体素（0.05 是 ±87）：几何一定还在，占据格数一定更少。
+	PlanetMineralSurface::FBuildParams HighParams = LowParams;
+	HighParams.IsoValue = 0.5f;
+
+	PlanetMineralSurface::FBuildResult Low;
+	PlanetMineralSurface::FBuildResult High;
+	PlanetMineralSurface::Build(*Field, LowParams, Low);
+	PlanetMineralSurface::Build(*Field, HighParams, High);
+
+	// 占据格数是集合包含关系：值 > 0.5 的角点必然 > 0.05。严格变少是硬保证，
+	// 也是「IsoValue 真的接进去了」的判据。
+	TestTrue(TEXT("阈值升高，占据格数严格变少"), CountOccupied(High) < CountOccupied(Low));
+	TestTrue(TEXT("高阈值仍有几何"), CountTriangles(High) > 0);
+	// spec §7 只要求「总三角形数不增加」。别改成严格变小：等值面上移/下移 42 体素
+	// 只让表面积少约 8%，格点量化足以把这个差值抹平，断言会偶发变红。
+	TestTrue(TEXT("阈值升高，三角形不增加"), CountTriangles(High) <= CountTriangles(Low));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceEmptyTest,
+	"StellarEra.Planet.MineralSurface.Empty",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetMineralSurfaceEmptyTest::RunTest(const FString& Parameters)
+{
+	FPlanetGeologyLoadReport Report;
+	const TSharedPtr<const FPlanetGeologyField> Field = FPlanetGeologyField::LoadFromString(
+		PlanetMineralSurfaceTest::ElementsJson, PlanetMineralSurfaceTest::EmptyPlanetJson,
+		Report, 1000.0);
+	if (!TestTrue(TEXT("空场加载出有效对象"), Field.IsValid()))
+	{
+		return false;
+	}
+	TestTrue(TEXT("场是空的"), Field->IsEmpty());
+
+	// 先塞一份假结果，确认 Build 会清干净（缓存复用时走的就是不清空这条路）。
+	PlanetMineralSurface::FBuildResult Result;
+	Result.MeshesByElement.SetNum(3);
+	Result.GridPoints = 123;
+	Result.BuildSeconds = 9.0;
+
+	PlanetMineralSurface::Build(*Field,
+		PlanetMineralSurfaceTest::MakeParams(*Field, 40), Result);
+
+	TestEqual(TEXT("空场不给网格"), Result.MeshesByElement.Num(), 0);
+	TestEqual(TEXT("空场不求点"), Result.GridPoints, 0);
+	TestTrue(TEXT("空场耗时清零"), Result.BuildSeconds == 0.0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceDeterministicTest,
+	"StellarEra.Planet.MineralSurface.Deterministic",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetMineralSurfaceDeterministicTest::RunTest(const FString& Parameters)
+{
+	const TSharedPtr<const FPlanetGeologyField> Field = PlanetMineralSurfaceTest::MakeField();
+	const PlanetMineralSurface::FBuildParams Params =
+		PlanetMineralSurfaceTest::MakeParams(*Field, /*GridResolution=*/40);
+
+	// MC 并行抽取不保证顶点顺序，只保证顶点集合。比较前按 (X,Y,Z) 排序。
+	auto SortedVertices = [](const FPlanetMineralMesh& Mesh)
+	{
+		TArray<FVector3f> Sorted = Mesh.VerticesCm;
+		Sorted.Sort([](const FVector3f& Left, const FVector3f& Right)
+		{
+			if (Left.X != Right.X) { return Left.X < Right.X; }
+			if (Left.Y != Right.Y) { return Left.Y < Right.Y; }
+			return Left.Z < Right.Z;
+		});
+		return Sorted;
+	};
+
+	PlanetMineralSurface::FBuildResult First;
+	PlanetMineralSurface::FBuildResult Second;
+	PlanetMineralSurface::Build(*Field, Params, First);
+	PlanetMineralSurface::Build(*Field, Params, Second);
+
+	if (!TestEqual(TEXT("两次构建元素数一致"),
+		Second.MeshesByElement.Num(), First.MeshesByElement.Num()))
+	{
+		return false;
+	}
+
+	for (int32 ElementIndex = 0; ElementIndex < First.MeshesByElement.Num(); ++ElementIndex)
+	{
+		const FPlanetMineralMesh& Expected = First.MeshesByElement[ElementIndex];
+		const FPlanetMineralMesh& Actual = Second.MeshesByElement[ElementIndex];
+
+		TestEqual(*FString::Printf(TEXT("元素 #%d 三角形数一致"), ElementIndex),
+			Actual.Triangles.Num(), Expected.Triangles.Num());
+
+		const TArray<FVector3f> ExpectedVertices = SortedVertices(Expected);
+		const TArray<FVector3f> ActualVertices = SortedVertices(Actual);
+		if (!TestEqual(*FString::Printf(TEXT("元素 #%d 顶点数一致"), ElementIndex),
+			ActualVertices.Num(), ExpectedVertices.Num()))
+		{
+			continue;
+		}
+
+		int32 Differing = 0;
+		for (int32 Index = 0; Index < ExpectedVertices.Num(); ++Index)
+		{
+			if (ExpectedVertices[Index].X != ActualVertices[Index].X
+				|| ExpectedVertices[Index].Y != ActualVertices[Index].Y
+				|| ExpectedVertices[Index].Z != ActualVertices[Index].Z)
+			{
+				++Differing;
+			}
+		}
+		TestEqual(*FString::Printf(TEXT("元素 #%d 顶点集合一致"), ElementIndex),
+			Differing, 0);
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceCacheKeyTest,
+	"StellarEra.Planet.MineralSurface.CacheKey",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetMineralSurfaceCacheKeyTest::RunTest(const FString& Parameters)
+{
+	PlanetMineralSurface::FCacheKey Base;
+	Base.SurfaceRadiusCm = 100000.f;
+	Base.Scale = FVector(1.0, 1.0, 1.0);
+	Base.GridResolution = 40;
+
+	PlanetMineralSurface::FCacheKey Same = Base;
+	TestTrue(TEXT("同参数相等"), Same == Base);
+	TestFalse(TEXT("同参数不不等"), Same != Base);
+
+	PlanetMineralSurface::FCacheKey Radius = Base;
+	Radius.SurfaceRadiusCm = 100001.f;
+	TestTrue(TEXT("半径差 1 cm 不相等"), Radius != Base);
+
+	PlanetMineralSurface::FCacheKey TinyRadius = Base;
+	TinyRadius.SurfaceRadiusCm = 100000.003f;
+	TestTrue(TEXT("半径差 3 mm 视为同一颗行星"), TinyRadius == Base);
+
+	PlanetMineralSurface::FCacheKey Scale = Base;
+	Scale.Scale = FVector(2.0, 2.0, 2.0);
+	TestTrue(TEXT("缩放变化不相等"), Scale != Base);
+
+	PlanetMineralSurface::FCacheKey Resolution = Base;
+	Resolution.GridResolution = 56;
+	TestTrue(TEXT("格数变化不相等"), Resolution != Base);
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

@@ -2,11 +2,12 @@
 
 #include "PlanetMineralViewActor.h"
 
-#include "PlanetMineralBlocks.h"
 #include "PlanetMineralMaterialBuilder.h"
 
-#include "Components/InstancedStaticMeshComponent.h"
+#include "Components/DynamicMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "DynamicMesh/DynamicMesh3.h"
+#include "DynamicMesh/MeshNormals.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -14,13 +15,9 @@
 
 namespace
 {
-	const TCHAR* const SphereMeshPath = TEXT("/Engine/BasicShapes/Sphere.Sphere");
-	const TCHAR* const CubeMeshPath = TEXT("/Engine/BasicShapes/Cube.Cube");
+	const TCHAR* const MineralViewSphereMeshPath = TEXT("/Engine/BasicShapes/Sphere.Sphere");
 
-	/** 方块朝向的随机翻转幅度（度）。 */
-	constexpr float BlockTiltDegrees = 25.f;
-
-	UMaterialInterface* LoadMaterial(const TCHAR* PackagePath, const TCHAR* AssetName)
+	UMaterialInterface* LoadMineralViewMaterial(const TCHAR* PackagePath, const TCHAR* AssetName)
 	{
 		const FString ObjectPath = FString::Printf(TEXT("%s.%s"), PackagePath, AssetName);
 		UMaterialInterface* Material = LoadObject<UMaterialInterface>(nullptr, *ObjectPath);
@@ -52,31 +49,33 @@ APlanetMineralViewActor::APlanetMineralViewActor()
 	RootComponent = SceneRoot;
 }
 
-bool APlanetMineralViewActor::Build(
-	const TArray<TArray<FPlanetMineralBlock>>& BlocksByElement,
-	const FLinearColor& ShellColor, float SurfaceRadiusCm, float BlockSizeCm,
+bool APlanetMineralViewActor::Build(const TArray<FPlanetMineralMesh>& MeshesByElement,
+	const FLinearColor& ShellColor, float SurfaceRadiusCm,
 	const TArray<FPlanetGeologyElement>& Elements)
 {
-	if (SurfaceRadiusCm <= 0.f || BlockSizeCm <= 0.f)
+	if (SurfaceRadiusCm <= 0.f)
 	{
-		UE_LOG(LogTemp, Error, TEXT("[矿物] 参数非法：半径 %.1f cm，方块 %.1f cm"),
-			SurfaceRadiusCm, BlockSizeCm);
+		UE_LOG(LogTemp, Error, TEXT("[矿物] 参数非法：半径 %.1f cm"), SurfaceRadiusCm);
 		return false;
 	}
 
-	UStaticMesh* SphereMesh = LoadObject<UStaticMesh>(nullptr, SphereMeshPath);
-	UStaticMesh* CubeMesh = LoadObject<UStaticMesh>(nullptr, CubeMeshPath);
-	UMaterialInterface* GhostMaterial = LoadMaterial(
+	if (MeshesByElement.Num() != Elements.Num())
+	{
+		UE_LOG(LogTemp, Error, TEXT("[矿物] 网格数不等于元素数：%d / %d"),
+			MeshesByElement.Num(), Elements.Num());
+		return false;
+	}
+
+	UStaticMesh* SphereMesh = LoadObject<UStaticMesh>(nullptr, MineralViewSphereMeshPath);
+	UMaterialInterface* GhostMaterial = LoadMineralViewMaterial(
 		PlanetMineralMaterials::GetGhostMaterialPath(), TEXT("M_PlanetGhost"));
-	UMaterialInterface* BlockMaterial = LoadMaterial(
+	UMaterialInterface* BlockMaterial = LoadMineralViewMaterial(
 		PlanetMineralMaterials::GetBlockMaterialPath(), TEXT("M_MineralBlock"));
 
-	if (!SphereMesh || !CubeMesh || !GhostMaterial || !BlockMaterial)
+	if (!SphereMesh || !GhostMaterial || !BlockMaterial)
 	{
-		UE_LOG(LogTemp, Error,
-			TEXT("[矿物] 网格或材质加载失败：球=%s 方块=%s 球壳材质=%s 方块材质=%s"),
+		UE_LOG(LogTemp, Error, TEXT("[矿物] 网格或材质加载失败：球=%s 球壳材质=%s 矿体材质=%s"),
 			SphereMesh ? TEXT("ok") : TEXT("缺"),
-			CubeMesh ? TEXT("ok") : TEXT("缺"),
 			GhostMaterial ? TEXT("ok") : TEXT("缺"),
 			BlockMaterial ? TEXT("ok") : TEXT("缺"));
 		return false;
@@ -103,26 +102,18 @@ bool APlanetMineralViewActor::Build(
 		ShellMesh->SetMaterial(0, ShellMaterial);
 	}
 
-	// --- 每个元素一个 ISM ---
-	if (BlocksByElement.Num() != Elements.Num())
-	{
-		UE_LOG(LogTemp, Error,
-			TEXT("[矿物] 分组数与元素数不一致：%d 组 / %d 个元素"),
-			BlocksByElement.Num(), Elements.Num());
-		return false;
-	}
+	// --- 每个元素一个动态网格 ---
+	MineralMeshes.Reset();
+	MineralMeshes.Reserve(MeshesByElement.Num());
 
-	const float CubeScale = BlockSizeCm / 100.f;
-	BlockMeshes.Reset();
-	BlockMeshes.Reserve(BlocksByElement.Num());
-
-	for (int32 ElementIndex = 0; ElementIndex < BlocksByElement.Num(); ++ElementIndex)
+	for (int32 ElementIndex = 0; ElementIndex < MeshesByElement.Num(); ++ElementIndex)
 	{
-		UInstancedStaticMeshComponent* Component = NewObject<UInstancedStaticMeshComponent>(
-			this, *FString::Printf(TEXT("MineralBlocks%d"), ElementIndex));
+		const FPlanetMineralMesh& Source = MeshesByElement[ElementIndex];
+
+		UDynamicMeshComponent* Component = NewObject<UDynamicMeshComponent>(
+			this, *FString::Printf(TEXT("MineralMesh%d"), ElementIndex));
 		Component->SetupAttachment(SceneRoot);
 		Component->SetMobility(EComponentMobility::Movable);
-		Component->SetStaticMesh(CubeMesh);
 		Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 		Component->SetCastShadow(false);
 		Component->RegisterComponent();
@@ -134,45 +125,77 @@ bool APlanetMineralViewActor::Build(
 			Component->SetMaterial(0, MID);
 		}
 
-		// 每个元素一个独立随机流：元素增删不会打乱别的元素已有的方块朝向。
-		FRandomStream OrientationRandom(ElementIndex + 1);
-		const TArray<FPlanetMineralBlock>& Group = BlocksByElement[ElementIndex];
-		for (const FPlanetMineralBlock& Block : Group)
+		UE::Geometry::FDynamicMesh3 Mesh;
+		Mesh.EnableAttributes();
+
+		// 下标先过一遍映射表：等值面给出的顶点将来若出现空洞，这里才不会静默错位。
+		TArray<int32> VertexIds;
+		VertexIds.Reserve(Source.VerticesCm.Num());
+		for (const FVector3f& VertexCm : Source.VerticesCm)
 		{
-			// 绕随机轴 ±25° 翻身，避免整片方块像规则网格。
-			const FQuat Rotation(
-				OrientationRandom.GetUnitVector(),
-				FMath::DegreesToRadians(
-					OrientationRandom.FRandRange(-BlockTiltDegrees, BlockTiltDegrees)));
-			Component->AddInstance(FTransform(Rotation, Block.LocationCm, FVector(CubeScale)));
+			VertexIds.Add(Mesh.AppendVertex(UE::Math::TVector<double>(
+				double(VertexCm.X), double(VertexCm.Y), double(VertexCm.Z))));
 		}
 
-		Component->SetVisibility(true);
-		BlockMeshes.Add(Component);
+		// AppendTriangle 在退化三角形（三点共线 / 面积为 0）上返回 -1 而不是抛错。
+		// 丢掉它们是正确行为，但数量要进日志 —— 全被丢掉时画面上就是「这个元素没矿」。
+		int32 Rejected = 0;
+		for (int32 Index = 0; Index + 2 < Source.Triangles.Num(); Index += 3)
+		{
+			const int32 A = Source.Triangles[Index];
+			const int32 B = Source.Triangles[Index + 1];
+			const int32 C = Source.Triangles[Index + 2];
+			if (!VertexIds.IsValidIndex(A) || !VertexIds.IsValidIndex(B)
+				|| !VertexIds.IsValidIndex(C)
+				|| Mesh.AppendTriangle(VertexIds[A], VertexIds[B], VertexIds[C]) < 0)
+			{
+				++Rejected;
+			}
+		}
+		if (Rejected > 0)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[矿物] 元素 #%d：%d 个三角形被丢弃（退化或越界）"),
+				ElementIndex, Rejected);
+		}
+
+		// 等值面抽取只给顶点与三角形，没有法线；材质靠 VertexNormalWS 取它，
+		// 所以这里按面积加权的顶点法线补一遍。UV 层留空：材质不采样 UV。
+		if (Mesh.TriangleCount() > 0)
+		{
+			UE::Geometry::FMeshNormals::InitializeOverlayToPerVertexNormals(
+				Mesh.Attributes()->PrimaryNormals());
+		}
+
+		Component->SetMesh(MoveTemp(Mesh));
+		MineralMeshes.Add(Component);
 	}
 
 	return true;
 }
 
+UDynamicMeshComponent* APlanetMineralViewActor::GetElementMesh(int32 Index) const
+{
+	return MineralMeshes.IsValidIndex(Index) ? MineralMeshes[Index].Get() : nullptr;
+}
+
 bool APlanetMineralViewActor::IsElementVisible(int32 Index) const
 {
-	return BlockMeshes.IsValidIndex(Index) && BlockMeshes[Index]
-		&& BlockMeshes[Index]->IsVisible();
+	return MineralMeshes.IsValidIndex(Index) && MineralMeshes[Index]
+		&& MineralMeshes[Index]->IsVisible();
 }
 
 void APlanetMineralViewActor::SetElementVisible(int32 Index, bool bVisible)
 {
-	if (!BlockMeshes.IsValidIndex(Index) || !BlockMeshes[Index])
+	if (!MineralMeshes.IsValidIndex(Index) || !MineralMeshes[Index])
 	{
 		return;
 	}
-	// bPropagateToChildren = true：ISM 没有子组件，但保持一致语义。
-	BlockMeshes[Index]->SetVisibility(bVisible, true);
+	MineralMeshes[Index]->SetVisibility(bVisible, true);
 }
 
 void APlanetMineralViewActor::SetAllElementsVisible(bool bVisible)
 {
-	for (UInstancedStaticMeshComponent* Component : BlockMeshes)
+	for (UDynamicMeshComponent* Component : MineralMeshes)
 	{
 		if (Component)
 		{
