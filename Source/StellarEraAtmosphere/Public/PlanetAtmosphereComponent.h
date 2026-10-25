@@ -16,7 +16,7 @@ class ADirectionalLight;
  * 球内的天空交给引擎原生 SkyAtmosphere（由 UCosmosSimulationSubsystem 重定位），
  * 两者天然不打架，不需要手工切可见性。
  *
- * 由行星 BP 挂载到行星 Actor 的根组件上（C++ 构造函数不再自动创建）。
+ * C++ 构造函数不再创建它；行星 BP 需要把它挂到行星 Actor 的根组件上。
  *
  * **编辑器预览**：编辑器世界不执行 BeginPlay，而壳的材质、缩放、材质参数全都
  * 依赖它。若不做处理，编辑视图里就只有一个半径 50cm 的默认球，埋在行星中心，
