@@ -1255,6 +1255,18 @@ bool AStellarEraPlayerController::ProjectBodyToScreen(
 	return true;
 }
 
+bool AStellarEraPlayerController::GetStarMapMousePositionPx(FVector2D& OutPosition) const
+{
+	double MouseX = 0.0;
+	double MouseY = 0.0;
+	if (!GetMousePosition(MouseX, MouseY))
+	{
+		return false;
+	}
+	OutPosition = FVector2D(MouseX, MouseY);
+	return true;
+}
+
 AActor* AStellarEraPlayerController::PickBodyUnderScreenPosition(
 	const FVector2D& ScreenPosition) const
 {

@@ -5,8 +5,8 @@
 #include "CosmosOrbitComponent.h"
 #include "CosmosSimulationSubsystem.h"
 #include "CosmosTypes.h"
+#include "StarMapUIInputs.h"
 #include "StellarEraHUD.h"
-#include "StellarEraPlayerController.h"
 #include "PlanetMineralViewComponent.h"
 #include "PlanetGeologyField.h"
 #include "VoxelPlanetActor.h"
@@ -14,7 +14,6 @@
 #include "Engine/Engine.h"
 #include "Engine/Font.h"
 #include "Engine/World.h"
-#include "GameFramework/PlayerController.h"
 
 bool UStarMapUISystem::BuildBodyInfo(AActor* Body, FStarMapBodyInfo& OutInfo)
 {
@@ -286,17 +285,10 @@ FStarMapPanelRect UStarMapUISystem::PlacePanelBesideAnchor(
 	return Rect;
 }
 
-void UStarMapUISystem::Draw(AStellarEraHUD& Hud)
+void UStarMapUISystem::Draw(AStellarEraHUD& Hud, IStarMapUIInputs& Inputs)
 {
 	const FVector2D ViewportSize = Hud.GetViewportSize();
 	if (ViewportSize.X <= 0.0 || ViewportSize.Y <= 0.0)
-	{
-		return;
-	}
-
-	AStellarEraPlayerController* PlayerController =
-		Cast<AStellarEraPlayerController>(Hud.GetOwningPlayerController());
-	if (!PlayerController)
 	{
 		return;
 	}
@@ -312,16 +304,14 @@ void UStarMapUISystem::Draw(AStellarEraHUD& Hud)
 
 	AActor* Selected = Subsystem->GetSelectedBody();
 
-	double MouseX = 0.0;
-	double MouseY = 0.0;
-	const bool bHasMouse = PlayerController->GetMousePosition(MouseX, MouseY);
-	const FVector2D MousePosition(MouseX, MouseY);
+	FVector2D MousePosition = FVector2D::ZeroVector;
+	const bool bHasMouse = Inputs.GetStarMapMousePositionPx(MousePosition);
 	const bool bMouseInside = bHasMouse &&
 		MousePosition.X >= 0.0 && MousePosition.Y >= 0.0 &&
 		MousePosition.X <= ViewportSize.X && MousePosition.Y <= ViewportSize.Y;
 
 	AActor* Hovered = bMouseInside
-		? PlayerController->PickBodyUnderScreenPosition(MousePosition)
+		? Inputs.PickBodyUnderScreenPosition(MousePosition)
 		: nullptr;
 
 	// 选中面板：贴天体投影中心右侧。中心不在视口内就不画。
@@ -330,7 +320,7 @@ void UStarMapUISystem::Draw(AStellarEraHUD& Hud)
 		FVector2D Center = FVector2D::ZeroVector;
 		float RadiusPx = 0.f;
 		const bool bProjected =
-			PlayerController->ProjectBodyToScreen(Selected, Center, RadiusPx);
+			Inputs.ProjectBodyToScreen(Selected, Center, RadiusPx);
 		const bool bCenterInside =
 			Center.X >= 0.0 && Center.Y >= 0.0 &&
 			Center.X <= ViewportSize.X && Center.Y <= ViewportSize.Y;
@@ -356,7 +346,7 @@ void UStarMapUISystem::Draw(AStellarEraHUD& Hud)
 	}
 
 	// 矿物观察图例：固定左上角，画在最后（压在所有天体面板之上）。
-	if (UPlanetMineralViewComponent* MineralView = PlayerController->GetActiveMineralView())
+	if (UPlanetMineralViewComponent* MineralView = Inputs.GetActiveMineralView())
 	{
 		AVoxelPlanetActor* ViewPlanet = MineralView->GetViewPlanet();
 		if (ViewPlanet)

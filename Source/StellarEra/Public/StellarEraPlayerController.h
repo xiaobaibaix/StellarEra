@@ -5,6 +5,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
+#include "StarMapUIInputs.h"
 #include "StellarEraPlayerController.generated.h"
 
 class AStarMapCameraPawn;
@@ -27,7 +28,7 @@ struct FStarMapScreenCandidate;
  * 这样切换角色/飞船时不需要重新绑定输入。
  */
 UCLASS()
-class AStellarEraPlayerController : public APlayerController
+class AStellarEraPlayerController : public APlayerController, public IStarMapUIInputs
 {
 	GENERATED_BODY()
 
@@ -50,10 +51,10 @@ public:
 	bool EnterNearestShip();
 
 	/** 把一颗天体投到屏幕；成功时 OutCenter 为中心、OutRadiusPx 为轮廓半径（像素）。 */
-	bool ProjectBodyToScreen(AActor* Body, FVector2D& OutCenter, float& OutRadiusPx) const;
+	virtual bool ProjectBodyToScreen(AActor* Body, FVector2D& OutCenter, float& OutRadiusPx) const override;
 
 	/** 任意屏幕点下的已注册天体。悬停与点击共用。 */
-	AActor* PickBodyUnderScreenPosition(const FVector2D& ScreenPosition) const;
+	virtual AActor* PickBodyUnderScreenPosition(const FVector2D& ScreenPosition) const override;
 
 	/**
 	 * 进入星图时该以谁为焦点。
@@ -67,7 +68,9 @@ public:
 	static ASpaceshipPawn* ResolveStarMapFocusShip(APawn* EnteringPawn);
 
 	/** 当前激活的矿物透视组件；未激活时为空。星图 UI 用它画图例、喂矿体显隐。 */
-	UPlanetMineralViewComponent* GetActiveMineralView() const { return ActiveMineralView; }
+	virtual UPlanetMineralViewComponent* GetActiveMineralView() const override { return ActiveMineralView; }
+
+	virtual bool GetStarMapMousePositionPx(FVector2D& OutPosition) const override;
 
 protected:
 	/** 构造 IMC 与全部 IA。幂等：重复调用会直接返回。 */

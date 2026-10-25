@@ -9,6 +9,7 @@
 
 class AActor;
 class AStellarEraHUD;
+class IStarMapUIInputs;
 
 /** 一颗天体的显示数据。纯数据，不含 UObject 引用。 */
 struct FStarMapBodyInfo
@@ -129,7 +130,7 @@ class UStarMapUISystem : public UObject
 
 public:
 	/** 画一帧星图 UI。只在星图模式下由 HUD 调用。 */
-	void Draw(AStellarEraHUD& Hud);
+	void Draw(AStellarEraHUD& Hud, IStarMapUIInputs& Inputs);
 
 	/** 从已注册天体采集显示数据。没有 UCosmosOrbitComponent 时返回 false。 */
 	static bool BuildBodyInfo(AActor* Body, FStarMapBodyInfo& OutInfo);

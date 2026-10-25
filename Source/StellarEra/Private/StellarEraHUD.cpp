@@ -11,6 +11,7 @@
 #include "PlanetEditUI.h"
 #include "SpaceshipPawn.h"
 #include "StarMapCameraPawn.h"
+#include "StarMapUIInputs.h"
 #include "StarMapUISystem.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
@@ -91,7 +92,10 @@ void AStellarEraHUD::DrawHUD()
 			{
 				StarMapUI = NewObject<UStarMapUISystem>(this);
 			}
-			StarMapUI->Draw(*this);
+			if (IStarMapUIInputs* Inputs = Cast<IStarMapUIInputs>(GetOwningPlayerController()))
+			{
+				StarMapUI->Draw(*this, *Inputs);
+			}
 		}
 	}
 
