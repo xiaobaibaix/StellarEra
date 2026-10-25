@@ -45,6 +45,7 @@ bool UPlanetMineralViewComponent::Activate(AVoxelPlanetActor* InPlanet)
 
 	const float SurfaceRadiusCm = InPlanet->GetSurfaceRadiusCm();
 	// 地质深度以体素计，换回厘米要用单个体素的厘米尺寸（基类属性，与 Radius 同级）。
+	// 明确假设行星 Actor 的等比缩放 S = 1：这个换算不含 Actor 缩放（见计划 Global Constraints）。
 	const float VoxelSizeCm = InPlanet->VoxelSize;
 	if (SurfaceRadiusCm <= 0.f || VoxelSizeCm <= 0.f)
 	{
