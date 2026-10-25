@@ -13,6 +13,7 @@ public class StellarEraTarget : TargetRules
 		ExtraModuleNames.AddRange(new string[]
 		{
 			"StellarEra",          // 框架（primary game module）
+			"StellarEraCosmos",    // 万有引力
 			"StellarEraCore",      // 天体力学
 			"StellarEraPlanet",    // 体素星球
 			"StellarEraVehicle",   // 角色载具

@@ -33,7 +33,7 @@
  * 关卡里摆成什么样，运行后就从什么样开始跑。
  */
 UCLASS(ClassGroup = (Cosmos), meta = (BlueprintSpawnableComponent))
-class UCosmosOrbitComponent : public UActorComponent
+class STELLARERACOSMOS_API UCosmosOrbitComponent : public UActorComponent
 {
 	GENERATED_BODY()
 

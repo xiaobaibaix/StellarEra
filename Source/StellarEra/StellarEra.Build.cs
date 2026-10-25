@@ -2,20 +2,22 @@
 
 using UnrealBuildTool;
 
-// 框架层：N 体编排（组件 + 世界子系统）与游戏框架（GameMode / PlayerController）。
+// 框架层：游戏框架（GameMode / PlayerController / HUD / 星图）。
 //
 // 本模块**保留原名 StellarEra**，因此它仍是 primary game module ——
 // StellarEra.cpp 里的 IMPLEMENT_PRIMARY_GAME_MODULE 不动。
-// 保留原名还有个副作用：AStellarEraGameMode / AStellarEraPlayerController /
-// UCosmosOrbitComponent / UCosmosSimulationSubsystem 的 /Script/ 路径全都不变，
-// DefaultEngine.ini 与 UniverseMap.umap 里指向它们的引用无需任何改动。
+// 保留原名还有个副作用：AStellarEraGameMode / AStellarEraPlayerController 的
+// /Script/ 路径不变，DefaultEngine.ini 与 UniverseMap.umap 里指向它们的引用
+// 无需任何改动。Cosmos 三个类已搬到 StellarEraCosmos，旧路径由
+// DefaultEngine.ini 的 [CoreRedirects] 兜底。
 //
 // 依赖方向（严格分层，无环）：
-//     StellarEra ─→ StellarEraVehicle ─→ StellarEraPlanet
+//     StellarEra ─→ StellarEraCosmos ─→ StellarEraVehicle ─→ StellarEraPlanet
 //          └──────→ StellarEraCore
 //
-// Core 必须是 **Public**：CosmosSimulationSubsystem.h 按值持有 FNBodySimulator，
-// 而 NBodySimulator.h 在 StellarEraCore 里，该头是本模块公开头的一部分。
+// Core 是 **Public**：拆分前 CosmosSimulationSubsystem.h（按值持有 FNBodySimulator）
+// 是本模块公开头的一部分；那部分已随 Cosmos 搬走，这里保留 Public 只是沿用既有
+// 声明，不影响任何下游。
 //
 // StellarEraPlanet 是 **Private**：本模块没有任何公开头 include 行星模块的头，
 // StellarEraPlayerController.h 里的行星类型一律前置声明 + TObjectPtr，用到完整类型的
@@ -40,6 +42,7 @@ public class StellarEra : ModuleRules
 			"StellarEraPlanet", // 行星 Actor / 地质场 / 纹理；只在 .cpp 里 include
 			"StellarEraCore",
 			"StellarEraVehicle",
+			"StellarEraCosmos", // N 体编排；公开头只在 .cpp 里 include
 			"Voxel",           // StarMapCameraPawn.cpp 的体素调用器（VoxelInvokerComponent.h）
 			"InputCore",
 			"EnhancedInput",   // 只有 StellarEraPlayerController.cpp 用到

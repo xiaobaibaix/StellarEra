@@ -42,7 +42,7 @@ class UCosmosSimulationSubsystem;
  * （约 4 米），肉眼看不出来，但没理由不排对。
  */
 UCLASS(ClassGroup = (Cosmos), meta = (BlueprintSpawnableComponent))
-class UCosmosTrajectoryComponent : public UActorComponent
+class STELLARERACOSMOS_API UCosmosTrajectoryComponent : public UActorComponent
 {
 	GENERATED_BODY()
 

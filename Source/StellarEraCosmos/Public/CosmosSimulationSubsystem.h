@@ -26,7 +26,7 @@ class UCosmosOrbitComponent;
  *   3. 诊断
  */
 UCLASS(Config = Game)
-class UCosmosSimulationSubsystem : public UTickableWorldSubsystem
+class STELLARERACOSMOS_API UCosmosSimulationSubsystem : public UTickableWorldSubsystem
 {
 	GENERATED_BODY()
 
