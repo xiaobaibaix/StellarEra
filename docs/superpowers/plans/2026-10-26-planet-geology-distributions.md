@@ -2892,6 +2892,63 @@ bool FPlanetMineralSurfaceRegionClusteringTest::RunTest(const FString& Parameter
 {
 	using namespace PlanetMineralSurfaceTest;
 
+	// 退化输入：空数组、单盒、零尺寸同点盒（CellSize 退化为 0）。零尺寸时函数早退成
+	// 「各自成簇」而不是并成一簇 —— 没有格边就无法证明两盒相交，宁可少合。
+	{
+		TArray<int32> Roots;
+		PlanetMineralSurface::ClusterRegionBounds(TArray<FBox>(), Roots);
+		TestEqual(TEXT("空输入返回空数组"), Roots.Num(), 0);
+	}
+	{
+		TArray<FBox> Single;
+		Single.Add(FBox(FVector(0.0), FVector(1.0)));
+		TArray<int32> Roots;
+		PlanetMineralSurface::ClusterRegionBounds(Single, Roots);
+		if (TestEqual(TEXT("单盒代表数"), Roots.Num(), 1))
+		{
+			TestEqual(TEXT("单盒代表是自己"), Roots[0], 0);
+		}
+	}
+	{
+		TArray<FBox> Degenerate;
+		for (int32 Index = 0; Index < 4; ++Index)
+		{
+			Degenerate.Add(FBox(FVector(0.5), FVector(0.5)));
+		}
+		TArray<int32> Roots;
+		PlanetMineralSurface::ClusterRegionBounds(Degenerate, Roots);
+		if (TestEqual(TEXT("零尺寸盒代表数"), Roots.Num(), 4))
+		{
+			int32 Merged = 0;
+			for (int32 Index = 0; Index < Roots.Num(); ++Index)
+			{
+				Merged += Roots[Index] == Index ? 0 : 1;
+			}
+			TestEqual(*FString::Printf(TEXT("零尺寸盒各自成簇（被并 %d 个）"), Merged), Merged, 0);
+		}
+	}
+	// 8192 个互不相交的盒子：冒烟 —— 空间哈希若退化成 O(N²)，这里会慢到超时。
+	{
+		TArray<FBox> Many;
+		Many.Reserve(8192);
+		for (int32 Index = 0; Index < 8192; ++Index)
+		{
+			const double X = double(Index) * 4.0;
+			Many.Add(FBox(FVector(X), FVector(X + 1.0)));
+		}
+		TArray<int32> Roots;
+		PlanetMineralSurface::ClusterRegionBounds(Many, Roots);
+		if (TestEqual(TEXT("8192 盒代表数"), Roots.Num(), 8192))
+		{
+			int32 Wrong = 0;
+			for (int32 Index = 0; Index < Roots.Num(); ++Index)
+			{
+				Wrong += Roots[Index] == Index ? 0 : 1;
+			}
+			TestEqual(*FString::Printf(TEXT("互不相交的盒各自成簇（错 %d）"), Wrong), Wrong, 0);
+		}
+	}
+
 	FRandomStream Rng(123456);
 	TArray<FBox> Bounds;
 	for (int32 Index = 0; Index < 400; ++Index)
@@ -3087,6 +3144,11 @@ bool FPlanetMineralSurfaceGridCapTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("触发格数上限后仍然有网格（不跳簇）"),
 		!Result.MeshesByElement[0].IsEmpty());
 	TestTrue(TEXT("确实求过场"), Result.GridPoints > 0);
+	// 上限守卫：这个夹具（1.0 长的脉、半径 0.008）若两条上限都没生效，角点数会是
+	// 1500³ ≈ 3.4e9；只留轴上上限会退到 512³ ≈ 1.3e8。这里只卡上界，不卡精确值 ——
+	// 精确值跟取整与计数口径绑定，写死会假红。
+	TestTrue(*FString::Printf(TEXT("角点数被上限压住（%d）"), Result.GridPoints),
+		Result.GridPoints <= 12000000);
 	return true;
 }
 ```
@@ -3129,7 +3191,7 @@ bool FPlanetMineralViewCellsPerFeatureTest::RunTest(const FString& Parameters)
 
 ```cpp
 		/**
-		 * 一个**特征尺度**（片层=厚度、脉=管半径、浸染=粒径、囊=囊半径）横向切多少格
+		 * 一个**特征尺度**（片层=全厚、脉=管直径、浸染=粒径、囊=囊直径）横向切多少格
 		 * （4..32）。
 		 *
 		 * 这个旋钮跟着生成器的特征尺度走，与行星直径无关 —— 换一颗大行星，
@@ -3333,7 +3395,25 @@ void PlanetMineralSurface::ClusterRegionBounds(const TArray<FBox>& BoundsCm,
 - `double(Params.CellsPerPod)` → `double(Params.CellsPerFeature)`
 - 段首注释里的「矿囊」按语义替换成「区域」；两条硬上限与「绝不跳过」的说明原样保留。
 
-`Build` 文档注释里提到 `PodInfluence` 的那段前提说明保留原文（囊状生成器的边界行为没变）。
+`Build` 文档注释里提到 `PodInfluence` 的那段**必须改**：封闭性的前提已经不是「PodInfluence
+在 d ≥ r 处返回 0」，而是「每个 distribution 的零支持域 ⊆ 它报出的 Region.Bounds」。原文把
+前提锚在旧形态的实现细节上，新增三种形态后这句话是错的，还会诱导后来者只复核囊状生成器。
+改成：
+
+```cpp
+	// 余量安全的前提在**别的模块**：引擎的角点会越过我们采样的 CornerCount，
+	// 越过的那几层由 Implicit 的 Clamp 落回最后一个已采样平面；而这一平面在
+	// **本簇**矿体之外 —— 每个 distribution 的零支持域都落在它报出的
+	// Region.Bounds 之内（EvaluateNormalized 在 Bounds 之外恒为 0），所以
+	// SampleElementNormAtNormalized 在那里返回 0。低于等值线（0 < IsoValue）
+	// 就不会有穿越 —— 这里依赖这个前提：**改任何分布的 bounds 算法（片层的外扩、
+	// 脉的分段包围盒、浸染的抖动后半径）都必须回来复核这一句**；bounds 算小不再
+	// 只是「区域没盖住矿体」，还会在观测视图上开洞。
+```
+
+`PlanetMineralSurface.h` 的 `Build` 文档注释里「外扩一格保证盒子边界上**本簇**矿囊的角点场值为
+0（矿囊表面之外场值恒 0）」同步改成「**本簇**矿体的角点场值为 0（每个分布的零支持域 ⊆ 其
+Region.Bounds）」。
 
 - [ ] **Step 5: 改组件与缓存键**
 
@@ -3341,8 +3421,8 @@ void PlanetMineralSurface::ClusterRegionBounds(const TArray<FBox>& BoundsCm,
 
 ```cpp
 	/**
-	 * 观测视图密度：一个**特征尺度**横向切多少格（片层=厚度、脉=管半径、
-	 * 浸染=粒径、囊=囊半径）。
+	 * 观测视图密度：一个**特征尺度**横向切多少格（片层=全厚、脉=管直径、
+	 * 浸染=粒径、囊=囊直径）。
 	 *
 	 * 12 首进约 0.1–0.3 秒；24 边缘更圆，约 2–4 倍耗时。改动会让缓存失效。
 	 */
@@ -3372,8 +3452,10 @@ grep -rn "CellsPerPod" Source Config Content --include=*.h --include=*.cpp --inc
 `Config/DefaultEngine.ini` 的 `[CoreRedirects]` 段末尾（`PlanetAtmosphereComponent` 那行之后）追加：
 
 ```ini
-; 观测视图的「每囊 N 格」改名成「每特征 N 格」：BP_VoxelPlanet 上存着 32，
-; 没有这条 redirect 会掉回默认 12。
+; 观测视图的「每囊 N 格」改名成「每特征 N 格」：本地这份 UniverseMap 外链 Actor 包
+; （Content/__ExternalActors__/Maps/UniverseMap/4/W8/Z5L3UJGKQYPNHRCJ37BF7A.uasset，未提交）
+; 里的体素行星上存着 32，没有这条 redirect 会掉回默认 12。已提交版本里没有这个字段，
+; 因此这条 redirect 是给本地工作区兜底的：删掉它不会报错，只会静默改分辨率。
 +PropertyRedirects=(OldName="/Script/StellarEraMinerals.PlanetMineralViewComponent.CellsPerPod",NewName="/Script/StellarEraMinerals.PlanetMineralViewComponent.CellsPerFeature")
 ```
 
@@ -3390,7 +3472,57 @@ grep -rn "CellsPerPod" Source Config Content --include=*.h --include=*.cpp --inc
 - `constexpr int32 CellsPerPod = 12;`（ClampSmoke）→ `CellsPerFeature`，后续引用同步
 - 结构体 `FPlanetMineralSurfaceCellsPerPodTest` → `FPlanetMineralSurfaceCellsPerFeatureTest`，
   字符串 `"StellarEra.Planet.MineralSurface.CellsPerPod"` → `"...CellsPerFeature"`
-- `FPlanetMineralSurfacePodLocalTest` 的字符串 `"...MineralSurface.PodLocal"` → `"...MineralSurface.RegionLocal"`
+- `FPlanetMineralSurfacePodLocalTest` → `FPlanetMineralSurfaceRegionLocalTest`，字符串
+  `"...MineralSurface.PodLocal"` → `"...MineralSurface.RegionLocal"`。
+- **同一测试的「允许域」也要换**：它现在用 `Field->GetPods(ElementIndex)` 拼包围盒，而
+  `GetPods` 只对囊状生成器有值（新形态返回空数组）—— 继续用它会得到空盒子，所有顶点都被
+  判越界。整段循环体换成按区域算：
+
+```cpp
+	for (int32 ElementIndex = 0; ElementIndex < Result.MeshesByElement.Num(); ++ElementIndex)
+	{
+		const FPlanetMineralMesh& Mesh = Result.MeshesByElement[ElementIndex];
+		if (Mesh.IsEmpty())
+		{
+			continue;
+		}
+
+		// 该元素所有区域的并集，外扩「1 格」（spec §7.3）。格边按簇内最小特征半径算，
+		// 簇里可能混着更小的区域 —— 取该元素最大特征半径当上界就够；再乘 1.5
+		// 吸收三线性插值（顶点最多离区域包围盒一格）。
+		TArray<FPlanetGeologyRegion> Regions;
+		Field->EnumerateRegions(ElementIndex, Regions);
+		TestTrue(*FString::Printf(TEXT("元素 %d 报出了区域"), ElementIndex), Regions.Num() > 0);
+
+		FBox RegionBounds(ForceInit);
+		double MaxRadiusCm = 0.0;
+		for (const FPlanetGeologyRegion& Region : Regions)
+		{
+			const double RadiusCm = double(Region.CharacteristicRadius) * double(SurfaceRadiusCm);
+			MaxRadiusCm = FMath::Max(MaxRadiusCm, RadiusCm);
+			RegionBounds += FBox(Region.Bounds.Min * SurfaceRadiusCm,
+				Region.Bounds.Max * SurfaceRadiusCm);
+		}
+		// 用与 Build 同一套钳制公式算格边上界，避免夹具变大后上限生效时假红。
+		const double BaseCellSizeCm = 2.0 * MaxRadiusCm / double(Params.CellsPerFeature);
+		const double CellSizeCm = ExpectedCellSizeCm(MaxRadiusCm,
+			RegionBounds.Max - RegionBounds.Min, Params.CellsPerFeature);
+		TestTrue(*FString::Printf(TEXT("元素 %d 的夹具不触发格边上限"), ElementIndex),
+			CellSizeCm == BaseCellSizeCm);
+		RegionBounds = RegionBounds.ExpandBy(FVector(CellSizeCm * 1.5) + FVector::OneVector);
+
+		int32 Outside = 0;
+		for (const FVector3f& Vertex : Mesh.VerticesCm)
+		{
+			if (!RegionBounds.IsInside(FVector(Vertex)))
+			{
+				++Outside;
+			}
+		}
+		TestEqual(*FString::Printf(TEXT("元素 %d 的顶点全在区域包围盒内（越界 %d）"),
+			ElementIndex, Outside), Outside, 0);
+	}
+```
 
 - [ ] **Step 9: 加 BOM 并构建**
 
@@ -4069,8 +4201,8 @@ StellarEra.CreateEarthGeologyPreset: 已保存（覆盖，6 个元素）
 
 ## 观测视图与生成器的关系
 
-观测视图的 `CellsPerFeature` 跟的是生成器的**特征尺度**（片层=厚度、脉=管半径、
-浸染=粒径、囊=囊半径），不是行星直径：换一颗大行星，相对清晰度不变。
+观测视图的 `CellsPerFeature` 跟的是生成器的**特征尺度**（片层=全厚、脉=管直径、
+浸染=粒径、囊=囊直径），不是行星直径：换一颗大行星，相对清晰度不变。
 
 - `ShapeDetail` 要能被观测视图解析，需 `ShapeDetail ≤ CellsPerFeature / 2`
   （默认 3 ≤ 6）。
@@ -4236,7 +4368,11 @@ grep -rn "PodCount\|PodRadiusJitter\|PodDepthBias\|PodDepthCenter\|PodDepthSprea
    基线取迁移前最后一次提交的实测值；若工作区有未提交改动、不便回退代码，
    就写「无基线」并只记新值 —— **不要编数字**。
 6. 退出预览后 `git status` 没有新增脏包。
-7. 打开 `BP_VoxelPlanet3`，`PlanetMineralView` 的 `CellsPerFeature` 仍是 32。
+7. 打开 `UniverseMap`，选中体素行星 Actor，读 `PlanetMineralView` 的 `CellsPerFeature`：
+   这个遗留值存在 `Content/__ExternalActors__/Maps/UniverseMap/4/W8/Z5L3UJGKQYPNHRCJ37BF7A.uasset`
+   这个外链 Actor 包里，**只有本地未提交版本有**（已提交版本没有该字段；`BP_VoxelPlanet3`
+   是体素存档资产，与观测视图无关）。本地这份还在时读到 32 才算 redirect 生效；若该 Actor 包
+   已被还原成已提交版本，记为「无遗留值、读回默认 12」并通过。
 8. 复制 `DA_Geology_Earth` 成 `DA_Geology_Earth_Copy`，打开、保存、删除副本 ——
    内联生成器子对象的归属不出错。
 
