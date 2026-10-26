@@ -1513,9 +1513,16 @@ namespace PlanetGeologyDistributionTest
 					Rng.FRandRange(-1.f, 1.f));
 				CheckPoint(Center + Offset * Extent * 2.0);
 			}
-			for (int32 SampleIndex = 0; SampleIndex < 16; ++SampleIndex)
+			// 壳层点要**避开**特征半径本身：等值面 d = r 上两条路径按定义都是 0，
+			// 正正落在 r 上的探针无论实现对不对都一致，等于白采。
+			// 取 0.9r（球内、值 > 0）与 1.05r（球外一点、值 = 0）两侧夹。
+			for (int32 SampleIndex = 0; SampleIndex < 8; ++SampleIndex)
 			{
-				CheckPoint(Center + Rng.GetUnitVector() * double(Region.CharacteristicRadius));
+				CheckPoint(Center + Rng.GetUnitVector() * double(Region.CharacteristicRadius) * 0.9);
+			}
+			for (int32 SampleIndex = 0; SampleIndex < 8; ++SampleIndex)
+			{
+				CheckPoint(Center + Rng.GetUnitVector() * double(Region.CharacteristicRadius) * 1.05);
 			}
 		}
 		return Mismatches;
@@ -2539,6 +2546,8 @@ bool FPlanetGeologyDisseminatedCountsTest::RunTest(const FString& Parameters)
 	const float MaxRadius = GrainRadius * 1.5f;
 	int32 OutOfRange = 0;
 	int32 OutsideSphere = 0;
+	float MinSeen = TNumericLimits<float>::Max();
+	float MaxSeen = 0.f;
 	for (const FPlanetGeologyRegion& Region : Regions)
 	{
 		if (Region.CharacteristicRadius < MinRadius || Region.CharacteristicRadius > MaxRadius)
@@ -2549,9 +2558,20 @@ bool FPlanetGeologyDisseminatedCountsTest::RunTest(const FString& Parameters)
 		{
 			++OutsideSphere;
 		}
+		MinSeen = FMath::Min(MinSeen, Region.CharacteristicRadius);
+		MaxSeen = FMath::Max(MaxSeen, Region.CharacteristicRadius);
 	}
 	TestEqual(TEXT("颗粒半径都在抖动范围内"), OutOfRange, 0);
 	TestEqual(TEXT("没有颗粒中心越出球体"), OutsideSphere, 0);
+	// 半径带是「落在区间内」，对「抖动被写死、恒定 0.0025」同样成立 —— 所以另起一条比值判据：
+	// 320 粒、±50% 抖动下如果看不到散布，就是 RadiusScale 根本没被乘进去。
+	TestTrue(*FString::Printf(TEXT("粒径抖动确实生效（%.4f..%.4f）"), MinSeen, MaxSeen),
+		MaxSeen > MinSeen * 1.01f);
+
+	// 两次建场逐位一致：种子只解析一次，噪声与随机流同源。
+	TArray<FPlanetGeologyRegion> Rebuilt;
+	MakeField(*Preset)->EnumerateRegions(0, Rebuilt);
+	TestTrue(TEXT("两次建场区域逐位相同"), AreRegionsEqual(Regions, Rebuilt));
 
 	return true;
 }
@@ -2571,6 +2591,9 @@ bool FPlanetGeologyDisseminatedBruteForceTest::RunTest(const FString& Parameters
 	const auto Field = MakeField(*Preset);
 	TArray<FPlanetGeologyRegion> Regions;
 	Field->EnumerateRegions(0, Regions);
+
+	// 区域为空时两条助手都退化成「0 == 0」的空比较，先钉住非空。
+	TestTrue(*FString::Printf(TEXT("区域非空（%d）"), Regions.Num()), Regions.Num() > 0);
 
 	FRandomStream Rng(16180);
 	TestEqual(TEXT("索引路径 == 暴力路径"),
@@ -2601,8 +2624,8 @@ bool FPlanetGeologyDisseminatedBruteForceTest::RunTest(const FString& Parameters
 /**
  * 浸染状分布。
  *
- * 成本随 GrainCount 线性涨：默认 512 粒约 110 万观测视图角点。
- * 想更密先加 GrainRadius（角点 ∝ 粒径²），再加数量。
+ * 成本随 GrainCount 线性涨；每粒在观测视图里的角点数 ∝ 粒径²，
+ * 所以想更密先加 GrainRadius，再加数量。
  */
 UCLASS(DisplayName = "浸染（散布）", EditInlineNew)
 class STELLARERAGEOLOGY_API UPlanetGeologyDisseminatedDistribution
