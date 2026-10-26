@@ -3913,12 +3913,15 @@ bool FPlanetGeologyPresetNestedEditTest::RunTest(const FString& Parameters)
 #endif
 ```
 
-include 区加：
+include 区加（五个都要：新 `EarthPresetValues` 里对四种生成器都有 `Cast<>`，
+少了哪个都编不过）：
 
 ```cpp
+#include "PlanetGeologyDisseminatedDistribution.h"
 #include "PlanetGeologyField.h"
 #include "PlanetGeologyLensDistribution.h"
 #include "PlanetGeologySpherePodsDistribution.h"
+#include "PlanetGeologyVeinDistribution.h"
 ```
 
 3. `EarthPresetValues` 整块替换（新数据见 spec §8）：
@@ -4392,6 +4395,35 @@ Task 8 重建资产后再跑本节，该条转绿才证明磁盘上的资产真�
 同一个文件的「## 已知缺口：同元素相邻簇的盒边截断」一段里，
 「观测视图按矿囊的空间邻近关系分簇」「对方的矿囊会落进」两处「矿囊」改为「区域」，
 其余判据与结论不变（那条缺口仍在，只是现在对四种形态都成立）。
+
+同文件还有两处仍在教人调**已 Deprecated** 的字段，一并改：
+
+1. `## 数值约束` 整段换成（收敛因子的分母是「簇内最小特征半径」，不再是 `PodRadius`）：
+
+```markdown
+## 数值约束
+
+地表几何的 `GetSurfaceRadiusVoxels` 是不动点迭代，收敛因子约为
+
+    GeometryAmplitude · √2 / (簇内最小特征半径 · 行星半径的体素数)
+
+出货的地球值约 1e-3，收敛干净。`GeometryAmplitude 64` + 特征半径 0.001 这类组合会
+大于 1、迭代发散 —— 症状是「脚下的地面与看见的表面差几体素」，不是崩溃。调这两个
+参数前按上式估一下。
+```
+
+2. `## 已知缺口` 段末尾的 `但 PodRadius / PodCount 调大后簇更多、格边更宽，碰到它的概率会上升`
+   换成 `但把特征尺度调小（格边更细）后，本簇盒子更容易吃到邻簇那一格余量，概率会上升`。
+
+`PlanetGeologyPreset.h` 里两条遗留字段的注释也别再教人调它们：
+
+- `Abundance` 的注释 `想改矿囊密度请调 PodCount / PodRadius。` →
+  `想改矿囊密度请给元素挂一个囊状生成器。`
+- `PodRadius` 的注释里 `想看不同元素互相穿插，就把这个值调大，别只加 PodCount。` →
+  `想看不同元素互相穿插，改生成器的参数（本字段只服务旧资产迁移）。`
+
+`PlanetGeologyPodTests.cpp` 的 `Params.ShapeDetail = 3.0f;` 是死写入 —— `MakeElement`
+已经在生成器上设过同一个值，且遗留路径因 `PodCount = 0` 不再走。删掉这一行。
 
 `CLAUDE.md` 的「关键类」表加一行（放在 `AVoxelPlanetActor` 之前）：
 
