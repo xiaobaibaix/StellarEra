@@ -260,6 +260,11 @@ void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildP
 		// CornerCount = CellCount + 1，所以除数要先减掉这 3 格/角点 —— 否则取整会把
 		// 上限顶破几个百分点（例：pow(8e6, 1/3) ≈ 200 时实际得到 203³ = 8,365,427）。
 		//
+		// 两条上限谁先触发是**定的**：它们共用同一个被除数（外扩后的最长轴），而总角点上
+		// 限的除数 `pow(8e6, 1/3) - 3 ≈ 197` 恒小于轴上上限的 `512 - 2 = 510` —— 所以
+		// **轴上上限永远不会先触发**，任何触发都表现为总角点上限。留着它只为防止将来
+		// 有人只调其中一个常量时漏掉另一条（见 Step 1 的 GridCap 测试）。
+		//
 		// 为什么不能只靠引擎自己的兜底：FMarchingCubes::SetDimensions 在
 		// MaxDim > SafetyMaxDimension（4096）时会静默改写 CubeSize，而 Implicit
 		// 闭包捕获的是我们自己算的 CellSize，两者错位后求值点与顶点就落在不同
@@ -290,10 +295,11 @@ void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildP
 		// 只是「区域没盖住矿体」，还会在观测视图上开洞。
 		//
 		// 注意范围：簇之间只保证 AABB 不相交，不保证相隔一格。同一元素**其它簇**的
-		// 矿囊可以离本簇盒子不到一格，其包围盒与该「最后采样平面」相交时那一层角点
-		// 场值就不为 0 —— 封闭性结论只对本簇矿囊成立。默认预设（半径集中在
-		// 0.038~0.05）下这很罕见，但 PodRadius / PodCount 调大会让簇更多、格边更宽，
-		// 概率随之上长 —— README 里「先把 PodRadius 调大」的建议因此不是零代价的。
+		// 矿体可以离本簇盒子不到一格，其包围盒与该「最后采样平面」相交时那一层角点
+		// 场值就不为 0 —— 封闭性结论只对本簇矿囊成立。默认预设（片层半厚 0.008、
+		// 脉半径 0.009、浸染粒径 0.0015）下这很罕见，但把特征尺度调小（例如片层厚度
+		// 减半）会让格边更细、簇内最小半径更小，概率随之上长 —— README 里「厚度减半、
+		// 角点涨约 4 倍」的代价不只是内存。
 		const FVector PaddedMin = Box.Min - FVector(CellSize);
 		const FVector PaddedMax = Box.Max + FVector(CellSize);
 		const FIntVector CellCount(
