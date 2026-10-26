@@ -264,11 +264,12 @@ struct STELLARERAGEOLOGY_API FPlanetGeologyDistributionNoise
 	 */
 	float EvaluateAt(const FVector& NoiseSpacePoint) const;
 
-	/** 阈值稀疏后的 [0,1]；FeatureRadius ≤ 0 时恒 0。 */
+	/** 阈值稀疏后的 [0,1]；FeatureRadius < 1e-4 时恒 0（半径趋零会把坐标缩放炸掉）。 */
 	float EvaluateVein(const FVector& P) const;
 
 	float FeatureRadius = 0.f;
 	float ShapeDetail = 3.f;
+	/** Init 会把它烘进 FVoxelFastNoise 的 FractalBounding；改它必须重新 Init，否则分形不再归一化。 */
 	int32 Octaves = 2;
 	float VeinThreshold = 0.f;
 
@@ -280,7 +281,8 @@ private:
  * 带权深度放置：返回归一化球内的位置（|P| ≤ 1）。
  *
  * 随机流顺序与旧 PlacePods 逐位一致（方向 → 初始半径 → 可选拒绝采样循环），
- * 迁移保真测试依赖这一点。
+ * 迁移保真测试依赖这一点 —— 所以**调用方必须先抽半径抖动**（旧 PlacePods 的第一步），
+ * 少抽一次就整体错位。
  */
 STELLARERAGEOLOGY_API FVector SamplePlanetGeologyPlacement(FRandomStream& Rng,
 	float DepthBias, float DepthCenter, float DepthSpread);
@@ -342,8 +344,11 @@ public:
 	/** 解析后的种子。新生成器按 spec §2.3 派生；迁移数据走 bSeedExplicit。 */
 	int32 ResolveSeed(FName ElementId, int32 DistributionIndex) const;
 
+	// 不能写 `= 0`：UHT 的 GENERATED_BODY() 会实例化 UCLASS，纯虚声明让 gen.cpp 编不过（C2259）。
+	// PURE_VIRTUAL 是 UE 的等价写法：UHT 可实例化，漏实现则在调用点 fatal。
 	virtual TSharedPtr<const FPlanetGeologyDistributionRuntime> BuildRuntime(
-		const FPlanetGeologyDistributionBuildContext& Context) const = 0;
+		const FPlanetGeologyDistributionBuildContext& Context) const
+		PURE_VIRTUAL(UPlanetGeologyDistribution::BuildRuntime, return nullptr;);
 
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
@@ -372,6 +377,8 @@ void FPlanetGeologyDistributionNoise::Init(const int32 InSeed, const float InFea
 	const float InShapeDetail, const int32 InOctaves, const float InLacunarity,
 	const float InGain, const float InVeinThreshold)
 {
+	// 不在这里抬到 1e-4：抬了会让「特征半径为 0 时恒 0」那条测试失效。
+	// 极小半径的保护放在 EvaluateVein 里。
 	FeatureRadius = FMath::Max(InFeatureRadius, 0.f);
 	ShapeDetail = FMath::Max(InShapeDetail, 1.f);
 	Octaves = FMath::Clamp(InOctaves, 1, 6);
@@ -397,14 +404,17 @@ float FPlanetGeologyDistributionNoise::EvaluateAt(const FVector& NoiseSpacePoint
 
 float FPlanetGeologyDistributionNoise::EvaluateVein(const FVector& P) const
 {
-	if (FeatureRadius <= 0.f)
+	// 1e-4 与旧实现的 Max(PodRadius, 1e-4) 对齐：半径趋近 0 时 Scale 会炸成天文数字，
+	// 噪声坐标失去意义。小于它一律当 0（旧路径上这种囊本身也不产出）。
+	if (FeatureRadius < 1e-4f)
 	{
 		return 0.f;
 	}
 
 	// 频率折叠进坐标：ShapeDetail 是「每特征直径的周期数」，直径 = 2r。
+	// 用 double 乘（FVector 分量本来就是 double），不要先把 Scale 窄化成 float。
 	const double Scale = double(ShapeDetail) / (2.0 * double(FeatureRadius));
-	const double Noise01 = double(EvaluateAt(P * float(Scale)));
+	const double Noise01 = double(EvaluateAt(P * Scale));
 	if (VeinThreshold <= 0.0)
 	{
 		return float(Noise01);
@@ -450,6 +460,8 @@ FVector SamplePlanetGeologyPlacement(FRandomStream& Rng, const float InDepthBias
 
 FIntVector PlanetGeologyToCell(const FVector& Point, const double CellSize)
 {
+	// CellSize ≤ 0 会让除法出 inf，FloorToInt 是 UB，后面的格子循环还会跑飞。
+	check(CellSize > 0.0);
 	return FIntVector(
 		FMath::FloorToInt(Point.X / CellSize),
 		FMath::FloorToInt(Point.Y / CellSize),
@@ -482,9 +494,11 @@ int32 UPlanetGeologyDistribution::ResolveSeed(const FName ElementId,
 	{
 		return Seed;
 	}
-	const uint32 Mixed = uint32(GetTypeHash(ElementId))
+	// 必须哈希字符串：GetTypeHash(FName) 取的是名字池下标，跨进程不稳定，
+	// 编辑器与打包版会长出不同的矿。GetTypeHash(FString) 走 FCrc::Strihash，是确定性的。
+	const uint32 Mixed = GetTypeHash(ElementId.ToString())
 		^ (uint32(DistributionIndex) * 0x9E3779B1u)
-		^ uint32(GetTypeHash(GetClass()->GetFName()));
+		^ GetTypeHash(GetClass()->GetFName().ToString());
 	return int32(Mixed & 0x7fffffffu);
 }
 
@@ -798,6 +812,19 @@ bool FPlanetGeologyDistributionSeedTest::RunTest(const FString& Parameters)
 		const TArray<FPlanetGeologyRegion> First(Regions.GetData(), 6);
 		const TArray<FPlanetGeologyRegion> Second(Regions.GetData() + 6, 6);
 		TestTrue(TEXT("同种子两次生成逐位相同"), AreRegionsEqual(First, Second));
+	}
+
+	// 4) 跨进程稳定：把派生结果钉成字面量。
+	// GetTypeHash(FName) 取的是名字池下标，换个进程就可能变；字符串哈希（FCrc::Strihash）才是确定的。
+	// 这条字面量让「悄悄改回 FName 哈希」立刻变成失败。首次实现时先写成 0，
+	// 从失败信息读出实际值再填回来 —— 不要反过来先算出值再写测试。
+	{
+		UPlanetGeologyPreset* Preset = MakePreset();
+		UPlanetGeologySpherePodsDistribution* Distribution =
+			NewObject<UPlanetGeologySpherePodsDistribution>(Preset);
+		Distribution->Seed = 0;
+		TestEqual(TEXT("ResolveSeed 对 iron/生成器 3 的派生值是钉住的字面量"),
+			Distribution->ResolveSeed(TEXT("iron"), 3), 0 /* ← 首跑后换成实际值 */);
 	}
 
 	return true;

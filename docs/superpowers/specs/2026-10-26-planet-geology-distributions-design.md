@@ -93,10 +93,15 @@ struct FPlanetGeologyElementParams
 ```
 ResolvedSeed = Seed != 0
     ? Seed
-    : int32(GetTypeHash(元素 Id) ^ (生成器下标 * 0x9E3779B1) ^ GetTypeHash(子类名))
+    : int32(GetTypeHash(元素 Id.ToString())
+             ^ (生成器下标 * 0x9E3779B1)
+             ^ GetTypeHash(子类名.ToString()))
 ```
 
 - 新生成器使用上式；不同元素、不同生成器、不同形态默认互不相关。
+- **必须哈希字符串，不能哈希 `FName` 本身**：`GetTypeHash(FName)` 取的是比较索引（名字池下标），
+  跨进程/跨机器不稳定，编辑器与打包版会长出不同的矿。`GetTypeHash(FString)` 走 `FCrc::Strihash`
+  （对字符内容做 CRC），是确定性的。
 - **生成器重排会改变形状**（种子含下标）。写进 README。
 - 迁移出的囊状生成器**不使用上式**，直接写入旧规则算出的 `ResolvedSeed`（见 §7.2）。
 
