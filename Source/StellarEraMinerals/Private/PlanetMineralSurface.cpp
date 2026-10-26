@@ -282,10 +282,12 @@ void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildP
 		//
 		// 余量安全的前提在**别的模块**：引擎的角点会越过我们采样的 CornerCount，
 		// 越过的那几层由 Implicit 的 Clamp 落回最后一个已采样平面；而这一平面在
-		// **本簇**矿囊的包围盒之外，SampleElementNormAtNormalized 在那里返回 0 是
-		// 因为 PlanetGeologyField 的 PodInfluence 在 d ≥ r 处**严格**返回 0
-		// （无浮点残渣）。低于等值线（0 < IsoValue）就不会有穿越 —— 这里依赖
-		// 那个前提，改动 PodInfluence 的边界行为时必须回来复核。
+		// **本簇**矿体之外 —— 每个 distribution 的零支持域都落在它报出的
+		// Region.Bounds 之内（EvaluateNormalized 在 Bounds 之外恒为 0），所以
+		// SampleElementNormAtNormalized 在那里返回 0。低于等值线（0 < IsoValue）
+		// 就不会有穿越 —— 这里依赖这个前提：**改任何分布的 bounds 算法（片层的外扩、
+		// 脉的分段包围盒、浸染的抖动后半径）都必须回来复核这一句**；bounds 算小不再
+		// 只是「区域没盖住矿体」，还会在观测视图上开洞。
 		//
 		// 注意范围：簇之间只保证 AABB 不相交，不保证相隔一格。同一元素**其它簇**的
 		// 矿囊可以离本簇盒子不到一格，其包围盒与该「最后采样平面」相交时那一层角点

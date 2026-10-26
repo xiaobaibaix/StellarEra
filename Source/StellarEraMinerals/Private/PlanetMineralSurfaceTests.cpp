@@ -215,11 +215,11 @@ bool FPlanetMineralSurfaceClosedMeshTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfacePodLocalTest,
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceRegionLocalTest,
 	"StellarEra.Planet.MineralSurface.RegionLocal",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FPlanetMineralSurfacePodLocalTest::RunTest(const FString& Parameters)
+bool FPlanetMineralSurfaceRegionLocalTest::RunTest(const FString& Parameters)
 {
 	using namespace PlanetMineralSurfaceTest;
 
@@ -240,35 +240,39 @@ bool FPlanetMineralSurfacePodLocalTest::RunTest(const FString& Parameters)
 			continue;
 		}
 
-		// 该元素所有矿囊包围盒的并集，外扩「1 格」（spec §7.3）。格边按簇内最小
-		// 半径算，簇里可能混着更小的矿囊 —— 取该元素最大矿囊半径当上界就够；
-		// 再乘 1.5 吸收三线性插值（顶点最多离矿囊包围盒一格）。
-		FBox PodBounds(ForceInit);
-		double MaxPodRadiusCm = 0.0;
-		for (const FPlanetGeologyPod& Pod : Field->GetPods(ElementIndex))
+		// 该元素所有区域的并集，外扩「1 格」（spec §7.3）。格边按簇内最小特征半径算，
+		// 簇里可能混着更小的区域 —— 取该元素最大特征半径当上界就够；再乘 1.5
+		// 吸收三线性插值（顶点最多离区域包围盒一格）。
+		TArray<FPlanetGeologyRegion> Regions;
+		Field->EnumerateRegions(ElementIndex, Regions);
+		TestTrue(*FString::Printf(TEXT("元素 %d 报出了区域"), ElementIndex), Regions.Num() > 0);
+
+		FBox RegionBounds(ForceInit);
+		double MaxRadiusCm = 0.0;
+		for (const FPlanetGeologyRegion& Region : Regions)
 		{
-			const FVector CenterCm = Pod.Center * SurfaceRadiusCm;
-			const double RadiusCm = double(Pod.Radius) * double(SurfaceRadiusCm);
-			MaxPodRadiusCm = FMath::Max(MaxPodRadiusCm, RadiusCm);
-			PodBounds += FBox(CenterCm - FVector(RadiusCm), CenterCm + FVector(RadiusCm));
+			const double RadiusCm = double(Region.CharacteristicRadius) * double(SurfaceRadiusCm);
+			MaxRadiusCm = FMath::Max(MaxRadiusCm, RadiusCm);
+			RegionBounds += FBox(Region.Bounds.Min * SurfaceRadiusCm,
+				Region.Bounds.Max * SurfaceRadiusCm);
 		}
 		// 用与 Build 同一套钳制公式算格边上界，避免夹具变大后上限生效时假红。
-		const double BaseCellSizeCm = 2.0 * MaxPodRadiusCm / double(Params.CellsPerFeature);
-		const double CellSizeCm = ExpectedCellSizeCm(MaxPodRadiusCm,
-			PodBounds.Max - PodBounds.Min, Params.CellsPerFeature);
+		const double BaseCellSizeCm = 2.0 * MaxRadiusCm / double(Params.CellsPerFeature);
+		const double CellSizeCm = ExpectedCellSizeCm(MaxRadiusCm,
+			RegionBounds.Max - RegionBounds.Min, Params.CellsPerFeature);
 		TestTrue(*FString::Printf(TEXT("元素 %d 的夹具不触发格边上限"), ElementIndex),
 			CellSizeCm == BaseCellSizeCm);
-		PodBounds = PodBounds.ExpandBy(FVector(CellSizeCm * 1.5) + FVector::OneVector);
+		RegionBounds = RegionBounds.ExpandBy(FVector(CellSizeCm * 1.5) + FVector::OneVector);
 
 		int32 Outside = 0;
 		for (const FVector3f& Vertex : Mesh.VerticesCm)
 		{
-			if (!PodBounds.IsInside(FVector(Vertex)))
+			if (!RegionBounds.IsInside(FVector(Vertex)))
 			{
 				++Outside;
 			}
 		}
-		TestEqual(*FString::Printf(TEXT("元素 %d 的顶点全在矿囊包围盒内（越界 %d）"),
+		TestEqual(*FString::Printf(TEXT("元素 %d 的顶点全在区域包围盒内（越界 %d）"),
 			ElementIndex, Outside), Outside, 0);
 	}
 	return true;
@@ -1050,6 +1054,63 @@ bool FPlanetMineralSurfaceRegionClusteringTest::RunTest(const FString& Parameter
 {
 	using namespace PlanetMineralSurfaceTest;
 
+	// 退化输入：空数组、单盒、零尺寸同点盒（CellSize 退化为 0）。零尺寸时函数早退成
+	// 「各自成簇」而不是并成一簇 —— 没有格边就无法证明两盒相交，宁可少合。
+	{
+		TArray<int32> Roots;
+		PlanetMineralSurface::ClusterRegionBounds(TArray<FBox>(), Roots);
+		TestEqual(TEXT("空输入返回空数组"), Roots.Num(), 0);
+	}
+	{
+		TArray<FBox> Single;
+		Single.Add(FBox(FVector(0.0), FVector(1.0)));
+		TArray<int32> Roots;
+		PlanetMineralSurface::ClusterRegionBounds(Single, Roots);
+		if (TestEqual(TEXT("单盒代表数"), Roots.Num(), 1))
+		{
+			TestEqual(TEXT("单盒代表是自己"), Roots[0], 0);
+		}
+	}
+	{
+		TArray<FBox> Degenerate;
+		for (int32 Index = 0; Index < 4; ++Index)
+		{
+			Degenerate.Add(FBox(FVector(0.5), FVector(0.5)));
+		}
+		TArray<int32> Roots;
+		PlanetMineralSurface::ClusterRegionBounds(Degenerate, Roots);
+		if (TestEqual(TEXT("零尺寸盒代表数"), Roots.Num(), 4))
+		{
+			int32 Merged = 0;
+			for (int32 Index = 0; Index < Roots.Num(); ++Index)
+			{
+				Merged += Roots[Index] == Index ? 0 : 1;
+			}
+			TestEqual(*FString::Printf(TEXT("零尺寸盒各自成簇（被并 %d 个）"), Merged), Merged, 0);
+		}
+	}
+	// 8192 个互不相交的盒子：冒烟 —— 空间哈希若退化成 O(N²)，这里会慢到超时。
+	{
+		TArray<FBox> Many;
+		Many.Reserve(8192);
+		for (int32 Index = 0; Index < 8192; ++Index)
+		{
+			const double X = double(Index) * 4.0;
+			Many.Add(FBox(FVector(X), FVector(X + 1.0)));
+		}
+		TArray<int32> Roots;
+		PlanetMineralSurface::ClusterRegionBounds(Many, Roots);
+		if (TestEqual(TEXT("8192 盒代表数"), Roots.Num(), 8192))
+		{
+			int32 Wrong = 0;
+			for (int32 Index = 0; Index < Roots.Num(); ++Index)
+			{
+				Wrong += Roots[Index] == Index ? 0 : 1;
+			}
+			TestEqual(*FString::Printf(TEXT("互不相交的盒各自成簇（错 %d）"), Wrong), Wrong, 0);
+		}
+	}
+
 	FRandomStream Rng(123456);
 	TArray<FBox> Bounds;
 	for (int32 Index = 0; Index < 400; ++Index)
@@ -1245,6 +1306,11 @@ bool FPlanetMineralSurfaceGridCapTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("触发格数上限后仍然有网格（不跳簇）"),
 		!Result.MeshesByElement[0].IsEmpty());
 	TestTrue(TEXT("确实求过场"), Result.GridPoints > 0);
+	// 上限守卫：这个夹具（1.0 长的脉、半径 0.008）若两条上限都没生效，角点数会是
+	// 1500³ ≈ 3.4e9；只留轴上上限会退到 512³ ≈ 1.3e8。这里只卡上界，不卡精确值 ——
+	// 精确值跟取整与计数口径绑定，写死会假红。
+	TestTrue(*FString::Printf(TEXT("角点数被上限压住（%d）"), Result.GridPoints),
+		Result.GridPoints <= 12000000);
 	return true;
 }
 
