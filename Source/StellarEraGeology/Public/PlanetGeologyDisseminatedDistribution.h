@@ -10,8 +10,8 @@
 /**
  * 浸染状分布。
  *
- * 成本随 GrainCount 线性涨：默认 512 粒约 110 万观测视图角点。
- * 想更密先加 GrainRadius（角点 ∝ 粒径²），再加数量。
+ * 成本随 GrainCount 线性涨；每粒在观测视图里的角点数 ∝ 粒径²，
+ * 所以想更密先加 GrainRadius，再加数量。
  */
 UCLASS(DisplayName = "浸染（散布）", EditInlineNew)
 class STELLARERAGEOLOGY_API UPlanetGeologyDisseminatedDistribution

@@ -338,7 +338,9 @@ namespace PlanetGeologyDistributionTest
 	/** 加速路径与暴力路径的逐点一致性。
 	 *
 	 * 采样范围必须**超出**上报的包围盒：只在盒内采样时，包围盒算小了也发现不了 ——
-	 * 盒内每一格索引都登记过，当然一致。所以区域点按 2× extent 采，再沿特征半径补壳层点。
+	 * 盒内每一格索引都登记过，当然一致。所以区域点按 2× extent 采，再在特征半径内侧 0.9r、
+	 * 外侧 1.05r 各补 8 点 —— 刻意避开 d = r 的等值面：那里两条路径按定义都返回 0，
+	 * 探针无论实现对错都一致，判别力为零。
 	 * 失配要打出坐标：不说清是哪个点、差多少，两个 0.x 的浮点差根本 loc 不到。
 	 */
 	int32 CountBruteForceMismatches(FAutomationTestBase& Test, const FPlanetGeologyField& Field,
@@ -378,9 +380,13 @@ namespace PlanetGeologyDistributionTest
 					Rng.FRandRange(-1.f, 1.f));
 				CheckPoint(Center + Offset * Extent * 2.0);
 			}
-			for (int32 SampleIndex = 0; SampleIndex < 16; ++SampleIndex)
+			for (int32 SampleIndex = 0; SampleIndex < 8; ++SampleIndex)
 			{
-				CheckPoint(Center + Rng.GetUnitVector() * double(Region.CharacteristicRadius));
+				CheckPoint(Center + Rng.GetUnitVector() * (0.9 * double(Region.CharacteristicRadius)));
+			}
+			for (int32 SampleIndex = 0; SampleIndex < 8; ++SampleIndex)
+			{
+				CheckPoint(Center + Rng.GetUnitVector() * (1.05 * double(Region.CharacteristicRadius)));
 			}
 		}
 		return Mismatches;
@@ -738,6 +744,8 @@ bool FPlanetGeologyDisseminatedCountsTest::RunTest(const FString& Parameters)
 	const float MaxRadius = GrainRadius * 1.5f;
 	int32 OutOfRange = 0;
 	int32 OutsideSphere = 0;
+	float MinSeen = TNumericLimits<float>::Max();
+	float MaxSeen = 0.f;
 	for (const FPlanetGeologyRegion& Region : Regions)
 	{
 		if (Region.CharacteristicRadius < MinRadius || Region.CharacteristicRadius > MaxRadius)
@@ -748,9 +756,20 @@ bool FPlanetGeologyDisseminatedCountsTest::RunTest(const FString& Parameters)
 		{
 			++OutsideSphere;
 		}
+		MinSeen = FMath::Min(MinSeen, Region.CharacteristicRadius);
+		MaxSeen = FMath::Max(MaxSeen, Region.CharacteristicRadius);
 	}
 	TestEqual(TEXT("颗粒半径都在抖动范围内"), OutOfRange, 0);
 	TestEqual(TEXT("没有颗粒中心越出球体"), OutsideSphere, 0);
+	// 半径带是「落在区间内」，对「抖动被写死、恒定 0.0025」同样成立 —— 所以另起一条比值判据：
+	// 320 粒、±50% 抖动下如果看不到散布，就是 RadiusScale 根本没被乘进去。
+	TestTrue(*FString::Printf(TEXT("粒径抖动确实生效（%.4f..%.4f）"), MinSeen, MaxSeen),
+		MaxSeen > MinSeen * 1.01f);
+
+	// 两次建场逐位一致：种子只解析一次，噪声与随机流同源。
+	TArray<FPlanetGeologyRegion> Rebuilt;
+	MakeField(*Preset)->EnumerateRegions(0, Rebuilt);
+	TestTrue(TEXT("两次建场区域逐位相同"), AreRegionsEqual(Regions, Rebuilt));
 
 	return true;
 }
@@ -770,6 +789,9 @@ bool FPlanetGeologyDisseminatedBruteForceTest::RunTest(const FString& Parameters
 	const auto Field = MakeField(*Preset);
 	TArray<FPlanetGeologyRegion> Regions;
 	Field->EnumerateRegions(0, Regions);
+
+	// 区域为空时两条助手都退化成「0 == 0」的空比较，先钉住非空。
+	TestTrue(*FString::Printf(TEXT("区域非空（%d）"), Regions.Num()), Regions.Num() > 0);
 
 	FRandomStream Rng(16180);
 	TestEqual(TEXT("索引路径 == 暴力路径"),
