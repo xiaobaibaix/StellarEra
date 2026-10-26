@@ -2927,7 +2927,8 @@ bool FPlanetMineralSurfaceRegionClusteringTest::RunTest(const FString& Parameter
 			TestEqual(*FString::Printf(TEXT("零尺寸盒各自成簇（被并 %d 个）"), Merged), Merged, 0);
 		}
 	}
-	// 8192 个互不相交的盒子：冒烟 —— 空间哈希若退化成 O(N²)，这里会慢到超时。
+	// 8192 个互不相交的盒子：只验正确性。自动化没有逐测试超时，退化成 O(N²)
+	// （约 6700 万次比较）不会变红、只是慢 —— 别把这条当性能守卫。
 	{
 		TArray<FBox> Many;
 		Many.Reserve(8192);
@@ -3124,31 +3125,76 @@ bool FPlanetMineralSurfaceGridCapTest::RunTest(const FString& Parameters)
 	FPlanetGeologyElementParams& Element = Preset->Elements.AddDefaulted_GetRef();
 	Element.Id = TEXT("longvein");
 	Element.DisplayName = TEXT("长脉");
+	// 半径取得比默认小：基准格边 ∝ 半径，未钳制角点 ∝ (1/半径)²，而钳制后的角点只由
+	// 包围盒定 —— 半径越小，「未钳制 / 钳制后」的比值越大，守卫的鉴别力越强。
+	//
+	// 别指望「512 格/轴」那条：它在本实现里恒不生效（两条上限共用被除数，除数
+	// 197 < 510，见 Step 3）；`VeinLength = 1.0` 也长不到整个球（`GrowChain` 在球面处停）。
+	// 所以本夹具触发的是**总角点上限**，断言也按它写。
 	UPlanetGeologyVeinDistribution* Vein =
 		AddDistribution<UPlanetGeologyVeinDistribution>(*Preset, Element);
 	Vein->VeinCount = 1;
-	Vein->VeinLength = 1.0f;      // 单簇可跨整个球：必然撞 512 格/轴上限
-	Vein->VeinRadius = 0.008f;
+	Vein->VeinLength = 1.0f;
+	Vein->VeinRadius = 0.004f;
 	Vein->RadiusJitter = 0.f;
 	Vein->BranchCount = 0;
 	Vein->DepthBias = 0.f;
 
 	const auto Field = MakeField(*Preset);
+	const PlanetMineralSurface::FBuildParams Params = MakeParams(*Field, 12);
 	PlanetMineralSurface::FBuildResult Result;
-	PlanetMineralSurface::Build(*Field, MakeParams(*Field, 12), Result);
+	PlanetMineralSurface::Build(*Field, Params, Result);
 
 	if (!TestEqual(TEXT("一个元素一块网格"), Result.MeshesByElement.Num(), 1))
 	{
 		return false;
 	}
-	TestTrue(TEXT("触发格数上限后仍然有网格（不跳簇）"),
-		!Result.MeshesByElement[0].IsEmpty());
-	TestTrue(TEXT("确实求过场"), Result.GridPoints > 0);
-	// 上限守卫：这个夹具（1.0 长的脉、半径 0.008）若两条上限都没生效，角点数会是
-	// 1500³ ≈ 3.4e9；只留轴上上限会退到 512³ ≈ 1.3e8。这里只卡上界，不卡精确值 ——
-	// 精确值跟取整与计数口径绑定，写死会假红。
-	TestTrue(*FString::Printf(TEXT("角点数被上限压住（%d）"), Result.GridPoints),
-		Result.GridPoints <= 12000000);
+	TestTrue(TEXT("触发上限后仍然有网格（不跳簇）"), !Result.MeshesByElement[0].IsEmpty());
+
+	// 解析复算未钳制 / 钳制后的角点数：全部从 Region 数据推，不写死数量级。
+	// 判据必须挂在**上限公式**上，而不是「一个足够大的常数」—— 常数既可能被夹具
+	// 悄悄满足（上一版就是这样），也可能随取整口径变化假红。
+	TArray<FPlanetGeologyRegion> Regions;
+	Field->EnumerateRegions(0, Regions);
+	if (!TestTrue(TEXT("报出了区域"), Regions.Num() > 0))
+	{
+		return false;
+	}
+
+	FBox Bounds(ForceInit);
+	double MinRadiusCm = TNumericLimits<double>::Max();
+	for (const FPlanetGeologyRegion& Region : Regions)
+	{
+		Bounds += FBox(Region.Bounds.Min * SurfaceRadiusCm, Region.Bounds.Max * SurfaceRadiusCm);
+		MinRadiusCm = FMath::Min(MinRadiusCm,
+			double(Region.CharacteristicRadius) * double(SurfaceRadiusCm));
+	}
+	const FVector RawExtentCm = Bounds.Max - Bounds.Min;
+	const double BaseCellSizeCm = 2.0 * MinRadiusCm / double(Params.CellsPerFeature);
+	const double ClampedCellSizeCm =
+		ExpectedCellSizeCm(MinRadiusCm, RawExtentCm, Params.CellsPerFeature);
+
+	auto CountCorners = [](const FVector& ExtentCm, double CellSizeCm)
+	{
+		int64 Product = 1;
+		for (int32 Axis = 0; Axis < 3; ++Axis)
+		{
+			Product *= int64(FMath::CeilToInt((ExtentCm[Axis] + 2.0 * CellSizeCm) / CellSizeCm)) + 1;
+		}
+		return Product;
+	};
+	const int64 UnclampedCorners = CountCorners(RawExtentCm, BaseCellSizeCm);
+	const int64 ClampedCorners = CountCorners(RawExtentCm, ClampedCellSizeCm);
+	AddInfo(FString::Printf(
+		TEXT("基准格边 %.5f → 钳制后 %.5f cm，未钳制角点 %lld → 钳制后 %lld，实际 GridPoints %d"),
+		BaseCellSizeCm, ClampedCellSizeCm, UnclampedCorners, ClampedCorners, Result.GridPoints));
+
+	TestTrue(*FString::Printf(TEXT("总角点上限确实生效（格边 %.5f → %.5f cm）"),
+		BaseCellSizeCm, ClampedCellSizeCm), ClampedCellSizeCm > BaseCellSizeCm * 1.2);
+	TestTrue(*FString::Printf(TEXT("夹具未钳制时角点远超钳制后（%lld vs %lld）"),
+		UnclampedCorners, ClampedCorners), UnclampedCorners > 2 * ClampedCorners);
+	TestTrue(*FString::Printf(TEXT("实际角点被压到钳制后量级（%d vs %lld）"),
+		Result.GridPoints, ClampedCorners), Result.GridPoints <= 2 * ClampedCorners);
 	return true;
 }
 ```
@@ -3221,8 +3267,20 @@ bool FPlanetMineralViewCellsPerFeatureTest::RunTest(const FString& Parameters)
 4. `Build` 的文档注释把「按矿囊的空间邻近关系分簇（用未外扩的 AABB 判相交、并查集合并）」
    改成「按区域的空间邻近关系分簇（未外扩的 AABB 相交即同簇，空间哈希 + 并查集）」，
    并把「基准格边 = 2 × 簇内最小矿囊半径 / CellsPerPod」改成
-   「基准格边 = 2 × 簇内最小特征半径 / CellsPerFeature」。其余（两条硬上限、绝不跳簇、
-   径向夹回）原文保留。
+   「基准格边 = 2 × 簇内最小特征半径 / CellsPerFeature」。
+
+   同段其余两处「矿囊」按语义换成「矿体」：`分辨率跟着矿囊走` → `分辨率跟着特征尺度走`；
+   `跳过簇会让整簇矿囊凭空消失` → `跳过簇会让整簇矿体凭空消失`；
+   `同一元素其它簇的矿囊` → `同一元素其它簇的矿体`。两条硬上限、绝不跳簇、径向夹回原样保留。
+
+   在两条硬上限的说明后面补一句（机械可核的事实，不是估计）：
+
+   ```cpp
+   	// 两条上限谁先触发是**定的**：它们共用同一个被除数（外扩后的最长轴），而总角点上
+   	// 限的除数 `pow(8e6, 1/3) - 3 ≈ 197` 恒小于轴上上限的 `512 - 2 = 510` —— 所以
+   	// **轴上上限永远不会先触发**，任何触发都表现为总角点上限。留着它只为防止将来
+   	// 有人只调其中一个常量时漏掉另一条（见 Step 1 的 GridCap 测试）。
+   ```
 
 - [ ] **Step 4: 改 `PlanetMineralSurface.cpp`**
 
@@ -3415,6 +3473,17 @@ void PlanetMineralSurface::ClusterRegionBounds(const TArray<FBox>& BoundsCm,
 0（矿囊表面之外场值恒 0）」同步改成「**本簇**矿体的角点场值为 0（每个分布的零支持域 ⊆ 其
 Region.Bounds）」。
 
+`PlanetMineralSurface.cpp` 的「注意范围」段（就在这段注释下面）也一起改：「同一元素**其它簇**
+的矿囊」→「矿体」；结尾 `默认预设（半径集中在 0.038~0.05）下这很罕见，但 PodRadius / PodCount
+调大会让簇更多、格边更宽，概率随之上长 —— README 里「先把 PodRadius 调大」的建议因此不是
+零代价的。` 换成：
+
+```cpp
+	// 默认预设（片层半厚 0.008、脉半径 0.009、浸染粒径 0.0015）下这很罕见，但把特征尺度
+	// 调小（例如片层厚度减半）会让格边更细、簇内最小半径更小，概率随之上长 —— README 里
+	// 「厚度减半、角点涨约 4 倍」的代价不只是内存。
+```
+
 - [ ] **Step 5: 改组件与缓存键**
 
 `PlanetMineralViewComponent.h`：`CellsPerPod` 改为
@@ -3474,56 +3543,101 @@ grep -rn "CellsPerPod" Source Config Content --include=*.h --include=*.cpp --inc
   字符串 `"StellarEra.Planet.MineralSurface.CellsPerPod"` → `"...CellsPerFeature"`
 - `FPlanetMineralSurfacePodLocalTest` → `FPlanetMineralSurfaceRegionLocalTest`，字符串
   `"...MineralSurface.PodLocal"` → `"...MineralSurface.RegionLocal"`。
-- **同一测试的「允许域」也要换**：它现在用 `Field->GetPods(ElementIndex)` 拼包围盒，而
-  `GetPods` 只对囊状生成器有值（新形态返回空数组）—— 继续用它会得到空盒子，所有顶点都被
-  判越界。整段循环体换成按区域算：
+- **同一测试的「允许域」也要换**，并且夹具要**加一个非囊状形态**：它现在用
+  `Field->GetPods(ElementIndex)` 拼包围盒，而 `GetPods` 只对囊状生成器有值（新形态返回空
+  数组）—— 继续用它会得到空盒子，所有顶点都被判越界。换成区域包围盒后，光靠囊状夹具仍然
+  **区分不出**两种实现（囊状区域盒与旧 `GetPods` 盒逐字相同），所以把检查体提成一个 lambda，
+  再跑两个夹具：囊状 + 片层（片层的 `GetPods` 恒为空）。
+  把 `FPlanetMineralSurfaceRegionLocalTest::RunTest` 的函数体整块换成：
 
 ```cpp
-	for (int32 ElementIndex = 0; ElementIndex < Result.MeshesByElement.Num(); ++ElementIndex)
+bool FPlanetMineralSurfaceRegionLocalTest::RunTest(const FString& Parameters)
+{
+	using namespace PlanetMineralSurfaceTest;
+
+	// 允许域只能从「区域」来。检查体做成 lambda，好让两种形态共用同一套判据。
+	auto CheckVerticesInsideRegions = [this](const FPlanetGeologyField& Field,
+		int32 CellsPerFeature)
 	{
-		const FPlanetMineralMesh& Mesh = Result.MeshesByElement[ElementIndex];
-		if (Mesh.IsEmpty())
-		{
-			continue;
-		}
+		const PlanetMineralSurface::FBuildParams Params = MakeParams(Field, CellsPerFeature);
+		PlanetMineralSurface::FBuildResult Result;
+		PlanetMineralSurface::Build(Field, Params, Result);
 
-		// 该元素所有区域的并集，外扩「1 格」（spec §7.3）。格边按簇内最小特征半径算，
-		// 簇里可能混着更小的区域 —— 取该元素最大特征半径当上界就够；再乘 1.5
-		// 吸收三线性插值（顶点最多离区域包围盒一格）。
-		TArray<FPlanetGeologyRegion> Regions;
-		Field->EnumerateRegions(ElementIndex, Regions);
-		TestTrue(*FString::Printf(TEXT("元素 %d 报出了区域"), ElementIndex), Regions.Num() > 0);
-
-		FBox RegionBounds(ForceInit);
-		double MaxRadiusCm = 0.0;
-		for (const FPlanetGeologyRegion& Region : Regions)
+		for (int32 ElementIndex = 0; ElementIndex < Result.MeshesByElement.Num(); ++ElementIndex)
 		{
-			const double RadiusCm = double(Region.CharacteristicRadius) * double(SurfaceRadiusCm);
-			MaxRadiusCm = FMath::Max(MaxRadiusCm, RadiusCm);
-			RegionBounds += FBox(Region.Bounds.Min * SurfaceRadiusCm,
-				Region.Bounds.Max * SurfaceRadiusCm);
-		}
-		// 用与 Build 同一套钳制公式算格边上界，避免夹具变大后上限生效时假红。
-		const double BaseCellSizeCm = 2.0 * MaxRadiusCm / double(Params.CellsPerFeature);
-		const double CellSizeCm = ExpectedCellSizeCm(MaxRadiusCm,
-			RegionBounds.Max - RegionBounds.Min, Params.CellsPerFeature);
-		TestTrue(*FString::Printf(TEXT("元素 %d 的夹具不触发格边上限"), ElementIndex),
-			CellSizeCm == BaseCellSizeCm);
-		RegionBounds = RegionBounds.ExpandBy(FVector(CellSizeCm * 1.5) + FVector::OneVector);
-
-		int32 Outside = 0;
-		for (const FVector3f& Vertex : Mesh.VerticesCm)
-		{
-			if (!RegionBounds.IsInside(FVector(Vertex)))
+			const FPlanetMineralMesh& Mesh = Result.MeshesByElement[ElementIndex];
+			if (Mesh.IsEmpty())
 			{
-				++Outside;
+				continue;
 			}
-		}
-		TestEqual(*FString::Printf(TEXT("元素 %d 的顶点全在区域包围盒内（越界 %d）"),
-			ElementIndex, Outside), Outside, 0);
-	}
-```
 
+			// 该元素所有区域的并集，外扩「1 格」（spec §7.3）。格边按簇内最小特征半径算，
+			// 簇里可能混着更小的区域 —— 取该元素最大特征半径当上界就够；再乘 1.5
+			// 吸收三线性插值（顶点最多离区域包围盒一格）。
+			TArray<FPlanetGeologyRegion> Regions;
+			Field.EnumerateRegions(ElementIndex, Regions);
+			TestTrue(*FString::Printf(TEXT("元素 %d 报出了区域"), ElementIndex),
+				Regions.Num() > 0);
+
+			FBox RegionBounds(ForceInit);
+			double MaxRadiusCm = 0.0;
+			for (const FPlanetGeologyRegion& Region : Regions)
+			{
+				const double RadiusCm = double(Region.CharacteristicRadius) * double(SurfaceRadiusCm);
+				MaxRadiusCm = FMath::Max(MaxRadiusCm, RadiusCm);
+				RegionBounds += FBox(Region.Bounds.Min * SurfaceRadiusCm,
+					Region.Bounds.Max * SurfaceRadiusCm);
+			}
+			// 用与 Build 同一套钳制公式算格边上界，避免夹具变大后上限生效时假红。
+			const double BaseCellSizeCm = 2.0 * MaxRadiusCm / double(Params.CellsPerFeature);
+			const double CellSizeCm = ExpectedCellSizeCm(MaxRadiusCm,
+				RegionBounds.Max - RegionBounds.Min, Params.CellsPerFeature);
+			TestTrue(*FString::Printf(TEXT("元素 %d 的夹具不触发格边上限"), ElementIndex),
+				CellSizeCm == BaseCellSizeCm);
+			RegionBounds = RegionBounds.ExpandBy(FVector(CellSizeCm * 1.5) + FVector::OneVector);
+
+			int32 Outside = 0;
+			for (const FVector3f& Vertex : Mesh.VerticesCm)
+			{
+				if (!RegionBounds.IsInside(FVector(Vertex)))
+				{
+					++Outside;
+				}
+			}
+			TestEqual(*FString::Printf(TEXT("元素 %d 的顶点全在区域包围盒内（越界 %d）"),
+				ElementIndex, Outside), Outside, 0);
+		}
+	};
+
+	// 夹具 1（囊状）：两块矿囊，区域盒与旧 GetPods 推的盒相同。
+	{
+		UPlanetGeologyPreset* Preset = MakePreset({
+			MakeElement(TEXT("a"), 0.06f, 7),
+			MakeElement(TEXT("b"), 0.05f, 8)});
+		const auto Field = MakeField(*Preset);
+		CheckVerticesInsideRegions(*Field, 12);
+	}
+
+	// 夹具 2（片层）：`GetPods` 恒为空 —— 检查体若退回 `GetPods`，这里必然全判越界。
+	{
+		UPlanetGeologyPreset* Preset = NewObject<UPlanetGeologyPreset>();
+		FPlanetGeologyElementParams& Element = Preset->Elements.AddDefaulted_GetRef();
+		Element.Id = TEXT("sheet");
+		Element.DisplayName = TEXT("薄片");
+		UPlanetGeologyLensDistribution* Lens =
+			AddDistribution<UPlanetGeologyLensDistribution>(*Preset, Element);
+		Lens->SeamCount = 2;
+		Lens->SeamLength = 0.12f;
+		Lens->SeamWidth = 0.06f;
+		Lens->SeamThickness = 0.008f;
+		Lens->VeinThreshold = 0.f;
+
+		const auto Field = MakeField(*Preset);
+		CheckVerticesInsideRegions(*Field, 12);
+	}
+	return true;
+}
+```
 - [ ] **Step 9: 加 BOM 并构建**
 
 ```bash
