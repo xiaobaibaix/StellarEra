@@ -4539,6 +4539,11 @@ cd "C:/" && "D:/Application/Epic Games/UE_5.8/Engine/Binaries/ThirdParty/DotNet/
 
 预期：`**** TEST COMPLETE. EXIT CODE: 0`，且日志里 `Automation Test Failed` 出现 0 次。
 
+**已知例外（Step 4.0 之前必然红的一条）**：`StellarEra.Planet.Geology.EarthPresetValues` 读的是
+磁盘上的 `Content/Geology/Planets/DA_Geology_Earth.uasset`，而那份资产此刻还是用户手上的旧数据
+（硅 `PodCount` 实测 145）。所以在 Step 4.0 重建资产之前，**这一条必须红，其余必须全绿**。
+不要为了让它在本地转绿去改测试 —— 那等于把断言迁就旧数据。
+
 逐一确认这些测试名都在跑（改名后）：
 
 ```
@@ -4606,6 +4611,15 @@ grep -rn "PodCount\|PodRadiusJitter\|PodDepthBias\|PodDepthCenter\|PodDepthSprea
 本会话的编辑器 MCP 端点是 `ECONNREFUSED`，下面这些必须在编辑器里由人操作。
 逐条回报结果，任何一条不符合都算没完成：
 
+0. **先拿到用户明确授权再动**：`StellarEra.CreateEarthGeologyPreset` 会 `LoadObject` 后
+   `FillEarthPreset` 重置 `Elements` 再 `SavePackage`，也就是**覆盖**用户那份未提交的
+   `DA_Geology_Earth.uasset`。这是不可逆地丢弃用户手里的改动，没点头就不许跑。
+   授权后执行，日志应打印「已保存（覆盖，6 个元素）」（按实际格式匹配，别照着字面抄）；
+   然后重跑 `Automation RunTests StellarEra.Planet.Geology`，
+   `EarthPresetValues` 必须由红转绿 —— 转不了就是预设数据与测试不一致，别改测试。
+   **同一个问题里一并问用户**：重建后的资产要不要进 Step 6 的提交。
+   不进，别人干净检出后 `EarthPresetValues` 仍是红的；进，等于把用户的改动变成我们的产出，
+   必须他本人同意。
 1. 打开 `DA_Geology_Earth`：六个元素各带一个生成器，类型分别是
    片层/脉状/片层/脉状/浸染/浸染；`PodCount` 等遗留字段全是 0。
 2. 改硅的 `SeamCount`，正在预览的观测体自动重建（不用手动点）。
