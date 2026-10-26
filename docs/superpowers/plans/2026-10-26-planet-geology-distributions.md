@@ -4407,13 +4407,14 @@ Task 8 重建资产后再跑本节，该条转绿才证明磁盘上的资产真�
 
     GeometryAmplitude · √2 / (簇内最小特征半径 · 行星半径的体素数)
 
-出货的地球值约 1e-3，收敛干净。`GeometryAmplitude 64` + 特征半径 0.001 这类组合会
-大于 1、迭代发散 —— 症状是「脚下的地面与看见的表面差几体素」，不是崩溃。调这两个
-参数前按上式估一下。
+因子明显小于 1 收敛干净；大于 1 会发散 —— 症状是「脚下的地面与看见的表面差几体素」，
+不是崩溃。所以调高 `GeometryAmplitude` 时，要同时看一眼这颗行星上**最小**的那个特征半径。
+（要写出货地球的具体数值，必须从 `FillEarthPreset` 的实际参数机械算一遍并把算式留在报告里；
+算不出来就只留上面的定性判据，别凭印象写数字。）
 ```
 
 2. `## 已知缺口` 段末尾的 `但 PodRadius / PodCount 调大后簇更多、格边更宽，碰到它的概率会上升`
-   换成 `但把特征尺度调小（格边更细）后，本簇盒子更容易吃到邻簇那一格余量，概率会上升`。
+   换成 `但把某个元素的生成器数量或密度调大（簇更多）、或把某个生成器的特征半径调小（格边更宽），碰到它的概率会上升`。
 
 `PlanetGeologyPreset.h` 里两条遗留字段的注释也别再教人调它们：
 
@@ -4424,6 +4425,28 @@ Task 8 重建资产后再跑本节，该条转绿才证明磁盘上的资产真�
 
 `PlanetGeologyPodTests.cpp` 的 `Params.ShapeDetail = 3.0f;` 是死写入 —— `MakeElement`
 已经在生成器上设过同一个值，且遗留路径因 `PodCount = 0` 不再走。删掉这一行。
+
+3. `## 旧资产` 段里「在编辑器里保存一次就会写成一个显式囊状生成器」是错的：`PostLoad`
+   的迁移不把包标脏，未修改的资产按 Ctrl+S 不会落盘。整段换成：
+
+```markdown
+只有 `PodCount` 等遗留字段、没有生成器的资产，在运行期按原样建囊（种子用旧公式，
+形状逐位不变）。资产**加载时**（`PostLoad`）会就地补一个等价的囊状生成器并把
+`PodCount` 置 0；这一步不会把包标脏，所以磁盘上的数据要等你因为别的原因保存这份
+资产时才会跟着变。行为前后一致，不用刻意去促成迁移。
+
+遗留字段标了 `DeprecatedProperty`，新内容请一律用生成器。
+```
+
+4. `PlanetGeologyPreset.h` 第 56 行 `PodCount` 的注释「0 = 这个元素在这颗行星上不存在」
+   在迁移后/新地球数据里是假话（那些元素 `PodCount` 都是 0 但照常存在）。换成：
+
+```cpp
+	/**
+	 * 遗留字段：撒多少个矿囊。**只在 `Distributions` 为空时被读取**（遗留兜底）。
+	 * 0 = 不走兜底 —— 迁移后的资产和新地球的每个元素这里都是 0，但元素照常存在。
+	 */
+```
 
 `CLAUDE.md` 的「关键类」表加一行（放在 `AVoxelPlanetActor` 之前）：
 
@@ -4456,6 +4479,26 @@ git commit -m "feat(地质): 旧资产迁移 + 地球六元素各用专属分布
 
 资产 `DA_Geology_Earth.uasset` **不进这次提交**：Step 5 推迟了，它现在还是用户的未提交改动，
 任何 `git add` 都会把用户手里那份半成品当成我们的产出。
+
+### 修复轮 1（复审后追加）
+
+首轮提交 `affa7a50` 拿到 `QUALITY: APPROVED`，`SPEC: FAIL` 的唯一原因是 Step 2 的红灯证据没留。修复轮做：
+
+- [ ] **Step 2 补证**：临时把 `MigrateLegacyElement` 函数体注释成空实现（签名保留，否则测试文件编不过）
+      → 构建 → `Automation RunTests StellarEra.Planet.Geology.LegacyMigrationFidelity` 必须 Fail
+      （错误行形如「迁移后一个元素一个生成器 0 vs 1」）→ 还原 → 构建 → 再跑必须 Success。日志原文进报告。
+- [ ] **`bSeedExplicit` 覆盖**：迁移写入的种子恒非 0，`ResolveSeed` 的 `Seed != 0` 分支已先返回，
+      所以把 `bSeedExplicit = true` 删掉也没有测试会红。补两处断言：迁移侧钉
+      `Migrated->bSeedExplicit && Migrated->Seed == 旧公式`；生成器侧造一个 `Seed = 0` 的对照，
+      未设 `bSeedExplicit` 时 `ResolveSeed` 返回派生的非 0 值、设了之后返回 0。
+      红灯证据：注释掉 `bSeedExplicit = true` 后 `LegacyMigrationFidelity` 必须红。
+- [ ] **注释纠错**：`PostLoad` 的「下次在编辑器里打开/保存时再迁移」→「下次重新加载这份资产时会再试一次」
+      （`PostLoad` 只在加载时跑）；`AddEarthDistribution` 的「一次性夹具不要遗留字段」→ 如实说明只清
+      `PodCount`（遗留兜底唯一开关是 `Distributions 为空 && PodCount > 0`），并警告别删那一行。
+- [ ] **不加 `MarkPackageDirty()`**：在 `PostLoad` 里标脏会让每次加载都把包弄脏，误保存风险大于收益。
+      遗留资产磁盘上保持旧形态，运行期兜底建出同样的囊，行为无差。
+- [ ] **不抽公共种子函数**（复审建议把 `PlanetGeologyPreset.cpp` 与 `PlanetGeologyField.cpp` 的旧公式合一）：
+      迁移调用点是过渡代码，资产重存一次就不再进来；`LegacyMigrationFidelity` 逐点比对两条路径，漂移会红。
 
 ---
 
