@@ -263,7 +263,7 @@ void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildP
 		// 两条上限谁先触发是**定的**：它们共用同一个被除数（外扩后的最长轴），而总角点上
 		// 限的除数 `pow(8e6, 1/3) - 3 ≈ 197` 恒小于轴上上限的 `512 - 2 = 510` —— 所以
 		// **轴上上限永远不会先触发**，任何触发都表现为总角点上限。留着它只为防止将来
-		// 有人只调其中一个常量时漏掉另一条（见 Step 1 的 GridCap 测试）。
+		// 有人只调其中一个常量时漏掉另一条（GridCap 测试按总角点上限写）。
 		//
 		// 为什么不能只靠引擎自己的兜底：FMarchingCubes::SetDimensions 在
 		// MaxDim > SafetyMaxDimension（4096）时会静默改写 CubeSize，而 Implicit
