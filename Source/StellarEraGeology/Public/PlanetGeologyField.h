@@ -4,7 +4,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "FastNoise/VoxelFastNoise.h"
 #include "PlanetGeologyTypes.h"
 
 class UPlanetGeologyPreset;
@@ -72,7 +71,13 @@ public:
 	 */
 	float SampleElementNormBruteForce(int32 ElementIndex, const FVector& NormalizedPoint) const;
 
-	/** 该元素的矿囊表（归一化空间）。越界返回空数组。 */
+	/**
+	 * 该元素的全部有界区域（归一化空间），观测视图用它分簇。
+	 * 顺序 = 生成器顺序 × 各生成器的区域顺序。
+	 */
+	void EnumerateRegions(int32 ElementIndex, TArray<FPlanetGeologyRegion>& Out) const;
+
+	/** 第一个囊状生成器的矿囊表（归一化空间）；没有囊状生成器时返回空数组。 */
 	const TArray<FPlanetGeologyPod>& GetPods(int32 ElementIndex) const;
 
 	/**
@@ -83,22 +88,8 @@ public:
 
 	float GetMaxGeometryDelta() const { return GeometryAmplitude; }
 	const FPlanetGeologyAppearance& GetAppearance() const { return Appearance; }
-	/** 空场 = 没有元素，**或**所有元素的矿囊数都为 0（spec §3.6）。 */
-	bool IsEmpty() const
-	{
-		if (Elements.Num() == 0)
-		{
-			return true;
-		}
-		for (const FElementRuntime& Element : Elements)
-		{
-			if (Element.Definition.Pods.Num() > 0)
-			{
-				return false;
-			}
-		}
-		return true;
-	}
+	/** 空场 = 没有元素，**或**所有元素的生成器都为空。 */
+	bool IsEmpty() const;
 	int32 NumElements() const { return Elements.Num(); }
 	float GetTotalAbundance() const { return TotalAbundance; }
 
@@ -111,27 +102,8 @@ public:
 	TArray<FPlanetGeologyElement> GetSampledElementDefinitions() const;
 
 private:
-	struct FElementRuntime
-	{
-		FPlanetGeologyElement Definition;
-		FVoxelFastNoise Noise;
-	};
-
-	/** 单元素求值：矿囊径向衰减 × 噪声稀疏。P 为归一化坐标。 */
+	/** 单元素求值：各生成器取 max。P 为归一化坐标。 */
 	float EvaluateElementNorm(int32 ElementIndex, const FVector& NormalizedPoint) const;
-
-	/** 建 PodIndex。BuildFromPreset 末尾调用一次。 */
-	void BuildPodIndex();
-
-	/**
-	 * 矿囊格索引：格边 = 全局最大矿囊半径。
-	 *
-	 * 每囊插入其包围盒覆盖的全部格子（AABB 边长可达 2 格且可跨整数边界，
-	 * 每轴最多 3 格，最多 27 格）。查询只查 P 所在格就够：
-	 * 任何包含 P 的矿囊，其包围盒必覆盖 P 所在格。
-	 */
-	TMap<FIntVector, TArray<FPlanetGeologyPodRef>> PodIndex;
-	float PodIndexCellSize = 0.f;
 
 	/**
 	 * 归一化换算用的行星半径（体素）。用途：
@@ -160,5 +132,5 @@ private:
 	float GeometryAmplitude = 1.5f;
 	float TotalAbundance = 0.f;
 	float MaxReachDepth = 0.f;
-	TArray<FElementRuntime> Elements;
+	TArray<FPlanetGeologyElement> Elements;
 };

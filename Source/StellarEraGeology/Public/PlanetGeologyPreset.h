@@ -9,6 +9,7 @@
 #include "UObject/SoftObjectPath.h"
 #include "PlanetGeologyPreset.generated.h"
 
+class UPlanetGeologyDistribution;
 class UPlanetGeologyPreset;
 
 #if WITH_EDITOR
@@ -44,6 +45,13 @@ struct STELLARERAGEOLOGY_API FPlanetGeologyElementParams
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Element",
 		meta = (ClampMin = "0.0"))
 	float Abundance = 1.0f;
+
+	/**
+	 * 这个元素的分布生成器。多个生成器逐点取 max（不是相加）。
+	 * 空数组且 PodCount > 0 时走遗留兜底，旧资产因此在运行期保持原样。
+	 */
+	UPROPERTY(EditAnywhere, Instanced, Category = "Distribution")
+	TArray<TObjectPtr<UPlanetGeologyDistribution>> Distributions;
 
 	/** 撒多少个矿囊。0 = 这个元素在这颗行星上不存在。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pods",

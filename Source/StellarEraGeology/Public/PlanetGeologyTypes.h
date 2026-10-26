@@ -1,9 +1,10 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
-// 行星地质系统的值类型：元素定义、矿囊、采样结果、外观参数。
+// 行星地质系统的值类型：元素定义、矿囊、分布运行期、采样结果、外观参数。
 
 #pragma once
 
 #include "CoreMinimal.h"
+#include "PlanetGeologyDistribution.h"
 #include "PlanetGeologyTypes.generated.h"
 
 /** 一个矿囊：归一化空间的球（行星基准半径 = 1）。 */
@@ -11,13 +12,6 @@ struct FPlanetGeologyPod
 {
 	FVector Center = FVector::ZeroVector;
 	float Radius = 0.f;
-};
-
-/** 空间索引里的一条引用：哪个元素的第几个矿囊。 */
-struct FPlanetGeologyPodRef
-{
-	int32 ElementIndex = INDEX_NONE;
-	int32 PodIndex = INDEX_NONE;
 };
 
 /**
@@ -39,27 +33,11 @@ struct FPlanetGeologyElement
 	 */
 	float Abundance = 0.f;
 
-	// --- 矿囊 ---
-	TArray<FPlanetGeologyPod> Pods;
-	/** 名义半径（归一化）。噪声坐标的缩放基准，不随单囊抖动。 */
-	float PodRadius = 0.05f;
-	/** 一个矿囊直径内大约几个噪声周期。 */
-	float ShapeDetail = 3.f;
-
-	// --- 噪声参数 ---
-	int32 Octaves = 2;
-	float Lacunarity = 2.f;
-	float Gain = 0.5f;
-	int32 Seed = 0;
-
 	/**
-	 * 矿脉稀疏阈值（0..0.95，来自预设资产的 VeinThreshold）。
-	 *
-	 * Perlin 噪声 0.5 是均值：阈值越高，只有噪声峰值附近才留下含量，
-	 * 单元素矿囊越稀疏、越纯。0 表示不稀疏。
-	 * 每个元素可以不同，用来让各矿囊的分布与密度互不相同。
+	 * 分布生成器，顺序 = 资产里的顺序。元素 Norm = 各生成器结果取 max。
+	 * 不可变、可跨线程共享；空数组表示这个元素没有矿。
 	 */
-	float VeinThreshold = 0.f;
+	TArray<TSharedPtr<const FPlanetGeologyDistributionRuntime>> Distributions;
 };
 
 /** 一次地质采样的结果。TotalNorm / DominantNorm / Purity 均已归一化到 [0,1]。 */

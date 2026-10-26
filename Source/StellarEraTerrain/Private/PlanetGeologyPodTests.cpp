@@ -63,7 +63,7 @@ namespace PlanetGeologyPodTest
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyPodCoverageTest,
-	"StellarEra.Planet.Geology.PodCoverage",
+	"StellarEra.Planet.Geology.ShapePods.Coverage",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FPlanetGeologyPodCoverageTest::RunTest(const FString& Parameters)
@@ -165,7 +165,7 @@ bool FPlanetGeologyPodCoverageTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyPodOverlapTest,
-	"StellarEra.Planet.Geology.PodOverlap",
+	"StellarEra.Planet.Geology.ShapePods.Overlap",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FPlanetGeologyPodOverlapTest::RunTest(const FString& Parameters)
@@ -196,7 +196,7 @@ bool FPlanetGeologyPodOverlapTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologySpatialIndexTest,
-	"StellarEra.Planet.Geology.SpatialIndex",
+	"StellarEra.Planet.Geology.ShapePods.BruteForceAgrees",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FPlanetGeologySpatialIndexTest::RunTest(const FString& Parameters)
@@ -386,7 +386,7 @@ bool FPlanetGeologyAbundanceInvarianceTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyPodShapeTest,
-	"StellarEra.Planet.Geology.PodShape",
+	"StellarEra.Planet.Geology.ShapePods.Shape",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FPlanetGeologyPodShapeTest::RunTest(const FString& Parameters)

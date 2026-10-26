@@ -3,93 +3,8 @@
 
 #include "PlanetGeologyField.h"
 
-#include "FastNoise/VoxelFastNoise.inl"
 #include "PlanetGeologyPreset.h"
-#include "Math/RandomStream.h"
-
-namespace
-{
-	FIntVector ToPodCell(const FVector& Point, float CellSize)
-	{
-		return FIntVector(
-			FMath::FloorToInt(Point.X / CellSize),
-			FMath::FloorToInt(Point.Y / CellSize),
-			FMath::FloorToInt(Point.Z / CellSize));
-	}
-
-	/** 球内二次衰减（1 - d²/r²）：中心 1，表面 0，囊外 0。 */
-	float PodInfluence(const FPlanetGeologyPod& Pod, const FVector& Point)
-	{
-		const float RadiusSquared = Pod.Radius * Pod.Radius;
-		if (RadiusSquared <= 0.f)
-		{
-			return 0.f;
-		}
-		const float DistanceSquared = (Point - Pod.Center).SizeSquared();
-		if (DistanceSquared >= RadiusSquared)
-		{
-			return 0.f;
-		}
-		return 1.f - DistanceSquared / RadiusSquared;
-	}
-
-	void PlacePods(FPlanetGeologyElement& Definition, const FPlanetGeologyElementParams& Params)
-	{
-		const int32 PodCount = FMath::Max(0, Params.PodCount);
-		Definition.Pods.Reset();
-		Definition.Pods.Reserve(PodCount);
-		if (PodCount == 0)
-		{
-			return;
-		}
-
-		FRandomStream Rng(Definition.Seed);
-		const double Jitter = FMath::Clamp(double(Params.PodRadiusJitter), 0.0, 1.0);
-		const double DepthBias = FMath::Clamp(double(Params.PodDepthBias), 0.0, 0.9);
-		const double DepthCenter = FMath::Clamp(double(Params.PodDepthCenter), 0.0, 1.0);
-		const double DepthSpread = FMath::Max(double(Params.PodDepthSpread), 0.01);
-
-		for (int32 PodIndex = 0; PodIndex < PodCount; ++PodIndex)
-		{
-			const double RadiusJitter = 1.0 + Jitter * (2.0 * double(Rng.FRand()) - 1.0);
-			const double Radius = FMath::Clamp(
-				double(Definition.PodRadius) * RadiusJitter, 1e-3, 0.25);
-
-			// 球面均匀方向；径向距离另抽，两者独立。
-			const FVector Direction = Rng.GetUnitVector();
-
-			// ∛U 让**体积**均匀（近地表体积大，矿囊自然更多）。r ∈ [0,1] 是「球心距比例」。
-			double RadiusRatio = FMath::Pow(double(Rng.FRand()), 1.0 / 3.0);
-
-			// 作者参数里的 DepthCenter 是「深度」（0 = 地表，1 = 球心），与半径比例
-			// 互为补角 —— 带权时必须先换算成 1 - r 再比，否则偏好会朝反方向偏。
-			if (DepthBias > 0.0)
-			{
-				// 带权拒绝采样：权重在 DepthCenter 附近最高，最多试 64 次。
-				for (int32 Attempt = 0; Attempt < 64; ++Attempt)
-				{
-					const double CandidateRadius = FMath::Pow(double(Rng.FRand()), 1.0 / 3.0);
-					const double CandidateDepth = 1.0 - CandidateRadius;
-					const double Offset = (CandidateDepth - DepthCenter) / DepthSpread;
-					const double Weight =
-						(1.0 - DepthBias) + DepthBias * FMath::Exp(-Offset * Offset);
-					RadiusRatio = CandidateRadius;
-					if (double(Rng.FRand()) < Weight)
-					{
-						break;
-					}
-				}
-			}
-
-			FPlanetGeologyPod& Pod = Definition.Pods.AddDefaulted_GetRef();
-			Pod.Radius = float(Radius);
-			// **不要乘 (1 - r)**：乘了矿囊就永远够不到半径 1，地形在深度 0 采样时一个矿
-			// 都看不到（露头恒为 0，验收 3 必挂）。探出球面的部分场值恒 0，观测视图里
-			// 顶点会按 |v| <= R 径向夹回，两边都闭合。
-			Pod.Center = Direction * float(RadiusRatio);
-		}
-	}
-}
+#include "PlanetGeologySpherePodsDistribution.h"
 
 TSharedPtr<const FPlanetGeologyField> FPlanetGeologyField::BuildFromPreset(
 	const UPlanetGeologyPreset& Preset, const double PlanetRadiusVoxels)
@@ -112,139 +27,81 @@ TSharedPtr<const FPlanetGeologyField> FPlanetGeologyField::BuildFromPreset(
 			: Params.DisplayName;
 		Definition.Color = Params.Color;
 		Definition.Abundance = FMath::Clamp(Params.Abundance, 0.f, 1.f);
-		Definition.Octaves = FMath::Clamp(Params.Octaves, 1, 6);
-		Definition.Lacunarity = FMath::Max(Params.Lacunarity, 1.f);
-		Definition.Gain = FMath::Clamp(Params.Gain, 0.f, 1.f);
-		// Seed 0 = 按 Id 派生：不同元素默认互不相关，且跨进程稳定。
-		Definition.Seed = Params.Seed != 0
-			? Params.Seed
-			: int32(GetTypeHash(Params.Id) & 0x7fffffffu);
-		Definition.PodRadius = FMath::Clamp(Params.PodRadius, 0.001f, 0.25f);
-		Definition.ShapeDetail = FMath::Max(Params.ShapeDetail, 1.f);
-		Definition.VeinThreshold = FMath::Clamp(Params.VeinThreshold, 0.f, 0.95f);
 
-		PlacePods(Definition, Params);
+		for (int32 DistributionIndex = 0;
+			DistributionIndex < Params.Distributions.Num(); ++DistributionIndex)
+		{
+			const UPlanetGeologyDistribution* Distribution =
+				Params.Distributions[DistributionIndex];
+			if (!Distribution)
+			{
+				continue;
+			}
 
-		FElementRuntime& Runtime = Field->Elements.AddDefaulted_GetRef();
-		Runtime.Definition = Definition;
-		Runtime.Noise.SetSeed(Definition.Seed);
-		Runtime.Noise.SetFractalLacunarity(Definition.Lacunarity);
-		// FractalBounding 只算一次；octaves / gain 必须与采样时传进
-		// GetPerlinFractal_3D 的值完全一致，否则归一化系数会错位。
-		Runtime.Noise.SetFractalOctavesAndGain(Definition.Octaves, Definition.Gain);
+			FPlanetGeologyDistributionBuildContext Context;
+			Context.ElementId = Params.Id;
+			Context.DistributionIndex = DistributionIndex;
+
+			TSharedPtr<const FPlanetGeologyDistributionRuntime> Runtime =
+				Distribution->BuildRuntime(Context);
+			if (!Runtime.IsValid() || Runtime->IsEmpty())
+			{
+				continue;
+			}
+
+			TArray<FPlanetGeologyRegion> Regions;
+			Runtime->EnumerateRegions(Regions);
+			UE_LOG(LogTemp, Log, TEXT("元素=%s 生成器=%s 基元=%d 区域=%d %s"),
+				*Params.Id.ToString(), Runtime->GetDebugName(),
+				Runtime->NumPrimitives(), Regions.Num(), *Runtime->GetDebugSummary());
+
+			Definition.Distributions.Add(MoveTemp(Runtime));
+		}
+
+		// 遗留兜底：旧资产没有 Distributions 但有 PodCount。种子必须是旧公式，
+		// 用新派生规则会让旧行星的矿囊全部换位置。
+		if (Definition.Distributions.Num() == 0 && Params.PodCount > 0)
+		{
+			const int32 LegacySeed = Params.Seed != 0
+				? Params.Seed
+				: int32(GetTypeHash(Params.Id) & 0x7fffffffu);
+			Definition.Distributions.Add(
+				UPlanetGeologySpherePodsDistribution::MakeRuntimeFromLegacyParams(
+					Params.PodCount, Params.PodRadius, Params.PodRadiusJitter,
+					Params.PodDepthBias, Params.PodDepthCenter, Params.PodDepthSpread,
+					LegacySeed, Params.ShapeDetail, Params.Octaves, Params.Lacunarity,
+					Params.Gain, Params.VeinThreshold));
+			UE_LOG(LogTemp, Log,
+				TEXT("元素=%s 生成器=SpherePods(遗留兜底) 基元=%d 区域=%d"),
+				*Params.Id.ToString(), Params.PodCount, Params.PodCount);
+		}
 
 		Field->TotalAbundance += Definition.Abundance;
+		Field->Elements.Add(MoveTemp(Definition));
 	}
 
 	// 矿囊可及整个球体：可及深度就是行星半径。不设的话 SampleGeometryDelta 的
 	// Depth > MaxReachDepth 早退对任何球内点都成立，GeometryAmplitude 永远不生效。
 	Field->MaxReachDepth = float(FMath::Max(Field->RadiusVoxels, 0.0));
 
-	Field->BuildPodIndex();
 	return Field;
-}
-
-void FPlanetGeologyField::BuildPodIndex()
-{
-	PodIndex.Reset();
-	PodIndexCellSize = 0.f;
-
-	float MaxRadius = 0.f;
-	for (const FElementRuntime& Runtime : Elements)
-	{
-		for (const FPlanetGeologyPod& Pod : Runtime.Definition.Pods)
-		{
-			MaxRadius = FMath::Max(MaxRadius, Pod.Radius);
-		}
-	}
-	if (MaxRadius <= 0.f)
-	{
-		return;
-	}
-
-	PodIndexCellSize = MaxRadius;
-	for (int32 ElementIndex = 0; ElementIndex < Elements.Num(); ++ElementIndex)
-	{
-		const TArray<FPlanetGeologyPod>& Pods = Elements[ElementIndex].Definition.Pods;
-		for (int32 PodCursor = 0; PodCursor < Pods.Num(); ++PodCursor)
-		{
-			const FPlanetGeologyPod& Pod = Pods[PodCursor];
-			const FIntVector MinCell = ToPodCell(Pod.Center - FVector(Pod.Radius), PodIndexCellSize);
-			const FIntVector MaxCell = ToPodCell(Pod.Center + FVector(Pod.Radius), PodIndexCellSize);
-			for (int32 X = MinCell.X; X <= MaxCell.X; ++X)
-			{
-				for (int32 Y = MinCell.Y; Y <= MaxCell.Y; ++Y)
-				{
-					for (int32 Z = MinCell.Z; Z <= MaxCell.Z; ++Z)
-					{
-						FPlanetGeologyPodRef Ref;
-						Ref.ElementIndex = ElementIndex;
-						Ref.PodIndex = PodCursor;
-						PodIndex.FindOrAdd(FIntVector(X, Y, Z)).Add(Ref);
-					}
-				}
-			}
-		}
-	}
 }
 
 float FPlanetGeologyField::EvaluateElementNorm(const int32 ElementIndex,
 	const FVector& NormalizedPoint) const
 {
-	const FElementRuntime& Runtime = Elements[ElementIndex];
-	const FPlanetGeologyElement& Definition = Runtime.Definition;
-	if (Definition.Pods.Num() == 0 || PodIndexCellSize <= 0.f)
+	const FPlanetGeologyElement& Element = Elements[ElementIndex];
+	float Norm = 0.f;
+	for (const TSharedPtr<const FPlanetGeologyDistributionRuntime>& Distribution
+		: Element.Distributions)
 	{
-		return 0.f;
-	}
-
-	// 1) 空间索引取候选矿囊，多囊取 max。
-	float PodFactor = 0.f;
-	const FIntVector Cell = ToPodCell(NormalizedPoint, PodIndexCellSize);
-	if (const TArray<FPlanetGeologyPodRef>* Refs = PodIndex.Find(Cell))
-	{
-		for (const FPlanetGeologyPodRef& Ref : *Refs)
+		Norm = FMath::Max(Norm, Distribution->EvaluateNormalized(NormalizedPoint));
+		if (Norm >= 1.f)
 		{
-			if (Ref.ElementIndex != ElementIndex)
-			{
-				continue;
-			}
-			PodFactor = FMath::Max(PodFactor,
-				PodInfluence(Definition.Pods[Ref.PodIndex], NormalizedPoint));
-			if (PodFactor >= 1.f)
-			{
-				break;
-			}
+			break;
 		}
 	}
-	if (PodFactor <= 0.f)
-	{
-		return 0.f; // 不在任何矿囊里：一次 Perlin 都不求
-	}
-
-	// 2) 形状噪声。频率折叠进坐标（ShapeDetail 是「每囊直径的周期数」，
-	//    直径 = 2r），噪声 API 的频率参数固定传 1。
-	// 低于 1 时波长比矿囊直径还长，整囊可能落进噪声谷而消失（meta 可能被旧数据绕过）。
-	const double ShapeDetail = FMath::Max(double(Definition.ShapeDetail), 1.0);
-	const double NoiseScale =
-		ShapeDetail / (2.0 * FMath::Max(double(Definition.PodRadius), 1e-4));
-	const double SampleX = double(NormalizedPoint.X) * NoiseScale;
-	const double SampleY = double(NormalizedPoint.Y) * NoiseScale;
-	const double SampleZ = double(NormalizedPoint.Z) * NoiseScale;
-
-	const double RawNoise = double(Runtime.Noise.GetPerlinFractal_3D(
-		v_flt(SampleX), v_flt(SampleY), v_flt(SampleZ), v_flt(1.f), Definition.Octaves));
-
-	// Perlin 输出 [-1,1]，映射到 [0,1] 才是「含量」。
-	const double Noise01 = 0.5 * (RawNoise + 1.0);
-
-	// 矿脉门：阈值以下完全为 0，阈值以上线性升到 1。
-	const double Threshold = FMath::Clamp(double(Definition.VeinThreshold), 0.0, 0.95);
-	const double Vein = Threshold > 0.0
-		? FMath::Clamp((Noise01 - Threshold) / (1.0 - Threshold), 0.0, 1.0)
-		: Noise01;
-
-	return float(double(PodFactor) * Vein);
+	return Norm;
 }
 
 float FPlanetGeologyField::SampleElementNormAtNormalized(const int32 ElementIndex,
@@ -268,43 +125,71 @@ float FPlanetGeologyField::SampleElementNormBruteForce(const int32 ElementIndex,
 	{
 		return 0.f;
 	}
-	const FElementRuntime& Runtime = Elements[ElementIndex];
-	const FPlanetGeologyElement& Definition = Runtime.Definition;
-
-	float PodFactor = 0.f;
-	for (const FPlanetGeologyPod& Pod : Definition.Pods)
+	float Norm = 0.f;
+	for (const TSharedPtr<const FPlanetGeologyDistributionRuntime>& Distribution
+		: Elements[ElementIndex].Distributions)
 	{
-		PodFactor = FMath::Max(PodFactor, PodInfluence(Pod, NormalizedPoint));
+		Norm = FMath::Max(Norm, Distribution->EvaluateBruteForce(NormalizedPoint));
 	}
-	if (PodFactor <= 0.f)
+	if (Norm <= 0.f)
 	{
 		return 0.f;
 	}
-
-	// 低于 1 时波长比矿囊直径还长，整囊可能落进噪声谷而消失（meta 可能被旧数据绕过）。
-	const double ShapeDetail = FMath::Max(double(Definition.ShapeDetail), 1.0);
-	const double NoiseScale =
-		ShapeDetail / (2.0 * FMath::Max(double(Definition.PodRadius), 1e-4));
-	const double RawNoise = double(Runtime.Noise.GetPerlinFractal_3D(
-		v_flt(double(NormalizedPoint.X) * NoiseScale),
-		v_flt(double(NormalizedPoint.Y) * NoiseScale),
-		v_flt(double(NormalizedPoint.Z) * NoiseScale),
-		v_flt(1.f), Definition.Octaves));
-	const double Noise01 = 0.5 * (RawNoise + 1.0);
-	const double Threshold = FMath::Clamp(double(Definition.VeinThreshold), 0.0, 0.95);
-	const double Vein = Threshold > 0.0
-		? FMath::Clamp((Noise01 - Threshold) / (1.0 - Threshold), 0.0, 1.0)
-		: Noise01;
-
-	return float(double(PodFactor) * Vein);
+	return Norm;
 }
 
 const TArray<FPlanetGeologyPod>& FPlanetGeologyField::GetPods(const int32 ElementIndex) const
 {
 	static const TArray<FPlanetGeologyPod> Empty;
-	return Elements.IsValidIndex(ElementIndex)
-		? Elements[ElementIndex].Definition.Pods
-		: Empty;
+	if (!Elements.IsValidIndex(ElementIndex))
+	{
+		return Empty;
+	}
+	for (const TSharedPtr<const FPlanetGeologyDistributionRuntime>& Distribution
+		: Elements[ElementIndex].Distributions)
+	{
+		const TArray<FPlanetGeologyPod>& Pods = Distribution->GetSpherePods();
+		if (Pods.Num() > 0)
+		{
+			return Pods;
+		}
+	}
+	return Empty;
+}
+
+void FPlanetGeologyField::EnumerateRegions(const int32 ElementIndex,
+	TArray<FPlanetGeologyRegion>& Out) const
+{
+	Out.Reset();
+	if (!Elements.IsValidIndex(ElementIndex))
+	{
+		return;
+	}
+	for (const TSharedPtr<const FPlanetGeologyDistributionRuntime>& Distribution
+		: Elements[ElementIndex].Distributions)
+	{
+		Distribution->EnumerateRegions(Out);
+	}
+}
+
+bool FPlanetGeologyField::IsEmpty() const
+{
+	if (Elements.Num() == 0)
+	{
+		return true;
+	}
+	for (const FPlanetGeologyElement& Element : Elements)
+	{
+		for (const TSharedPtr<const FPlanetGeologyDistributionRuntime>& Distribution
+			: Element.Distributions)
+		{
+			if (Distribution.IsValid() && !Distribution->IsEmpty())
+			{
+				return false;
+			}
+		}
+	}
+	return true;
 }
 
 FPlanetGeologySample FPlanetGeologyField::Sample(const FVector& UnitDir, double Depth) const
@@ -401,8 +286,7 @@ void FPlanetGeologyField::Accumulate(const FVector& UnitDir, double Depth, bool 
 
 	for (int32 ElementIndex = 0; ElementIndex < Elements.Num(); ++ElementIndex)
 	{
-		const FElementRuntime& Runtime = Elements[ElementIndex];
-		const FPlanetGeologyElement& Definition = Runtime.Definition;
+		const FPlanetGeologyElement& Definition = Elements[ElementIndex];
 
 		// 单元素求值：矿囊径向衰减 × 噪声稀疏。没有任何矿囊时恒 0。
 		double ElementNorm = double(EvaluateElementNorm(ElementIndex, NormalizedPoint));
@@ -442,9 +326,9 @@ TArray<FPlanetGeologyElement> FPlanetGeologyField::GetSampledElementDefinitions(
 {
 	TArray<FPlanetGeologyElement> Out;
 	Out.Reserve(Elements.Num());
-	for (const FElementRuntime& Runtime : Elements)
+	for (const FPlanetGeologyElement& ElementDefinition : Elements)
 	{
-		Out.Add(Runtime.Definition);
+		Out.Add(ElementDefinition);
 	}
 	return Out;
 }
