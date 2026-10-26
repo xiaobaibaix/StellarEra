@@ -92,6 +92,14 @@ namespace PlanetMineralSurfaceTest
 		return CellSize;
 	}
 
+	/** 矿囊包围盒（厘米空间）——与 Build 收集 PodBounds 的写法相同。 */
+	FBox PodAabbCm(const FPlanetGeologyPod& Pod, double InSurfaceRadiusCm)
+	{
+		const FVector CenterCm = Pod.Center * InSurfaceRadiusCm;
+		const FVector RadiusCm = FVector(double(Pod.Radius) * InSurfaceRadiusCm);
+		return FBox(CenterCm - RadiusCm, CenterCm + RadiusCm);
+	}
+
 	/** 两个矿囊的 AABB（归一化空间）是否相交 —— 判据与 Build 的分簇完全相同。 */
 	bool ArePodAabbsOverlapping(const FPlanetGeologyPod& A, const FPlanetGeologyPod& B)
 	{
@@ -802,6 +810,211 @@ bool FPlanetMineralSurfaceRadiusInvarianceTest::RunTest(const FString& Parameter
 	TestEqual(TEXT("外来小矿囊不改变本元素占据格数"),
 		BothResult.MeshesByElement[0].OccupiedCells,
 		AloneResult.MeshesByElement[0].OccupiedCells);
+	return true;
+}
+
+// 分簇合并是 spec §4.1 的硬性要求 2：同元素的重叠矿囊必须并成一簇，否则重叠处会留下
+// 两张互穿的面。矿囊位置由种子决定，所以先搜夹具再断言 —— 两条断言互为对照，
+// 缺了「相距很远 = 2 簇」那条，把实现改成「永远一簇」也能让「相交 = 1 簇」通过。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceClusterMergeTest,
+	"StellarEra.Minerals.MineralSurface.ClusterMerge",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetMineralSurfaceClusterMergeTest::RunTest(const FString& Parameters)
+{
+	using namespace PlanetMineralSurfaceTest;
+
+	// 半径 0.2（不抖动）：相交的 AABB 足够常见，搜索几颗种子就能同时拿到两种夹具。
+	const float PodRadius = 0.20f;
+	FPlanetGeologyElementParams Params = MakeElement(TEXT("a"), PodRadius, 0);
+	Params.PodCount = 2;
+
+	int32 OverlapSeed = 0;
+	int32 FarSeed = 0;
+	for (int32 Seed = 1; Seed <= 4096 && (OverlapSeed == 0 || FarSeed == 0); ++Seed)
+	{
+		Params.Seed = Seed;
+		const auto ProbeField = MakeField(*MakePreset({Params}));
+		const TArray<FPlanetGeologyPod>& Pods = ProbeField->GetPods(0);
+		if (Pods.Num() != 2)
+		{
+			continue;
+		}
+
+		const bool bOverlap = ArePodAabbsOverlapping(Pods[0], Pods[1]);
+		if (bOverlap)
+		{
+			OverlapSeed = OverlapSeed != 0 ? OverlapSeed : Seed;
+			continue;
+		}
+
+		// 「相距很远」：球体本身也不相交，且中心距远大于半径和 —— 防止把
+		// 「AABB 刚好擦边不交」当成第二簇的证据。
+		const double CenterDistance = (Pods[0].Center - Pods[1].Center).Size();
+		const double RadiusSum = double(Pods[0].Radius) + double(Pods[1].Radius);
+		if (FarSeed == 0 && CenterDistance > 2.0 * RadiusSum)
+		{
+			FarSeed = Seed;
+		}
+	}
+
+	if (!TestTrue(TEXT("找到 AABB 相交的两矿囊夹具"), OverlapSeed != 0)
+		|| !TestTrue(TEXT("找到相距很远的两矿囊夹具"), FarSeed != 0))
+	{
+		return false;
+	}
+	AddInfo(FString::Printf(TEXT("相交种子 %d，远离种子 %d"), OverlapSeed, FarSeed));
+
+	struct FCase
+	{
+		const TCHAR* Label;
+		int32 Seed;
+		bool bExpectOverlap;
+		int32 ExpectedClusters;
+	};
+	const FCase Cases[] = {
+		{ TEXT("AABB 相交"), OverlapSeed, true, 1 },
+		{ TEXT("相距很远"), FarSeed, false, 2 },
+	};
+
+	for (const FCase& Case : Cases)
+	{
+		Params.Seed = Case.Seed;
+		const auto Field = MakeField(*MakePreset({Params}));
+		const TArray<FPlanetGeologyPod>& Pods = Field->GetPods(0);
+		if (!TestEqual(*FString::Printf(TEXT("%s：夹具是两个矿囊"), Case.Label), Pods.Num(), 2))
+		{
+			return false;
+		}
+
+		// 夹具守卫：按 Build 的判据重新读回，别只信搜索阶段的结论。
+		const bool bOverlap = ArePodAabbsOverlapping(Pods[0], Pods[1]);
+		if (!TestEqual(*FString::Printf(TEXT("%s：判据与夹具一致"), Case.Label),
+			bOverlap ? 1 : 0, Case.bExpectOverlap ? 1 : 0))
+		{
+			return false;
+		}
+
+		PlanetMineralSurface::FBuildResult Result;
+		PlanetMineralSurface::Build(*Field, MakeParams(*Field, 8), Result);
+
+		if (!TestEqual(*FString::Printf(TEXT("%s：网格数等于元素数"), Case.Label),
+			Result.MeshesByElement.Num(), 1)
+			|| !TestEqual(*FString::Printf(TEXT("%s：簇数组与网格对齐"), Case.Label),
+				Result.ClustersByElement.Num(), Result.MeshesByElement.Num()))
+		{
+			return false;
+		}
+		TestEqual(*FString::Printf(TEXT("%s：元素 0 的簇数"), Case.Label),
+			Result.ClustersByElement[0], Case.ExpectedClusters);
+	}
+	return true;
+}
+
+// 钳制的冒烟测试：大矿囊 + 与它 AABB 相交的极小矿囊（不同元素，分簇不分元素）。
+// 同簇内**最小**半径决定基准格边 ⇒ 格边被极小矿囊拖到极小，而簇范围由大矿囊决定，
+// 于是「每轴 ≤ 512 格」与「单簇单元素 ≤ 8e6 角点」两条硬上限都会触发。
+// 断言的是「不崩、不丢几何、落在上限内」，不是等值面精度。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceClampSmokeTest,
+	"StellarEra.Minerals.MineralSurface.ClampSmoke",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetMineralSurfaceClampSmokeTest::RunTest(const FString& Parameters)
+{
+	using namespace PlanetMineralSurfaceTest;
+
+	constexpr int32 CellsPerPod = 12;
+	constexpr int64 MaxTotalCorners = 8000000;
+
+	const FPlanetGeologyElementParams Big = MakeElement(TEXT("big"), 0.20f, 11);
+	FPlanetGeologyElementParams Tiny = MakeElement(TEXT("tiny"), 0.001f, 0);
+
+	int32 TinySeed = 0;
+	for (int32 Seed = 1; Seed <= 4096 && TinySeed == 0; ++Seed)
+	{
+		Tiny.Seed = Seed;
+		const auto ProbeField = MakeField(*MakePreset({Big, Tiny}));
+		const TArray<FPlanetGeologyPod>& BigPods = ProbeField->GetPods(0);
+		const TArray<FPlanetGeologyPod>& TinyPods = ProbeField->GetPods(1);
+		if (BigPods.Num() == 1 && TinyPods.Num() == 1
+			&& ArePodAabbsOverlapping(BigPods[0], TinyPods[0]))
+		{
+			TinySeed = Seed;
+		}
+	}
+	if (!TestTrue(TEXT("找到与大矿囊 AABB 相交的极小矿囊夹具"), TinySeed != 0))
+	{
+		return false;
+	}
+
+	Tiny.Seed = TinySeed;
+	const auto Field = MakeField(*MakePreset({Big, Tiny}));
+	const TArray<FPlanetGeologyPod>& BigPods = Field->GetPods(0);
+	const TArray<FPlanetGeologyPod>& TinyPods = Field->GetPods(1);
+	if (!TestEqual(TEXT("大矿囊数"), BigPods.Num(), 1)
+		|| !TestEqual(TEXT("极小矿囊数"), TinyPods.Num(), 1))
+	{
+		return false;
+	}
+
+	const double RadiusCm = double(SurfaceRadiusCm);
+	const double MinRadiusCm = double(TinyPods[0].Radius) * RadiusCm;
+	const FBox Union = PodAabbCm(BigPods[0], RadiusCm) + PodAabbCm(TinyPods[0], RadiusCm);
+	const FVector RawExtentCm = Union.Max - Union.Min;
+	const double BaseCellSizeCm = 2.0 * MinRadiusCm / double(CellsPerPod);
+	const double CellSizeCm = ExpectedCellSizeCm(MinRadiusCm, RawExtentCm, CellsPerPod);
+
+	// 夹具守卫：钳制必须真的改变格边，否则本测试只是在跑一张小网格。
+	if (!TestTrue(*FString::Printf(TEXT("夹具触发格边钳制（%.1f → %.1f cm）"),
+		BaseCellSizeCm, CellSizeCm), CellSizeCm > BaseCellSizeCm * 2.0))
+	{
+		return false;
+	}
+
+	// 用与 Build 同一套取整账重算每轴格数 / 角点数，先证明公式给出的上界真的闭合。
+	int64 CornerProduct = 1;
+	for (int32 Axis = 0; Axis < 3; ++Axis)
+	{
+		const double ExtentCm = RawExtentCm[Axis] + 2.0 * CellSizeCm;
+		const int32 CellCount = FMath::Max(1, FMath::CeilToInt(ExtentCm / CellSizeCm));
+		CornerProduct *= int64(CellCount + 1);
+		TestTrue(*FString::Printf(TEXT("轴 %d 格数 %d ≤ 512"), Axis, CellCount),
+			CellCount <= 512);
+	}
+	TestTrue(*FString::Printf(TEXT("单簇单元素角点数 %lld ≤ %lld"),
+		CornerProduct, MaxTotalCorners), CornerProduct <= MaxTotalCorners);
+
+	PlanetMineralSurface::FBuildResult Result;
+	PlanetMineralSurface::Build(*Field, MakeParams(*Field, CellsPerPod), Result);
+	AddInfo(FString::Printf(TEXT("格边 %.1f → %.1f cm，%lld 个角点/元素，GridPoints = %d"),
+		BaseCellSizeCm, CellSizeCm, CornerProduct, Result.GridPoints));
+
+	if (!TestEqual(TEXT("网格数等于元素数"), Result.MeshesByElement.Num(), 2)
+		|| !TestEqual(TEXT("簇数组与网格对齐"),
+			Result.ClustersByElement.Num(), Result.MeshesByElement.Num()))
+	{
+		return false;
+	}
+
+	int32 TotalTriangles = 0;
+	for (const FPlanetMineralMesh& Mesh : Result.MeshesByElement)
+	{
+		TotalTriangles += Mesh.Triangles.Num();
+	}
+	TestTrue(*FString::Printf(TEXT("钳制后仍有三角形（%d 个索引）"), TotalTriangles),
+		TotalTriangles > 0);
+
+	// 一个簇里有两个元素 ⇒ 两张同样大的栅格。
+	TestEqual(TEXT("两个元素各参与一个簇"),
+		Result.ClustersByElement[0] + Result.ClustersByElement[1], 2);
+
+	// 下限证明「极小矿囊确实被并进了大矿囊的簇」：若分成两簇，各簇都是 ~14³ 角点，
+	// 总数只有几千，钳制不会触发。
+	TestTrue(*FString::Printf(TEXT("GridPoints %d 证明大簇被钳制后仍逐点求值"),
+		Result.GridPoints), Result.GridPoints > 1000000);
+	TestTrue(*FString::Printf(TEXT("GridPoints %d ≤ 2 × %lld（一个簇两个元素）"),
+		Result.GridPoints, MaxTotalCorners),
+		Result.GridPoints <= 2 * MaxTotalCorners);
 	return true;
 }
 

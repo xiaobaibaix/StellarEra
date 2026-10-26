@@ -65,6 +65,7 @@ void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildP
 	FBuildResult& Out)
 {
 	Out.MeshesByElement.Reset();
+	Out.ClustersByElement.Reset();
 	Out.GridPoints = 0;
 	Out.BuildSeconds = 0.0;
 
@@ -78,6 +79,7 @@ void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildP
 	const double StartSeconds = FPlatformTime::Seconds();
 	const int32 ElementCount = Field.NumElements();
 	Out.MeshesByElement.SetNum(ElementCount);
+	Out.ClustersByElement.SetNum(ElementCount);
 
 	// --- 1. 收集所有矿囊（厘米空间） ---
 	TArray<FPodInstance> Pods;
@@ -208,7 +210,9 @@ void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildP
 		//
 		// 注意范围：簇之间只保证 AABB 不相交，不保证相隔一格。同一元素**其它簇**的
 		// 矿囊可以离本簇盒子不到一格，其包围盒与该「最后采样平面」相交时那一层角点
-		// 场值就不为 0 —— 封闭性结论只对本簇矿囊成立。
+		// 场值就不为 0 —— 封闭性结论只对本簇矿囊成立。默认预设（半径集中在
+		// 0.038~0.05）下这很罕见，但 PodRadius / PodCount 调大会让簇更多、格边更宽，
+		// 概率随之上长 —— README 里「先把 PodRadius 调大」的建议因此不是零代价的。
 		const FVector PaddedMin = Box.Min - FVector(CellSize);
 		const FVector PaddedMax = Box.Max + FVector(CellSize);
 		const FIntVector CellCount(
@@ -363,6 +367,8 @@ void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildP
 			}
 			Mesh.OccupiedCells += Result.Mesh.OccupiedCells;
 			Out.GridPoints += Result.GridPoints;
+			// 一个 (簇, 元素) 条目 = 该元素参与的一次分簇。
+			++Out.ClustersByElement[Result.ElementIndex];
 		}
 	}
 

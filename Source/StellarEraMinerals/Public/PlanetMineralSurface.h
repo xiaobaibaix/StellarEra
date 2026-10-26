@@ -50,6 +50,16 @@ namespace PlanetMineralSurface
 		/** 下标 = 运行期元素下标（GetSampledElementDefinitions 顺序）；空元素留空网格。 */
 		TArray<FPlanetMineralMesh> MeshesByElement;
 		/**
+		 * 每个元素**参与**的簇数，下标与 MeshesByElement 一一对齐（没矿囊的元素为 0）。
+		 *
+		 * 一个簇可以同时含多个元素的矿囊；这样的簇对该元素各计一次。所以这个数组
+		 * 之和 ≥ 实际簇数，只有单元素场才相等。
+		 *
+		 * 诊断用途：同元素的两个 AABB 相交的矿囊必须并成**一**簇 —— 分别建面会在
+		 * 重叠处留下两张互穿的面；分簇判据被放松成「永远各建各的」时，值会变成 2。
+		 */
+		TArray<int32> ClustersByElement;
+		/**
 		 * 实际求过场的角点数，只进日志：按（簇 × 元素）累加。
 		 * 含球外角点与簇内其他元素占用过的角点，**会重复计数**。
 		 */

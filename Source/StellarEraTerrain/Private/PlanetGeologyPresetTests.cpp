@@ -105,6 +105,44 @@ bool FPlanetGeologyLegacyPathTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// 迁移链的端到端验证：旧关卡只存 GeologyPreset 字符串，PostLoad 把它换成资产并清空旧字段。
+// 起点是 CDO 默认值 "earth" —— 旧 Actor 从未序列化过该字段，删掉默认值迁移条件恒假，
+// 老关卡会永久丢矿（Task 3 审查抓到过一次）。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyLegacyMigrationTest,
+	"StellarEra.Planet.Geology.LegacyMigration",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyLegacyMigrationTest::RunTest(const FString& Parameters)
+{
+	// 1) 默认值不许被删。
+	TestEqual(TEXT("CDO 默认迁移名是 earth"),
+		GetDefault<AVoxelPlanetActor>()->GeologyPreset, FString(TEXT("earth")));
+
+	// 2) 真跑一次迁移。对象不放进世界：PostLoad 的迁移分支只读旧字段并 TryLoad；
+	//    基类 PostLoad 的编辑器 Actor 元素、DataLayer 修复都以 GetLevel() 为守卫，
+	//    GetLinkerUEVersion / GetLinkerCustomVersion 在无 Linker 时返回当前版本。
+	AVoxelPlanetActor* Actor = NewObject<AVoxelPlanetActor>();
+	if (!TestNotNull(TEXT("新建一个不入世界的行星 Actor"), Actor))
+	{
+		return false;
+	}
+
+	Actor->GeologyAsset = nullptr;
+	Actor->GeologyPreset = TEXT("earth");
+	Actor->PostLoad();
+
+	UPlanetGeologyPreset* Asset = Actor->GetGeologyPresetAsset();
+	if (!TestNotNull(TEXT("迁移后 GeologyAsset 指向资产"), Asset))
+	{
+		return false;
+	}
+
+	TestEqual(TEXT("迁移目标是 DA_Geology_Earth"),
+		Asset->GetPackage()->GetName(), FString(TEXT("/Game/Geology/Planets/DA_Geology_Earth")));
+	TestTrue(TEXT("迁移成功后旧字段被清空"), Actor->GeologyPreset.IsEmpty());
+	return true;
+}
+
 // 这份资产是打包内容的一半（另一半是行星/BP 上的硬引用），值错了游戏里就是矿囊长错。
 // 期望值从建资产命令的实现（PlanetGeologyPreset.cpp 的 FillEarthPreset）取数。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyEarthValuesTest,
@@ -129,6 +167,16 @@ bool FPlanetGeologyEarthValuesTest::RunTest(const FString& Parameters)
 	const int32 ExpectedPodCounts[] = { 20, 20, 16, 16, 12, 10 };
 	const float ExpectedPodRadii[] = { 0.050f, 0.050f, 0.048f, 0.045f, 0.042f, 0.038f };
 	const float ExpectedAbundances[] = { 0.60f, 0.75f, 0.20f, 0.45f, 0.15f, 0.10f };
+	const int32 ExpectedSeeds[] = { 303, 101, 606, 202, 404, 505 };
+	// Seed 改了矿囊位置、Color 改了图例与矿体颜色，两者都是「资产是内容的一半」的一部分。
+	const FLinearColor ExpectedColors[] = {
+		FLinearColor(0.62f, 0.58f, 0.50f),
+		FLinearColor(0.72f, 0.42f, 0.36f),
+		FLinearColor(0.20f, 0.45f, 0.90f),
+		FLinearColor(0.85f, 0.55f, 0.25f),
+		FLinearColor(0.70f, 0.72f, 0.78f),
+		FLinearColor(0.45f, 0.85f, 0.35f),
+	};
 	const int32 ElementCount = UE_ARRAY_COUNT(ExpectedIds);
 
 	TestEqual(TEXT("6 个元素"), Preset->Elements.Num(), ElementCount);
@@ -150,6 +198,10 @@ bool FPlanetGeologyEarthValuesTest::RunTest(const FString& Parameters)
 			Element.PodRadius, ExpectedPodRadii[Index]);
 		TestEqual(*FString::Printf(TEXT("%s 的 Abundance"), *Label),
 			Element.Abundance, ExpectedAbundances[Index]);
+		TestEqual(*FString::Printf(TEXT("%s 的 Seed"), *Label),
+			Element.Seed, ExpectedSeeds[Index]);
+		TestEqual(*FString::Printf(TEXT("%s 的 Color"), *Label),
+			Element.Color, ExpectedColors[Index]);
 	}
 
 	TestEqual(TEXT("ColorThreshold"), Preset->Appearance.ColorThreshold, 0.05f);

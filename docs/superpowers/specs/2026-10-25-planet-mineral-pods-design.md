@@ -159,22 +159,25 @@ rp = clamp(rp, 1e-3, 0.25)
 
 D  = Rng.GetUnitVector()                            // 球面均匀方向
 
-rn = ∛Rng.FRand()                                   // 归一化球内深度：0 = 地表，1 = 球心
+rr = ∛Rng.FRand()                                   // 球心距比例：0 = 球心，1 = 球面
 PodDepthBias > 0：                                  // 带权拒绝采样，最多 64 次
     重复：t = ∛Rng.FRand()
-          若 Rng.FRand() < w(t) 则接受，w(t) = (1−b) + b·exp(−((t−Center)/Spread)²)
-    64 次仍不接受则采用第 64 次的 t，rn = t
+          d = 1 − t                                 // 深度偏好，与球心距互为补角
+          若 Rng.FRand() < w(d) 则接受，w(d) = (1−b) + b·exp(−((d−Center)/Spread)²)
+    64 次仍不接受则采用第 64 次的 t，rr = t
 
-rc = (1 − rp) × rn                                  // 球心距
-C  = D × rc                                         // 矿囊球心
+C  = D × rr                                         // 矿囊球心（归一化空间）
 ```
 
-`rn` 与 `PodDepthCenter` / `PodDepthSpread` 同一坐标系（都按「地表 0 → 球心 1」的比例）。
+`rr` 是**球心距比例**（∛U 让矿囊在球内体积均匀），`PodDepthCenter` / `PodDepthSpread` 是**深度**
+（地表 0 → 球心 1）—— 两者互为补角，带权那一步先换成 `d = 1 − rr` 再比。
 
 两条性质：
 
-- `w(t) ≥ 1 − b > 0`，**任何深度都不会被完全排除**，只是被稀释。「没有分层」是结构性的，不靠调参运气。
-- `rc ≤ 1 − rp`，矿囊完全在基准球内，不会戳出球面。露头来自矿囊与地表的自然相交。
+- `w(d) ≥ 1 − b > 0`，**任何深度都不会被完全排除**，只是被稀释。「没有分层」是结构性的，不靠调参运气。
+- `C` **不乘 `(1 − rp)` 收缩**：矿囊**可以探出基准球面**（`|C| + rp > 1`），露头正来自这一点 ——
+  地形在深度 0 处采样时切得到它，观测视图则把顶点径向夹回 `|v| ≤ R`，收在观察壳上。
+  早期草稿在这里乘过 `(1 − rp)`，那会让矿囊永远够不到球面，露头恒为 0、地形一个矿都不显色。
 
 ### 3.3 求值
 
@@ -202,11 +205,12 @@ Raw_i          = Abundance_i × Norm_i
 建场时把所有矿囊塞进一个 `TMap<FIntVector, TArray<FPlanetGeologyPodRef>>`（`FPlanetGeologyPodRef = { ElementIndex, PodIndex }`）：
 
 - 格子边长 = 全局最大矿囊半径（含抖动）；
-- 每囊插入其包围盒（球心 ± rp）覆盖的所有格子，最多 8 格。
+- 每囊插入其包围盒（球心 ± rp）覆盖的所有格子：AABB 边长可达 2 格且可跨整数边界，
+  所以每轴最多 3 格、合计最多 27 格。
 
 查询只查 P 所在的那一格。**正确性**：任何包含 P 的矿囊，其包围盒必覆盖 P 所在格，故必在该格的候选表里。
 
-不在任何矿囊内的点**一次 Perlin 都不求**。这使地形的每体素开销不升反降——现有实现每体素要算 6 次高斯，并在深度窗内调 1–2 次分形 Perlin；新模型下绝大多数体素落在空格子里。
+不在任何矿囊内的点**一次 Perlin 都不求**。据此**推算**地形的每体素开销会下降（尚未实测）——现有实现每体素要算 6 次高斯，并在深度窗内调 1–2 次分形 Perlin；新模型下绝大多数体素落在空格子里。
 
 ### 3.5 一致性不变量
 
@@ -219,6 +223,10 @@ Raw_i          = Abundance_i × Norm_i
 | 观测视图（`PlanetMineralSurface::Build`） | `Norm_i > ColorThreshold`（同一数值） |
 
 地形在**真实地表深度**采样，所以只有够到地表的矿囊会让地表显色。这与观测视图不矛盾：观测视图里看得到但在地形上看不到的那些，都在球体内部，本来就看不见。
+
+两边用的是同一个 `EvaluateElementNorm`，但**定义域差一层球壳**：观测视图的求值入口
+（`SampleElementNormAtNormalized`）对 `|P|² > 1 + 1e-4` 直接早退为 0，地形的 `Accumulate`
+没有这层早退。视觉上两边同方向的矿都看得到，但不要把它当成逐点等价。
 
 ### 3.6 空场语义
 
@@ -300,10 +308,9 @@ void EnterMineralPreviewInEditor();
 
 UFUNCTION(CallInEditor, Category="Planet|MineralView")
 void ExitMineralPreviewInEditor();
-
-UFUNCTION(BlueprintPure) bool IsPreviewing() const;
 ```
 
+状态查询直接用已有的 `IsActive()`（不另加 `IsPreviewing()` —— 它只是同一个 `bActive` 的纯转发）。
 复用 `Activate(Planet)` / `Deactivate()`，内部按 `World->WorldType == EWorldType::Editor` 分支。
 
 ### 5.2 两套分支

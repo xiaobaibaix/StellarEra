@@ -50,6 +50,11 @@ public:
 	 * 只是该元素不贡献颜色。
 	 *
 	 * 内部走同一个 Accumulate，一次循环填完，不额外调噪声。
+	 *
+	 * **测试 oracle，非生产路径**：生产入口是 SampleElementNormAtNormalized（逐元素）
+	 * 与 Sample（取最强元素）。与它们不同，本入口（和 SampleElementNormBruteForce）
+	 * 没有「球外早退」—— 点落在 `|P| > 1` 时走完整求值，而生产入口直接返回 0。
+	 * 球外比较必须记住这条不对称。
 	 */
 	void SampleElementNorms(const FVector& UnitDir, double Depth, TArray<float>& OutNorms) const;
 
