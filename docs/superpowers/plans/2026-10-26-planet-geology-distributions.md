@@ -3745,7 +3745,16 @@ include 区加 `#include "PlanetGeologySpherePodsDistribution.h"`。
 	TestEqual(TEXT("默认没有生成器"), Defaults.Distributions.Num(), 0);
 ```
 
-2. 在文件末尾（`#endif` 之前）追加：
+2. 两个新测试的**落点不同**（文件现有结构：`#if WITH_DEV_AUTOMATION_TESTS` 在 11 行、
+   `#if WITH_EDITOR` 是 52–69 行那段、文件末尾 215 行的 `#endif` 收外层）：
+
+   - `LegacyMigrationFidelity` 不用编辑器专有 API —— 追加在**文件末尾**（外层 `#endif` 之前）；
+   - `PresetRevision.NestedEdit` 用 `FPropertyChangedEvent` —— **必须放进现有的
+     `#if WITH_EDITOR` 块内**（52–69 行，插在它的 `#endif` 之前）。文件里那段注释已经写明
+     原因：`WITH_DEV_AUTOMATION_TESTS` 在 Game 目标同样为 1，不裹 `WITH_EDITOR` 就编不过。
+     落进去时它自带的那层 `#if WITH_EDITOR` 删掉，别嵌两层。
+
+   要追加的内容：
 
 ```cpp
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyLegacyMigrationFidelityTest,
@@ -4022,7 +4031,9 @@ bool FPlanetGeologyEarthValuesTest::RunTest(const FString& Parameters)
 
 `PlanetGeologyPreset.h`：
 
-1. UObject 接口区加：
+1. UObject 接口区**只加一行 `PostLoad`**：`PostEditChangeProperty` 已经在里面了
+   （`Source/StellarEraGeology/Public/PlanetGeologyPreset.h:135-139`），照抄整个块
+   就是重复声明、直接编译错误。改完后这段应当是：
 
 ```cpp
 	//~ Begin UObject Interface
@@ -4247,7 +4258,12 @@ include 区加三个生成器头：
 #include "PlanetGeologyVeinDistribution.h"
 ```
 
-- [ ] **Step 5: 重新生成地球资产**
+- [ ] **Step 5: 重新生成地球资产（**Task 7 不执行**，移交 Task 8 人工门）**
+
+> **本轮不做**：这条命令会覆盖 `Content/Geology/Planets/DA_Geology_Earth.uasset`，而该文件
+> 正是用户手上未提交的改动 —— 执行它等于销毁用户未提交的工作。所以 Task 7 只改
+> `FillEarthPreset` 的**代码**，磁盘资产保持旧数据，`EarthPresetValues` 是已知红；
+> Task 8 的人工验收向用户要授权后再跑这里与 Step 6。下面的命令与验收标准留给 Task 8。
 
 构建通过后（编辑器必须关闭），跑一次控制台命令：
 
@@ -4278,7 +4294,9 @@ StellarEra.CreateEarthGeologyPreset: 已保存（覆盖，6 个元素）
   -unattended -nopause -nullrhi -nosplash -stdout -abslog="$TEMP/StellarEra_All.log"
 ```
 
-预期全绿，其中 `EarthPresetValues` 证明磁盘上的资产真的是新数据。
+预期：除 `StellarEra.Planet.Geology.EarthPresetValues` 外全绿 —— Step 5 被推迟后它必然红
+（磁盘资产还是旧数据）。报告里写明「等资产重建」，**不要改测试去迁就旧资产**。
+Task 8 重建资产后再跑本节，该条转绿才证明磁盘上的资产真的是新数据。
 
 - [ ] **Step 7: 文档**
 
@@ -4355,14 +4373,17 @@ git add -- Source/StellarEraGeology/Public/PlanetGeologyPreset.h \
   Source/StellarEraGeology/Private/PlanetGeologyPreset.cpp \
   Source/StellarEraTerrain/Private/PlanetGeologyPodTests.cpp \
   Source/StellarEraTerrain/Private/PlanetGeologyPresetTests.cpp \
-  Content/Geology/Planets/DA_Geology_Earth.uasset Content/Geology/README.md CLAUDE.md
+  Content/Geology/README.md CLAUDE.md
 git commit -m "feat(地质): 旧资产迁移 + 地球六元素各用专属分布，测试夹具切显式生成器" -- \
   Source/StellarEraGeology/Public/PlanetGeologyPreset.h \
   Source/StellarEraGeology/Private/PlanetGeologyPreset.cpp \
   Source/StellarEraTerrain/Private/PlanetGeologyPodTests.cpp \
   Source/StellarEraTerrain/Private/PlanetGeologyPresetTests.cpp \
-  Content/Geology/Planets/DA_Geology_Earth.uasset Content/Geology/README.md CLAUDE.md
+  Content/Geology/README.md CLAUDE.md
 ```
+
+资产 `DA_Geology_Earth.uasset` **不进这次提交**：Step 5 推迟了，它现在还是用户的未提交改动，
+任何 `git add` 都会把用户手里那份半成品当成我们的产出。
 
 ---
 
