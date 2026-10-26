@@ -14,6 +14,9 @@
 
 - 模块分层不变：`StellarEraGeology` 仍只依赖 Core / CoreUObject / Engine / Voxel / AssetRegistry；`StellarEraMinerals → StellarEraGeology`。不得新增模块依赖。
 - 新生成器类全部放在 `StellarEraGeology`；自定义代码不进 `Plugins/`。
+- 每个生成器子类的 `UCLASS` 必须**各自**写 `EditInlineNew`：`CLASS_EditInlineNew` 只在 `CLASS_ScriptInherit` 里
+  （`ObjectMacros.h:302`），原生 C++ 子类不继承基类的这个标志，而属性面板的 `+` 类选择器要求候选类自身带它
+  （`SPropertyEditorEditInline.cpp:73`）。漏了就是「`+` 不弹选择器」。
 - 新写的 `.h` / `.cpp` 若含中文，必须存为 **UTF-8 with BOM**；不要统一换行符（仓库 CRLF/LF 混合）。
 - 元素运行期结构 `FPlanetGeologyElement` 不再有 `Pods / PodRadius / ShapeDetail / Octaves / Lacunarity / Gain / Seed / VeinThreshold`；`FPlanetGeologyPod` 保留给囊状生成器。
 - 合成语义固定为 **max**，不是相加；`Abundance` 只影响颜色，不改几何。
@@ -895,7 +898,7 @@ bool FPlanetGeologyDistributionEmptyTest::RunTest(const FString& Parameters)
  * 参数名保留 Pod 前缀（spec §4.4「参数与语义完全沿用」）：迁移时逐字段照抄旧值，
  * 名字一改就又多一个漂移点。
  */
-UCLASS(DisplayName = "囊状（球团）")
+UCLASS(DisplayName = "囊状（球团）", EditInlineNew)
 class STELLARERAGEOLOGY_API UPlanetGeologySpherePodsDistribution
 	: public UPlanetGeologyDistribution
 {
@@ -1603,7 +1606,7 @@ bool FPlanetGeologyLensBruteForceTest::RunTest(const FString& Parameters)
  * A / C 可达 20 倍以上。基元尺度一致性（spec §3.2）约束的是**片与片之间**，
  * 不是单片的长宽比。
  */
-UCLASS(DisplayName = "片层（透镜）")
+UCLASS(DisplayName = "片层（透镜）", EditInlineNew)
 class STELLARERAGEOLOGY_API UPlanetGeologyLensDistribution : public UPlanetGeologyDistribution
 {
 	GENERATED_BODY()
@@ -2028,7 +2031,7 @@ bool FPlanetGeologyVeinBruteForceTest::RunTest(const FString& Parameters)
  * 单段包围半径因此稳定在 (0.5 × 段长 + r) 量级，观测视图的稀疏网格格边不会被
  * 一条长脉拉大（spec §3.2）。
  */
-UCLASS(DisplayName = "脉状（穿切）")
+UCLASS(DisplayName = "脉状（穿切）", EditInlineNew)
 class STELLARERAGEOLOGY_API UPlanetGeologyVeinDistribution : public UPlanetGeologyDistribution
 {
 	GENERATED_BODY()
@@ -2467,7 +2470,7 @@ bool FPlanetGeologyDisseminatedBruteForceTest::RunTest(const FString& Parameters
  * 成本随 GrainCount 线性涨：默认 512 粒约 110 万观测视图角点。
  * 想更密先加 GrainRadius（角点 ∝ 粒径²），再加数量。
  */
-UCLASS(DisplayName = "浸染（散布）")
+UCLASS(DisplayName = "浸染（散布）", EditInlineNew)
 class STELLARERAGEOLOGY_API UPlanetGeologyDisseminatedDistribution
 	: public UPlanetGeologyDistribution
 {
