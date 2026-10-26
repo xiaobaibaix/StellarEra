@@ -5,6 +5,7 @@
 #include "Misc/AutomationTest.h"
 #include "Math/RandomStream.h"
 #include "PlanetGeologyDistribution.h"
+#include "PlanetGeologyDisseminatedDistribution.h"
 #include "PlanetGeologyField.h"
 #include "PlanetGeologyLensDistribution.h"
 #include "PlanetGeologyPreset.h"
@@ -684,6 +685,93 @@ bool FPlanetGeologyVeinBruteForceTest::RunTest(const FString& Parameters)
 	Field->EnumerateRegions(0, Regions);
 
 	FRandomStream Rng(27182);
+	TestEqual(TEXT("索引路径 == 暴力路径"),
+		CountBruteForceMismatches(*this, *Field, 0, Regions, Rng), 0);
+	TestEqual(TEXT("包围盒盖住全部真实矿体"), CountOreOutsideAllRegions(*Field, 0, Regions, Rng), 0);
+	return true;
+}
+
+namespace PlanetGeologyDistributionTest
+{
+	UPlanetGeologyDisseminatedDistribution* AddDisseminated(UPlanetGeologyPreset& Preset,
+		FPlanetGeologyElementParams& Element, int32 GrainCount, float GrainRadius)
+	{
+		UPlanetGeologyDisseminatedDistribution* Disseminated =
+			NewObject<UPlanetGeologyDisseminatedDistribution>(&Preset);
+		Disseminated->GrainCount = GrainCount;
+		Disseminated->GrainRadius = GrainRadius;
+		Disseminated->RadiusJitter = 0.5f;
+		Disseminated->DepthBias = 0.5f;
+		Disseminated->DepthCenter = 0.15f;
+		Disseminated->DepthSpread = 0.08f;
+		Disseminated->Seed = 606;
+		Disseminated->bSeedExplicit = true;
+		Element.Distributions.Add(Disseminated);
+		return Disseminated;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyDisseminatedCountsTest,
+	"StellarEra.Planet.Geology.Disseminated.Counts",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyDisseminatedCountsTest::RunTest(const FString& Parameters)
+{
+	using namespace PlanetGeologyDistributionTest;
+
+	constexpr int32 GrainCount = 320;
+	constexpr float GrainRadius = 0.0025f;
+
+	UPlanetGeologyPreset* Preset = MakePreset();
+	FPlanetGeologyElementParams& Element = AddElement(*Preset, TEXT("titanium"));
+	AddDisseminated(*Preset, Element, GrainCount, GrainRadius);
+
+	const auto Field = MakeField(*Preset);
+	TArray<FPlanetGeologyRegion> Regions;
+	Field->EnumerateRegions(0, Regions);
+	if (!TestEqual(TEXT("区域数 == GrainCount"), Regions.Num(), GrainCount))
+	{
+		return false;
+	}
+
+	const float MinRadius = GrainRadius * 0.5f;
+	const float MaxRadius = GrainRadius * 1.5f;
+	int32 OutOfRange = 0;
+	int32 OutsideSphere = 0;
+	for (const FPlanetGeologyRegion& Region : Regions)
+	{
+		if (Region.CharacteristicRadius < MinRadius || Region.CharacteristicRadius > MaxRadius)
+		{
+			++OutOfRange;
+		}
+		if (Region.Bounds.GetCenter().Size() > 1.0 + 1e-4)
+		{
+			++OutsideSphere;
+		}
+	}
+	TestEqual(TEXT("颗粒半径都在抖动范围内"), OutOfRange, 0);
+	TestEqual(TEXT("没有颗粒中心越出球体"), OutsideSphere, 0);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyDisseminatedBruteForceTest,
+	"StellarEra.Planet.Geology.Disseminated.BruteForceAgrees",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyDisseminatedBruteForceTest::RunTest(const FString& Parameters)
+{
+	using namespace PlanetGeologyDistributionTest;
+
+	UPlanetGeologyPreset* Preset = MakePreset();
+	FPlanetGeologyElementParams& Element = AddElement(*Preset, TEXT("titanium"));
+	AddDisseminated(*Preset, Element, 320, 0.0025f);
+
+	const auto Field = MakeField(*Preset);
+	TArray<FPlanetGeologyRegion> Regions;
+	Field->EnumerateRegions(0, Regions);
+
+	FRandomStream Rng(16180);
 	TestEqual(TEXT("索引路径 == 暴力路径"),
 		CountBruteForceMismatches(*this, *Field, 0, Regions, Rng), 0);
 	TestEqual(TEXT("包围盒盖住全部真实矿体"), CountOreOutsideAllRegions(*Field, 0, Regions, Rng), 0);
