@@ -277,8 +277,9 @@ bool FPlanetGeologyDistributionSeedTest::RunTest(const FString& Parameters)
 	}
 
 	// 5) bSeedExplicit 单独成立：Seed=0 时它必须压过派生规则。
-	// 上面各条都靠「Seed 非 0」绕开派生，删掉 ResolveSeed 里的位标记分支照样全绿；
-	// 这一条同时断言「没标记时派生非 0」与「标记后就是字面值 0」，才真的钉得住。
+	// 前面第 1/2/4 条也都是 Seed=0 走派生（钉的是派生出的字面值），但它们从没设过
+	// bSeedExplicit，所以删掉 ResolveSeed 里的位标记分支照样全绿。这一条同时断言
+	// 「没标记时派生非 0」与「标记后就是字面值 0」，才真的钉得住。
 	{
 		UPlanetGeologyPreset* Preset = MakePreset();
 		UPlanetGeologySpherePodsDistribution* ExplicitZero =
