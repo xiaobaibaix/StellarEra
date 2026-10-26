@@ -73,7 +73,7 @@ void UPlanetGeologyPreset::PostLoad()
 	Super::PostLoad();
 
 	// 异步加载线程上不能建 UObject。跳过迁移不会改变行为：BuildFromPreset 的
-	// 遗留兜底会按同一份旧字段建出同样的囊表；下次在编辑器里打开/保存时再迁移。
+	// 遗留兜底会按同一份旧字段建出同样的囊表；下次重新加载这份资产时会再试一次。
 	if (!IsInGameThread())
 	{
 		UE_LOG(LogTemp, Verbose,
@@ -111,7 +111,8 @@ namespace
 	TDistribution* AddEarthDistribution(UPlanetGeologyPreset& Preset,
 		FPlanetGeologyElementParams& Element)
 	{
-		// 一次性夹具不要遗留字段：两套数据并存时读代码的人永远不知道哪套在生效。
+		// 只清 PodCount：它是遗留兜底的唯一开关（Distributions 为空 **且** PodCount > 0 才生效），
+		// 其余遗留字段在有生成器时根本不参与采样。别删这一行 —— 删了这里的两套数据就会并存。
 		Element.PodCount = 0;
 		TDistribution* Distribution = NewObject<TDistribution>(&Preset);
 		Distribution->ShapeDetail = 3.0f;

@@ -40,7 +40,7 @@ struct STELLARERAGEOLOGY_API FPlanetGeologyElementParams
 
 	/**
 	 * 只影响颜色混合权重与图例占比，**不改几何**。
-	 * 想改矿囊密度请调 PodCount / PodRadius。
+	 * 想改矿的分布请调 `Distributions` 里的生成器。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Element",
 		meta = (ClampMin = "0.0"))
@@ -53,16 +53,17 @@ struct STELLARERAGEOLOGY_API FPlanetGeologyElementParams
 	UPROPERTY(EditAnywhere, Instanced, Category = "Distribution")
 	TArray<TObjectPtr<UPlanetGeologyDistribution>> Distributions;
 
-	/** 撒多少个矿囊。0 = 这个元素在这颗行星上不存在。 */
+	/**
+	 * 遗留字段：撒多少个矿囊。**只在 `Distributions` 为空时被读取**（遗留兜底）。
+	 * 0 = 不走兜底 —— 迁移后的资产和新地球的每个元素这里都是 0，但元素照常存在。
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pods",
 		meta = (ClampMin = "0", ClampMax = "512", DeprecatedProperty))
 	int32 PodCount = 16;
 
 	/**
-	 * 矿囊名义半径（占行星基准半径的比例）。
-	 *
-	 * 重叠对的数量按 PodCount² × (2·r)³ 增长：半径砍半，重叠少 8 倍。
-	 * 想看不同元素互相穿插，就把这个值调大，别只加 PodCount。
+	 * 遗留字段：矿囊名义半径。新内容改用生成器的特征尺度参数；
+	 * 想让不同元素互相穿插，见 `Content/Geology/README.md`。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pods",
 		meta = (ClampMin = "0.001", ClampMax = "0.25", DeprecatedProperty))

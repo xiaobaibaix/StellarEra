@@ -358,6 +358,11 @@ bool FPlanetGeologyLegacyMigrationFidelityTest::RunTest(const FString& Parameter
 	TestEqual(TEXT("种子 = 旧公式"), Migrated->Seed,
 		int32(GetTypeHash(Legacy.Id) & 0x7fffffffu));
 
+	// Seed 非 0 时 ResolveSeed 本来就返回字面值，这条与下面那条一起才钉得住
+	// 「旧公式算出 0 时也不会落回新派生规则」。
+	TestTrue(TEXT("迁移锁定显式种子"),
+		Migrated->bSeedExplicit && Migrated->Seed == int32(GetTypeHash(Legacy.Id) & 0x7fffffffu));
+
 	const auto MigratedField = FPlanetGeologyField::BuildFromPreset(*MigratedPreset, 40000.0);
 	TestTrue(TEXT("迁移前后 IsEmpty 一致"),
 		LegacyField->IsEmpty() == MigratedField->IsEmpty());

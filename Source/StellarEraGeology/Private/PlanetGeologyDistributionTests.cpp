@@ -276,6 +276,21 @@ bool FPlanetGeologyDistributionSeedTest::RunTest(const FString& Parameters)
 			Distribution->ResolveSeed(TEXT("iron"), 3), 1033752709);
 	}
 
+	// 5) bSeedExplicit 单独成立：Seed=0 时它必须压过派生规则。
+	// 上面各条都靠「Seed 非 0」绕开派生，删掉 ResolveSeed 里的位标记分支照样全绿；
+	// 这一条同时断言「没标记时派生非 0」与「标记后就是字面值 0」，才真的钉得住。
+	{
+		UPlanetGeologyPreset* Preset = MakePreset();
+		UPlanetGeologySpherePodsDistribution* ExplicitZero =
+			NewObject<UPlanetGeologySpherePodsDistribution>(Preset);
+		ExplicitZero->Seed = 0;
+		const int32 Derived = ExplicitZero->ResolveSeed(TEXT("iron"), 3);
+		TestTrue(*FString::Printf(TEXT("未标记时 Seed=0 仍派生（%d）"), Derived), Derived != 0);
+		ExplicitZero->bSeedExplicit = true;
+		TestEqual(TEXT("标记后 Seed=0 按字面值返回 0"),
+			ExplicitZero->ResolveSeed(TEXT("iron"), 3), 0);
+	}
+
 	return true;
 }
 

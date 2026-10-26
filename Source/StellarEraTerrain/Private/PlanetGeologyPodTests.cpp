@@ -413,7 +413,6 @@ bool FPlanetGeologyPodShapeTest::RunTest(const FString& Parameters)
 
 	// 单矿囊夹具：周围没有第二个囊，径向截断的断言才不会被「落在邻囊里」旁路掉。
 	FPlanetGeologyElementParams Params = MakeElement(TEXT("a"), 1, 0.06f, 55, 0.0f);
-	Params.ShapeDetail = 3.0f;
 	UPlanetGeologyPreset* Preset = MakePreset({Params});
 	const auto Field = MakeField(*Preset);
 
