@@ -16,6 +16,8 @@ void FPlanetGeologyDistributionNoise::Init(const int32 InSeed, const float InFea
 	const float InShapeDetail, const int32 InOctaves, const float InLacunarity,
 	const float InGain, const float InVeinThreshold)
 {
+	// 不在这里抬到 1e-4：抬了会让「特征半径为 0 时恒 0」那条测试失效。
+	// 极小半径的保护放在 EvaluateVein 里。
 	FeatureRadius = FMath::Max(InFeatureRadius, 0.f);
 	ShapeDetail = FMath::Max(InShapeDetail, 1.f);
 	Octaves = FMath::Clamp(InOctaves, 1, 6);
@@ -41,14 +43,17 @@ float FPlanetGeologyDistributionNoise::EvaluateAt(const FVector& NoiseSpacePoint
 
 float FPlanetGeologyDistributionNoise::EvaluateVein(const FVector& P) const
 {
-	if (FeatureRadius <= 0.f)
+	// 1e-4 与旧实现的 Max(PodRadius, 1e-4) 对齐：半径趋近 0 时 Scale 会炸成天文数字，
+	// 噪声坐标失去意义。小于它一律当 0（旧路径上这种囊本身也不产出）。
+	if (FeatureRadius < 1e-4f)
 	{
 		return 0.f;
 	}
 
 	// 频率折叠进坐标：ShapeDetail 是「每特征直径的周期数」，直径 = 2r。
+	// 用 double 乘（FVector 分量本来就是 double），不要先把 Scale 窄化成 float。
 	const double Scale = double(ShapeDetail) / (2.0 * double(FeatureRadius));
-	const double Noise01 = double(EvaluateAt(P * float(Scale)));
+	const double Noise01 = double(EvaluateAt(P * Scale));
 	if (VeinThreshold <= 0.0)
 	{
 		return float(Noise01);
@@ -94,6 +99,8 @@ FVector SamplePlanetGeologyPlacement(FRandomStream& Rng, const float InDepthBias
 
 FIntVector PlanetGeologyToCell(const FVector& Point, const double CellSize)
 {
+	// CellSize ≤ 0 会让除法出 inf，FloorToInt 是 UB，后面的格子循环还会跑飞。
+	check(CellSize > 0.0);
 	return FIntVector(
 		FMath::FloorToInt(Point.X / CellSize),
 		FMath::FloorToInt(Point.Y / CellSize),
@@ -126,9 +133,11 @@ int32 UPlanetGeologyDistribution::ResolveSeed(const FName ElementId,
 	{
 		return Seed;
 	}
-	const uint32 Mixed = uint32(GetTypeHash(ElementId))
+	// 必须哈希字符串：GetTypeHash(FName) 取的是名字池下标，跨进程不稳定，
+	// 编辑器与打包版会长出不同的矿。GetTypeHash(FString) 走 FCrc::Strihash，是确定性的。
+	const uint32 Mixed = GetTypeHash(ElementId.ToString())
 		^ (uint32(DistributionIndex) * 0x9E3779B1u)
-		^ uint32(GetTypeHash(GetClass()->GetFName()));
+		^ GetTypeHash(GetClass()->GetFName().ToString());
 	return int32(Mixed & 0x7fffffffu);
 }
 

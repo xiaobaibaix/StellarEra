@@ -55,11 +55,12 @@ struct STELLARERAGEOLOGY_API FPlanetGeologyDistributionNoise
 	 */
 	float EvaluateAt(const FVector& NoiseSpacePoint) const;
 
-	/** 阈值稀疏后的 [0,1]；FeatureRadius ≤ 0 时恒 0。 */
+	/** 阈值稀疏后的 [0,1]；FeatureRadius < 1e-4 时恒 0（半径趋零会把坐标缩放炸掉）。 */
 	float EvaluateVein(const FVector& P) const;
 
 	float FeatureRadius = 0.f;
 	float ShapeDetail = 3.f;
+	/** Init 会把它烘进 FVoxelFastNoise 的 FractalBounding；改它必须重新 Init，否则分形不再归一化。 */
 	int32 Octaves = 2;
 	float VeinThreshold = 0.f;
 
@@ -71,7 +72,8 @@ private:
  * 带权深度放置：返回归一化球内的位置（|P| ≤ 1）。
  *
  * 随机流顺序与旧 PlacePods 逐位一致（方向 → 初始半径 → 可选拒绝采样循环），
- * 迁移保真测试依赖这一点。
+ * 迁移保真测试依赖这一点 —— 所以**调用方必须先抽半径抖动**（旧 PlacePods 的第一步），
+ * 少抽一次就整体错位。
  */
 STELLARERAGEOLOGY_API FVector SamplePlanetGeologyPlacement(FRandomStream& Rng,
 	float DepthBias, float DepthCenter, float DepthSpread);
@@ -133,8 +135,8 @@ public:
 	/** 解析后的种子。新生成器按 spec §2.3 派生；迁移数据走 bSeedExplicit。 */
 	int32 ResolveSeed(FName ElementId, int32 DistributionIndex) const;
 
-	// UObject 不能有纯虚函数（UHT 生成的构造代码会实例化本类），所以用 PURE_VIRTUAL：
-	// 语义相同（子类必须覆写），漏掉覆写时运行期致命报错而不是悄悄返回空。
+	// 不能写 `= 0`：UHT 的 GENERATED_BODY() 会实例化 UCLASS，纯虚声明让 gen.cpp 编不过（C2259）。
+	// PURE_VIRTUAL 是 UE 的等价写法：UHT 可实例化，漏实现则在调用点 fatal。
 	virtual TSharedPtr<const FPlanetGeologyDistributionRuntime> BuildRuntime(
 		const FPlanetGeologyDistributionBuildContext& Context) const
 		PURE_VIRTUAL(UPlanetGeologyDistribution::BuildRuntime, return nullptr;);
