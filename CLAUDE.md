@@ -86,6 +86,7 @@ Content/
 | `AStellarEraGameMode` | StellarEra | 出生点、飞船生成与登船 |
 | `AStellarEraPlayerController` | StellarEra | 运行时构造输入资产、上下船、星图模式 |
 | `AStarMapCameraPawn` | UI | 星图相机；不 Tick，位置在 `CalcCamera` 现算 |
+| `UPlanetGeologyDistribution` | Geology | 分布生成器基类；子类=囊状/片层/脉状/浸染，元素内取 max |
 | `AVoxelPlanetActor` | Terrain | 体素行星根 Actor；gizmo 移动 / 等比缩放即改行星 |
 | `UVoxelPlanetGenerator` | Terrain | 行星与共享地形模块 `UVoxelPlanetTerrainModule` 的适配器 |
 | `APlanetCharacter` / `UPlanetCharacterMovementComponent` | Character | 球面行走；重力方向喂给 CMC |

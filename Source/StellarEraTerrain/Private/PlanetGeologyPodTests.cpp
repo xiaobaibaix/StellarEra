@@ -11,6 +11,7 @@
 #include "VoxelMaterial.h"
 #include "PlanetGeologyField.h"
 #include "PlanetGeologyPreset.h"
+#include "PlanetGeologySpherePodsDistribution.h"
 #include "VoxelPlanetGenerator.h"
 #include "VoxelPlanetNoiseTerrain.h"
 #include "VoxelGenerators/VoxelGeneratorInstance.h"
@@ -27,10 +28,27 @@ namespace PlanetGeologyPodTest
 		FPlanetGeologyElementParams Params;
 		Params.Id = Id;
 		Params.DisplayName = Id.ToString();
-		Params.PodCount = PodCount;
-		Params.PodRadius = PodRadius;
-		Params.Seed = Seed;
-		Params.VeinThreshold = VeinThreshold;
+		// 显式囊状生成器：遗留字段不再被生产路径消费，留着只会掩盖回归。
+		Params.PodCount = 0;
+
+		UPlanetGeologySpherePodsDistribution* Distribution =
+			NewObject<UPlanetGeologySpherePodsDistribution>(GetTransientPackage());
+		Distribution->PodCount = PodCount;
+		Distribution->PodRadius = PodRadius;
+		Distribution->PodRadiusJitter = 0.5f;
+		Distribution->PodDepthBias = 0.f;
+		Distribution->PodDepthCenter = 0.25f;
+		Distribution->PodDepthSpread = 0.15f;
+		Distribution->ShapeDetail = 3.f;
+		Distribution->Octaves = 2;
+		Distribution->Lacunarity = 2.f;
+		Distribution->Gain = 0.5f;
+		Distribution->VeinThreshold = VeinThreshold;
+		// 夹具里的 Seed 都是非 0，bSeedExplicit 与「非 0 直接使用」等价。
+		Distribution->Seed = Seed;
+		Distribution->bSeedExplicit = true;
+
+		Params.Distributions.Add(Distribution);
 		return Params;
 	}
 

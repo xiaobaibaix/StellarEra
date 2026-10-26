@@ -2,7 +2,13 @@
 
 #include "PlanetGeologyPreset.h"
 
+#include "PlanetGeologySpherePodsDistribution.h"
+
 #if WITH_EDITOR
+// 地球初始数据用到的三种形态（片层 / 脉状 / 浸染）；囊状在上面，迁移也要用。
+#include "PlanetGeologyDisseminatedDistribution.h"
+#include "PlanetGeologyLensDistribution.h"
+#include "PlanetGeologyVeinDistribution.h"
 // ICONSOLEMANAGER：文件末尾的 StellarEra.CreateEarthGeologyPreset 用 FAutoConsoleCommand，
 // 它不在 CoreMinimal 里。
 #include "HAL/IConsoleManager.h"
@@ -31,6 +37,57 @@ FSoftObjectPath UPlanetGeologyPreset::MakeAssetPath(const FString& PlanetName)
 		TEXT("/Game/Geology/Planets/%s.%s"), *AssetName, *AssetName));
 }
 
+void UPlanetGeologyPreset::MigrateLegacyElement(FPlanetGeologyElementParams& Element,
+	UObject* Outer)
+{
+	if (Element.Distributions.Num() > 0 || Element.PodCount <= 0)
+	{
+		return;
+	}
+
+	UPlanetGeologySpherePodsDistribution* Distribution =
+		NewObject<UPlanetGeologySpherePodsDistribution>(Outer);
+	Distribution->PodCount = Element.PodCount;
+	Distribution->PodRadius = Element.PodRadius;
+	Distribution->PodRadiusJitter = Element.PodRadiusJitter;
+	Distribution->PodDepthBias = Element.PodDepthBias;
+	Distribution->PodDepthCenter = Element.PodDepthCenter;
+	Distribution->PodDepthSpread = Element.PodDepthSpread;
+	Distribution->ShapeDetail = Element.ShapeDetail;
+	Distribution->Octaves = Element.Octaves;
+	Distribution->Lacunarity = Element.Lacunarity;
+	Distribution->Gain = Element.Gain;
+	Distribution->VeinThreshold = Element.VeinThreshold;
+	// 旧公式。Seed=0 时也要锁定「派生后的值」，否则运行期会走新派生规则。
+	Distribution->Seed = Element.Seed != 0
+		? Element.Seed
+		: int32(GetTypeHash(Element.Id) & 0x7fffffffu);
+	Distribution->bSeedExplicit = true;
+
+	Element.Distributions.Add(Distribution);
+	Element.PodCount = 0;
+}
+
+void UPlanetGeologyPreset::PostLoad()
+{
+	Super::PostLoad();
+
+	// 异步加载线程上不能建 UObject。跳过迁移不会改变行为：BuildFromPreset 的
+	// 遗留兜底会按同一份旧字段建出同样的囊表；下次在编辑器里打开/保存时再迁移。
+	if (!IsInGameThread())
+	{
+		UE_LOG(LogTemp, Verbose,
+			TEXT("[地质] %s 在非游戏线程加载，跳过旧字段迁移（运行期走遗留兜底）"),
+			*GetPathName());
+		return;
+	}
+
+	for (FPlanetGeologyElementParams& Element : Elements)
+	{
+		MigrateLegacyElement(Element, this);
+	}
+}
+
 void UPlanetGeologyPreset::NotifyContentChanged()
 {
 	++Revision;
@@ -50,42 +107,115 @@ void UPlanetGeologyPreset::PostEditChangeProperty(FPropertyChangedEvent& Propert
 #if WITH_EDITOR
 namespace
 {
+	template <typename TDistribution>
+	TDistribution* AddEarthDistribution(UPlanetGeologyPreset& Preset,
+		FPlanetGeologyElementParams& Element)
+	{
+		// 一次性夹具不要遗留字段：两套数据并存时读代码的人永远不知道哪套在生效。
+		Element.PodCount = 0;
+		TDistribution* Distribution = NewObject<TDistribution>(&Preset);
+		Distribution->ShapeDetail = 3.0f;
+		Distribution->Octaves = 2;
+		Distribution->Lacunarity = 2.0f;
+		Distribution->Gain = 0.5f;
+		Element.Distributions.Add(Distribution);
+		return Distribution;
+	}
+
 	void FillEarthPreset(UPlanetGeologyPreset& Preset)
 	{
 		auto AddElement = [&Preset](const TCHAR* Id, const TCHAR* DisplayName,
-			const FLinearColor& Color, float Abundance, int32 PodCount, float PodRadius,
-			int32 Seed)
+			const FLinearColor& Color, float Abundance)
 		{
 			FPlanetGeologyElementParams& Params = Preset.Elements.AddDefaulted_GetRef();
 			Params.Id = Id;
 			Params.DisplayName = DisplayName;
 			Params.Color = Color;
 			Params.Abundance = Abundance;
-			Params.PodCount = PodCount;
-			Params.PodRadius = PodRadius;
-			Params.Seed = Seed;
-
-			// 其余字段显式写成当前默认值（与 FPlanetGeologyElementParams 的成员初值逐字相同）。
-			// 资产是「这份预设的完整定义」，不是「除默认值以外的一切」：哪天结构体默认值改了，
-			// 这里不改就意味着地球的矿囊形状被悄悄换掉；显式写出来，改动才会出现在 diff 里。
-			Params.PodRadiusJitter = 0.5f;
-			Params.PodDepthBias = 0.0f;
-			Params.PodDepthCenter = 0.25f;
-			Params.PodDepthSpread = 0.15f;
-			Params.ShapeDetail = 3.0f;
-			Params.Octaves = 2;
-			Params.Lacunarity = 2.0f;
-			Params.Gain = 0.5f;
-			Params.VeinThreshold = 0.5f;
+			return &Params;
 		};
 
 		Preset.Elements.Reset();
-		AddElement(TEXT("silicon"), TEXT("硅"), FLinearColor(0.62f, 0.58f, 0.50f), 0.60f, 20, 0.050f, 303);
-		AddElement(TEXT("iron"), TEXT("铁"), FLinearColor(0.72f, 0.42f, 0.36f), 0.75f, 20, 0.050f, 101);
-		AddElement(TEXT("water"), TEXT("水"), FLinearColor(0.20f, 0.45f, 0.90f), 0.20f, 16, 0.048f, 606);
-		AddElement(TEXT("copper"), TEXT("铜"), FLinearColor(0.85f, 0.55f, 0.25f), 0.45f, 16, 0.045f, 202);
-		AddElement(TEXT("titanium"), TEXT("钛"), FLinearColor(0.70f, 0.72f, 0.78f), 0.15f, 12, 0.042f, 404);
-		AddElement(TEXT("uranium"), TEXT("铀"), FLinearColor(0.45f, 0.85f, 0.35f), 0.10f, 10, 0.038f, 505);
+
+		// 硅：片层，近地表的薄板
+		{
+			FPlanetGeologyElementParams& Element = *AddElement(
+				TEXT("silicon"), TEXT("硅"), FLinearColor(0.62f, 0.58f, 0.50f), 0.60f);
+			UPlanetGeologyLensDistribution* Lens =
+				AddEarthDistribution<UPlanetGeologyLensDistribution>(Preset, Element);
+			Lens->SeamCount = 16;
+			Lens->SeamLength = 0.14f;
+			Lens->SeamWidth = 0.07f;
+			Lens->SeamThickness = 0.008f;
+			Lens->DepthCenter = 0.10f;
+			Lens->DepthBias = 0.5f;
+			Lens->VeinThreshold = 0.45f;
+		}
+
+		// 铁：脉状，穿切地层
+		{
+			FPlanetGeologyElementParams& Element = *AddElement(
+				TEXT("iron"), TEXT("铁"), FLinearColor(0.72f, 0.42f, 0.36f), 0.75f);
+			UPlanetGeologyVeinDistribution* Vein =
+				AddEarthDistribution<UPlanetGeologyVeinDistribution>(Preset, Element);
+			Vein->VeinCount = 5;
+			Vein->VeinLength = 0.40f;
+			Vein->VeinRadius = 0.009f;
+			Vein->BranchCount = 1;
+			Vein->VeinThreshold = 0.50f;
+		}
+
+		// 水：更深更宽的片层（含水层）
+		{
+			FPlanetGeologyElementParams& Element = *AddElement(
+				TEXT("water"), TEXT("水"), FLinearColor(0.20f, 0.45f, 0.90f), 0.20f);
+			UPlanetGeologyLensDistribution* Lens =
+				AddEarthDistribution<UPlanetGeologyLensDistribution>(Preset, Element);
+			Lens->SeamCount = 14;
+			Lens->SeamLength = 0.18f;
+			Lens->SeamWidth = 0.10f;
+			Lens->SeamThickness = 0.010f;
+			Lens->DepthCenter = 0.18f;
+			Lens->DepthBias = 0.5f;
+			Lens->VeinThreshold = 0.40f;
+		}
+
+		// 铜：少而短的脉
+		{
+			FPlanetGeologyElementParams& Element = *AddElement(
+				TEXT("copper"), TEXT("铜"), FLinearColor(0.85f, 0.55f, 0.25f), 0.45f);
+			UPlanetGeologyVeinDistribution* Vein =
+				AddEarthDistribution<UPlanetGeologyVeinDistribution>(Preset, Element);
+			Vein->VeinCount = 3;
+			Vein->VeinLength = 0.28f;
+			Vein->VeinRadius = 0.007f;
+			Vein->BranchCount = 0;
+			Vein->VeinThreshold = 0.55f;
+		}
+
+		// 钛：浸染，细颗粒铺开
+		{
+			FPlanetGeologyElementParams& Element = *AddElement(
+				TEXT("titanium"), TEXT("钛"), FLinearColor(0.70f, 0.72f, 0.78f), 0.15f);
+			UPlanetGeologyDisseminatedDistribution* Disseminated =
+				AddEarthDistribution<UPlanetGeologyDisseminatedDistribution>(Preset, Element);
+			Disseminated->GrainCount = 320;
+			Disseminated->GrainRadius = 0.0025f;
+			Disseminated->VeinThreshold = 0.60f;
+		}
+
+		// 铀：更深、更稀的浸染
+		{
+			FPlanetGeologyElementParams& Element = *AddElement(
+				TEXT("uranium"), TEXT("铀"), FLinearColor(0.45f, 0.85f, 0.35f), 0.10f);
+			UPlanetGeologyDisseminatedDistribution* Disseminated =
+				AddEarthDistribution<UPlanetGeologyDisseminatedDistribution>(Preset, Element);
+			Disseminated->GrainCount = 140;
+			Disseminated->GrainRadius = 0.0015f;
+			Disseminated->DepthCenter = 0.35f;
+			Disseminated->DepthBias = 0.6f;
+			Disseminated->VeinThreshold = 0.65f;
+		}
 
 		Preset.Appearance.ColorThreshold = 0.05f;
 		Preset.Appearance.FadeRange = 0.12f;

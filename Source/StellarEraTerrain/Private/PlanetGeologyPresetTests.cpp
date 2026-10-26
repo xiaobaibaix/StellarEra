@@ -4,7 +4,12 @@
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/PackageName.h"
+#include "PlanetGeologyDisseminatedDistribution.h"
+#include "PlanetGeologyField.h"
+#include "PlanetGeologyLensDistribution.h"
 #include "PlanetGeologyPreset.h"
+#include "PlanetGeologySpherePodsDistribution.h"
+#include "PlanetGeologyVeinDistribution.h"
 #include "UObject/SoftObjectPath.h"
 #include "VoxelPlanetActor.h"
 
@@ -43,6 +48,7 @@ bool FPlanetGeologyPresetDefaultsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("默认 Lacunarity 2.0"), Defaults.Lacunarity, 2.0f);
 	TestEqual(TEXT("默认 Gain 0.5"), Defaults.Gain, 0.5f);
 	TestEqual(TEXT("默认 VeinThreshold 0.5"), Defaults.VeinThreshold, 0.5f);
+	TestEqual(TEXT("默认没有生成器"), Defaults.Distributions.Num(), 0);
 
 	return true;
 }
@@ -64,6 +70,34 @@ bool FPlanetGeologyPresetRevisionTest::RunTest(const FString& Parameters)
 
 	TestTrue(*FString::Printf(TEXT("改属性后修订号自增（%d → %d）"),
 		Before, Preset->GetRevision()), Preset->GetRevision() > Before);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyPresetNestedEditTest,
+	"StellarEra.Planet.Geology.PresetRevisionNestedEdit",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyPresetNestedEditTest::RunTest(const FString& Parameters)
+{
+	UPlanetGeologyPreset* Preset = NewObject<UPlanetGeologyPreset>();
+	FPlanetGeologyElementParams& Element = Preset->Elements.AddDefaulted_GetRef();
+	Element.Id = TEXT("iron");
+
+	UPlanetGeologyLensDistribution* Lens = NewObject<UPlanetGeologyLensDistribution>(Preset);
+	Element.Distributions.Add(Lens);
+
+	int32 Broadcasts = 0;
+	Preset->OnPresetChanged.AddLambda(
+		[&Broadcasts](UPlanetGeologyPreset*) { ++Broadcasts; });
+	const int32 Before = Preset->GetRevision();
+
+	FPropertyChangedEvent Event(UPlanetGeologyLensDistribution::StaticClass()
+		->FindPropertyByName(GET_MEMBER_NAME_CHECKED(UPlanetGeologyLensDistribution, SeamCount)));
+	Lens->PostEditChangeProperty(Event);
+
+	TestTrue(*FString::Printf(TEXT("嵌套编辑后修订号自增（%d → %d）"),
+		Before, Preset->GetRevision()), Preset->GetRevision() > Before);
+	TestEqual(TEXT("广播恰好一次"), Broadcasts, 1);
 	return true;
 }
 #endif
@@ -151,7 +185,6 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyEarthValuesTest,
 
 bool FPlanetGeologyEarthValuesTest::RunTest(const FString& Parameters)
 {
-	// 加载路径也走 MakeAssetPath：测试里再拼一份字面量就等于又开了个漂移点。
 	const FString AssetPath = UPlanetGeologyPreset::MakeAssetPath(TEXT("earth")).ToString();
 	UPlanetGeologyPreset* Preset = LoadObject<UPlanetGeologyPreset>(nullptr, *AssetPath);
 	if (!TestNotNull(*FString::Printf(TEXT("能加载 %s"), *AssetPath), Preset))
@@ -159,16 +192,11 @@ bool FPlanetGeologyEarthValuesTest::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	// 元素顺序 = 采样顺序 = 图例顺序 = 矿体组件下标，四者共用；错位会让颜色与元素对不上。
 	const TCHAR* ExpectedIds[] = {
 		TEXT("silicon"), TEXT("iron"), TEXT("water"),
 		TEXT("copper"), TEXT("titanium"), TEXT("uranium"),
 	};
-	const int32 ExpectedPodCounts[] = { 20, 20, 16, 16, 12, 10 };
-	const float ExpectedPodRadii[] = { 0.050f, 0.050f, 0.048f, 0.045f, 0.042f, 0.038f };
 	const float ExpectedAbundances[] = { 0.60f, 0.75f, 0.20f, 0.45f, 0.15f, 0.10f };
-	const int32 ExpectedSeeds[] = { 303, 101, 606, 202, 404, 505 };
-	// Seed 改了矿囊位置、Color 改了图例与矿体颜色，两者都是「资产是内容的一半」的一部分。
 	const FLinearColor ExpectedColors[] = {
 		FLinearColor(0.62f, 0.58f, 0.50f),
 		FLinearColor(0.72f, 0.42f, 0.36f),
@@ -192,16 +220,93 @@ bool FPlanetGeologyEarthValuesTest::RunTest(const FString& Parameters)
 
 		TestEqual(*FString::Printf(TEXT("%s 的 Id 顺序"), *Label),
 			Element.Id.ToString(), Label);
-		TestEqual(*FString::Printf(TEXT("%s 的 PodCount"), *Label),
-			Element.PodCount, ExpectedPodCounts[Index]);
-		TestEqual(*FString::Printf(TEXT("%s 的 PodRadius"), *Label),
-			Element.PodRadius, ExpectedPodRadii[Index]);
 		TestEqual(*FString::Printf(TEXT("%s 的 Abundance"), *Label),
 			Element.Abundance, ExpectedAbundances[Index]);
-		TestEqual(*FString::Printf(TEXT("%s 的 Seed"), *Label),
-			Element.Seed, ExpectedSeeds[Index]);
 		TestEqual(*FString::Printf(TEXT("%s 的 Color"), *Label),
 			Element.Color, ExpectedColors[Index]);
+		// 遗留字段必须清零：留着就等于资产里有两套数据。
+		TestEqual(*FString::Printf(TEXT("%s 的遗留 PodCount"), *Label), Element.PodCount, 0);
+		TestEqual(*FString::Printf(TEXT("%s 一个生成器"), *Label),
+			Element.Distributions.Num(), 1);
+		if (Element.Distributions.Num() != 1)
+		{
+			continue;
+		}
+		TestNotNull(*FString::Printf(TEXT("%s 的生成器非空"), *Label),
+			Element.Distributions[0].Get());
+	}
+
+	// 硅 / 水：片层
+	{
+		const auto* Lens = Cast<UPlanetGeologyLensDistribution>(
+			Preset->Elements[0].Distributions[0]);
+		if (TestNotNull(TEXT("硅是片层"), Lens))
+		{
+			TestEqual(TEXT("硅 16 片"), Lens->SeamCount, 16);
+			TestEqual(TEXT("硅 A 0.14"), Lens->SeamLength, 0.14f);
+			TestEqual(TEXT("硅 B 0.07"), Lens->SeamWidth, 0.07f);
+			TestEqual(TEXT("硅 C 0.008"), Lens->SeamThickness, 0.008f);
+			TestEqual(TEXT("硅深度中心 0.10"), Lens->DepthCenter, 0.10f);
+			TestEqual(TEXT("硅深度偏置 0.5"), Lens->DepthBias, 0.5f);
+			TestEqual(TEXT("硅 VeinThreshold 0.45"), Lens->VeinThreshold, 0.45f);
+		}
+		const auto* WaterLens = Cast<UPlanetGeologyLensDistribution>(
+			Preset->Elements[2].Distributions[0]);
+		if (TestNotNull(TEXT("水是片层"), WaterLens))
+		{
+			TestEqual(TEXT("水 14 片"), WaterLens->SeamCount, 14);
+			TestEqual(TEXT("水 A 0.18"), WaterLens->SeamLength, 0.18f);
+			TestEqual(TEXT("水 B 0.10"), WaterLens->SeamWidth, 0.10f);
+			TestEqual(TEXT("水 C 0.010"), WaterLens->SeamThickness, 0.010f);
+			TestEqual(TEXT("水深度中心 0.18"), WaterLens->DepthCenter, 0.18f);
+			TestEqual(TEXT("水 VeinThreshold 0.40"), WaterLens->VeinThreshold, 0.40f);
+		}
+	}
+
+	// 铁 / 铜：脉状
+	{
+		const auto* IronVein = Cast<UPlanetGeologyVeinDistribution>(
+			Preset->Elements[1].Distributions[0]);
+		if (TestNotNull(TEXT("铁是脉状"), IronVein))
+		{
+			TestEqual(TEXT("铁 5 条"), IronVein->VeinCount, 5);
+			TestEqual(TEXT("铁长 0.40"), IronVein->VeinLength, 0.40f);
+			TestEqual(TEXT("铁半径 0.009"), IronVein->VeinRadius, 0.009f);
+			TestEqual(TEXT("铁 1 分叉"), IronVein->BranchCount, 1);
+			TestEqual(TEXT("铁 VeinThreshold 0.50"), IronVein->VeinThreshold, 0.50f);
+		}
+		const auto* CopperVein = Cast<UPlanetGeologyVeinDistribution>(
+			Preset->Elements[3].Distributions[0]);
+		if (TestNotNull(TEXT("铜是脉状"), CopperVein))
+		{
+			TestEqual(TEXT("铜 3 条"), CopperVein->VeinCount, 3);
+			TestEqual(TEXT("铜长 0.28"), CopperVein->VeinLength, 0.28f);
+			TestEqual(TEXT("铜半径 0.007"), CopperVein->VeinRadius, 0.007f);
+			TestEqual(TEXT("铜无分叉"), CopperVein->BranchCount, 0);
+			TestEqual(TEXT("铜 VeinThreshold 0.55"), CopperVein->VeinThreshold, 0.55f);
+		}
+	}
+
+	// 钛 / 铀：浸染
+	{
+		const auto* Titanium = Cast<UPlanetGeologyDisseminatedDistribution>(
+			Preset->Elements[4].Distributions[0]);
+		if (TestNotNull(TEXT("钛是浸染"), Titanium))
+		{
+			TestEqual(TEXT("钛 320 粒"), Titanium->GrainCount, 320);
+			TestEqual(TEXT("钛粒径 0.0025"), Titanium->GrainRadius, 0.0025f);
+			TestEqual(TEXT("钛 VeinThreshold 0.60"), Titanium->VeinThreshold, 0.60f);
+		}
+		const auto* Uranium = Cast<UPlanetGeologyDisseminatedDistribution>(
+			Preset->Elements[5].Distributions[0]);
+		if (TestNotNull(TEXT("铀是浸染"), Uranium))
+		{
+			TestEqual(TEXT("铀 140 粒"), Uranium->GrainCount, 140);
+			TestEqual(TEXT("铀粒径 0.0015"), Uranium->GrainRadius, 0.0015f);
+			TestEqual(TEXT("铀深度中心 0.35"), Uranium->DepthCenter, 0.35f);
+			TestEqual(TEXT("铀深度偏置 0.6"), Uranium->DepthBias, 0.6f);
+			TestEqual(TEXT("铀 VeinThreshold 0.65"), Uranium->VeinThreshold, 0.65f);
+		}
 	}
 
 	TestEqual(TEXT("ColorThreshold"), Preset->Appearance.ColorThreshold, 0.05f);
@@ -209,6 +314,91 @@ bool FPlanetGeologyEarthValuesTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("PurityForFullColor"), Preset->Appearance.PurityForFullColor, 0.45f);
 	TestEqual(TEXT("GeometryAmplitude"), Preset->GeometryAmplitude, 1.5f);
 
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyLegacyMigrationFidelityTest,
+	"StellarEra.Planet.Geology.LegacyMigrationFidelity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyLegacyMigrationFidelityTest::RunTest(const FString& Parameters)
+{
+	// 旧资产形态：只有遗留字段。
+	FPlanetGeologyElementParams Legacy;
+	Legacy.Id = TEXT("iron");
+	Legacy.DisplayName = TEXT("铁");
+	Legacy.Abundance = 0.75f;
+	Legacy.PodCount = 20;
+	Legacy.PodRadius = 0.05f;
+	Legacy.Seed = 0; // 派生路径最能暴露「新旧种子公式不同」
+	Legacy.VeinThreshold = 0.5f;
+
+	UPlanetGeologyPreset* LegacyPreset = NewObject<UPlanetGeologyPreset>();
+	LegacyPreset->Elements.Add(Legacy);
+	const auto LegacyField = FPlanetGeologyField::BuildFromPreset(*LegacyPreset, 40000.0);
+
+	// 迁移后的资产形态：显式囊状生成器。
+	UPlanetGeologyPreset* MigratedPreset = NewObject<UPlanetGeologyPreset>();
+	MigratedPreset->Elements.Add(Legacy);
+	UPlanetGeologyPreset::MigrateLegacyElement(MigratedPreset->Elements[0], MigratedPreset);
+
+	if (!TestEqual(TEXT("迁移后一个元素一个生成器"),
+		MigratedPreset->Elements[0].Distributions.Num(), 1))
+	{
+		return false;
+	}
+	TestEqual(TEXT("PodCount 置 0 作已迁移标记"), MigratedPreset->Elements[0].PodCount, 0);
+
+	const UPlanetGeologySpherePodsDistribution* Migrated =
+		Cast<UPlanetGeologySpherePodsDistribution>(MigratedPreset->Elements[0].Distributions[0]);
+	if (!TestNotNull(TEXT("迁移目标是囊状生成器"), Migrated))
+	{
+		return false;
+	}
+	TestEqual(TEXT("种子 = 旧公式"), Migrated->Seed,
+		int32(GetTypeHash(Legacy.Id) & 0x7fffffffu));
+
+	const auto MigratedField = FPlanetGeologyField::BuildFromPreset(*MigratedPreset, 40000.0);
+	TestTrue(TEXT("迁移前后 IsEmpty 一致"),
+		LegacyField->IsEmpty() == MigratedField->IsEmpty());
+
+	int32 Mismatches = 0;
+	int32 HitPoints = 0;
+	auto ComparePoint = [&](const FVector& P)
+	{
+		const float A = LegacyField->SampleElementNormAtNormalized(0, P);
+		const float B = MigratedField->SampleElementNormAtNormalized(0, P);
+		Mismatches += FMath::IsNearlyEqual(A, B, 1e-6f) ? 0 : 1;
+		HitPoints += A > 0.f ? 1 : 0;
+	};
+
+	FRandomStream Rng(5150);
+	for (int32 SampleIndex = 0; SampleIndex < 4000; ++SampleIndex)
+	{
+		const FVector P(Rng.FRandRange(-1.f, 1.f), Rng.FRandRange(-1.f, 1.f),
+			Rng.FRandRange(-1.f, 1.f));
+		if (P.SizeSquared() <= 1.f)
+		{
+			ComparePoint(P);
+		}
+	}
+	// 随机点几乎全在矿囊外，补一圈囊内探针，避免 0 == 0 的空转。
+	for (const FPlanetGeologyPod& Pod : LegacyField->GetPods(0))
+	{
+		for (int32 SampleIndex = 0; SampleIndex < 32; ++SampleIndex)
+		{
+			const FVector Offset(Rng.FRandRange(-1.f, 1.f), Rng.FRandRange(-1.f, 1.f),
+				Rng.FRandRange(-1.f, 1.f));
+			const FVector P = Pod.Center + Offset * Pod.Radius * 1.2f;
+			if (P.SizeSquared() <= 1.f)
+			{
+				ComparePoint(P);
+			}
+		}
+	}
+
+	TestEqual(TEXT("迁移前后逐点相等"), Mismatches, 0);
+	TestTrue(*FString::Printf(TEXT("探针确实命中矿（%d 点）"), HitPoints), HitPoints > 0);
 	return true;
 }
 

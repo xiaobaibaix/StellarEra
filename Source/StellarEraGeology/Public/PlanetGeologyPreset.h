@@ -55,7 +55,7 @@ struct STELLARERAGEOLOGY_API FPlanetGeologyElementParams
 
 	/** 撒多少个矿囊。0 = 这个元素在这颗行星上不存在。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pods",
-		meta = (ClampMin = "0", ClampMax = "512"))
+		meta = (ClampMin = "0", ClampMax = "512", DeprecatedProperty))
 	int32 PodCount = 16;
 
 	/**
@@ -65,12 +65,12 @@ struct STELLARERAGEOLOGY_API FPlanetGeologyElementParams
 	 * 想看不同元素互相穿插，就把这个值调大，别只加 PodCount。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pods",
-		meta = (ClampMin = "0.001", ClampMax = "0.25"))
+		meta = (ClampMin = "0.001", ClampMax = "0.25", DeprecatedProperty))
 	float PodRadius = 0.05f;
 
 	/** 每囊半径的随机抖动幅度（±比例）。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pods",
-		meta = (ClampMin = "0.0", ClampMax = "1.0"))
+		meta = (ClampMin = "0.0", ClampMax = "1.0", DeprecatedProperty))
 	float PodRadiusJitter = 0.5f;
 
 	/**
@@ -78,43 +78,44 @@ struct STELLARERAGEOLOGY_API FPlanetGeologyElementParams
 	 * 大于 0 时按 PodDepthCenter/Spread 做带权拒绝采样，越深越偏。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pods|Depth",
-		meta = (ClampMin = "0.0", ClampMax = "0.9"))
+		meta = (ClampMin = "0.0", ClampMax = "0.9", DeprecatedProperty))
 	float PodDepthBias = 0.0f;
 
 	/** 偏好深度（占半径比例，0 = 地表，1 = 球心）。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pods|Depth",
-		meta = (ClampMin = "0.0", ClampMax = "1.0"))
+		meta = (ClampMin = "0.0", ClampMax = "1.0", DeprecatedProperty))
 	float PodDepthCenter = 0.25f;
 
 	/** 偏好深度的高斯宽度（占半径比例）。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pods|Depth",
-		meta = (ClampMin = "0.01", ClampMax = "1.0"))
+		meta = (ClampMin = "0.01", ClampMax = "1.0", DeprecatedProperty))
 	float PodDepthSpread = 0.15f;
 
 	/** 一个矿囊直径内大约几个噪声周期。越大概括破碎；低于 1 时整囊可能落进噪声谷而消失。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shape",
-		meta = (ClampMin = "1.0"))
+		meta = (ClampMin = "1.0", DeprecatedProperty))
 	float ShapeDetail = 3.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shape",
-		meta = (ClampMin = "1", ClampMax = "6"))
+		meta = (ClampMin = "1", ClampMax = "6", DeprecatedProperty))
 	int32 Octaves = 2;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shape",
-		meta = (ClampMin = "1.0"))
+		meta = (ClampMin = "1.0", DeprecatedProperty))
 	float Lacunarity = 2.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shape",
-		meta = (ClampMin = "0.0", ClampMax = "1.0"))
+		meta = (ClampMin = "0.0", ClampMax = "1.0", DeprecatedProperty))
 	float Gain = 0.5f;
 
 	/** 0 时由 Hash(Id) 派生，保证不同元素默认不相关。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shape")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shape",
+		meta = (DeprecatedProperty))
 	int32 Seed = 0;
 
 	/** 噪声稀疏阈值，越高矿囊越破碎。0 = 不稀疏。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Shape",
-		meta = (ClampMin = "0.0", ClampMax = "0.95"))
+		meta = (ClampMin = "0.0", ClampMax = "0.95", DeprecatedProperty))
 	float VeinThreshold = 0.5f;
 };
 
@@ -133,6 +134,7 @@ class STELLARERAGEOLOGY_API UPlanetGeologyPreset : public UDataAsset
 
 public:
 	//~ Begin UObject Interface
+	virtual void PostLoad() override;
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
@@ -160,6 +162,17 @@ public:
 	 * 纯函数：去首尾空格 → 空名返回空路径 → 首字母转大写。
 	 */
 	static FSoftObjectPath MakeAssetPath(const FString& PlanetName);
+
+	/**
+	 * 旧字段 → 显式囊状生成器。**只在 Distributions 为空且 PodCount > 0 时动作**。
+	 *
+	 * 种子必须是旧公式 `Seed != 0 ? Seed : Hash(Id) & 0x7fffffff`，不是生成器基类的
+	 * 派生规则 —— 换了公式，旧行星的矿囊位置就全变了。
+	 *
+	 * PodCount 置 0 是「已迁移」标记：已保存的资产不会再迁，未保存的每次加载
+	 * 都重建同一个生成器，结果一致。
+	 */
+	static void MigrateLegacyElement(FPlanetGeologyElementParams& Element, UObject* Outer);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Geology")
 	TArray<FPlanetGeologyElementParams> Elements;
