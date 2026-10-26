@@ -6,6 +6,7 @@
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
 #include "PlanetGeologyTypes.h"
+#include "UObject/SoftObjectPath.h"
 #include "PlanetGeologyPreset.generated.h"
 
 class UPlanetGeologyPreset;
@@ -131,6 +132,18 @@ public:
 
 	/** 每次编辑自增。缓存键靠它判断「同一份资产的内容变了」。 */
 	int32 GetRevision() const { return Revision; }
+
+	/**
+	 * 行星名 → 预设资产路径：`earth` → `/Game/Geology/Planets/DA_Geology_Earth`。
+	 *
+	 * **路径规则只留这一份**。三个消费方都必须走它：`PostLoad` 的迁移
+	 * （`AVoxelPlanetActor::MakeLegacyGeologyAssetPath` 转发到这里）、
+	 * `StellarEra.CreateEarthGeologyPreset` 建资产、自动化测试。
+	 * 任何一处另拼字面量，一旦漂移就是「旧关卡永久没矿」，而症状只是「行星没矿」。
+	 *
+	 * 纯函数：去首尾空格 → 空名返回空路径 → 首字母转大写。
+	 */
+	static FSoftObjectPath MakeAssetPath(const FString& PlanetName);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Geology")
 	TArray<FPlanetGeologyElementParams> Elements;

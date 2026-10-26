@@ -13,6 +13,24 @@
 #include "UObject/SavePackage.h"
 #endif
 
+FSoftObjectPath UPlanetGeologyPreset::MakeAssetPath(const FString& PlanetName)
+{
+	// 路径规则只留这一份（见头文件注释）。这里的实现从
+	// AVoxelPlanetActor::MakeLegacyGeologyAssetPath 整体搬过来：迁移目标与建资产命令
+	// 必须逐字一致，所以不许再各写一份。
+	FString Name = PlanetName;
+	Name.TrimStartAndEndInline();
+	if (Name.IsEmpty())
+	{
+		return FSoftObjectPath();
+	}
+	Name[0] = FChar::ToUpper(Name[0]);
+
+	const FString AssetName = FString::Printf(TEXT("DA_Geology_%s"), *Name);
+	return FSoftObjectPath(FString::Printf(
+		TEXT("/Game/Geology/Planets/%s.%s"), *AssetName, *AssetName));
+}
+
 #if WITH_EDITOR
 void UPlanetGeologyPreset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
@@ -39,6 +57,19 @@ namespace
 			Params.PodCount = PodCount;
 			Params.PodRadius = PodRadius;
 			Params.Seed = Seed;
+
+			// 其余字段显式写成当前默认值（与 FPlanetGeologyElementParams 的成员初值逐字相同）。
+			// 资产是「这份预设的完整定义」，不是「除默认值以外的一切」：哪天结构体默认值改了，
+			// 这里不改就意味着地球的矿囊形状被悄悄换掉；显式写出来，改动才会出现在 diff 里。
+			Params.PodRadiusJitter = 0.5f;
+			Params.PodDepthBias = 0.0f;
+			Params.PodDepthCenter = 0.25f;
+			Params.PodDepthSpread = 0.15f;
+			Params.ShapeDetail = 3.0f;
+			Params.Octaves = 2;
+			Params.Lacunarity = 2.0f;
+			Params.Gain = 0.5f;
+			Params.VeinThreshold = 0.5f;
 		};
 
 		Preset.Elements.Reset();
@@ -57,14 +88,21 @@ namespace
 
 	void CreateEarthGeologyPreset()
 	{
-		const FString PackageName = TEXT("/Game/Geology/Planets/DA_Geology_Earth");
-		const FString AssetName = TEXT("DA_Geology_Earth");
-		const FString ObjectPath = FString::Printf(TEXT("%s.%s"), *PackageName, *AssetName);
+		// 不在这里拼路径字面量：与 PostLoad 的迁移共用 UPlanetGeologyPreset::MakeAssetPath。
+		const FSoftObjectPath AssetPath = UPlanetGeologyPreset::MakeAssetPath(TEXT("earth"));
+		const FString PackageName = AssetPath.GetLongPackageName();
+		const FString AssetName = AssetPath.GetAssetName();
+		const FString ObjectPath = AssetPath.ToString();
 
-		// 先 LoadObject 而不是 CreatePackage 之后 FindObject：新进程里 CreatePackage 返回的是
+		// 先看包在不在盘上，再决定要不要 LoadObject：首次创建时探一次加载会在日志里留下
+		// 「未找到 Object」的噪音，而这里本来就预期它不存在。
+		//
+		// 仍用 LoadObject 而不是 CreatePackage 之后 FindObject：新进程里 CreatePackage 返回的是
 		// 空包，FindObject 恒为 null，那样永远走「新建」，也就没法验证上一轮存下去的资产
 		// 能不能读回来。这里读不到才建，读到就覆盖 —— 于是跑两次就能证明磁盘往返。
-		UPlanetGeologyPreset* Preset = LoadObject<UPlanetGeologyPreset>(nullptr, *ObjectPath);
+		UPlanetGeologyPreset* Preset = FPackageName::DoesPackageExist(PackageName)
+			? LoadObject<UPlanetGeologyPreset>(nullptr, *ObjectPath)
+			: nullptr;
 		const bool bCreated = Preset == nullptr;
 		if (bCreated)
 		{
@@ -78,6 +116,8 @@ namespace
 		}
 
 		FillEarthPreset(*Preset);
+		// Revision 只是缓存键（GetRevision 的消费者用它判断「同一份资产的内容变了」），
+		// 不是内容。重跑这条命令也会自增，所以即使元素值一个字都没改，落盘后的资产字节也会变。
 		++Preset->Revision;
 
 		if (bCreated)
@@ -85,20 +125,29 @@ namespace
 			FAssetRegistryModule::AssetCreated(Preset);
 		}
 		// 覆盖分支里没有局部 Package 变量，包从资产本身取。
-		Preset->GetOutermost()->MarkPackageDirty();
+		UPackage* const AssetPackage = Preset->GetPackage();
+		AssetPackage->MarkPackageDirty();
 
 		FSavePackageArgs SaveArgs;
 		SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
 		SaveArgs.SaveFlags = SAVE_NoError;
 		const FString FileName = FPackageName::LongPackageNameToFilename(
 			PackageName, FPackageName::GetAssetPackageExtension());
-		const bool bSaved = UPackage::SavePackage(
-			CastChecked<UPackage>(Preset->GetOutermost()), Preset, *FileName, SaveArgs);
+		const bool bSaved = UPackage::SavePackage(AssetPackage, Preset, *FileName, SaveArgs);
 
-		UE_LOG(LogTemp, Log, TEXT("StellarEra.CreateEarthGeologyPreset: %s（%s，%d 个元素）"),
-			bSaved ? TEXT("已保存") : TEXT("保存失败"),
-			bCreated ? TEXT("新建") : TEXT("覆盖"),
-			Preset->Elements.Num());
+		if (bSaved)
+		{
+			UE_LOG(LogTemp, Log, TEXT("StellarEra.CreateEarthGeologyPreset: 已保存（%s，%d 个元素）"),
+				bCreated ? TEXT("新建") : TEXT("覆盖"),
+				Preset->Elements.Num());
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("StellarEra.CreateEarthGeologyPreset: 保存失败（%s，%d 个元素）→ %s"),
+				bCreated ? TEXT("新建") : TEXT("覆盖"),
+				Preset->Elements.Num(),
+				*FileName);
+		}
 	}
 }
 

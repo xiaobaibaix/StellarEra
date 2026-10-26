@@ -7,10 +7,14 @@ JSON 预设已退役（2026-10-25）。
 
 1. 选中 `DA_Geology_Earth`，在 Details 里调 `Elements`。
 2. 选中行星 Actor，`Planet|Geology → Geology Asset` 指向这份资产。
-3. 点 `Reload Geology` **重建行星** —— 体素是烘焙的，改预设不会自动重刷地表。
+3. 点 `重建行星（应用地质预设改动）` **重建行星** —— 体素是烘焙的，改预设不会自动重刷地表。
+   （按钮在行星 Actor Details 的 `Planet|Geology` 分类里；这个名字是 C++ 里写死的中文
+   DisplayName，英文面板也显示中文。）
 
-想看矿囊长什么样：选中行星上的矿物组件 → Details 里点 `Enter Mineral Preview`。
-退出后关卡不会变脏（编辑器预览只做临时隐藏）。
+想看矿囊长什么样：选中行星上的矿物组件 → Details 的 `Planet|MineralView` 分类里点
+`Enter Mineral Preview In Editor`（这个按钮没有 DisplayName，标签由 C++ 函数名
+`EnterMineralPreviewInEditor` 自动分词而来）。
+退出点同分类的 `Exit Mineral Preview In Editor`，关卡不会变脏（编辑器预览只做临时隐藏）。
 
 ## 参数语义
 

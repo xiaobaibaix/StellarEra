@@ -3,6 +3,7 @@
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/PackageName.h"
 #include "PlanetGeologyPreset.h"
 #include "UObject/SoftObjectPath.h"
 #include "VoxelPlanetActor.h"
@@ -92,6 +93,69 @@ bool FPlanetGeologyLegacyPathTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("其它名字按同一规则拼"),
 		AVoxelPlanetActor::MakeLegacyGeologyAssetPath(TEXT("mars")).GetLongPackageName(),
 		FString(TEXT("/Game/Geology/Planets/DA_Geology_Mars")));
+
+	// 包名对但对象名漂移，PostLoad 的 TryLoad 一样会失败 —— 所以连对象名一起钉。
+	TestEqual(TEXT("对象名与包名都一致"),
+		AVoxelPlanetActor::MakeLegacyGeologyAssetPath(TEXT("earth")).ToString(),
+		FString(TEXT("/Game/Geology/Planets/DA_Geology_Earth.DA_Geology_Earth")));
+
+	// 迁移目标必须真的有资产：路径拼得再一致，资产不存在旧关卡还是没矿。
+	TestTrue(TEXT("资产真的在磁盘上"), FPackageName::DoesPackageExist(Expected));
+
+	return true;
+}
+
+// 这份资产是打包内容的一半（另一半是行星/BP 上的硬引用），值错了游戏里就是矿囊长错。
+// 期望值从建资产命令的实现（PlanetGeologyPreset.cpp 的 FillEarthPreset）取数。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyEarthValuesTest,
+	"StellarEra.Planet.Geology.EarthPresetValues",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyEarthValuesTest::RunTest(const FString& Parameters)
+{
+	// 加载路径也走 MakeAssetPath：测试里再拼一份字面量就等于又开了个漂移点。
+	const FString AssetPath = UPlanetGeologyPreset::MakeAssetPath(TEXT("earth")).ToString();
+	UPlanetGeologyPreset* Preset = LoadObject<UPlanetGeologyPreset>(nullptr, *AssetPath);
+	if (!TestNotNull(*FString::Printf(TEXT("能加载 %s"), *AssetPath), Preset))
+	{
+		return false;
+	}
+
+	// 元素顺序 = 采样顺序 = 图例顺序 = 矿体组件下标，四者共用；错位会让颜色与元素对不上。
+	const TCHAR* ExpectedIds[] = {
+		TEXT("silicon"), TEXT("iron"), TEXT("water"),
+		TEXT("copper"), TEXT("titanium"), TEXT("uranium"),
+	};
+	const int32 ExpectedPodCounts[] = { 20, 20, 16, 16, 12, 10 };
+	const float ExpectedPodRadii[] = { 0.050f, 0.050f, 0.048f, 0.045f, 0.042f, 0.038f };
+	const float ExpectedAbundances[] = { 0.60f, 0.75f, 0.20f, 0.45f, 0.15f, 0.10f };
+	const int32 ElementCount = UE_ARRAY_COUNT(ExpectedIds);
+
+	TestEqual(TEXT("6 个元素"), Preset->Elements.Num(), ElementCount);
+	if (Preset->Elements.Num() != ElementCount)
+	{
+		return false;
+	}
+
+	for (int32 Index = 0; Index < ElementCount; ++Index)
+	{
+		const FPlanetGeologyElementParams& Element = Preset->Elements[Index];
+		const FString Label = ExpectedIds[Index];
+
+		TestEqual(*FString::Printf(TEXT("%s 的 Id 顺序"), *Label),
+			Element.Id.ToString(), Label);
+		TestEqual(*FString::Printf(TEXT("%s 的 PodCount"), *Label),
+			Element.PodCount, ExpectedPodCounts[Index]);
+		TestEqual(*FString::Printf(TEXT("%s 的 PodRadius"), *Label),
+			Element.PodRadius, ExpectedPodRadii[Index]);
+		TestEqual(*FString::Printf(TEXT("%s 的 Abundance"), *Label),
+			Element.Abundance, ExpectedAbundances[Index]);
+	}
+
+	TestEqual(TEXT("ColorThreshold"), Preset->Appearance.ColorThreshold, 0.05f);
+	TestEqual(TEXT("FadeRange"), Preset->Appearance.FadeRange, 0.12f);
+	TestEqual(TEXT("PurityForFullColor"), Preset->Appearance.PurityForFullColor, 0.45f);
+	TestEqual(TEXT("GeometryAmplitude"), Preset->GeometryAmplitude, 1.5f);
 
 	return true;
 }

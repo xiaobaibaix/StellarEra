@@ -720,17 +720,10 @@ void AVoxelPlanetActor::PostLoad()
 
 FSoftObjectPath AVoxelPlanetActor::MakeLegacyGeologyAssetPath(const FString& LegacyName)
 {
-	FString Name = LegacyName;
-	Name.TrimStartAndEndInline();
-	if (Name.IsEmpty())
-	{
-		return FSoftObjectPath();
-	}
-	Name[0] = FChar::ToUpper(Name[0]);
-
-	const FString AssetName = FString::Printf(TEXT("DA_Geology_%s"), *Name);
-	return FSoftObjectPath(FString::Printf(
-		TEXT("/Game/Geology/Planets/%s.%s"), *AssetName, *AssetName));
+	// 转发，不自己拼：路径规则只有一份，在 UPlanetGeologyPreset::MakeAssetPath。
+	// 迁移目标与 StellarEra.CreateEarthGeologyPreset 建的资产必须逐字一致，
+	// 否则旧关卡永久没矿。
+	return UPlanetGeologyPreset::MakeAssetPath(LegacyName);
 }
 
 void AVoxelPlanetActor::ReloadGeology()
