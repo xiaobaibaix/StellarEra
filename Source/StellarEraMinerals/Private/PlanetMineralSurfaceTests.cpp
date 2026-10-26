@@ -1411,7 +1411,16 @@ bool FPlanetMineralSurfaceGridCapTest::RunTest(const FString& Parameters)
 	// **只有这一条约束实现**：实测值必须落在解析钳制值上（当前逐位相等）。
 	// 容差取 5% 而不是 2× —— 2× 会放过「钳制变松但没删」的退化，例如把除数里的 -3
 	// 去掉（格边 129.35→127.41）后仍能通过。
-	TestTrue(*FString::Printf(TEXT("实际角点等于解析钳制值（%d vs %lld）"),
+	//
+	// 余量提醒：「去掉 -3」这档只比上界高 0.8~1.3%（实测 1,266,540~1,273,206 vs
+	// 上界 1,257,043）。现在抓得住是因为取整口径完全确定 —— 改 `CountCorners` 的取整、
+	// 改常量或调容差时都要重算这一档，别以为余量宽裕。
+	//
+	// 这条断言是单边的（只卡上界）：「上限被收得更紧」也是合法状态（GridPoints 更小、
+	// 网格非空），不该假红。所以文案写「不超过」，不写「等于」。
+	// 注意：TEXT 里的字面百分号要写成 `%%`，否则 UE 的 printf 格式串检查（consteval）
+	// 会把「5%（」里的孤立 % 判成非法格式并编译失败；渲染后的文案仍是「5%」。
+	TestTrue(*FString::Printf(TEXT("实际角点不超过解析钳制值的 5%%（%d vs %lld）"),
 		Result.GridPoints, ClampedCorners), Result.GridPoints <= ClampedCorners * 1.05);
 	return true;
 }
