@@ -3220,7 +3220,7 @@ bool FPlanetMineralSurfaceGridCapTest::RunTest(const FString& Parameters)
 	//
 	// 这条断言是单边的（只卡上界）：「上限被收得更紧」也是合法状态（GridPoints 更小、
 	// 网格非空），不该假红。所以文案写「不超过」，不写「等于」。
-	TestTrue(*FString::Printf(TEXT("实际角点不超过解析钳制值的 5%（%d vs %lld）"),
+	TestTrue(*FString::Printf(TEXT("实际角点不超过解析钳制值的 5%%（%d vs %lld）"),
 		Result.GridPoints, ClampedCorners), Result.GridPoints <= ClampedCorners * 1.05);
 	return true;
 }
