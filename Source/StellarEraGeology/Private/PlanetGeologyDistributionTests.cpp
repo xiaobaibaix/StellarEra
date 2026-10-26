@@ -6,6 +6,7 @@
 #include "Math/RandomStream.h"
 #include "PlanetGeologyDistribution.h"
 #include "PlanetGeologyField.h"
+#include "PlanetGeologyLensDistribution.h"
 #include "PlanetGeologyPreset.h"
 #include "PlanetGeologySpherePodsDistribution.h"
 
@@ -306,6 +307,138 @@ bool FPlanetGeologyDistributionEmptyTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("有基元 → 非空场"), MakeField(*Preset)->IsEmpty());
 	}
 
+	return true;
+}
+
+namespace PlanetGeologyDistributionTest
+{
+	UPlanetGeologyLensDistribution* AddLens(UPlanetGeologyPreset& Preset,
+		FPlanetGeologyElementParams& Element)
+	{
+		UPlanetGeologyLensDistribution* Lens =
+			NewObject<UPlanetGeologyLensDistribution>(&Preset);
+		Lens->SeamCount = 24;
+		Lens->SeamLength = 0.14f;
+		Lens->SeamWidth = 0.07f;
+		Lens->SeamThickness = 0.008f;
+		Lens->SizeJitter = 0.35f;
+		Lens->DepthBias = 0.9f;
+		Lens->DepthCenter = 0.12f;
+		Lens->DepthSpread = 0.04f;
+		Lens->TiltJitterDeg = 5.f;
+		Lens->Seed = 707;
+		Lens->bSeedExplicit = true;
+		Element.Distributions.Add(Lens);
+		return Lens;
+	}
+
+	/** 加速路径与暴力路径的逐点一致性；随机点之外再补区域内部点。 */
+	int32 CountBruteForceMismatches(FAutomationTestBase& Test, const FPlanetGeologyField& Field,
+		int32 ElementIndex, const TArray<FPlanetGeologyRegion>& Regions, FRandomStream& Rng)
+	{
+		int32 Mismatches = 0;
+		(void)Test;
+
+		auto CheckPoint = [&Mismatches, &Field, ElementIndex](const FVector& P)
+		{
+			if (P.SizeSquared() > 1.f)
+			{
+				return;
+			}
+			const float Indexed = Field.SampleElementNormAtNormalized(ElementIndex, P);
+			const float Brute = Field.SampleElementNormBruteForce(ElementIndex, P);
+			if (!FMath::IsNearlyEqual(Indexed, Brute, 1e-6f))
+			{
+				++Mismatches;
+			}
+		};
+
+		for (int32 SampleIndex = 0; SampleIndex < 2000; ++SampleIndex)
+		{
+			CheckPoint(FVector(Rng.FRandRange(-1.f, 1.f), Rng.FRandRange(-1.f, 1.f),
+				Rng.FRandRange(-1.f, 1.f)));
+		}
+		for (const FPlanetGeologyRegion& Region : Regions)
+		{
+			for (int32 SampleIndex = 0; SampleIndex < 40; ++SampleIndex)
+			{
+				const FVector Offset(Rng.FRandRange(-1.f, 1.f), Rng.FRandRange(-1.f, 1.f),
+					Rng.FRandRange(-1.f, 1.f));
+				CheckPoint(Region.Bounds.GetCenter() + Offset * Region.Bounds.GetExtent());
+			}
+		}
+		return Mismatches;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyLensBoundsTest,
+	"StellarEra.Planet.Geology.Lens.Bounds",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyLensBoundsTest::RunTest(const FString& Parameters)
+{
+	using namespace PlanetGeologyDistributionTest;
+
+	UPlanetGeologyPreset* Preset = MakePreset();
+	FPlanetGeologyElementParams& Element = AddElement(*Preset, TEXT("silicon"));
+	AddLens(*Preset, Element);
+
+	const auto Field = MakeField(*Preset);
+	TArray<FPlanetGeologyRegion> Regions;
+	Field->EnumerateRegions(0, Regions);
+	if (!TestEqual(TEXT("24 片各一个区域"), Regions.Num(), 24))
+	{
+		return false;
+	}
+
+	int32 InBand = 0;
+	for (const FPlanetGeologyRegion& Region : Regions)
+	{
+		const FVector Center = Region.Bounds.GetCenter();
+		TestTrue(TEXT("区域包围盒有效"), Region.Bounds.IsValid != 0);
+		// 厚度带 ±35% 抖动，所以判据是「落在抖动区间内」，不是等于标称值。
+		TestTrue(*FString::Printf(TEXT("特征半径 = 厚度且落在抖动区间（%.4f）"),
+			Region.CharacteristicRadius),
+			Region.CharacteristicRadius >= 0.008f * 0.64f
+				&& Region.CharacteristicRadius <= 0.008f * 1.36f);
+		TestTrue(*FString::Printf(TEXT("片心不越出球体（%.4f）"), Center.Size()),
+			Center.Size() <= 1.0 + 1e-4);
+
+		// 作者参数里的深度 0 = 地表、1 = 球心；这里按同一口径回算。
+		const double Depth = 1.0 - double(Center.Size());
+		if (FMath::Abs(Depth - 0.12) <= 4.0 * 0.04)
+		{
+			++InBand;
+		}
+	}
+	TestTrue(*FString::Printf(TEXT("多数片心落在偏好深度带（%d/24）"), InBand), InBand >= 18);
+
+	// 两次建场逐位一致（放置全走固定随机流）。
+	TArray<FPlanetGeologyRegion> Rebuilt;
+	MakeField(*Preset)->EnumerateRegions(0, Rebuilt);
+	TestTrue(TEXT("两次建场区域逐位相同"), AreRegionsEqual(Regions, Rebuilt));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyLensBruteForceTest,
+	"StellarEra.Planet.Geology.Lens.BruteForceAgrees",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyLensBruteForceTest::RunTest(const FString& Parameters)
+{
+	using namespace PlanetGeologyDistributionTest;
+
+	UPlanetGeologyPreset* Preset = MakePreset();
+	FPlanetGeologyElementParams& Element = AddElement(*Preset, TEXT("silicon"));
+	AddLens(*Preset, Element);
+
+	const auto Field = MakeField(*Preset);
+	TArray<FPlanetGeologyRegion> Regions;
+	Field->EnumerateRegions(0, Regions);
+
+	FRandomStream Rng(31415);
+	TestEqual(TEXT("索引路径 == 暴力路径"), CountBruteForceMismatches(*this, *Field, 0, Regions, Rng), 0);
 	return true;
 }
 
