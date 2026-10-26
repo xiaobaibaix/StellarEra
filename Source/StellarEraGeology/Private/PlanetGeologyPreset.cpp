@@ -31,12 +31,19 @@ FSoftObjectPath UPlanetGeologyPreset::MakeAssetPath(const FString& PlanetName)
 		TEXT("/Game/Geology/Planets/%s.%s"), *AssetName, *AssetName));
 }
 
+void UPlanetGeologyPreset::NotifyContentChanged()
+{
+	++Revision;
+#if WITH_EDITOR
+	OnPresetChanged.Broadcast(this);
+#endif
+}
+
 #if WITH_EDITOR
 void UPlanetGeologyPreset::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
 	Super::PostEditChangeProperty(PropertyChangedEvent);
-	++Revision;
-	OnPresetChanged.Broadcast(this);
+	NotifyContentChanged();
 }
 #endif
 

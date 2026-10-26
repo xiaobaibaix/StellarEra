@@ -134,6 +134,14 @@ public:
 	int32 GetRevision() const { return Revision; }
 
 	/**
+	 * 内容变了：修订号自增，编辑器里再广播一次。
+	 *
+	 * 嵌套子对象（分布生成器）的 PostEditChangeProperty 也走这里 —— 引擎不会替
+	 * 子对象通知外层预设。少这一次通知，观测预览不重建、地形缓存键也不变。
+	 */
+	void NotifyContentChanged();
+
+	/**
 	 * 行星名 → 预设资产路径：`earth` → `/Game/Geology/Planets/DA_Geology_Earth`。
 	 *
 	 * **路径规则只留这一份**。三个消费方都必须走它：`PostLoad` 的迁移
