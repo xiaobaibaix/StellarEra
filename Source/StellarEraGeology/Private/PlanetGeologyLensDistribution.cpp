@@ -152,7 +152,15 @@ UPlanetGeologyLensDistribution::BuildRuntime(
 		FVector LocalX = FVector::CrossProduct(LocalZ, Rng.GetUnitVector()).GetSafeNormal();
 		if (LocalX.IsNearlyZero())
 		{
-			LocalX = FVector::CrossProduct(LocalZ, FVector::XAxisVector).GetSafeNormal();
+			// 退化的叉乘必须换一个与 LocalZ **不平行**的轴：写死 XAxis 在
+			// LocalZ ∥ XAxis 时同样得到零向量。取 LocalZ 分量绝对值最小的世界轴，
+			// 它与 LocalZ 的夹角最接近 90°，叉乘不会退化。
+			const FVector::FReal AbsX = FMath::Abs(LocalZ.X);
+			const FVector::FReal AbsY = FMath::Abs(LocalZ.Y);
+			const FVector::FReal AbsZ = FMath::Abs(LocalZ.Z);
+			const FVector FallbackAxis = (AbsX <= AbsY && AbsX <= AbsZ) ? FVector::XAxisVector
+				: (AbsY <= AbsZ ? FVector::YAxisVector : FVector::ZAxisVector);
+			LocalX = FVector::CrossProduct(LocalZ, FallbackAxis).GetSafeNormal();
 		}
 		const FQuat Base = FRotationMatrix::MakeFromXZ(LocalX, LocalZ).ToQuat();
 		const FVector LocalY = FVector::CrossProduct(LocalZ, LocalX);
@@ -174,25 +182,28 @@ UPlanetGeologyLensDistribution::BuildRuntime(
 			float(FMath::Clamp(Jittered(double(SeamWidth)), 0.01, 0.5)),
 			float(FMath::Clamp(Jittered(double(SeamThickness)), 0.0005, 0.05)));
 
-		// 有向椭球的 AABB：沿世界轴 i 的半长 = Σ_j |R_ij| × h_j。
+		// 有向包围盒：把局部盒的 8 个角点转到世界再取 FBox。
+		//
+		// 不要手推 `Σ_j |M_ij| h_j` 那种下标：`FMatrix` 是行向量约定，行列含义极易写反，
+		// 写反会得到一个**不保守**的盒子（某些朝向下比真实包围盒小十几倍），索引随之漏格，
+		// 真实矿体被切掉 —— 而按包围盒采样的测试根本发现不了。转 8 个角点没有下标可写错。
 		//
 		// 厚度用**扭曲放大后**的值：径向域扭曲最多把点沿局部 Z 挪
 		// WarpAmplitude × 厚度，按原始厚度算包围盒会让索引漏候选、区域也盖不住
 		// 实际矿体（WarpAmplitude 非 0 时表现为矿体被切掉一角）。
 		const double EffectiveHalfThickness =
 			double(Lens.HalfExtent.Z) * (1.0 + Runtime->WarpAmplitude);
-		const FMatrix Rot = Orientation.ToMatrix();
-		const FVector Extent(
-			FMath::Abs(Rot.M[0][0]) * Lens.HalfExtent.X
-				+ FMath::Abs(Rot.M[0][1]) * Lens.HalfExtent.Y
-				+ FMath::Abs(Rot.M[0][2]) * EffectiveHalfThickness,
-			FMath::Abs(Rot.M[1][0]) * Lens.HalfExtent.X
-				+ FMath::Abs(Rot.M[1][1]) * Lens.HalfExtent.Y
-				+ FMath::Abs(Rot.M[1][2]) * EffectiveHalfThickness,
-			FMath::Abs(Rot.M[2][0]) * Lens.HalfExtent.X
-				+ FMath::Abs(Rot.M[2][1]) * Lens.HalfExtent.Y
-				+ FMath::Abs(Rot.M[2][2]) * EffectiveHalfThickness);
-		Lens.Bounds = FBox(Lens.Center - Extent, Lens.Center + Extent);
+		FBox OrientedBounds(ForceInit);
+		for (int32 CornerIndex = 0; CornerIndex < 8; ++CornerIndex)
+		{
+			const FVector LocalCorner(
+				(CornerIndex & 1) ? double(Lens.HalfExtent.X) : -double(Lens.HalfExtent.X),
+				(CornerIndex & 2) ? double(Lens.HalfExtent.Y) : -double(Lens.HalfExtent.Y),
+				(CornerIndex & 4) ? EffectiveHalfThickness : -EffectiveHalfThickness);
+			OrientedBounds += Lens.Center + Orientation.RotateVector(LocalCorner);
+		}
+		Lens.Bounds = OrientedBounds;
+		const FVector Extent = OrientedBounds.GetExtent();
 		Lens.BoundingRadius = float(Extent.GetMax());
 		MaxBoundingRadius = FMath::Max(MaxBoundingRadius, Lens.BoundingRadius);
 	}

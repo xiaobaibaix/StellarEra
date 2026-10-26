@@ -313,7 +313,7 @@ bool FPlanetGeologyDistributionEmptyTest::RunTest(const FString& Parameters)
 namespace PlanetGeologyDistributionTest
 {
 	UPlanetGeologyLensDistribution* AddLens(UPlanetGeologyPreset& Preset,
-		FPlanetGeologyElementParams& Element)
+		FPlanetGeologyElementParams& Element, float WarpAmplitude = 0.f)
 	{
 		UPlanetGeologyLensDistribution* Lens =
 			NewObject<UPlanetGeologyLensDistribution>(&Preset);
@@ -326,20 +326,25 @@ namespace PlanetGeologyDistributionTest
 		Lens->DepthCenter = 0.12f;
 		Lens->DepthSpread = 0.04f;
 		Lens->TiltJitterDeg = 5.f;
+		Lens->WarpAmplitude = WarpAmplitude;
 		Lens->Seed = 707;
 		Lens->bSeedExplicit = true;
 		Element.Distributions.Add(Lens);
 		return Lens;
 	}
 
-	/** 加速路径与暴力路径的逐点一致性；随机点之外再补区域内部点。 */
+	/** 加速路径与暴力路径的逐点一致性。
+	 *
+	 * 采样范围必须**超出**上报的包围盒：只在盒内采样时，包围盒算小了也发现不了 ——
+	 * 盒内每一格索引都登记过，当然一致。所以区域点按 2× extent 采，再沿特征半径补壳层点。
+	 * 失配要打出坐标：不说清是哪个点、差多少，两个 0.x 的浮点差根本 loc 不到。
+	 */
 	int32 CountBruteForceMismatches(FAutomationTestBase& Test, const FPlanetGeologyField& Field,
 		int32 ElementIndex, const TArray<FPlanetGeologyRegion>& Regions, FRandomStream& Rng)
 	{
 		int32 Mismatches = 0;
-		(void)Test;
 
-		auto CheckPoint = [&Mismatches, &Field, ElementIndex](const FVector& P)
+		auto CheckPoint = [&Mismatches, &Test, &Field, ElementIndex](const FVector& P)
 		{
 			if (P.SizeSquared() > 1.f)
 			{
@@ -349,6 +354,9 @@ namespace PlanetGeologyDistributionTest
 			const float Brute = Field.SampleElementNormBruteForce(ElementIndex, P);
 			if (!FMath::IsNearlyEqual(Indexed, Brute, 1e-6f))
 			{
+				Test.AddError(FString::Printf(
+					TEXT("索引与暴力不一致：索引=%.6f 暴力=%.6f，点 %s"), Indexed, Brute,
+					*P.ToString()));
 				++Mismatches;
 			}
 		};
@@ -360,14 +368,89 @@ namespace PlanetGeologyDistributionTest
 		}
 		for (const FPlanetGeologyRegion& Region : Regions)
 		{
+			const FVector Center = Region.Bounds.GetCenter();
+			const FVector Extent = Region.Bounds.GetExtent();
 			for (int32 SampleIndex = 0; SampleIndex < 40; ++SampleIndex)
 			{
 				const FVector Offset(Rng.FRandRange(-1.f, 1.f), Rng.FRandRange(-1.f, 1.f),
 					Rng.FRandRange(-1.f, 1.f));
-				CheckPoint(Region.Bounds.GetCenter() + Offset * Region.Bounds.GetExtent());
+				CheckPoint(Center + Offset * Extent * 2.0);
+			}
+			for (int32 SampleIndex = 0; SampleIndex < 16; ++SampleIndex)
+			{
+				CheckPoint(Center + Rng.GetUnitVector() * double(Region.CharacteristicRadius));
 			}
 		}
 		return Mismatches;
+	}
+
+	/** 包围盒的保守性：暴力路径说有矿的点，必须落在某个区域的包围盒里。
+	 *
+	 * 这条**不依赖包围盒的算法**，所以公式写反（盒子比真实矿体小）时它立刻红。
+	 * 上面那条「索引 == 暴力」在盒子偏小时可能结构性失明：索引只登记盒内格子，
+	 * 盒外没有候选可查；只有主动去盒外采样的人才会发现那里本该有矿。
+	 */
+	int32 CountOreOutsideAllRegions(const FPlanetGeologyField& Field, int32 ElementIndex,
+		const TArray<FPlanetGeologyRegion>& Regions, FRandomStream& Rng)
+	{
+		int32 Violations = 0;
+		for (int32 SampleIndex = 0; SampleIndex < 4000; ++SampleIndex)
+		{
+			const FVector P(Rng.FRandRange(-1.f, 1.f), Rng.FRandRange(-1.f, 1.f),
+				Rng.FRandRange(-1.f, 1.f));
+			if (P.SizeSquared() > 1.f)
+			{
+				continue;
+			}
+			if (Field.SampleElementNormBruteForce(ElementIndex, P) <= 0.f)
+			{
+				continue;
+			}
+			bool bCovered = false;
+			for (const FPlanetGeologyRegion& Region : Regions)
+			{
+				if (Region.Bounds.IsInsideOrOn(P))
+				{
+					bCovered = true;
+					break;
+				}
+			}
+			if (!bCovered)
+			{
+				++Violations;
+			}
+		}
+		// 区域包围盒内部（真实矿体所在）按 2× extent 补采：命中率比整个球体随机高得多，
+		// 而且正是盒子偏小时矿体探出盒外的位置。
+		for (const FPlanetGeologyRegion& Region : Regions)
+		{
+			const FVector Center = Region.Bounds.GetCenter();
+			const FVector Extent = Region.Bounds.GetExtent();
+			for (int32 SampleIndex = 0; SampleIndex < 40; ++SampleIndex)
+			{
+				const FVector Offset(Rng.FRandRange(-1.f, 1.f), Rng.FRandRange(-1.f, 1.f),
+					Rng.FRandRange(-1.f, 1.f));
+				const FVector P = Center + Offset * Extent * 2.0;
+				if (Field.SampleElementNormBruteForce(ElementIndex, P) <= 0.f)
+				{
+					continue;
+				}
+				bool bCovered = false;
+				for (const FPlanetGeologyRegion& Other : Regions)
+				{
+					if (Other.Bounds.IsInsideOrOn(P))
+					{
+						bCovered = true;
+						break;
+					}
+				}
+				if (!bCovered)
+				{
+					++Violations;
+				}
+			}
+		}
+		return Violations;
 	}
 }
 
@@ -439,6 +522,33 @@ bool FPlanetGeologyLensBruteForceTest::RunTest(const FString& Parameters)
 
 	FRandomStream Rng(31415);
 	TestEqual(TEXT("索引路径 == 暴力路径"), CountBruteForceMismatches(*this, *Field, 0, Regions, Rng), 0);
+	TestEqual(TEXT("包围盒盖住全部真实矿体"), CountOreOutsideAllRegions(*Field, 0, Regions, Rng), 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyLensWarpBruteForceTest,
+	"StellarEra.Planet.Geology.Lens.WarpBruteForceAgrees",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyLensWarpBruteForceTest::RunTest(const FString& Parameters)
+{
+	using namespace PlanetGeologyDistributionTest;
+
+	// 域扭曲会把点沿局部 Z 挪 WarpAmplitude × 厚度，包围盒必须按放大后的厚度外扩。
+	// 不开扭曲时这条路径完全走不到，所以单独来一例。
+	UPlanetGeologyPreset* Preset = MakePreset();
+	FPlanetGeologyElementParams& Element = AddElement(*Preset, TEXT("silicon"));
+	AddLens(*Preset, Element, 1.0f);
+
+	const auto Field = MakeField(*Preset);
+	TArray<FPlanetGeologyRegion> Regions;
+	Field->EnumerateRegions(0, Regions);
+
+	FRandomStream Rng(27182);
+	TestEqual(TEXT("扭曲下索引路径 == 暴力路径"),
+		CountBruteForceMismatches(*this, *Field, 0, Regions, Rng), 0);
+	TestEqual(TEXT("扭曲下包围盒盖住全部真实矿体"),
+		CountOreOutsideAllRegions(*Field, 0, Regions, Rng), 0);
 	return true;
 }
 
