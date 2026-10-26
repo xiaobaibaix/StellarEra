@@ -2036,35 +2036,81 @@ bool FPlanetGeologyVeinContinuityTest::RunTest(const FString& Parameters)
 
 	UPlanetGeologyPreset* Preset = MakePreset();
 	FPlanetGeologyElementParams& Element = AddElement(*Preset, TEXT("iron"));
-	AddVein(*Preset, Element);
+	UPlanetGeologyVeinDistribution* Vein = AddVein(*Preset, Element);
 
 	const auto Field = MakeField(*Preset);
 	TArray<FPlanetGeologyRegion> Regions;
 	Field->EnumerateRegions(0, Regions);
 
-	// 段数上限：每段恰好走 SegmentLength，所以每条链的段数 ≤ ceil(目标长度 / 段长)。
-	const double SegmentLength = 0.008 * 2.5;
-	const int32 MaxSegmentsPerChain = FMath::CeilToInt(0.35 / SegmentLength);
-	const int32 MaxSegments = 4 * (1 + 1) * MaxSegmentsPerChain;
+	// 段数上限从夹具参数算，别手抄数字：改了夹具常量却忘了改这里，上限会静默失真。
+	// 分支链只有主脉一半长 —— 按主脉算会多留一倍余量，「主链多走一段」这种 off-by-one 就溜过去。
+	const double SegmentLength = double(Vein->VeinRadius) * double(Vein->SegmentLengthRatio);
+	const int32 MainChainSegments = FMath::CeilToInt(double(Vein->VeinLength) / SegmentLength);
+	const int32 BranchChainSegments =
+		FMath::CeilToInt(0.5 * double(Vein->VeinLength) / SegmentLength);
+	const int32 MaxSegments =
+		Vein->VeinCount * (MainChainSegments + Vein->BranchCount * BranchChainSegments);
 	TestTrue(*FString::Printf(TEXT("段数在构造上限内（%d ≤ %d）"), Regions.Num(), MaxSegments),
 		Regions.Num() > 0 && Regions.Num() <= MaxSegments);
 
-	// 段中点是骨架上的点：VeinThreshold = 0 时那里必须真的有矿，否则脉断成点。
-	int32 ZeroCenters = 0;
+	TArray<FVector> Centers;
+	Centers.Reserve(Regions.Num());
 	for (const FPlanetGeologyRegion& Region : Regions)
 	{
+		Centers.Add(Region.Bounds.GetCenter());
+	}
+
+	// 段中点是骨架上的点：VeinThreshold = 0 时那里必须真的有矿。
+	// 但这**证明不了「脉是连续的」**：包围盒是 min/max ± r，盒心恒等于段中点，
+	// 所以任意一组互不相连的胶囊都能让「中点有矿」全绿。
+	// 真正的判据是相邻段中点必须靠得足够近：每段恰好前进 SegmentLength，
+	// 链上相邻中点间距恰好 = SegmentLength，分支首段离锚点 ≤ SegmentLength。
+	// 骨架若断了（每段独立摆放），中点会散布在整个球面，几乎每个段都成孤点。
+	int32 ZeroCenters = 0;
+	int32 IsolatedSegments = 0;
+	float MinRadius = TNumericLimits<float>::Max();
+	float MaxRadius = 0.f;
+	for (int32 RegionIndex = 0; RegionIndex < Regions.Num(); ++RegionIndex)
+	{
+		const FPlanetGeologyRegion& Region = Regions[RegionIndex];
 		TestTrue(TEXT("段包围盒有效"), Region.Bounds.IsValid != 0);
 		// 逐段半径带 ±40% 抖动，判据同样是「落在抖动区间内」。
 		TestTrue(*FString::Printf(TEXT("特征半径 = 管半径且落在抖动区间（%.4f）"),
 			Region.CharacteristicRadius),
 			Region.CharacteristicRadius >= 0.008f * 0.59f
 				&& Region.CharacteristicRadius <= 0.008f * 1.41f);
-		if (Field->SampleElementNormAtNormalized(0, Region.Bounds.GetCenter()) <= 0.f)
+		MinRadius = FMath::Min(MinRadius, Region.CharacteristicRadius);
+		MaxRadius = FMath::Max(MaxRadius, Region.CharacteristicRadius);
+		if (Field->SampleElementNormAtNormalized(0, Centers[RegionIndex]) <= 0.f)
 		{
 			++ZeroCenters;
 		}
+
+		bool bHasNeighbour = false;
+		for (int32 OtherIndex = 0; OtherIndex < Centers.Num(); ++OtherIndex)
+		{
+			if (OtherIndex != RegionIndex
+				&& FVector::DistSquared(Centers[RegionIndex], Centers[OtherIndex])
+					<= FMath::Square(1.5 * SegmentLength))
+			{
+				bHasNeighbour = true;
+				break;
+			}
+		}
+		if (!bHasNeighbour)
+		{
+			++IsolatedSegments;
+		}
 	}
 	TestEqual(TEXT("所有段中点场值 > 0"), ZeroCenters, 0);
+	TestEqual(TEXT("没有孤立段（脉是连着的，不是一串点）"), IsolatedSegments, 0);
+	TestTrue(*FString::Printf(TEXT("半径抖动确实生效（%.4f..%.4f）"), MinRadius, MaxRadius),
+		MaxRadius > MinRadius * 1.01f);
+
+	// 两次建场逐位一致（种子只解析一次，噪声与随机流同源）。
+	TArray<FPlanetGeologyRegion> Rebuilt;
+	MakeField(*Preset)->EnumerateRegions(0, Rebuilt);
+	TestTrue(TEXT("两次建场区域逐位相同"), AreRegionsEqual(Regions, Rebuilt));
 
 	return true;
 }
