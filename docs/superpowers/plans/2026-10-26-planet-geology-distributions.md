@@ -1533,7 +1533,7 @@ bool FPlanetGeologyLensBoundsTest::RunTest(const FString& Parameters)
 	for (const FPlanetGeologyRegion& Region : Regions)
 	{
 		const FVector Center = Region.Bounds.GetCenter();
-		TestTrue(TEXT("区域包围盒有效"), Region.Bounds.IsValid);
+		TestTrue(TEXT("区域包围盒有效"), Region.Bounds.IsValid != 0);
 		// 厚度带 ±35% 抖动，所以判据是「落在抖动区间内」，不是等于标称值。
 		TestTrue(*FString::Printf(TEXT("特征半径 = 厚度且落在抖动区间（%.4f）"),
 			Region.CharacteristicRadius),
@@ -1967,7 +1967,7 @@ bool FPlanetGeologyVeinContinuityTest::RunTest(const FString& Parameters)
 	int32 ZeroCenters = 0;
 	for (const FPlanetGeologyRegion& Region : Regions)
 	{
-		TestTrue(TEXT("段包围盒有效"), Region.Bounds.IsValid);
+		TestTrue(TEXT("段包围盒有效"), Region.Bounds.IsValid != 0);
 		// 逐段半径带 ±40% 抖动，判据同样是「落在抖动区间内」。
 		TestTrue(*FString::Printf(TEXT("特征半径 = 管半径且落在抖动区间（%.4f）"),
 			Region.CharacteristicRadius),
@@ -3123,7 +3123,7 @@ void PlanetMineralSurface::ClusterRegionBounds(const TArray<FBox>& BoundsCm,
 		Field.EnumerateRegions(ElementIndex, ElementRegions);
 		for (const FPlanetGeologyRegion& Region : ElementRegions)
 		{
-			if (Region.CharacteristicRadius <= 0.f || !Region.Bounds.IsValid)
+			if (Region.CharacteristicRadius <= 0.f || Region.Bounds.IsValid == 0)
 			{
 				continue;
 			}
