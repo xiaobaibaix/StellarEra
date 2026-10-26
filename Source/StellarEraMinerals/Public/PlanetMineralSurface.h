@@ -96,6 +96,12 @@ namespace PlanetMineralSurface
 	 *
 	 * 不能把「同格」直接当相交：两个小区域可以同格却相距很远，直接 union 会把
 	 * 不相交的矿体并成一个大簇，簇盒变大 → 角点数暴涨。
+	 *
+	 * 退化分支：所有包围盒尺寸全零时格边 `CellSize` 为 0，函数直接返回，等价于
+	 * 「各自成簇」。这道早退防的是空间哈希里的除零；它与上面的「AABB 相交即同簇」
+	 * 在零尺寸盒上**不一致**（同点零尺寸盒按 `<=` / `>=` 的判据其实相交），是有意为之
+	 * —— 没有格边就无法用哈希证明相交，宁可少合。正常生成器不会报出零尺寸区域，
+	 * 这条只防退化输入。
 	 */
 	STELLARERAMINERALS_API void ClusterRegionBounds(const TArray<FBox>& BoundsCm,
 		TArray<int32>& OutClusterRoots);

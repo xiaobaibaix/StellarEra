@@ -60,7 +60,11 @@ TSharedPtr<const FPlanetGeologyField> FPlanetGeologyField::BuildFromPreset(
 
 		// 遗留兜底：旧资产没有 Distributions 但有 PodCount。种子必须是旧公式，
 		// 用新派生规则会让旧行星的矿囊全部换位置。
-		if (Definition.Distributions.Num() == 0 && Params.PodCount > 0)
+		//
+		// 判据必须是数据层的 Params.Distributions（与 MigrateLegacyElement 同口径）：
+		// 上面刚把「runtime 为空」的生成器过滤掉了，拿过滤后的数组判会让「挂了生成器、
+		// 只是暂时没基元」的元素凭空冒出 PodCount 个旧矿囊。
+		if (Params.Distributions.Num() == 0 && Params.PodCount > 0)
 		{
 			const int32 LegacySeed = Params.Seed != 0
 				? Params.Seed

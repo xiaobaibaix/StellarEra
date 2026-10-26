@@ -407,4 +407,35 @@ bool FPlanetGeologyLegacyMigrationFidelityTest::RunTest(const FString& Parameter
 	return true;
 }
 
+// 遗留兜底的判据必须是数据层的 Params.Distributions，不是过滤掉空 runtime 之后的
+// Definition.Distributions：挂一个暂时为空的生成器（SeamCount = 0 这类调参中间态）时
+// 数据层明明有生成器，过滤后却变空 —— 拿过滤后的数组判会凭空冒出 PodCount 个旧矿囊，
+// 而且与 MigrateLegacyElement（按数据层判、不会迁）对同一输入不等价。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyLegacyFallbackNeedsNoDataDistributionsTest,
+	"StellarEra.Planet.Geology.LegacyFallbackNeedsNoDataDistributions",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyLegacyFallbackNeedsNoDataDistributionsTest::RunTest(const FString& Parameters)
+{
+	UPlanetGeologyPreset* Preset = NewObject<UPlanetGeologyPreset>();
+	FPlanetGeologyElementParams& Element = Preset->Elements.AddDefaulted_GetRef();
+	Element.Id = TEXT("silicon");
+	// 结构体默认就是 16：留着才测得出「有生成器却仍走兜底」。
+	Element.PodCount = 16;
+
+	// 空 runtime：BuildRuntime 会返回有效但 IsEmpty() 的对象，BuildFromPreset 把它过滤掉。
+	UPlanetGeologyLensDistribution* EmptyLens =
+		NewObject<UPlanetGeologyLensDistribution>(Preset);
+	EmptyLens->SeamCount = 0;
+	Element.Distributions.Add(EmptyLens);
+
+	const auto Field = FPlanetGeologyField::BuildFromPreset(*Preset, 40000.0);
+	if (!TestTrue(TEXT("场建成功"), Field.IsValid()))
+	{
+		return false;
+	}
+	TestEqual(TEXT("数据层有生成器时不得走遗留兜底"), Field->GetPods(0).Num(), 0);
+	return true;
+}
+
 #endif
