@@ -66,8 +66,8 @@ public:
 	float SampleElementNormAtNormalized(int32 ElementIndex, const FVector& NormalizedPoint) const;
 
 	/**
-	 * 与 SampleElementNormAtNormalized 同一公式，但**绕开空间索引**遍历该元素全部矿囊。
-	 * 只给测试用：索引漏囊不会报错，只表现为「矿看起来少了」。
+	 * 与 SampleElementNormAtNormalized 同一公式，但**绕开各生成器的加速结构**直接遍历全部基元
+	 * （同样是各生成器取 max）。只给测试用：索引漏基元不会报错，只表现为「矿看起来少了」。
 	 */
 	float SampleElementNormBruteForce(int32 ElementIndex, const FVector& NormalizedPoint) const;
 

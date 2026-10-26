@@ -65,15 +65,22 @@ TSharedPtr<const FPlanetGeologyField> FPlanetGeologyField::BuildFromPreset(
 			const int32 LegacySeed = Params.Seed != 0
 				? Params.Seed
 				: int32(GetTypeHash(Params.Id) & 0x7fffffffu);
-			Definition.Distributions.Add(
+			TSharedPtr<const FPlanetGeologyDistributionRuntime> LegacyRuntime =
 				UPlanetGeologySpherePodsDistribution::MakeRuntimeFromLegacyParams(
 					Params.PodCount, Params.PodRadius, Params.PodRadiusJitter,
 					Params.PodDepthBias, Params.PodDepthCenter, Params.PodDepthSpread,
 					LegacySeed, Params.ShapeDetail, Params.Octaves, Params.Lacunarity,
-					Params.Gain, Params.VeinThreshold));
-			UE_LOG(LogTemp, Log,
-				TEXT("元素=%s 生成器=SpherePods(遗留兜底) 基元=%d 区域=%d"),
-				*Params.Id.ToString(), Params.PodCount, Params.PodCount);
+					Params.Gain, Params.VeinThreshold);
+			if (LegacyRuntime.IsValid())
+			{
+				TArray<FPlanetGeologyRegion> Regions;
+				LegacyRuntime->EnumerateRegions(Regions);
+				// 打运行期实际数量：PodCount 会被夹到 512，直接打 Params 会与 NumPrimitives() 不一致。
+				UE_LOG(LogTemp, Log,
+					TEXT("元素=%s 生成器=SpherePods(遗留兜底) 基元=%d 区域=%d"),
+					*Params.Id.ToString(), LegacyRuntime->NumPrimitives(), Regions.Num());
+			}
+			Definition.Distributions.Add(MoveTemp(LegacyRuntime));
 		}
 
 		Field->TotalAbundance += Definition.Abundance;
@@ -288,7 +295,7 @@ void FPlanetGeologyField::Accumulate(const FVector& UnitDir, double Depth, bool 
 	{
 		const FPlanetGeologyElement& Definition = Elements[ElementIndex];
 
-		// 单元素求值：矿囊径向衰减 × 噪声稀疏。没有任何矿囊时恒 0。
+		// 单元素求值：各生成器取 max。没有任何基元时恒 0。
 		double ElementNorm = double(EvaluateElementNorm(ElementIndex, NormalizedPoint));
 		double ElementRaw = double(Definition.Abundance) * ElementNorm;
 

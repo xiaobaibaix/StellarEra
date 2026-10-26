@@ -13,7 +13,7 @@
  * 参数名保留 Pod 前缀（spec §4.4「参数与语义完全沿用」）：迁移时逐字段照抄旧值，
  * 名字一改就又多一个漂移点。
  */
-UCLASS(DisplayName = "囊状（球团）")
+UCLASS(DisplayName = "囊状（球团）", EditInlineNew)
 class STELLARERAGEOLOGY_API UPlanetGeologySpherePodsDistribution
 	: public UPlanetGeologyDistribution
 {

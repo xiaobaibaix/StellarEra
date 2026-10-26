@@ -240,7 +240,8 @@ bool FPlanetGeologyDistributionSeedTest::RunTest(const FString& Parameters)
 			!AreRegionsEqual(First, Second));
 	}
 
-	// 3) 非 0 Seed 被尊重：两个生成器同种子 + bSeedExplicit 必须逐位相同。
+	// 3) 非 0 Seed 被尊重：两个生成器写同一个字面量种子必须逐位相同。
+	// 夹具不设 bSeedExplicit —— Seed≠0 本身就走字面值分支，设了只会掩盖这条语义。
 	{
 		UPlanetGeologyPreset* Preset = MakePreset();
 		FPlanetGeologyElementParams& Element = AddElement(*Preset, TEXT("alpha"));
