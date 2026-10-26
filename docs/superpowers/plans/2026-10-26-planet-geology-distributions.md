@@ -3749,10 +3749,15 @@ include 区加 `#include "PlanetGeologySpherePodsDistribution.h"`。
    `#if WITH_EDITOR` 是 52–69 行那段、文件末尾 215 行的 `#endif` 收外层）：
 
    - `LegacyMigrationFidelity` 不用编辑器专有 API —— 追加在**文件末尾**（外层 `#endif` 之前）；
-   - `PresetRevision.NestedEdit` 用 `FPropertyChangedEvent` —— **必须放进现有的
+   - `PresetRevisionNestedEdit` 用 `FPropertyChangedEvent` —— **必须放进现有的
      `#if WITH_EDITOR` 块内**（52–69 行，插在它的 `#endif` 之前）。文件里那段注释已经写明
      原因：`WITH_DEV_AUTOMATION_TESTS` 在 Game 目标同样为 1，不裹 `WITH_EDITOR` 就编不过。
      落进去时它自带的那层 `#if WITH_EDITOR` 删掉，别嵌两层。
+
+     名字**刻意不带点**：UE 自动化把 `.` 当测试层级，`PresetRevision.NestedEdit` 会让既有的
+     `PresetRevision` 变成「有子节点的父节点」，父测试本身不再进 enabled 列表
+     （`AutomationReport.cpp:133,224`）—— 也就是新测试加进来、老测试静默消失。
+     Task 6 的 `ClosedMesh` 已经踩过同一个坑。
 
    要追加的内容：
 
@@ -3844,7 +3849,7 @@ bool FPlanetGeologyLegacyMigrationFidelityTest::RunTest(const FString& Parameter
 
 #if WITH_EDITOR
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyPresetNestedEditTest,
-	"StellarEra.Planet.Geology.PresetRevision.NestedEdit",
+	"StellarEra.Planet.Geology.PresetRevisionNestedEdit",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FPlanetGeologyPresetNestedEditTest::RunTest(const FString& Parameters)
@@ -4435,7 +4440,7 @@ StellarEra.Planet.Geology.ShapePods.Coverage / .Overlap / .Shape / .BruteForceAg
 StellarEra.Planet.Geology.Lens.Bounds / .BruteForceAgrees
 StellarEra.Planet.Geology.Vein.Continuity / .BruteForceAgrees
 StellarEra.Planet.Geology.Disseminated.Counts / .BruteForceAgrees
-StellarEra.Planet.Geology.PresetDefaults / .PresetRevision / .PresetRevision.NestedEdit
+StellarEra.Planet.Geology.PresetDefaults / .PresetRevision / .PresetRevisionNestedEdit
 StellarEra.Planet.Geology.PresetRevision           （旧名，保留）
 StellarEra.Planet.Geology.LegacyAssetPath / .LegacyMigration / .LegacyMigrationFidelity
 StellarEra.Planet.Geology.EarthPresetValues
