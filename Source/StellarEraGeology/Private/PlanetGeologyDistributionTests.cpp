@@ -9,6 +9,7 @@
 #include "PlanetGeologyLensDistribution.h"
 #include "PlanetGeologyPreset.h"
 #include "PlanetGeologySpherePodsDistribution.h"
+#include "PlanetGeologyVeinDistribution.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -549,6 +550,97 @@ bool FPlanetGeologyLensWarpBruteForceTest::RunTest(const FString& Parameters)
 		CountBruteForceMismatches(*this, *Field, 0, Regions, Rng), 0);
 	TestEqual(TEXT("扭曲下包围盒盖住全部真实矿体"),
 		CountOreOutsideAllRegions(*Field, 0, Regions, Rng), 0);
+	return true;
+}
+
+namespace PlanetGeologyDistributionTest
+{
+	UPlanetGeologyVeinDistribution* AddVein(UPlanetGeologyPreset& Preset,
+		FPlanetGeologyElementParams& Element)
+	{
+		UPlanetGeologyVeinDistribution* Vein =
+			NewObject<UPlanetGeologyVeinDistribution>(&Preset);
+		Vein->VeinCount = 4;
+		Vein->VeinLength = 0.35f;
+		Vein->VeinRadius = 0.008f;
+		Vein->RadiusJitter = 0.4f;
+		Vein->SegmentLengthRatio = 2.5f;
+		Vein->DirectionJitterDeg = 8.f;
+		Vein->BranchCount = 1;
+		Vein->DepthBias = 0.5f;
+		Vein->DepthCenter = 0.4f;
+		Vein->DepthSpread = 0.12f;
+		Vein->VeinThreshold = 0.f;
+		Vein->Seed = 909;
+		Vein->bSeedExplicit = true;
+		Element.Distributions.Add(Vein);
+		return Vein;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyVeinContinuityTest,
+	"StellarEra.Planet.Geology.Vein.Continuity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyVeinContinuityTest::RunTest(const FString& Parameters)
+{
+	using namespace PlanetGeologyDistributionTest;
+
+	UPlanetGeologyPreset* Preset = MakePreset();
+	FPlanetGeologyElementParams& Element = AddElement(*Preset, TEXT("iron"));
+	AddVein(*Preset, Element);
+
+	const auto Field = MakeField(*Preset);
+	TArray<FPlanetGeologyRegion> Regions;
+	Field->EnumerateRegions(0, Regions);
+
+	// 段数上限：每段恰好走 SegmentLength，所以每条链的段数 ≤ ceil(目标长度 / 段长)。
+	const double SegmentLength = 0.008 * 2.5;
+	const int32 MaxSegmentsPerChain = FMath::CeilToInt(0.35 / SegmentLength);
+	const int32 MaxSegments = 4 * (1 + 1) * MaxSegmentsPerChain;
+	TestTrue(*FString::Printf(TEXT("段数在构造上限内（%d ≤ %d）"), Regions.Num(), MaxSegments),
+		Regions.Num() > 0 && Regions.Num() <= MaxSegments);
+
+	// 段中点是骨架上的点：VeinThreshold = 0 时那里必须真的有矿，否则脉断成点。
+	int32 ZeroCenters = 0;
+	for (const FPlanetGeologyRegion& Region : Regions)
+	{
+		TestTrue(TEXT("段包围盒有效"), Region.Bounds.IsValid != 0);
+		// 逐段半径带 ±40% 抖动，判据同样是「落在抖动区间内」。
+		TestTrue(*FString::Printf(TEXT("特征半径 = 管半径且落在抖动区间（%.4f）"),
+			Region.CharacteristicRadius),
+			Region.CharacteristicRadius >= 0.008f * 0.59f
+				&& Region.CharacteristicRadius <= 0.008f * 1.41f);
+		if (Field->SampleElementNormAtNormalized(0, Region.Bounds.GetCenter()) <= 0.f)
+		{
+			++ZeroCenters;
+		}
+	}
+	TestEqual(TEXT("所有段中点场值 > 0"), ZeroCenters, 0);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyVeinBruteForceTest,
+	"StellarEra.Planet.Geology.Vein.BruteForceAgrees",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetGeologyVeinBruteForceTest::RunTest(const FString& Parameters)
+{
+	using namespace PlanetGeologyDistributionTest;
+
+	UPlanetGeologyPreset* Preset = MakePreset();
+	FPlanetGeologyElementParams& Element = AddElement(*Preset, TEXT("iron"));
+	AddVein(*Preset, Element);
+
+	const auto Field = MakeField(*Preset);
+	TArray<FPlanetGeologyRegion> Regions;
+	Field->EnumerateRegions(0, Regions);
+
+	FRandomStream Rng(27182);
+	TestEqual(TEXT("索引路径 == 暴力路径"),
+		CountBruteForceMismatches(*this, *Field, 0, Regions, Rng), 0);
+	TestEqual(TEXT("包围盒盖住全部真实矿体"), CountOreOutsideAllRegions(*Field, 0, Regions, Rng), 0);
 	return true;
 }
 
