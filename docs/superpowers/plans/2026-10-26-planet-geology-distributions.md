@@ -4669,8 +4669,28 @@ git commit -m "docs(地质): 分布生成器实施记录与验收结果" -- \
 
 ## 完成判据
 
-- [ ] Task 1–7 每步的构建与测试都真实跑过（不是「应该能过」）。
-- [ ] Task 8 Step 2 全绿，Step 3 四条静态自查都干净。
-- [ ] Task 8 Step 4 的八条人工验收逐条有结论。
-- [ ] 旧资产保真由 `Geology.LegacyMigrationFidelity` 逐点证明。
-- [ ] `git log --oneline -8` 能看到每个任务一条提交。
+- [x] Task 1–7 每步的构建与测试都真实跑过（不是「应该能过」）。
+- [x] Task 8 Step 2 全绿，Step 3 四条静态自查都干净。
+- [ ] Task 8 Step 4 的八条人工验收逐条有结论。**← 仍待用户**
+- [x] 旧资产保真由 `Geology.LegacyMigrationFidelity` 逐点证明。
+- [x] `git log --oneline -8` 能看到每个任务的提交（多数任务含修复轮，故不止一条）。
+
+## 实施记录
+
+采集于 2026-10-27，代码 HEAD `fc367ef`，资产提交 `b43d104`。构建前确认编辑器进程未运行。
+
+- **构建**：`Result: Succeeded`（Unreal Build Accelerator 6 个动作，11.70 s）。
+- **全量测试**：`Automation Test Queue Empty 129 tests performed`，**129 Success / 0 Fail**。
+  - 资产重建前（`fc367ef`）：128 / 129，唯一失败 `StellarEra.Planet.Geology.EarthPresetValues` —— 磁盘资产还是旧数据（硅 `PodCount` 实测 145）。
+  - 重建后（`b43d104`）：**129 / 129 全绿**，该条由红转绿，测试本身未改。
+- **静态自查四条**（HEAD 上重跑）：BOM 全 `efbbbf` 无例外 / 无重名测试 / `CellsPerPod` 与 `FPlanetGeologyPodRef` 零残留 / 遗留字段只出现在 8 个允许文件。
+- **资产重建**：`StellarEra.CreateEarthGeologyPreset` → 日志 `已保存（覆盖，6 个元素）`；文件 5802 → 7844 字节。重建前副本在 `%TEMP%/DA_Geology_Earth.before-rebuild.20261027-011225.uasset`（不入库，仅本机）。
+- **人工验收 1–8**：**未做**。编辑器 MCP 端点本会话 `ECONNREFUSED`，八条都要在编辑器里点，留给用户执行。
+- **观测体重建耗时 / 角点数**：**待测**，随上面第 5 条一起。旧记录（12 首进 0.1–0.3 秒）来自旧的单囊预设，新预设角点数大一个量级，不可沿用。
+
+### 本轮关键技术判断（细节见 `.superpowers/sdd/2026-10-26-planet-geology-distributions/progress.md`）
+
+- **格边上限**：两条上限共用被除数，`pow(8e6,1/3)-3 ≈ 197 < 512-2`，轴上那条结构上永不先触发；GridCap 测试按总角点上限写。
+- **遗留兜底判据**：用数据层 `Params.Distributions.Num() == 0`，不是过滤后的 runtime 列表 —— 否则「挂了生成器但 runtime 为空」会凭空冒 16 个默认矿囊。
+- **`PostLoad` 迁移不标脏**：刻意不加 `MarkPackageDirty()`（会让每次加载都把包弄脏）；磁盘上的旧资产保持旧形态，运行期兜底建出同样的囊。
+- **旧种子公式两份实现**（迁移与兜底）：刻意不合并，`LegacyMigrationFidelity` 逐点比对两条路径兜住漂移。
