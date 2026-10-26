@@ -3,8 +3,11 @@
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
+#include "PlanetGeologyDisseminatedDistribution.h"
 #include "PlanetGeologyField.h"
+#include "PlanetGeologyLensDistribution.h"
 #include "PlanetGeologyPreset.h"
+#include "PlanetGeologyVeinDistribution.h"
 #include "PlanetMineralSurface.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -50,12 +53,12 @@ namespace PlanetMineralSurfaceTest
 	}
 
 	PlanetMineralSurface::FBuildParams MakeParams(const FPlanetGeologyField& Field,
-		int32 CellsPerPod)
+		int32 CellsPerFeature)
 	{
 		PlanetMineralSurface::FBuildParams Params;
 		Params.SurfaceRadiusCm = SurfaceRadiusCm;
 		Params.VoxelSizeCm = VoxelSizeCm;
-		Params.CellsPerPod = CellsPerPod;
+		Params.CellsPerFeature = CellsPerFeature;
 		Params.IsoValue = Field.GetAppearance().ColorThreshold;
 		return Params;
 	}
@@ -77,12 +80,12 @@ namespace PlanetMineralSurfaceTest
 	 * 否则上限一旦生效（夹具变大 / 改参数）就会假红。
 	 * RawExtentCm 是矿囊包围盒并集的原始边长；外扩量按基准格边计（与 Build 一致）。
 	 */
-	double ExpectedCellSizeCm(double MinRadiusCm, const FVector& RawExtentCm, int32 CellsPerPod)
+	double ExpectedCellSizeCm(double MinRadiusCm, const FVector& RawExtentCm, int32 CellsPerFeature)
 	{
 		constexpr int32 MaxCellsPerAxis = 512;
 		constexpr int64 MaxTotalCorners = 8000000;
 
-		double CellSize = 2.0 * MinRadiusCm / double(CellsPerPod);
+		double CellSize = 2.0 * MinRadiusCm / double(CellsPerFeature);
 		const FVector PaddedExtent = RawExtentCm + FVector(2.0 * CellSize);
 		const double ExtentMax = PaddedExtent.GetMax();
 		// 除数先减掉外扩的两格 + 角点那一格，上限才是硬上限（与 Build 的取整账一致）。
@@ -110,6 +113,27 @@ namespace PlanetMineralSurfaceTest
 		return AMin.X <= BMax.X && AMax.X >= BMin.X
 			&& AMin.Y <= BMax.Y && AMax.Y >= BMin.Y
 			&& AMin.Z <= BMax.Z && AMax.Z >= BMin.Z;
+	}
+
+	/** 给已有元素挂一个显式生成器；PodCount 置 0，避免遗留兜底再插一批矿囊。 */
+	template <typename TDistribution>
+	TDistribution* AddDistribution(UPlanetGeologyPreset& Preset,
+		FPlanetGeologyElementParams& Element)
+	{
+		Element.PodCount = 0;
+		TDistribution* Distribution = NewObject<TDistribution>(&Preset);
+		Distribution->Seed = 2468;
+		Distribution->bSeedExplicit = true;
+		Distribution->VeinThreshold = 0.f;
+		Element.Distributions.Add(Distribution);
+		return Distribution;
+	}
+
+	bool BoundsOverlap(const FBox& A, const FBox& B)
+	{
+		return A.Min.X <= B.Max.X && A.Max.X >= B.Min.X
+			&& A.Min.Y <= B.Max.Y && A.Max.Y >= B.Min.Y
+			&& A.Min.Z <= B.Max.Z && A.Max.Z >= B.Min.Z;
 	}
 }
 
@@ -144,7 +168,7 @@ bool FPlanetMineralSurfaceBuildTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceClosedMeshTest,
-	"StellarEra.Planet.MineralSurface.ClosedMesh",
+	"StellarEra.Planet.MineralSurface.ClosedMesh.Pods",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FPlanetMineralSurfaceClosedMeshTest::RunTest(const FString& Parameters)
@@ -192,7 +216,7 @@ bool FPlanetMineralSurfaceClosedMeshTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfacePodLocalTest,
-	"StellarEra.Planet.MineralSurface.PodLocal",
+	"StellarEra.Planet.MineralSurface.RegionLocal",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FPlanetMineralSurfacePodLocalTest::RunTest(const FString& Parameters)
@@ -229,9 +253,9 @@ bool FPlanetMineralSurfacePodLocalTest::RunTest(const FString& Parameters)
 			PodBounds += FBox(CenterCm - FVector(RadiusCm), CenterCm + FVector(RadiusCm));
 		}
 		// 用与 Build 同一套钳制公式算格边上界，避免夹具变大后上限生效时假红。
-		const double BaseCellSizeCm = 2.0 * MaxPodRadiusCm / double(Params.CellsPerPod);
+		const double BaseCellSizeCm = 2.0 * MaxPodRadiusCm / double(Params.CellsPerFeature);
 		const double CellSizeCm = ExpectedCellSizeCm(MaxPodRadiusCm,
-			PodBounds.Max - PodBounds.Min, Params.CellsPerPod);
+			PodBounds.Max - PodBounds.Min, Params.CellsPerFeature);
 		TestTrue(*FString::Printf(TEXT("元素 %d 的夹具不触发格边上限"), ElementIndex),
 			CellSizeCm == BaseCellSizeCm);
 		PodBounds = PodBounds.ExpandBy(FVector(CellSizeCm * 1.5) + FVector::OneVector);
@@ -250,11 +274,11 @@ bool FPlanetMineralSurfacePodLocalTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceCellsPerPodTest,
-	"StellarEra.Planet.MineralSurface.CellsPerPod",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceCellsPerFeatureTest,
+	"StellarEra.Planet.MineralSurface.CellsPerFeature",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FPlanetMineralSurfaceCellsPerPodTest::RunTest(const FString& Parameters)
+bool FPlanetMineralSurfaceCellsPerFeatureTest::RunTest(const FString& Parameters)
 {
 	using namespace PlanetMineralSurfaceTest;
 
@@ -296,9 +320,9 @@ bool FPlanetMineralSurfaceInvalidParamsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("半径 0 → 空结果"), Result.MeshesByElement.Num(), 0);
 
 	BadParams = MakeParams(*Field, 12);
-	BadParams.CellsPerPod = 0;
+	BadParams.CellsPerFeature = 0;
 	PlanetMineralSurface::Build(*Field, BadParams, Result);
-	TestEqual(TEXT("CellsPerPod 0 → 空结果"), Result.MeshesByElement.Num(), 0);
+	TestEqual(TEXT("CellsPerFeature 0 → 空结果"), Result.MeshesByElement.Num(), 0);
 
 	BadParams = MakeParams(*Field, 12);
 	BadParams.VoxelSizeCm = 0.f;
@@ -353,10 +377,10 @@ bool FPlanetMineralSurfaceIsoAccuracyTest::RunTest(const FString& Parameters)
 			ElementBounds += FBox(CenterCm - FVector(PodRadiusCm), CenterCm + FVector(PodRadiusCm));
 		}
 		const double CellSizeBoundCm = ExpectedCellSizeCm(MaxPodRadiusCm,
-			ElementBounds.Max - ElementBounds.Min, Params.CellsPerPod);
+			ElementBounds.Max - ElementBounds.Min, Params.CellsPerFeature);
 		// 夹具一旦触发上限钳制，排除带会随格边变大而扩大、探测点被静默裁掉 ——
 		// 测试只会变弱、不会变红。先钉死「钳制不生效」。
-		const double BaseCellSizeCm = 2.0 * MaxPodRadiusCm / double(Params.CellsPerPod);
+		const double BaseCellSizeCm = 2.0 * MaxPodRadiusCm / double(Params.CellsPerFeature);
 		TestTrue(*FString::Printf(TEXT("元素 #%d 的夹具不触发格边上限"), ElementIndex),
 			CellSizeBoundCm == BaseCellSizeCm);
 		const double ExcludedRadiusCm = RadiusCm * 1.0001 - CellSizeBoundCm;
@@ -611,13 +635,13 @@ bool FPlanetMineralSurfaceCacheKeyTest::RunTest(const FString& Parameters)
 	PlanetMineralSurface::FCacheKey Base;
 	Base.SurfaceRadiusCm = 100000.f;
 	Base.Scale = FVector::OneVector;
-	Base.CellsPerPod = 12;
+	Base.CellsPerFeature = 12;
 
 	PlanetMineralSurface::FCacheKey Same = Base;
 	TestTrue(TEXT("同值键相等"), Same == Base);
 
 	PlanetMineralSurface::FCacheKey Resolution = Base;
-	Resolution.CellsPerPod = 24;
+	Resolution.CellsPerFeature = 24;
 	TestTrue(TEXT("改分辨率 → 键不等"), Resolution != Base);
 
 	PlanetMineralSurface::FCacheKey Radius = Base;
@@ -736,7 +760,7 @@ bool FPlanetMineralSurfaceRadiusInvarianceTest::RunTest(const FString& Parameter
 
 	// --- (a) 绝对参照：抓「退回整球栅格」 ---
 	// 本夹具两簇各 15³ = 3375 角点，合计约 6750。旧「整球一个栅格」在同参数下
-	// 起点就是 41³ = 68921（每元素），按 CellsPerPod 推则约 240³ ≈ 1.4e7。
+	// 起点就是 41³ = 68921（每元素），按 CellsPerFeature 推则约 240³ ≈ 1.4e7。
 	// 20000 是绝对门槛，不依赖任何相对比较。
 	AddInfo(FString::Printf(TEXT("RadiusInvariance 夹具 GridPoints = %d"), BaseResult.GridPoints));
 	TestTrue(*FString::Printf(TEXT("角点数 %d < 20000（整球栅格 ≥ 68921）"), BaseResult.GridPoints),
@@ -923,7 +947,7 @@ bool FPlanetMineralSurfaceClampSmokeTest::RunTest(const FString& Parameters)
 {
 	using namespace PlanetMineralSurfaceTest;
 
-	constexpr int32 CellsPerPod = 12;
+	constexpr int32 CellsPerFeature = 12;
 	constexpr int64 MaxTotalCorners = 8000000;
 
 	const FPlanetGeologyElementParams Big = MakeElement(TEXT("big"), 0.20f, 11);
@@ -961,8 +985,8 @@ bool FPlanetMineralSurfaceClampSmokeTest::RunTest(const FString& Parameters)
 	const double MinRadiusCm = double(TinyPods[0].Radius) * RadiusCm;
 	const FBox Union = PodAabbCm(BigPods[0], RadiusCm) + PodAabbCm(TinyPods[0], RadiusCm);
 	const FVector RawExtentCm = Union.Max - Union.Min;
-	const double BaseCellSizeCm = 2.0 * MinRadiusCm / double(CellsPerPod);
-	const double CellSizeCm = ExpectedCellSizeCm(MinRadiusCm, RawExtentCm, CellsPerPod);
+	const double BaseCellSizeCm = 2.0 * MinRadiusCm / double(CellsPerFeature);
+	const double CellSizeCm = ExpectedCellSizeCm(MinRadiusCm, RawExtentCm, CellsPerFeature);
 
 	// 夹具守卫：钳制必须真的改变格边，否则本测试只是在跑一张小网格。
 	if (!TestTrue(*FString::Printf(TEXT("夹具触发格边钳制（%.1f → %.1f cm）"),
@@ -985,7 +1009,7 @@ bool FPlanetMineralSurfaceClampSmokeTest::RunTest(const FString& Parameters)
 		CornerProduct, MaxTotalCorners), CornerProduct <= MaxTotalCorners);
 
 	PlanetMineralSurface::FBuildResult Result;
-	PlanetMineralSurface::Build(*Field, MakeParams(*Field, CellsPerPod), Result);
+	PlanetMineralSurface::Build(*Field, MakeParams(*Field, CellsPerFeature), Result);
 	AddInfo(FString::Printf(TEXT("格边 %.1f → %.1f cm，%lld 个角点/元素，GridPoints = %d"),
 		BaseCellSizeCm, CellSizeCm, CornerProduct, Result.GridPoints));
 
@@ -1015,6 +1039,212 @@ bool FPlanetMineralSurfaceClampSmokeTest::RunTest(const FString& Parameters)
 	TestTrue(*FString::Printf(TEXT("GridPoints %d ≤ 2 × %lld（一个簇两个元素）"),
 		Result.GridPoints, MaxTotalCorners),
 		Result.GridPoints <= 2 * MaxTotalCorners);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceRegionClusteringTest,
+	"StellarEra.Planet.MineralSurface.RegionClustering",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetMineralSurfaceRegionClusteringTest::RunTest(const FString& Parameters)
+{
+	using namespace PlanetMineralSurfaceTest;
+
+	FRandomStream Rng(123456);
+	TArray<FBox> Bounds;
+	for (int32 Index = 0; Index < 400; ++Index)
+	{
+		const FVector Center(Rng.FRandRange(-1000.f, 1000.f), Rng.FRandRange(-1000.f, 1000.f),
+			Rng.FRandRange(-1000.f, 1000.f));
+		const FVector Extent(Rng.FRandRange(1.f, 60.f), Rng.FRandRange(1.f, 60.f),
+			Rng.FRandRange(1.f, 60.f));
+		Bounds.Add(FBox(Center - Extent, Center + Extent));
+	}
+	// 三连相交：保证夹具里真的有需要传递合并的簇，不全是 400 个单点簇。
+	Bounds.Add(FBox(FVector(0, 0, 0), FVector(10, 10, 10)));
+	Bounds.Add(FBox(FVector(5, 5, 5), FVector(15, 15, 15)));
+	Bounds.Add(FBox(FVector(12, 12, 12), FVector(20, 20, 20)));
+
+	TArray<int32> ActualRoots;
+	PlanetMineralSurface::ClusterRegionBounds(Bounds, ActualRoots);
+	if (!TestEqual(TEXT("根数组长度 == 区域数"), ActualRoots.Num(), Bounds.Num()))
+	{
+		return false;
+	}
+
+	// O(N²) 参照实现：判据与 Build 相同（AABB 相交，含边界）。
+	TArray<int32> Parents;
+	Parents.SetNum(Bounds.Num());
+	for (int32 Index = 0; Index < Parents.Num(); ++Index)
+	{
+		Parents[Index] = Index;
+	}
+	auto Find = [&Parents](int32 Index)
+	{
+		while (Parents[Index] != Index)
+		{
+			Parents[Index] = Parents[Parents[Index]];
+			Index = Parents[Index];
+		}
+		return Index;
+	};
+	for (int32 A = 0; A < Bounds.Num(); ++A)
+	{
+		for (int32 B = A + 1; B < Bounds.Num(); ++B)
+		{
+			if (BoundsOverlap(Bounds[A], Bounds[B]))
+			{
+				const int32 RootA = Find(A);
+				const int32 RootB = Find(B);
+				if (RootA != RootB)
+				{
+					Parents[RootB] = RootA;
+				}
+			}
+		}
+	}
+
+	TMap<int32, int32> MinIndexByRoot;
+	for (int32 Index = 0; Index < Bounds.Num(); ++Index)
+	{
+		const int32 Root = Find(Index);
+		int32& MinIndex = MinIndexByRoot.FindOrAdd(Root, Index);
+		MinIndex = FMath::Min(MinIndex, Index);
+	}
+	TArray<int32> ReferenceRoots;
+	ReferenceRoots.SetNum(Bounds.Num());
+	for (int32 Index = 0; Index < Bounds.Num(); ++Index)
+	{
+		ReferenceRoots[Index] = MinIndexByRoot.FindChecked(Find(Index));
+	}
+
+	int32 Mismatches = 0;
+	for (int32 Index = 0; Index < Bounds.Num(); ++Index)
+	{
+		Mismatches += ReferenceRoots[Index] == ActualRoots[Index] ? 0 : 1;
+	}
+	TestEqual(TEXT("空间哈希分簇 == O(N²) 参照"), Mismatches, 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceClosedMeshAllFormsTest,
+	"StellarEra.Planet.MineralSurface.ClosedMesh.AllForms",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetMineralSurfaceClosedMeshAllFormsTest::RunTest(const FString& Parameters)
+{
+	using namespace PlanetMineralSurfaceTest;
+
+	UPlanetGeologyPreset* Preset = NewObject<UPlanetGeologyPreset>();
+	Preset->Appearance.ColorThreshold = 0.05f;
+	Preset->Appearance.FadeRange = 0.12f;
+	Preset->Appearance.PurityForFullColor = 0.45f;
+
+	FPlanetGeologyElementParams& LensElement = Preset->Elements.AddDefaulted_GetRef();
+	LensElement.Id = TEXT("lens");
+	LensElement.DisplayName = TEXT("片层");
+	UPlanetGeologyLensDistribution* Lens =
+		AddDistribution<UPlanetGeologyLensDistribution>(*Preset, LensElement);
+	Lens->SeamCount = 4;
+	Lens->SeamLength = 0.12f;
+	Lens->SeamWidth = 0.06f;
+	Lens->SeamThickness = 0.01f;
+	Lens->SizeJitter = 0.f;
+	Lens->DepthBias = 0.f;
+
+	FPlanetGeologyElementParams& VeinElement = Preset->Elements.AddDefaulted_GetRef();
+	VeinElement.Id = TEXT("vein");
+	VeinElement.DisplayName = TEXT("脉");
+	UPlanetGeologyVeinDistribution* Vein =
+		AddDistribution<UPlanetGeologyVeinDistribution>(*Preset, VeinElement);
+	Vein->VeinCount = 2;
+	Vein->VeinLength = 0.3f;
+	Vein->VeinRadius = 0.01f;
+	Vein->RadiusJitter = 0.f;
+	Vein->BranchCount = 0;
+	Vein->DepthBias = 0.f;
+
+	FPlanetGeologyElementParams& GrainElement = Preset->Elements.AddDefaulted_GetRef();
+	GrainElement.Id = TEXT("grain");
+	GrainElement.DisplayName = TEXT("浸染");
+	UPlanetGeologyDisseminatedDistribution* Disseminated =
+		AddDistribution<UPlanetGeologyDisseminatedDistribution>(*Preset, GrainElement);
+	Disseminated->GrainCount = 24;
+	Disseminated->GrainRadius = 0.006f;
+	Disseminated->RadiusJitter = 0.f;
+	Disseminated->DepthBias = 0.f;
+
+	const auto Field = MakeField(*Preset);
+	PlanetMineralSurface::FBuildResult Result;
+	PlanetMineralSurface::Build(*Field, MakeParams(*Field, 12), Result);
+
+	if (!TestEqual(TEXT("三个元素各一块网格"), Result.MeshesByElement.Num(), 3))
+	{
+		return false;
+	}
+	TestEqual(TEXT("三种形态都出了面"), CountNonEmptyMeshes(Result), 3);
+
+	for (int32 ElementIndex = 0; ElementIndex < Result.MeshesByElement.Num(); ++ElementIndex)
+	{
+		const FPlanetMineralMesh& Mesh = Result.MeshesByElement[ElementIndex];
+		TMap<uint64, int32> EdgeUseCount;
+		for (int32 TriangleIndex = 0; TriangleIndex < Mesh.Triangles.Num(); TriangleIndex += 3)
+		{
+			for (int32 EdgeIndex = 0; EdgeIndex < 3; ++EdgeIndex)
+			{
+				const int32 A = Mesh.Triangles[TriangleIndex + EdgeIndex];
+				const int32 B = Mesh.Triangles[TriangleIndex + (EdgeIndex + 1) % 3];
+				const uint64 Key = (uint64(FMath::Min(A, B)) << 32) | uint64(FMath::Max(A, B));
+				++EdgeUseCount.FindOrAdd(Key);
+			}
+		}
+		int32 OpenEdges = 0;
+		for (const TPair<uint64, int32>& Pair : EdgeUseCount)
+		{
+			OpenEdges += Pair.Value == 2 ? 0 : 1;
+		}
+		TestEqual(*FString::Printf(TEXT("元素 %d（形态夹具）网格封闭（开放边 %d）"),
+			ElementIndex, OpenEdges), OpenEdges, 0);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceGridCapTest,
+	"StellarEra.Planet.MineralSurface.GridCap",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetMineralSurfaceGridCapTest::RunTest(const FString& Parameters)
+{
+	using namespace PlanetMineralSurfaceTest;
+
+	UPlanetGeologyPreset* Preset = NewObject<UPlanetGeologyPreset>();
+	Preset->Appearance.ColorThreshold = 0.05f;
+	Preset->Appearance.FadeRange = 0.12f;
+	Preset->Appearance.PurityForFullColor = 0.45f;
+
+	FPlanetGeologyElementParams& Element = Preset->Elements.AddDefaulted_GetRef();
+	Element.Id = TEXT("longvein");
+	Element.DisplayName = TEXT("长脉");
+	UPlanetGeologyVeinDistribution* Vein =
+		AddDistribution<UPlanetGeologyVeinDistribution>(*Preset, Element);
+	Vein->VeinCount = 1;
+	Vein->VeinLength = 1.0f;      // 单簇可跨整个球：必然撞 512 格/轴上限
+	Vein->VeinRadius = 0.008f;
+	Vein->RadiusJitter = 0.f;
+	Vein->BranchCount = 0;
+	Vein->DepthBias = 0.f;
+
+	const auto Field = MakeField(*Preset);
+	PlanetMineralSurface::FBuildResult Result;
+	PlanetMineralSurface::Build(*Field, MakeParams(*Field, 12), Result);
+
+	if (!TestEqual(TEXT("一个元素一块网格"), Result.MeshesByElement.Num(), 1))
+	{
+		return false;
+	}
+	TestTrue(TEXT("触发格数上限后仍然有网格（不跳簇）"),
+		!Result.MeshesByElement[0].IsEmpty());
+	TestTrue(TEXT("确实求过场"), Result.GridPoints > 0);
 	return true;
 }
 

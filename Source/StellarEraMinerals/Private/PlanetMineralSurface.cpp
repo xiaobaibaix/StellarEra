@@ -10,11 +10,11 @@
 
 namespace
 {
-	/** 一个待处理的矿囊（厘米空间）。 */
-	struct FPodInstance
+	/** 一个待处理的区域（厘米空间）。 */
+	struct FRegionInstance
 	{
 		int32 ElementIndex = INDEX_NONE;
-		FVector CenterCm = FVector::ZeroVector;
+		FBox BoundsCm = FBox(ForceInit);
 		float RadiusCm = 0.f;
 	};
 
@@ -61,6 +61,93 @@ namespace
 	}
 }
 
+void PlanetMineralSurface::ClusterRegionBounds(const TArray<FBox>& BoundsCm,
+	TArray<int32>& OutClusterRoots)
+{
+	OutClusterRoots.Reset();
+	const int32 RegionCount = BoundsCm.Num();
+	if (RegionCount == 0)
+	{
+		return;
+	}
+	OutClusterRoots.SetNum(RegionCount);
+	for (int32 Index = 0; Index < RegionCount; ++Index)
+	{
+		OutClusterRoots[Index] = Index; // 尚未合并时每个区域自成一簇
+	}
+
+	// 格边 = 最大轴长。相交对至少共享一个点，该点落在一格里，两边的包围盒都覆盖
+	// 那一格 —— 所以只要把「同格」再逐个判相交，就不可能漏 union。
+	double CellSize = 0.0;
+	for (const FBox& Bounds : BoundsCm)
+	{
+		CellSize = FMath::Max(CellSize, double(Bounds.GetSize().GetMax()));
+	}
+	if (CellSize <= 0.0)
+	{
+		return;
+	}
+
+	FDisjointSet Clusters;
+	Clusters.Init(RegionCount);
+
+	TMap<FIntVector, TArray<int32>> Grid;
+	for (int32 Index = 0; Index < RegionCount; ++Index)
+	{
+		const FIntVector MinCell = PlanetGeologyToCell(BoundsCm[Index].Min, CellSize);
+		const FIntVector MaxCell = PlanetGeologyToCell(BoundsCm[Index].Max, CellSize);
+		for (int32 X = MinCell.X; X <= MaxCell.X; ++X)
+		{
+			for (int32 Y = MinCell.Y; Y <= MaxCell.Y; ++Y)
+			{
+				for (int32 Z = MinCell.Z; Z <= MaxCell.Z; ++Z)
+				{
+					Grid.FindOrAdd(FIntVector(X, Y, Z)).Add(Index);
+				}
+			}
+		}
+	}
+
+	for (TPair<FIntVector, TArray<int32>>& Pair : Grid)
+	{
+		TArray<int32>& Members = Pair.Value;
+		Members.Sort([&BoundsCm](const int32 A, const int32 B)
+		{
+			return BoundsCm[A].Min.X < BoundsCm[B].Min.X;
+		});
+
+		for (int32 A = 0; A < Members.Num(); ++A)
+		{
+			for (int32 B = A + 1; B < Members.Num(); ++B)
+			{
+				// 按 Min.X 升序：一旦越过 A 的 Max.X，后面的都不可能与 A 相交。
+				if (BoundsCm[Members[B]].Min.X > BoundsCm[Members[A]].Max.X)
+				{
+					break;
+				}
+				if (AreAabbsOverlapping(BoundsCm[Members[A]], BoundsCm[Members[B]]))
+				{
+					Clusters.Union(Members[A], Members[B]);
+				}
+			}
+		}
+	}
+
+	// 根归一成簇内最小下标：TMap 迭代顺序不是机制，不归一化的话两次构建的
+	// 簇序（进而顶点顺序）会跟着哈希走。
+	TMap<int32, int32> MinIndexByRoot;
+	for (int32 Index = 0; Index < RegionCount; ++Index)
+	{
+		const int32 Root = Clusters.Find(Index);
+		int32& MinIndex = MinIndexByRoot.FindOrAdd(Root, Index);
+		MinIndex = FMath::Min(MinIndex, Index);
+	}
+	for (int32 Index = 0; Index < RegionCount; ++Index)
+	{
+		OutClusterRoots[Index] = MinIndexByRoot.FindChecked(Clusters.Find(Index));
+	}
+}
+
 void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildParams& Params,
 	FBuildResult& Out)
 {
@@ -71,7 +158,7 @@ void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildP
 
 	const double RadiusCm = double(Params.SurfaceRadiusCm);
 	if (Field.IsEmpty() || RadiusCm <= 0.0 || Params.VoxelSizeCm <= 0.f
-		|| Params.CellsPerPod < 4)
+		|| Params.CellsPerFeature < 4)
 	{
 		return;
 	}
@@ -81,54 +168,46 @@ void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildP
 	Out.MeshesByElement.SetNum(ElementCount);
 	Out.ClustersByElement.SetNum(ElementCount);
 
-	// --- 1. 收集所有矿囊（厘米空间） ---
-	TArray<FPodInstance> Pods;
+	// --- 1. 收集所有区域（厘米空间） ---
+	TArray<FRegionInstance> Regions;
 	for (int32 ElementIndex = 0; ElementIndex < ElementCount; ++ElementIndex)
 	{
-		for (const FPlanetGeologyPod& Pod : Field.GetPods(ElementIndex))
+		TArray<FPlanetGeologyRegion> ElementRegions;
+		Field.EnumerateRegions(ElementIndex, ElementRegions);
+		for (const FPlanetGeologyRegion& Region : ElementRegions)
 		{
-			if (Pod.Radius <= 0.f)
+			if (Region.CharacteristicRadius <= 0.f || Region.Bounds.IsValid == 0)
 			{
 				continue;
 			}
-			FPodInstance& Instance = Pods.AddDefaulted_GetRef();
+			FRegionInstance& Instance = Regions.AddDefaulted_GetRef();
 			Instance.ElementIndex = ElementIndex;
-			Instance.CenterCm = Pod.Center * RadiusCm;
-			Instance.RadiusCm = Pod.Radius * float(RadiusCm);
+			Instance.BoundsCm = FBox(
+				Region.Bounds.Min * RadiusCm, Region.Bounds.Max * RadiusCm);
+			Instance.RadiusCm = Region.CharacteristicRadius * float(RadiusCm);
 		}
 	}
-	if (Pods.Num() == 0)
+	if (Regions.Num() == 0)
 	{
 		Out.BuildSeconds = FPlatformTime::Seconds() - StartSeconds;
 		return;
 	}
 
-	TArray<FBox> PodBounds;
-	PodBounds.Reserve(Pods.Num());
-	for (const FPodInstance& Pod : Pods)
+	TArray<FBox> RegionBounds;
+	RegionBounds.Reserve(Regions.Num());
+	for (const FRegionInstance& Region : Regions)
 	{
-		PodBounds.Add(FBox(Pod.CenterCm - FVector(Pod.RadiusCm),
-			Pod.CenterCm + FVector(Pod.RadiusCm)));
+		RegionBounds.Add(Region.BoundsCm);
 	}
 
-	// --- 2. 分簇：未外扩的 AABB 相交即同簇（并查集） ---
-	FDisjointSet Clusters;
-	Clusters.Init(Pods.Num());
-	for (int32 A = 0; A < Pods.Num(); ++A)
-	{
-		for (int32 B = A + 1; B < Pods.Num(); ++B)
-		{
-			if (AreAabbsOverlapping(PodBounds[A], PodBounds[B]))
-			{
-				Clusters.Union(A, B);
-			}
-		}
-	}
+	// --- 2. 分簇：未外扩的 AABB 相交即同簇（空间哈希 + sweep-and-prune） ---
+	TArray<int32> ClusterRoots;
+	PlanetMineralSurface::ClusterRegionBounds(RegionBounds, ClusterRoots);
 
 	TMap<int32, TArray<int32>> MembersByRoot;
-	for (int32 Index = 0; Index < Pods.Num(); ++Index)
+	for (int32 Index = 0; Index < Regions.Num(); ++Index)
 	{
-		MembersByRoot.FindOrAdd(Clusters.Find(Index)).Add(Index);
+		MembersByRoot.FindOrAdd(ClusterRoots[Index]).Add(Index);
 	}
 
 	TArray<TArray<int32>> ClusterMembers;
@@ -163,19 +242,19 @@ void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildP
 
 		FBox Box(ForceInit);
 		float MinRadiusCm = TNumericLimits<float>::Max();
-		for (const int32 PodIndex : Members)
+		for (const int32 RegionIndex : Members)
 		{
-			Box += PodBounds[PodIndex];
-			MinRadiusCm = FMath::Min(MinRadiusCm, Pods[PodIndex].RadiusCm);
+			Box += RegionBounds[RegionIndex];
+			MinRadiusCm = FMath::Min(MinRadiusCm, Regions[RegionIndex].RadiusCm);
 		}
 		if (MinRadiusCm <= 0.f || !Box.IsValid)
 		{
 			return;
 		}
 
-		// 先按 CellsPerPod 定基准格边；再保证每轴不超过 MaxCellsPerAxis、
+		// 先按 CellsPerFeature 定基准格边；再保证每轴不超过 MaxCellsPerAxis、
 		// 单簇单元素总角点不超过 MaxTotalCorners。触发时放大格边（分辨率下降），
-		// 绝不跳过 —— 跳过会让一整簇矿囊凭空消失，比糊更坏。
+		// 绝不跳过 —— 跳过会让一整簇区域凭空消失，比糊更坏。
 		//
 		// 两个上限都是**硬上限**：CellCount = ceil(extent/CellSize) + 2（外扩的两格），
 		// CornerCount = CellCount + 1，所以除数要先减掉这 3 格/角点 —— 否则取整会把
@@ -187,7 +266,7 @@ void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildP
 		// 空间，只表现为「矿形怪」。
 		constexpr int32 MaxCellsPerAxis = 512;
 		constexpr int64 MaxTotalCorners = 8000000;
-		double CellSize = 2.0 * double(MinRadiusCm) / double(Params.CellsPerPod);
+		double CellSize = 2.0 * double(MinRadiusCm) / double(Params.CellsPerFeature);
 		const FVector PaddedExtent(
 			(Box.Max.X - Box.Min.X) + 2.0 * CellSize,
 			(Box.Max.Y - Box.Min.Y) + 2.0 * CellSize,
@@ -243,9 +322,9 @@ void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildP
 
 		// 本簇涉及哪些元素
 		TSet<int32> ElementSet;
-		for (const int32 PodIndex : Members)
+		for (const int32 RegionIndex : Members)
 		{
-			ElementSet.Add(Pods[PodIndex].ElementIndex);
+			ElementSet.Add(Regions[RegionIndex].ElementIndex);
 		}
 
 		TArray<FClusterMesh>& Results = ClusterResults[ClusterIndex];
@@ -355,7 +434,7 @@ void PlanetMineralSurface::Build(const FPlanetGeologyField& Field, const FBuildP
 	{
 		for (const FClusterMesh& Result : Results)
 		{
-			// ElementIndex 来自 FPodInstance，取值恒在 [0, ElementCount)，而
+			// ElementIndex 来自 FRegionInstance，取值恒在 [0, ElementCount)，而
 			// MeshesByElement 的长度就是 ElementCount —— 无需再判越界。
 			FPlanetMineralMesh& Mesh = Out.MeshesByElement[Result.ElementIndex];
 			const int32 VertexOffset = Mesh.VerticesCm.Num();

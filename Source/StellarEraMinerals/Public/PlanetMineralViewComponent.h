@@ -90,13 +90,14 @@ public:
 	const TArray<FPlanetGeologyElement>& GetElements() const { return Elements; }
 
 	/**
-	 * 观测视图密度：一个矿囊直径横向切多少格。
+	 * 观测视图密度：一个**特征尺度**横向切多少格（片层=厚度、脉=管半径、
+	 * 浸染=粒径、囊=囊半径）。
 	 *
 	 * 12 首进约 0.1–0.3 秒；24 边缘更圆，约 2–4 倍耗时。改动会让缓存失效。
 	 */
 	UPROPERTY(EditAnywhere, Category = "Planet|MineralView",
 		meta = (ClampMin = "4", ClampMax = "32"))
-	int32 CellsPerPod = 12;
+	int32 CellsPerFeature = 12;
 
 private:
 	bool bActive = false;

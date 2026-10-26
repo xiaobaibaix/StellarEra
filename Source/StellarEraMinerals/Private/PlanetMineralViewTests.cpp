@@ -9,6 +9,7 @@
 #include "DynamicMesh/DynamicMesh3.h"
 #include "PlanetMineralSurface.h"
 #include "PlanetMineralViewActor.h"
+#include "PlanetMineralViewComponent.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -222,6 +223,30 @@ bool FPlanetMineralViewActorEmptyTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("没有元素组件"), View->NumElements(), 0);
 
 	View->Destroy();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralViewCellsPerFeatureTest,
+	"StellarEra.Planet.MineralView.CellsPerFeature",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetMineralViewCellsPerFeatureTest::RunTest(const FString& Parameters)
+{
+	const UPlanetMineralViewComponent* Defaults = GetDefault<UPlanetMineralViewComponent>();
+	TestNotNull(TEXT("组件 CDO"), Defaults);
+	if (!Defaults)
+	{
+		return false;
+	}
+	TestEqual(TEXT("默认每特征 12 格"), Defaults->CellsPerFeature, 12);
+
+	PlanetMineralSurface::FCacheKey Key;
+	Key.CellsPerFeature = 12;
+	PlanetMineralSurface::FCacheKey Same = Key;
+	TestTrue(TEXT("同分辨率键相等"), Key == Same);
+
+	Same.CellsPerFeature = 24;
+	TestTrue(TEXT("改分辨率使键不等"), Key != Same);
 	return true;
 }
 

@@ -72,7 +72,7 @@ bool UPlanetMineralViewComponent::Activate(AVoxelPlanetActor* InPlanet)
 	PlanetMineralSurface::FBuildParams Params;
 	Params.SurfaceRadiusCm = SurfaceRadiusCm;
 	Params.VoxelSizeCm = VoxelSizeCm;
-	Params.CellsPerPod = CellsPerPod;
+	Params.CellsPerFeature = CellsPerFeature;
 	// 等值线跟地表着色共用一份参数：矿体边界与地表明暗是同一套判据。
 	Params.IsoValue = Geology->GetAppearance().ColorThreshold;
 
@@ -80,13 +80,13 @@ bool UPlanetMineralViewComponent::Activate(AVoxelPlanetActor* InPlanet)
 	// ReloadGeology()（Details 面板的「重建行星」）会用新的地质对象替换旧的，而行星、
 	// 半径、缩放全不变 —— 只比键会静默复用旧几何，再按新元素表上色（同元素数），
 	// 或直接让观察体的「网格数 == 元素数」校验失败（不同元素数）。所以另外单独比对
-	// 地质对象本身：共享指针相等才算同一份数据。CellsPerPod 是组件上可编辑的属性，
+	// 地质对象本身：共享指针相等才算同一份数据。CellsPerFeature 是组件上可编辑的属性，
 	// 必须进键。
 	PlanetMineralSurface::FCacheKey Key;
 	Key.Planet = InPlanet;
 	Key.SurfaceRadiusCm = SurfaceRadiusCm;
 	Key.Scale = InPlanet->GetActorScale3D();
-	Key.CellsPerPod = CellsPerPod;
+	Key.CellsPerFeature = CellsPerFeature;
 
 	const bool bReused = bHasCachedSurface && CachedSurfaceGeology == Geology
 		&& CachedKey == Key;
@@ -121,8 +121,8 @@ bool UPlanetMineralViewComponent::Activate(AVoxelPlanetActor* InPlanet)
 			CachedSurface.MeshesByElement[Index].Triangles.Num() / 3));
 	}
 
-	UE_LOG(LogTemp, Display, TEXT("[矿物] %s：每囊 %d 格（%d 个角点），%d 个三角形，构建 %.1f ms%s"),
-		*InPlanet->GetName(), CellsPerPod, CachedSurface.GridPoints, TotalTriangles,
+	UE_LOG(LogTemp, Display, TEXT("[矿物] %s：每特征 %d 格（%d 个角点），%d 个三角形，构建 %.1f ms%s"),
+		*InPlanet->GetName(), CellsPerFeature, CachedSurface.GridPoints, TotalTriangles,
 		CachedSurface.BuildSeconds * 1000.0,
 		bReused ? TEXT("（复用缓存，耗时为首建）") : TEXT(""));
 	UE_LOG(LogTemp, Display, TEXT("[矿物] %s：每元素矿体 %s"),
