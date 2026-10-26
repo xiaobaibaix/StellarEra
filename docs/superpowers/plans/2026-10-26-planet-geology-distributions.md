@@ -3129,7 +3129,8 @@ bool FPlanetMineralSurfaceGridCapTest::RunTest(const FString& Parameters)
 	// 包围盒定 —— 半径越小，「未钳制 / 钳制后」的比值越大，守卫的鉴别力越强。
 	//
 	// 别指望「512 格/轴」那条：它在本实现里恒不生效（两条上限共用被除数，除数
-	// 197 < 510，见 Step 3）；`VeinLength = 1.0` 也长不到整个球（`GrowChain` 在球面处停）。
+	// 197 < 510，轴上那条恒被支配）；`VeinLength = 1.0` 也长不到整个球
+	// （`GrowChain` 在球面处停）。
 	// 所以本夹具触发的是**总角点上限**，断言也按它写。
 	UPlanetGeologyVeinDistribution* Vein =
 		AddDistribution<UPlanetGeologyVeinDistribution>(*Preset, Element);
@@ -3150,6 +3151,10 @@ bool FPlanetMineralSurfaceGridCapTest::RunTest(const FString& Parameters)
 		return false;
 	}
 	TestTrue(TEXT("触发上限后仍然有网格（不跳簇）"), !Result.MeshesByElement[0].IsEmpty());
+	// 下面的解析复算用「全部区域并集成一个盒子」，只有单簇时才与 Build 逐簇求和等价。
+	// 夹具必须把它钉住：换成两条相距很远的脉，并集乘积会远大于各簇和，(c) 就对
+	// 「两条上限都删掉」也放绿。
+	TestEqual(TEXT("夹具合成单簇（解析复算的前提）"), Result.ClustersByElement[0], 1);
 
 	// 解析复算未钳制 / 钳制后的角点数：全部从 Region 数据推，不写死数量级。
 	// 判据必须挂在**上限公式**上，而不是「一个足够大的常数」—— 常数既可能被夹具
@@ -3165,9 +3170,19 @@ bool FPlanetMineralSurfaceGridCapTest::RunTest(const FString& Parameters)
 	double MinRadiusCm = TNumericLimits<double>::Max();
 	for (const FPlanetGeologyRegion& Region : Regions)
 	{
+		// 与 `Build` 的区域过滤保持一致：零特征半径/非法包围盒不参与建面。
+		// 不复刻的话，`CountCorners(..., 0)` 会除零，复算集合也与实现不同。
+		if (Region.CharacteristicRadius <= 0.f || !Region.Bounds.IsValid)
+		{
+			continue;
+		}
 		Bounds += FBox(Region.Bounds.Min * SurfaceRadiusCm, Region.Bounds.Max * SurfaceRadiusCm);
 		MinRadiusCm = FMath::Min(MinRadiusCm,
 			double(Region.CharacteristicRadius) * double(SurfaceRadiusCm));
+	}
+	if (!TestTrue(TEXT("至少一个有效区域"), MinRadiusCm < TNumericLimits<double>::Max()))
+	{
+		return false;
 	}
 	const FVector RawExtentCm = Bounds.Max - Bounds.Min;
 	const double BaseCellSizeCm = 2.0 * MinRadiusCm / double(Params.CellsPerFeature);
@@ -3189,12 +3204,17 @@ bool FPlanetMineralSurfaceGridCapTest::RunTest(const FString& Parameters)
 		TEXT("基准格边 %.5f → 钳制后 %.5f cm，未钳制角点 %lld → 钳制后 %lld，实际 GridPoints %d"),
 		BaseCellSizeCm, ClampedCellSizeCm, UnclampedCorners, ClampedCorners, Result.GridPoints));
 
-	TestTrue(*FString::Printf(TEXT("总角点上限确实生效（格边 %.5f → %.5f cm）"),
+	// 前两条是**夹具前置条件**：两个操作数都由测试自己那份公式算出，与 `Build` 无关 ——
+	// 实现把上限删掉它们照样绿。它们只保证「这个夹具落在能区分的量级上」。
+	TestTrue(*FString::Printf(TEXT("夹具按上限公式会被钳制（格边 %.5f → %.5f cm）"),
 		BaseCellSizeCm, ClampedCellSizeCm), ClampedCellSizeCm > BaseCellSizeCm * 1.2);
 	TestTrue(*FString::Printf(TEXT("夹具未钳制时角点远超钳制后（%lld vs %lld）"),
 		UnclampedCorners, ClampedCorners), UnclampedCorners > 2 * ClampedCorners);
-	TestTrue(*FString::Printf(TEXT("实际角点被压到钳制后量级（%d vs %lld）"),
-		Result.GridPoints, ClampedCorners), Result.GridPoints <= 2 * ClampedCorners);
+	// **只有这一条约束实现**：实测值必须落在解析钳制值上（当前逐位相等）。
+	// 容差取 5% 而不是 2× —— 2× 会放过「钳制变松但没删」的退化，例如把除数里的 -3
+	// 去掉（格边 129.35→127.41）后仍能通过。
+	TestTrue(*FString::Printf(TEXT("实际角点等于解析钳制值（%d vs %lld）"),
+		Result.GridPoints, ClampedCorners), Result.GridPoints <= ClampedCorners * 1.05);
 	return true;
 }
 ```
@@ -3279,7 +3299,7 @@ bool FPlanetMineralViewCellsPerFeatureTest::RunTest(const FString& Parameters)
    	// 两条上限谁先触发是**定的**：它们共用同一个被除数（外扩后的最长轴），而总角点上
    	// 限的除数 `pow(8e6, 1/3) - 3 ≈ 197` 恒小于轴上上限的 `512 - 2 = 510` —— 所以
    	// **轴上上限永远不会先触发**，任何触发都表现为总角点上限。留着它只为防止将来
-   	// 有人只调其中一个常量时漏掉另一条（见 Step 1 的 GridCap 测试）。
+   	// 有人只调其中一个常量时漏掉另一条（GridCap 测试按总角点上限写）。
    ```
 
 - [ ] **Step 4: 改 `PlanetMineralSurface.cpp`**
@@ -3566,6 +3586,10 @@ bool FPlanetMineralSurfaceRegionLocalTest::RunTest(const FString& Parameters)
 		for (int32 ElementIndex = 0; ElementIndex < Result.MeshesByElement.Num(); ++ElementIndex)
 		{
 			const FPlanetMineralMesh& Mesh = Result.MeshesByElement[ElementIndex];
+			// 空网格会被下面整块跳过 —— 那样夹具就静默失效了：`GetPods` 回归、区域算错
+			// 都照样绿。宁可红。
+			TestTrue(*FString::Printf(TEXT("元素 %d 出了网格（空则本测试失效）"), ElementIndex),
+				!Mesh.IsEmpty());
 			if (Mesh.IsEmpty())
 			{
 				continue;
@@ -3626,10 +3650,14 @@ bool FPlanetMineralSurfaceRegionLocalTest::RunTest(const FString& Parameters)
 		Element.DisplayName = TEXT("薄片");
 		UPlanetGeologyLensDistribution* Lens =
 			AddDistribution<UPlanetGeologyLensDistribution>(*Preset, Element);
-		Lens->SeamCount = 2;
+		// 单片、无尺寸抖动：两片相距较远时并集包围盒会大到触发格边上限，与上面那条
+		// 「夹具不触发格边上限」断言自相矛盾（实测两片相距约 1.47 归一化）。
+		// 夹具的目的只是「让 GetPods 回归变红」—— 单缝照样满足（GetPods 对片层恒空）。
+		Lens->SeamCount = 1;
 		Lens->SeamLength = 0.12f;
 		Lens->SeamWidth = 0.06f;
-		Lens->SeamThickness = 0.008f;
+		Lens->SeamThickness = 0.02f;
+		Lens->SizeJitter = 0.f;
 		Lens->VeinThreshold = 0.f;
 
 		const auto Field = MakeField(*Preset);
