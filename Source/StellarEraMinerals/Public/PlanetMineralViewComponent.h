@@ -34,9 +34,14 @@ public:
 	UPlanetMineralViewComponent();
 
 	//~ Begin UActorComponent Interface
+	virtual void OnRegister() override;
+	virtual void OnUnregister() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType,
 		FActorComponentTickFunction* ThisTickFunction) override;
+#if WITH_EDITOR
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
 	//~ End UActorComponent Interface
 
 	/** 基类的 Activate(bool) 仍然可用：本类的同名重载只是多了一种入口。 */
@@ -100,6 +105,29 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Planet|MineralView",
 		meta = (ClampMin = "4", ClampMax = "32"))
 	int32 CellsPerFeature = 12;
+
+	/**
+	 * 地质预设。**镜像**：真值在宿主行星 Actor 的 `GeologyAsset` 上，这里只是
+	 * Details 面板上多出来的一个可编辑入口（选了矿物组件也能直接换数据）。
+	 *
+	 * 标 `Transient` 是刻意的：这份值不存盘，磁盘上永远只有行星那一份，不会
+	 * 出现「组件存 A、行星存 B」。两个方向各有一条同步路径：
+	 *   - 改这里 → `PostEditChangeProperty` → `ApplyGeologyAssetToPlanet()`
+	 *   - 改行星 → 行星广播 `OnGeologyAssetChanged` → `RefreshGeologyAssetFromPlanet()`
+	 * 少了第二条，先改行星、再选中组件会看到过期值。
+	 */
+	UPROPERTY(EditAnywhere, Transient, Category = "Planet|MineralView",
+		meta = (DisplayName = "Geology Asset"))
+	TObjectPtr<UPlanetGeologyPreset> GeologyAsset;
+
+	/** 宿主行星当前的地质预设。宿主不是行星 → nullptr。 */
+	UPlanetGeologyPreset* GetPlanetGeologyAsset() const;
+
+	/** 从宿主行星刷新槽里的值。宿主不是行星 → 槽置空（不留一个无主的假值）。 */
+	void RefreshGeologyAssetFromPlanet();
+
+	/** 把槽里的值写回宿主行星并标脏。宿主不是行星 → 返回 false，什么都不写。 */
+	bool ApplyGeologyAssetToPlanet();
 
 private:
 	bool bActive = false;

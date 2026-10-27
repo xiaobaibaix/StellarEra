@@ -18,6 +18,82 @@ UPlanetMineralViewComponent::UPlanetMineralViewComponent()
 	PrimaryComponentTick.bStartWithTickEnabled = false;
 }
 
+void UPlanetMineralViewComponent::OnRegister()
+{
+	Super::OnRegister();
+
+	// 订阅宿主行星的「预设指针换了」，并先对齐一次：镜像一旦过期，面板上就会
+	// 显示一份行星上已经不用的数据，而按它写回还会把旧值盖回去。
+	// 局部变量不能叫 Planet：本类有同名成员，MSVC 的 C4458 在本模块是错误。
+	if (AVoxelPlanetActor* OwningPlanet = Cast<AVoxelPlanetActor>(GetOwner()))
+	{
+		OwningPlanet->OnGeologyAssetChanged.AddUObject(
+			this, &UPlanetMineralViewComponent::RefreshGeologyAssetFromPlanet);
+		RefreshGeologyAssetFromPlanet();
+	}
+}
+
+void UPlanetMineralViewComponent::OnUnregister()
+{
+	if (AVoxelPlanetActor* OwningPlanet = Cast<AVoxelPlanetActor>(GetOwner()))
+	{
+		OwningPlanet->OnGeologyAssetChanged.RemoveAll(this);
+	}
+	Super::OnUnregister();
+}
+
+UPlanetGeologyPreset* UPlanetMineralViewComponent::GetPlanetGeologyAsset() const
+{
+	const AVoxelPlanetActor* OwningPlanet = Cast<AVoxelPlanetActor>(GetOwner());
+	return OwningPlanet ? OwningPlanet->GetGeologyPresetAsset() : nullptr;
+}
+
+void UPlanetMineralViewComponent::RefreshGeologyAssetFromPlanet()
+{
+	// 宿主不是行星时置空而不是保留旧值：槽里留着一份无主的资产，
+	// 下次有人按它写回就会写到一个看似成立、其实没人读的地方。
+	GeologyAsset = GetPlanetGeologyAsset();
+}
+
+bool UPlanetMineralViewComponent::ApplyGeologyAssetToPlanet()
+{
+	AVoxelPlanetActor* OwningPlanet = Cast<AVoxelPlanetActor>(GetOwner());
+	if (!OwningPlanet)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[矿物] %s 不挂在行星上，地质预设槽无处写回"), *GetNameSafe(GetOwner()));
+		return false;
+	}
+
+	if (OwningPlanet->GetGeologyPresetAsset() == GeologyAsset.Get())
+	{
+		// 已经是这个值：不重设、不标脏。否则每次编辑都会白白弄脏一个包。
+		return true;
+	}
+
+	// 写回的是行星自己的字段，只有它一份真值；本组件那份是 Transient 镜像。
+	OwningPlanet->Modify();
+	OwningPlanet->GeologyAsset = GeologyAsset;
+	OwningPlanet->MarkPackageDirty();
+	return true;
+}
+
+#if WITH_EDITOR
+void UPlanetMineralViewComponent::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+
+	// 只有面板上改槽才需要写回。撤销粒度：这一步发生在事务已经记下组件之后，
+	// 所以 Ctrl+Z 会把组件那份还原、行星那份未必跟着回 —— 已知取舍，
+	// 换的是「磁盘上只有一处真值」。
+	if (PropertyChangedEvent.GetPropertyName()
+		== GET_MEMBER_NAME_CHECKED(UPlanetMineralViewComponent, GeologyAsset))
+	{
+		ApplyGeologyAssetToPlanet();
+	}
+}
+#endif
+
 bool UPlanetMineralViewComponent::Activate(AVoxelPlanetActor* InPlanet)
 {
 	if (bActive)
@@ -29,6 +105,10 @@ bool UPlanetMineralViewComponent::Activate(AVoxelPlanetActor* InPlanet)
 	{
 		return false;
 	}
+
+	// 进来先对齐镜像：InPlanet 未必是 Owner（调用方可以传任意行星），而面板上的
+	// 槽要显示「这次到底用了哪一份」。
+	GeologyAsset = InPlanet->GetGeologyPresetAsset();
 
 	TSharedPtr<const FPlanetGeologyField> Geology = InPlanet->GetGeologyField();
 	if (!Geology.IsValid() || Geology->IsEmpty())

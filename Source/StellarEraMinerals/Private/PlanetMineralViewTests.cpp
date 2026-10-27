@@ -10,6 +10,8 @@
 #include "PlanetMineralSurface.h"
 #include "PlanetMineralViewActor.h"
 #include "PlanetMineralViewComponent.h"
+#include "PlanetGeologyPreset.h"
+#include "VoxelPlanetActor.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -247,6 +249,79 @@ bool FPlanetMineralViewCellsPerFeatureTest::RunTest(const FString& Parameters)
 
 	Same.CellsPerFeature = 24;
 	TestTrue(TEXT("改分辨率使键不等"), Key != Same);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralViewGeologyAssetMirrorTest,
+	"StellarEra.Planet.MineralView.GeologyAssetMirror",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetMineralViewGeologyAssetMirrorTest::RunTest(const FString& Parameters)
+{
+	// 刻意**不** spawn 行星：SpawnActor 会跑 OnConstruction → RebuildPlanet →
+	// 建整个体素世界，无头进程被限 3 FPS 时一条属性转发测试能耗上几分钟。
+	// 这里 NewObject 出未注册的对象，只验转发本身；体素那侧由行星自己的测试覆盖。
+	UPlanetGeologyPreset* PresetA = NewObject<UPlanetGeologyPreset>(GetTransientPackage());
+	UPlanetGeologyPreset* PresetB = NewObject<UPlanetGeologyPreset>(GetTransientPackage());
+	if (!TestNotNull(TEXT("预设 A"), PresetA) || !TestNotNull(TEXT("预设 B"), PresetB))
+	{
+		return false;
+	}
+
+	AVoxelPlanetActor* Planet = NewObject<AVoxelPlanetActor>(GetTransientPackage());
+	if (!TestNotNull(TEXT("行星 Actor"), Planet))
+	{
+		return false;
+	}
+	// 组件的 Owner 由外链推出（UActorComponent 构造时取 GetTypedOuter<AActor>），
+	// 不需要另外挂到 Actor 的组件表上。
+	UPlanetMineralViewComponent* View = NewObject<UPlanetMineralViewComponent>(Planet);
+	if (!TestNotNull(TEXT("矿物组件"), View))
+	{
+		return false;
+	}
+
+	TestNull(TEXT("槽默认空"), View->GeologyAsset.Get());
+	TestNull(TEXT("行星那份默认也空"), Planet->GetGeologyPresetAsset());
+
+	// 行星 → 组件
+	Planet->GeologyAsset = PresetA;
+	View->RefreshGeologyAssetFromPlanet();
+	TestTrue(TEXT("刷新后槽读到行星那份"), View->GeologyAsset.Get() == PresetA);
+
+	// 组件 → 行星
+	View->GeologyAsset = PresetB;
+	TestTrue(TEXT("写回成功"), View->ApplyGeologyAssetToPlanet());
+	TestTrue(TEXT("行星跟着变"), Planet->GetGeologyPresetAsset() == PresetB);
+
+	// 细节面板改槽：走 PostEditChangeProperty 那条胶水，而不是直接调 Apply
+	View->GeologyAsset = PresetA;
+	if (FProperty* SlotProperty = FindFProperty<FProperty>(
+		UPlanetMineralViewComponent::StaticClass(), TEXT("GeologyAsset")))
+	{
+		FPropertyChangedEvent Event(SlotProperty, EPropertyChangeType::ValueSet);
+		View->PostEditChangeProperty(Event);
+		TestTrue(TEXT("面板改槽也写回行星"), Planet->GetGeologyPresetAsset() == PresetA);
+	}
+	else
+	{
+		AddError(TEXT("找不到 GeologyAsset 属性：转发没有被接上"));
+	}
+
+	// 宿主不是行星：不转发、不崩、也不静默留一个假值
+	AActor* PlainActor = NewObject<AActor>(GetTransientPackage());
+	UPlanetMineralViewComponent* Orphan = PlainActor
+		? NewObject<UPlanetMineralViewComponent>(PlainActor)
+		: nullptr;
+	if (TestNotNull(TEXT("非行星宿主上的组件"), Orphan))
+	{
+		TestNull(TEXT("宿主不是行星 → 读不到"), Orphan->GetPlanetGeologyAsset());
+		Orphan->GeologyAsset = PresetA;
+		Orphan->RefreshGeologyAssetFromPlanet();
+		TestNull(TEXT("宿主不是行星 → 刷新把槽清空"), Orphan->GeologyAsset.Get());
+		TestFalse(TEXT("宿主不是行星 → 写回失败"), Orphan->ApplyGeologyAssetToPlanet());
+	}
+
 	return true;
 }
 

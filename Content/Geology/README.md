@@ -7,6 +7,8 @@ JSON 预设已退役（2026-10-25）。
 
 1. 选中 `DA_Geology_Earth`，在 Details 里调 `Elements`。
 2. 选中行星 Actor，`Planet|Geology → Geology Asset` 指向这份资产。
+   选中**矿物观测组件**时同一个槽也会出现（`Planet|MineralView → Geology Asset`），
+   改哪边都一样：它是行星那份的镜像，不存盘。
 3. 点 `重建行星（应用地质预设改动）` **重建行星** —— 体素是烘焙的，改预设不会自动重刷地表。
    （按钮在行星 Actor Details 的 `Planet|Geology` 分类里；这个名字是 C++ 里写死的中文
    DisplayName，英文面板也显示中文。）

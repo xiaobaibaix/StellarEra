@@ -415,6 +415,15 @@ void AVoxelPlanetActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyCh
 	// 触发两次「销毁 + 重建」。
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 
+	// 地质预设换了：通知镜像方（矿物观测组件上的槽）刷新，否则先改行星、
+	// 再选中组件会看到一个过期值。广播不等价于重建 —— 新的预设仍要按
+	// 「重建行星」按钮才生效，这里不改那个语义。
+	if (PropertyChangedEvent.GetPropertyName()
+		== GET_MEMBER_NAME_CHECKED(AVoxelPlanetActor, GeologyAsset))
+	{
+		OnGeologyAssetChanged.Broadcast();
+	}
+
 	// OnConstruction 只在移动/添加时重新执行：否则单纯在细节面板里改参数
 	// 永远不会重建世界，改动会静默失效。
 	RebuildPlanet();

@@ -158,6 +158,16 @@ public:
 	TObjectPtr<UPlanetGeologyPreset> GeologyAsset;
 
 	/**
+	 * 上面这个指针变化时广播（Details 面板编辑会触发）。
+	 *
+	 * 镜像方订阅它保持同步 —— 目前是 `UPlanetMineralViewComponent` 的地质预设槽。
+	 * 用委托而不是让本类去调组件，是因为依赖方向是 Minerals → Terrain：Terrain
+	 * 不能反向 include Minerals，否则成环。
+	 */
+	DECLARE_MULTICAST_DELEGATE(FOnPlanetGeologyAssetChanged);
+	FOnPlanetGeologyAssetChanged OnGeologyAssetChanged;
+
+	/**
 	 * 旧字段，只用于加载时迁移（存的是 JSON 预设名）。
 	 *
 	 * **默认值 "earth" 必须保留**：旧关卡的 Actor 从来没序列化过这个字段，
