@@ -193,21 +193,20 @@ bool FPlanetGeologyEarthValuesTest::RunTest(const FString& Parameters)
 	}
 
 	const TCHAR* ExpectedIds[] = {
-		TEXT("silicon"), TEXT("iron"), TEXT("water"),
+		TEXT("silicon"), TEXT("iron"),
 		TEXT("copper"), TEXT("titanium"), TEXT("uranium"),
 	};
-	const float ExpectedAbundances[] = { 0.60f, 0.75f, 0.20f, 0.45f, 0.15f, 0.10f };
+	const float ExpectedAbundances[] = { 0.60f, 0.75f, 0.45f, 0.15f, 0.10f };
 	const FLinearColor ExpectedColors[] = {
 		FLinearColor(0.62f, 0.58f, 0.50f),
 		FLinearColor(0.72f, 0.42f, 0.36f),
-		FLinearColor(0.20f, 0.45f, 0.90f),
 		FLinearColor(0.85f, 0.55f, 0.25f),
 		FLinearColor(0.70f, 0.72f, 0.78f),
 		FLinearColor(0.45f, 0.85f, 0.35f),
 	};
 	const int32 ElementCount = UE_ARRAY_COUNT(ExpectedIds);
 
-	TestEqual(TEXT("6 个元素"), Preset->Elements.Num(), ElementCount);
+	TestEqual(TEXT("5 个元素"), Preset->Elements.Num(), ElementCount);
 	if (Preset->Elements.Num() != ElementCount)
 	{
 		return false;
@@ -236,7 +235,7 @@ bool FPlanetGeologyEarthValuesTest::RunTest(const FString& Parameters)
 			Element.Distributions[0].Get());
 	}
 
-	// 硅 / 水：片层
+	// 硅：片层
 	{
 		const auto* Lens = Cast<UPlanetGeologyLensDistribution>(
 			Preset->Elements[0].Distributions[0]);
@@ -249,17 +248,6 @@ bool FPlanetGeologyEarthValuesTest::RunTest(const FString& Parameters)
 			TestEqual(TEXT("硅深度中心 0.10"), Lens->DepthCenter, 0.10f);
 			TestEqual(TEXT("硅深度偏置 0.5"), Lens->DepthBias, 0.5f);
 			TestEqual(TEXT("硅 VeinThreshold 0.45"), Lens->VeinThreshold, 0.45f);
-		}
-		const auto* WaterLens = Cast<UPlanetGeologyLensDistribution>(
-			Preset->Elements[2].Distributions[0]);
-		if (TestNotNull(TEXT("水是片层"), WaterLens))
-		{
-			TestEqual(TEXT("水 14 片"), WaterLens->SeamCount, 14);
-			TestEqual(TEXT("水 A 0.18"), WaterLens->SeamLength, 0.18f);
-			TestEqual(TEXT("水 B 0.10"), WaterLens->SeamWidth, 0.10f);
-			TestEqual(TEXT("水 C 0.010"), WaterLens->SeamThickness, 0.010f);
-			TestEqual(TEXT("水深度中心 0.18"), WaterLens->DepthCenter, 0.18f);
-			TestEqual(TEXT("水 VeinThreshold 0.40"), WaterLens->VeinThreshold, 0.40f);
 		}
 	}
 
@@ -276,7 +264,7 @@ bool FPlanetGeologyEarthValuesTest::RunTest(const FString& Parameters)
 			TestEqual(TEXT("铁 VeinThreshold 0.50"), IronVein->VeinThreshold, 0.50f);
 		}
 		const auto* CopperVein = Cast<UPlanetGeologyVeinDistribution>(
-			Preset->Elements[3].Distributions[0]);
+			Preset->Elements[2].Distributions[0]);
 		if (TestNotNull(TEXT("铜是脉状"), CopperVein))
 		{
 			TestEqual(TEXT("铜 3 条"), CopperVein->VeinCount, 3);
@@ -290,7 +278,7 @@ bool FPlanetGeologyEarthValuesTest::RunTest(const FString& Parameters)
 	// 钛 / 铀：浸染
 	{
 		const auto* Titanium = Cast<UPlanetGeologyDisseminatedDistribution>(
-			Preset->Elements[4].Distributions[0]);
+			Preset->Elements[3].Distributions[0]);
 		if (TestNotNull(TEXT("钛是浸染"), Titanium))
 		{
 			TestEqual(TEXT("钛 320 粒"), Titanium->GrainCount, 320);
@@ -298,7 +286,7 @@ bool FPlanetGeologyEarthValuesTest::RunTest(const FString& Parameters)
 			TestEqual(TEXT("钛 VeinThreshold 0.60"), Titanium->VeinThreshold, 0.60f);
 		}
 		const auto* Uranium = Cast<UPlanetGeologyDisseminatedDistribution>(
-			Preset->Elements[5].Distributions[0]);
+			Preset->Elements[4].Distributions[0]);
 		if (TestNotNull(TEXT("铀是浸染"), Uranium))
 		{
 			TestEqual(TEXT("铀 140 粒"), Uranium->GrainCount, 140);

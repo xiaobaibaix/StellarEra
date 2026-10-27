@@ -166,21 +166,6 @@ namespace
 			Vein->VeinThreshold = 0.50f;
 		}
 
-		// 水：更深更宽的片层（含水层）
-		{
-			FPlanetGeologyElementParams& Element = *AddElement(
-				TEXT("water"), TEXT("水"), FLinearColor(0.20f, 0.45f, 0.90f), 0.20f);
-			UPlanetGeologyLensDistribution* Lens =
-				AddEarthDistribution<UPlanetGeologyLensDistribution>(Preset, Element);
-			Lens->SeamCount = 14;
-			Lens->SeamLength = 0.18f;
-			Lens->SeamWidth = 0.10f;
-			Lens->SeamThickness = 0.010f;
-			Lens->DepthCenter = 0.18f;
-			Lens->DepthBias = 0.5f;
-			Lens->VeinThreshold = 0.40f;
-		}
-
 		// 铜：少而短的脉
 		{
 			FPlanetGeologyElementParams& Element = *AddElement(

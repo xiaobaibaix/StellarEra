@@ -481,7 +481,6 @@ static void MigrateLegacyElement(FPlanetGeologyElementParams& Element, UObject* 
 |---|---|---|---|
 | 硅 | 片层 | 16 片；A 0.14 / B 0.07 / 厚 0.008；深度中心 0.10，偏置 0.5 | 0.45 |
 | 铁 | 脉状 | 5 条；长 0.40；半径 0.009；每条 1 分叉 | 0.50 |
-| 水 | 片层 | 14 片；A 0.18 / B 0.10 / 厚 0.010；深度中心 0.18，偏置 0.5 | 0.40 |
 | 铜 | 脉状 | 3 条；长 0.28；半径 0.007；无分叉 | 0.55 |
 | 钛 | 浸染 | 320 粒；半径 0.0025 | 0.60 |
 | 铀 | 浸染 | 140 粒；半径 0.0015；深度中心 0.35、偏置 0.6 | 0.65 |
@@ -547,7 +546,7 @@ static void MigrateLegacyElement(FPlanetGeologyElementParams& Element, UObject* 
 
 1. 编辑器关闭 → 捆绑 dotnet 直调 UBT：`StellarEraEditor Win64 Development` 通过。
 2. `Automation RunTests StellarEra` 全绿。
-3. 编辑器打开 `DA_Geology_Earth`，六个元素各带生成器；改片层的 `SeamCount`，正在预览的观测体自动重建。
+3. 编辑器打开 `DA_Geology_Earth`，五个元素各带生成器；改片层的 `SeamCount`，正在预览的观测体自动重建。
 4. 编辑器预览：同屏可见片层、穿切地层的脉、散点浸染；图例关掉其他元素后能看到互相穿插。
 5. `UniverseMap` 点"重建行星"，PIE 地表只见露头矿；海面无蓝色环。
 6. 重建耗时与基线对比不劣化（两个数字记进实施记录）。

@@ -4620,8 +4620,10 @@ grep -rn "PodCount\|PodRadiusJitter\|PodDepthBias\|PodDepthCenter\|PodDepthSprea
    **同一个问题里一并问用户**：重建后的资产要不要进 Step 6 的提交。
    不进，别人干净检出后 `EarthPresetValues` 仍是红的；进，等于把用户的改动变成我们的产出，
    必须他本人同意。
-1. 打开 `DA_Geology_Earth`：六个元素各带一个生成器，类型分别是
-   片层/脉状/片层/脉状/浸染/浸染；`PodCount` 等遗留字段全是 0。
+1. 打开 `DA_Geology_Earth`：五个元素各带一个生成器，类型分别是
+   片层/脉状/脉状/浸染/浸染；`PodCount` 等遗留字段全是 0。
+   （2026-10-27 按用户要求「水暂时不作为一个矿物」删掉了水元素并重建了资产，
+   所以是五个、且硅之后直接是铁的脉。）
 2. 改硅的 `SeamCount`，正在预览的观测体自动重建（不用手动点）。
 3. 预览里同屏能看到片层、穿切地层的脉、散点浸染；图例里关掉其他元素后，
    能看到片层与脉互相穿插。
@@ -4687,6 +4689,16 @@ git commit -m "docs(地质): 分布生成器实施记录与验收结果" -- \
 - **资产重建**：`StellarEra.CreateEarthGeologyPreset` → 日志 `已保存（覆盖，6 个元素）`；文件 5802 → 7844 字节。重建前副本在 `%TEMP%/DA_Geology_Earth.before-rebuild.20261027-011225.uasset`（不入库，仅本机）。
 - **人工验收 1–8**：**未做**。编辑器 MCP 端点本会话 `ECONNREFUSED`，八条都要在编辑器里点，留给用户执行。
 - **观测体重建耗时 / 角点数**：**待测**，随上面第 5 条一起。旧记录（12 首进 0.1–0.3 秒）来自旧的单囊预设，新预设角点数大一个量级，不可沿用。
+
+### 后续改动的记录
+
+- **2026-10-27 去水**：按要求「水暂时不作为一个矿物」，`FillEarthPreset` 删掉 `water` 元素，
+  `EarthPresetValues` 的期望表随之改成 5 个元素（铜 2 / 钛 3 / 铀 4），README 与 spec §8 同步。
+  重建后资产 **7844 → 6702 字节**。此后「6 个元素」只出现在本文件的历史记录里（`b43d104` 那一轮确实是 6 个），
+  现状以本节为准。
+- **去水后的验证**：构建 `Result: Succeeded`；全量 **129 tests，129 Success / 0 Fail**。
+  为证明断言有效（而不是空转），把 6 个元素的旧资产换回磁盘单独跑一次，得
+  `Expected '5 个元素' to be 5, but it was 6.`，再换回新资产转 Success。
 
 ### 本轮关键技术判断（细节见 `.superpowers/sdd/2026-10-26-planet-geology-distributions/progress.md`）
 
