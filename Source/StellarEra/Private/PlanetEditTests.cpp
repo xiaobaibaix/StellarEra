@@ -615,4 +615,41 @@ bool FStellarEraEditComponentRangeTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraEditBrushShouldDigNowTest,
+	"StellarEra.Planet.EditBrush.ShouldDigNow",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraEditBrushShouldDigNowTest::RunTest(const FString& Parameters)
+{
+	float Accumulator = 0.f;
+
+	// 未到间隔：不挖，累加器保留。
+	TestFalse(TEXT("0.05 s 未到 0.12 s 间隔"),
+		PlanetEditBrush::ShouldDigNow(Accumulator, 0.05f, 0.12f));
+	TestTrue(TEXT("未到间隔时累加器保留"),
+		FMath::IsNearlyEqual(Accumulator, 0.05f, 1.e-4f));
+
+	// 跨过间隔：挖一次并清零。
+	TestTrue(TEXT("再走 0.08 s 跨过 0.12 s"),
+		PlanetEditBrush::ShouldDigNow(Accumulator, 0.08f, 0.12f));
+	TestTrue(TEXT("触发后累加器清零"),
+		FMath::IsNearlyEqual(Accumulator, 0.f, 1.e-4f));
+
+	// 一帧巨大 DeltaSeconds 只触发一次，不做 while 补偿。
+	TestTrue(TEXT("10 s 的单帧只触发一次"),
+		PlanetEditBrush::ShouldDigNow(Accumulator, 10.f, 0.12f));
+	TestTrue(TEXT("大帧之后累加器仍是 0"),
+		FMath::IsNearlyEqual(Accumulator, 0.f, 1.e-4f));
+	TestFalse(TEXT("同一累加器不会连续返回 true"),
+		PlanetEditBrush::ShouldDigNow(Accumulator, 0.f, 0.12f));
+
+	// Interval <= 0 按 0.01 处理：不会每帧都挖。
+	float ZeroInterval = 0.f;
+	TestFalse(TEXT("间隔 0 时 0.001 s 不触发"),
+		PlanetEditBrush::ShouldDigNow(ZeroInterval, 0.001f, 0.f));
+	TestTrue(TEXT("间隔 0 时累计到 0.021 s 触发"),
+		PlanetEditBrush::ShouldDigNow(ZeroInterval, 0.02f, 0.f));
+
+	return true;
+}
 #endif

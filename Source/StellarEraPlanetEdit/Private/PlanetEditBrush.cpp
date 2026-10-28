@@ -158,3 +158,17 @@ void PlanetEditBrush::BuildBoxPreviewSegments(const FIntVector& MinVoxels,
 		}
 	}
 }
+
+bool PlanetEditBrush::ShouldDigNow(
+	float& AccumulatorSeconds, const float DeltaSeconds, const float IntervalSeconds)
+{
+	const float Interval = FMath::Max(IntervalSeconds, 0.01f);
+	AccumulatorSeconds += FMath::Max(DeltaSeconds, 0.f);
+	if (AccumulatorSeconds < Interval)
+	{
+		return false;
+	}
+
+	AccumulatorSeconds = 0.f;
+	return true;
+}

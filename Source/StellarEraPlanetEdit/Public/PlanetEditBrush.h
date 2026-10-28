@@ -73,6 +73,16 @@ namespace PlanetEditBrush
 	 */
 	STELLARERAPLANETEDIT_API int32 ClampSize(int32 SizeVoxels, int32 MinSize, int32 MaxSize);
 
+	/**
+	 * 连续挖的节流判定：把 DeltaSeconds 累加进 AccumulatorSeconds，
+	 * 跨过 IntervalSeconds 时返回 true 并把累加器清零。
+	 *
+	 * 一次调用最多返回一次 true（不做 while 补偿）：卡顿后不会一帧补挖多下。
+	 * IntervalSeconds <= 0 时按 0.01 处理，避免「每帧都 true」。
+	 */
+	STELLARERAPLANETEDIT_API bool ShouldDigNow(
+		float& AccumulatorSeconds, float DeltaSeconds, float IntervalSeconds);
+
 	/** 球半径 / 方块半边长，单位厘米。两者同式：Size * VoxelSize / 2。 */
 	STELLARERAPLANETEDIT_API float GetHalfExtentCm(int32 SizeVoxels, float VoxelSizeCm);
 
