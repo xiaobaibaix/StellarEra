@@ -358,9 +358,15 @@ void AStellarEraPlayerController::BuildInputAssets()
 	MapKey(MappingContext, IA_MineralShowAll, EKeys::Zero);
 
 	// 笔刷尺寸：星图里滚轮已归缩放（角色编辑模式下滚轮同样调笔刷），尺寸因此另占
-	// 一对键，两个模式都能用。左括号接 Negate，于是 ] = +1、[ = −1。
+	// 几对键，两个模式都能用。`]` / `=` / 小键盘 `+` = 大一档；
+	// `[` / `-` / 小键盘 `-` = 小一档。负值那三行接 Negate，同一组映射直接出 −1。
+	// `=` 与 `-` 取的是物理键，所以 Shift+`=`（即 `+`）同样生效。
 	MapKey(MappingContext, IA_BrushSize, EKeys::RightBracket);
+	MapKey(MappingContext, IA_BrushSize, EKeys::Equals);
+	MapKey(MappingContext, IA_BrushSize, EKeys::Add);
 	MapKey(MappingContext, IA_BrushSize, EKeys::LeftBracket, { MakeNegate(this) });
+	MapKey(MappingContext, IA_BrushSize, EKeys::Hyphen, { MakeNegate(this) });
+	MapKey(MappingContext, IA_BrushSize, EKeys::Subtract, { MakeNegate(this) });
 }
 
 UPlanetEditComponent* AStellarEraPlayerController::GetEditComponentInEditMode() const
