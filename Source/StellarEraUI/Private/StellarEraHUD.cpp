@@ -275,7 +275,7 @@ void AStellarEraHUD::DrawPlanetEditPanel(const UPlanetEditComponent& Edit)
 		CubeCenterX, CubeCenterY + 14.f, CubeColor, 1.5f);
 
 	// ── 提示行 ──
-	// 「怎么放」由组件说：角色是右键点放，星图是 Shift+左键按住连续挖 / Ctrl+左键填。写死在 HUD 里
+	// 「怎么放」由组件说：角色是右键点放，星图是 Shift+左键按住连续挖 · Ctrl+左键填。写死在 HUD 里
 	// 就等于把两种输入方案各抄一份，改一处忘一处。
 	const FString Hint = FString::Printf(
 		TEXT("笔刷 %d 体素 · 左键挖 / %s · G 退出"),

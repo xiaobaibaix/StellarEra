@@ -5,6 +5,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
+#include "Templates/SubclassOf.h"
 #include "StarMapUIInputs.h"
 #include "StellarEraPlayerController.generated.h"
 
@@ -252,6 +253,16 @@ protected:
 	 */
 	UPROPERTY(EditAnywhere, Category = "StarMap", meta = (ClampMin = "0.0"))
 	double StarMapFocusDistanceCm = 5.0e5;
+
+	/**
+	 * 生成星图相机用的类：优先蓝图子类 BP_StarMapCameraPawn。
+	 *
+	 * 笔刷区间 / 默认尺寸 / 连续挖间隔都在它的 PlanetEdit 组件细节面板里，
+	 * 不用重编译就能调。蓝图缺失时退回原生 AStarMapCameraPawn，功能不坏，
+	 * 但参数只能改 C++（构造函数里有 Warning）。
+	 */
+	UPROPERTY()
+	TSubclassOf<AStarMapCameraPawn> StarMapPawnClass;
 
 	/** 星图相机 Pawn。懒创建并复用，不每次进出都 Spawn/Destroy。 */
 	UPROPERTY(Transient)

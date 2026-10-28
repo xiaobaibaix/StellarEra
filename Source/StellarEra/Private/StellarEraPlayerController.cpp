@@ -22,6 +22,7 @@
 #include "Engine/GameViewportClient.h"
 #include "Engine/LocalPlayer.h"
 #include "EngineUtils.h"
+#include "UObject/ConstructorHelpers.h"
 
 namespace
 {
@@ -88,6 +89,23 @@ AStellarEraPlayerController::AStellarEraPlayerController()
 {
 	// 输入组件由 DefaultInput.ini 指定为 EnhancedInput 版本；这里不额外设置。
 	// 若 DefaultInput.ini 缺失，Cast<UEnhancedInputComponent> 会失败。
+
+	// 星图相机优先用蓝图子类：笔刷区间、默认尺寸、连续挖间隔都在它的
+	// PlanetEdit 组件细节面板里，不重编译就能调。找不到时退回原生类。
+	StarMapPawnClass = AStarMapCameraPawn::StaticClass();
+
+	static ConstructorHelpers::FClassFinder<AStarMapCameraPawn> StarMapClassFinder(
+		TEXT("/Game/Code/BP_StarMapCameraPawn.BP_StarMapCameraPawn_C"));
+	if (StarMapClassFinder.Succeeded())
+	{
+		StarMapPawnClass = StarMapClassFinder.Class;
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("AStellarEraPlayerController: 找不到 BP_StarMapCameraPawn，"
+				 "将使用原生 AStarMapCameraPawn（编辑参数只能在 C++ 里改）。"));
+	}
 }
 
 void AStellarEraPlayerController::SetupInputComponent()
@@ -986,8 +1004,11 @@ void AStellarEraPlayerController::ToggleStarMap()
 		SpawnParams.Owner = this;
 		SpawnParams.SpawnCollisionHandlingOverride =
 			ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		UClass* const PawnClass = StarMapPawnClass
+			? StarMapPawnClass.Get()
+			: AStarMapCameraPawn::StaticClass();
 		StarMapPawn = GetWorld()->SpawnActor<AStarMapCameraPawn>(
-			AStarMapCameraPawn::StaticClass(), FTransform::Identity, SpawnParams);
+			PawnClass, FTransform::Identity, SpawnParams);
 	}
 	if (!StarMapPawn)
 	{
@@ -1157,6 +1178,9 @@ void AStellarEraPlayerController::OnStarMapSelectCompleted(const FInputActionVal
 {
 	// 连续挖必须在所有早退之前关掉：按下时命中了行星走的是上面的「消费点击」
 	// 分支，bStarMapSelectHeld 没被置位，下面的早退会把它跳过。
+	// 按当前 Pawn 查组件不会漏：M / G / H 三条退出路径都经过 SetEditMode(false)，
+	// 它会顺手清掉连挖标志（见 UPlanetEditComponent::SetEditMode）。新增退出路径时
+	// 必须同样保证连挖被关掉，否则标志会残留到下一次进编辑模式。
 	if (UPlanetEditComponent* Edit = GetEditComponentInEditMode())
 	{
 		Edit->SetContinuousDigging(false);
