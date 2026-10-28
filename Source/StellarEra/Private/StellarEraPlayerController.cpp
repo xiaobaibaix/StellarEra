@@ -1143,6 +1143,15 @@ void AStellarEraPlayerController::OnStarMapSelectStarted(const FInputActionValue
 			return;
 		}
 
+		// 星图编辑模式下左键只归挖掘 / 填充：连「按下的位置」都不记。
+		// 否则点在行星轮廓边上一圈（射线没打到地表，但落在拾取的像素半径内）时，
+		// 松开那一下会把当前聚焦的天体取消选中 —— 挖着挖着焦点就没了。
+		// 想换选中就退出编辑模式（G）。角色不走这里：它下面本来就没有选择逻辑。
+		if (Cast<AStarMapCameraPawn>(GetPawn()))
+		{
+			return;
+		}
+
 		// 没打到行星：星图继续走下面的「记录按下位置」，松开时照常拾取天体；
 		// 角色没有选择逻辑，会被下面的 `if (!Cast<AStarMapCameraPawn>(GetPawn())) return;`
 		// 接住 —— 与改动前一致。
@@ -1209,6 +1218,15 @@ void AStellarEraPlayerController::OnStarMapSelectCompleted(const FInputActionVal
 	if (UPlanetEditComponent* Edit = GetEditComponentInEditMode())
 	{
 		Edit->SetContinuousDigging(false);
+
+		// 编辑模式下按下时不会记位置（Started 里直接返回），这里也不拾取：
+		// 挖矿期间左键只挖，焦点不该被点没。顺手清掉可能残留的标志 ——
+		// 进编辑模式前就按着的左键，松开时不该补一次选中切换。
+		if (Cast<AStarMapCameraPawn>(GetPawn()))
+		{
+			bStarMapSelectHeld = false;
+			return;
+		}
 	}
 
 	if (ActiveMineralView)
