@@ -70,7 +70,8 @@ bool IsContinuousDigging() const { return bContinuousDigging; }
 - `SetContinuousDigging(true)`：置位并把累加器清零（按下那一下由控制器立即挖一次，Tick 不重复补刀）。
 - `SetContinuousDigging(false)`：清位并清零累加器。
 - `SetEditMode(false)`：**顺带** `SetContinuousDigging(false)` —— 退出编辑、切 Pawn、进出星图都不会留下「隐形连挖」。
-- `BeginPlay`：把 `ContinuousDigIntervalSeconds` 夹到 `>= 0.01`（`EditAnywhere` 允许在蓝图里填 0）。
+- 间隔下限（0.01 s）的夹取**只在 `ShouldDigNow` 内部做一次**，不在 `BeginPlay` 另做一遍：
+  蓝图里填 0 也能被纯函数兜住，且这条分支可无头测试。
 
 ### 5.2 Tick 驱动
 
@@ -266,7 +267,6 @@ unreal.EditorAssetLibrary.save_loaded_asset(bp)
   - `SetContinuousDigging(true)` 后为 true；
   - `SetEditMode(false)` 后自动为 false；
   - `SetContinuousDigging(false)` 幂等。
-- `StellarEra.Planet.EditComponent.IntervalClamp`：`ContinuousDigIntervalSeconds = 0` 经 `BeginPlay` 后 `>= 0.01`。
 - 更新现有断言：`StellarEra.StarMap.*` 里默认笔刷 32 → 64、提示文案 `Shift+左键填` → 新文案。
 
 ### 9.2 PIE 手动（UniverseMap）
