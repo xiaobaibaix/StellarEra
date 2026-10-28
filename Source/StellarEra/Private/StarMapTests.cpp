@@ -546,6 +546,7 @@ bool FStellarEraStarMapEditComponentDefaultsTest::RunTest(const FString& Paramet
 	TestEqual(TEXT("默认 64 体素"), Edit->GetBrushSizeVoxels(), 64);
 	TestEqual(TEXT("下限 8 体素"), Edit->GetMinBrushSizeVoxels(), 8);
 	TestEqual(TEXT("上限 128 体素"), Edit->GetMaxBrushSizeVoxels(), 128);
+	TestEqual(TEXT("一档 10 体素"), Edit->GetBrushSizeStepVoxels(), 10);
 	TestEqual(TEXT("提示含连续挖与 Ctrl 填"), Edit->GetPlaceActionHint(),
 		FString(TEXT("Shift+左键按住连续挖 · Ctrl+左键填")));
 	TestTrue(TEXT("编辑距离 50 AU"),

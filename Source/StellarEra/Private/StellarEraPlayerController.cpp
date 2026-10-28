@@ -627,10 +627,11 @@ void AStellarEraPlayerController::OnZoom(const FInputActionValue& Value)
 		if (Edit)
 		{
 			// 编辑模式下滚轮改笔刷尺寸，相机臂长保持不动 —— 挖洞时要盯着脚下，
-			// 顺手把镜头拉远/拉近会打断瞄准。
+			// 顺手把镜头拉远/拉近会打断瞄准。一格滚轮 = 一档，一档多少体素问组件。
 			if (!FMath::IsNearlyZero(Scroll))
 			{
-				Edit->AdjustBrushSize(Scroll > 0.f ? 1 : -1);
+				const int32 Step = Edit->GetBrushSizeStepVoxels();
+				Edit->AdjustBrushSize(Scroll > 0.f ? Step : -Step);
 			}
 			return;
 		}
@@ -783,7 +784,8 @@ void AStellarEraPlayerController::OnBrushSize(const FInputActionValue& Value)
 		const float Axis = Value.Get<float>();
 		if (!FMath::IsNearlyZero(Axis))
 		{
-			Edit->AdjustBrushSize(Axis > 0.f ? 1 : -1);
+			const int32 Step = Edit->GetBrushSizeStepVoxels();
+			Edit->AdjustBrushSize(Axis > 0.f ? Step : -Step);
 		}
 	}
 }

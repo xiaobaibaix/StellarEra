@@ -593,6 +593,7 @@ bool FStellarEraEditComponentRangeTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("默认下限 1"), Edit->GetMinBrushSizeVoxels(), 1);
 	TestEqual(TEXT("默认上限 8"), Edit->GetMaxBrushSizeVoxels(), 8);
 	TestEqual(TEXT("默认提示"), Edit->GetPlaceActionHint(), FString(TEXT("右键点放")));
+	TestEqual(TEXT("默认步长 1（角色一档一格）"), Edit->GetBrushSizeStepVoxels(), 1);
 	Edit->AdjustBrushSize(100);
 	TestEqual(TEXT("+100 夹到 8"), Edit->GetBrushSizeVoxels(), 8);
 	Edit->AdjustBrushSize(-100);

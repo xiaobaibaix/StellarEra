@@ -64,7 +64,8 @@ AStarMapCameraPawn::AStarMapCameraPawn()
 	// 尺寸 8..128 体素：1 体素 = 100 cm（前两颗行星），128 = 128 米级的陨石坑。
 	// 默认 64 体素：默认值偏大是因为「直径 32 的坑在这个距离上几乎看不见」，
 	// 64 既看得出是一个坑，又不至于一点就挖穿。
-	// `[` / `]` 每次 ±1（与角色一致，走 AdjustBrushSize）。
+	// 一档 10 体素：区间跨 120 格，一档一格的按法等于没反应（从 64 按到上限要 64 下）。
+	// 角色仍是 1 —— 它的区间只有 1..8。
 	//
 	// 蓝图子类 BP_StarMapCameraPawn 只把「在蓝图细节面板里手改过」的组件属性记进
 	// 自己的资产，没改过的继续跟这里的 C++ 默认值走。所以目前蓝图为空，改下面这几个
@@ -76,6 +77,8 @@ AStarMapCameraPawn::AStarMapCameraPawn()
 	PlanetEdit->ConfigureBrushRange(
 		PlanetEditBrush::MinStarMapSizeVoxels, PlanetEditBrush::MaxStarMapSizeVoxels,
 		/*InitialSize=*/64);
+	// 按键 / 滚轮一档走 10 体素。区间 8..128 下从 8 起步正好能走到 128（8 + 12×10）。
+	PlanetEdit->BrushSizeStepVoxels = 10;
 	// 128 是直径：半径 64 体素的球在体素空间里是百万格量级，填充时整球都要改，
 	// 单线程会卡住整帧。
 	PlanetEdit->bMultiThreadedEdits = true;

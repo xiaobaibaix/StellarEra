@@ -80,8 +80,15 @@ public:
 
 	void SetBrushShape(EPlanetBrushShape NewShape);
 
-	/** ±1（滚轮 / 方括号）；内部夹到 [MinBrushSizeVoxels, MaxBrushSizeVoxels]。 */
+	/**
+	 * Delta 是**体素数**，不是档数：内部按 `BrushSizeVoxels + Delta` 夹到
+	 * [MinBrushSizeVoxels, MaxBrushSizeVoxels]。一次按一档走多少由调用方乘上
+	 * GetBrushSizeStepVoxels() —— 角色 1、星图 10。
+	 */
 	void AdjustBrushSize(int32 Delta);
+
+	/** 一次「调大一档」走多少体素。见 BrushSizeStepVoxels。 */
+	int32 GetBrushSizeStepVoxels() const { return BrushSizeStepVoxels; }
 
 	bool DigAtScreenPosition(const FVector2D& ScreenPosition);
 	bool PlaceAtScreenPosition(const FVector2D& ScreenPosition);
@@ -124,6 +131,14 @@ public:
 	/** 连续挖的间隔（秒）。太小会把体素工具刷爆，太大手感发涩。 */
 	UPROPERTY(EditAnywhere, Category = "PlanetEdit", meta = (ClampMin = "0.01"))
 	float ContinuousDigIntervalSeconds = 0.12f;
+
+	/**
+	 * 一次「调大一档」走多少体素。角色区间只有 1..8，一档一格；星图区间 8..128，
+	 * 一档十格 —— 从 64 按一格一档要按三十几下才到上限，手感等于没反应。
+	 * 只影响按键 / 滚轮的步进，不改变区间本身。
+	 */
+	UPROPERTY(EditAnywhere, Category = "PlanetEdit", meta = (ClampMin = "1"))
+	int32 BrushSizeStepVoxels = 1;
 
 	/** HUD 提示行里的「怎么放」。角色「右键点放」，星图「Shift+左键按住连续挖 · Ctrl+左键填」。 */
 	UPROPERTY(EditAnywhere, Category = "PlanetEdit")
