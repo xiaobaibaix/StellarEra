@@ -325,4 +325,38 @@ bool FPlanetMineralViewGeologyAssetMirrorTest::RunTest(const FString& Parameters
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralViewPresetEditStaleTest,
+	"StellarEra.Planet.MineralView.PresetEditMarksStale",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetMineralViewPresetEditStaleTest::RunTest(const FString& Parameters)
+{
+	// 与 GeologyAssetMirror 同一条理由：不 spawn 行星（SpawnActor 会跑 OnConstruction
+	// 建整个体素世界）。这里验的是「预设改动只标脏、不重建」这条状态机；真正跑一次
+	// 重建要一颗真行星，由 PIE 与编辑器手工验收覆盖。
+	AVoxelPlanetActor* Planet = NewObject<AVoxelPlanetActor>(GetTransientPackage());
+	if (!TestNotNull(TEXT("行星 Actor"), Planet))
+	{
+		return false;
+	}
+	UPlanetMineralViewComponent* View = NewObject<UPlanetMineralViewComponent>(Planet);
+	if (!TestNotNull(TEXT("矿物组件"), View))
+	{
+		return false;
+	}
+
+	TestFalse(TEXT("刚建出来不算过期"), View->IsPreviewStale());
+	TestTrue(TEXT("第一次改动：从新变旧的那一下"), View->MarkPreviewStale());
+	TestTrue(TEXT("已标脏"), View->IsPreviewStale());
+	TestFalse(TEXT("连发的后续改动不再重复标脏（也就不再打日志）"), View->MarkPreviewStale());
+	TestTrue(TEXT("仍然是脏的"), View->IsPreviewStale());
+
+	// 手动刷新这条路在没有世界、没有地质场的对象上必须安全失败：不崩，并且把
+	// 「过期」清掉 —— 预览都没了，就没有旧矿体可看。
+	View->RefreshMineralPreview();
+	TestFalse(TEXT("刷新（这里必然失败）之后不再标脏"), View->IsPreviewStale());
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

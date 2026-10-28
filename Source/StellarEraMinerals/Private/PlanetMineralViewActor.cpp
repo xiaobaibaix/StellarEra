@@ -4,6 +4,7 @@
 
 #include "PlanetMineralMaterialBuilder.h"
 
+#include "Async/ParallelFor.h"
 #include "Components/DynamicMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "DynamicMesh/DynamicMesh3.h"
@@ -119,13 +120,23 @@ bool APlanetMineralViewActor::Build(const TArray<FPlanetMineralMesh>& MeshesByEl
 	}
 
 	// --- 每个元素一个动态网格 ---
+	//
+	// 分三相，因为两边的线程约束正好相反：
+	//   ① 建组件 + 材质：NewObject / RegisterComponent / SetMaterial 只能在游戏线程；
+	//   ② 灌网格：FDynamicMesh3 的顶点、三角形、法线都是**纯数据**，逐元素独立，
+	//      可以并行 —— 这是整个构建里最贵的一段（地球上 376 万三角形约 1.4 s，
+	//      单线程灌满）；
+	//   ③ SetMesh 送回组件：碰渲染资源，回游戏线程。
+	//
+	// 元素之间互不写入同一份数据，所以并行不改变结果：网格内容与顺序都与串行一致。
 	MineralMeshes.Reset();
 	MineralMeshes.Reserve(MeshesByElement.Num());
 
+	TArray<TObjectPtr<UDynamicMeshComponent>> Components;
+	Components.SetNum(MeshesByElement.Num());
+
 	for (int32 ElementIndex = 0; ElementIndex < MeshesByElement.Num(); ++ElementIndex)
 	{
-		const FPlanetMineralMesh& Source = MeshesByElement[ElementIndex];
-
 		UDynamicMeshComponent* Component = NewObject<UDynamicMeshComponent>(
 			this, *FString::Printf(TEXT("MineralMesh%d"), ElementIndex));
 		Component->SetupAttachment(SceneRoot);
@@ -146,7 +157,19 @@ bool APlanetMineralViewActor::Build(const TArray<FPlanetMineralMesh>& MeshesByEl
 				TEXT("[矿物] 元素 #%d 的动态材质创建失败，矿体将留在默认材质"), ElementIndex);
 		}
 
-		UE::Geometry::FDynamicMesh3 Mesh;
+		Components[ElementIndex] = Component;
+	}
+
+	TArray<UE::Geometry::FDynamicMesh3> Meshes;
+	Meshes.SetNum(MeshesByElement.Num());
+	TArray<int32> RejectedByElement;
+	RejectedByElement.SetNumZeroed(MeshesByElement.Num());
+
+	ParallelFor(MeshesByElement.Num(), [&MeshesByElement, &Meshes, &RejectedByElement]
+		(int32 ElementIndex)
+	{
+		const FPlanetMineralMesh& Source = MeshesByElement[ElementIndex];
+		UE::Geometry::FDynamicMesh3& Mesh = Meshes[ElementIndex];
 		Mesh.EnableAttributes();
 
 		// 下标先过一遍映射表：等值面给出的顶点将来若出现空洞，这里才不会静默错位。
@@ -173,11 +196,7 @@ bool APlanetMineralViewActor::Build(const TArray<FPlanetMineralMesh>& MeshesByEl
 				++Rejected;
 			}
 		}
-		if (Rejected > 0)
-		{
-			UE_LOG(LogTemp, Warning, TEXT("[矿物] 元素 #%d：%d 个三角形被丢弃（退化或越界）"),
-				ElementIndex, Rejected);
-		}
+		RejectedByElement[ElementIndex] = Rejected;
 
 		// 等值面抽取只给顶点与三角形，没有法线；材质靠 VertexNormalWS 取它，
 		// 所以这里按面积加权的顶点法线补一遍。UV 层留空：材质不采样 UV。
@@ -186,9 +205,19 @@ bool APlanetMineralViewActor::Build(const TArray<FPlanetMineralMesh>& MeshesByEl
 			UE::Geometry::FMeshNormals::InitializeOverlayToPerVertexNormals(
 				Mesh.Attributes()->PrimaryNormals());
 		}
+	});
 
-		Component->SetMesh(MoveTemp(Mesh));
-		MineralMeshes.Add(Component);
+	for (int32 ElementIndex = 0; ElementIndex < MeshesByElement.Num(); ++ElementIndex)
+	{
+		// 日志放在游戏线程：并行块里打日志会把行序和线程搅在一起。
+		if (RejectedByElement[ElementIndex] > 0)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[矿物] 元素 #%d：%d 个三角形被丢弃（退化或越界）"),
+				ElementIndex, RejectedByElement[ElementIndex]);
+		}
+
+		Components[ElementIndex]->SetMesh(MoveTemp(Meshes[ElementIndex]));
+		MineralMeshes.Add(Components[ElementIndex]);
 	}
 
 	return true;

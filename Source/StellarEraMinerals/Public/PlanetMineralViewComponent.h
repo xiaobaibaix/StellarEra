@@ -24,6 +24,11 @@ class UPlanetGeologyPreset;
  * 编辑器预览（EnterMineralPreviewInEditor）是同一套状态的另一种宿主世界：那里只做
  * 非序列化的临时隐藏行星（不关碰撞、不关大气、不翻任何 UPROPERTY，退出后关卡不脏）、
  * 不 Tick（编辑器里行星不动，位置已由 spawn 给定）。
+ *
+ * 预览期间改地质预设**不会**自动重建，只把预览标脏（MarkPreviewStale）并打一行日志；
+ * 要新矿体得点 RefreshMineralPreview。理由是代价与触发频率不匹配：一次重建要重算整份
+ * 等值面再加观察体，耗时随 CellsPerFeature 平方增长，而 Details 面板拖一次数值框会
+ * 连发十几次改动 —— 自动重建的结果是编辑器全程无响应，且中间十几次的结果没人看。
  */
 UCLASS(ClassGroup = (StellarEra), meta = (BlueprintSpawnableComponent))
 class STELLARERAMINERALS_API UPlanetMineralViewComponent : public USceneComponent
@@ -71,6 +76,28 @@ public:
 	/** 退出编辑器预览，撤销临时隐藏。重复调用安全。 */
 	UFUNCTION(CallInEditor, Category = "Planet|MineralView")
 	void ExitMineralPreviewInEditor();
+
+	/**
+	 * 按当前地质预设重算预览的矿体。预览没在跑时等价于进入预览。
+	 *
+	 * **唯一的重建入口**：改预设不会自动重建（见 MarkPreviewStale）。走的是与
+	 * EnterMineralPreviewInEditor 同一条路 —— Activate 开头先 Deactivate，缓存按
+	 * 地质对象判等，预设改过就必然重建。
+	 */
+	UFUNCTION(CallInEditor, Category = "Planet|MineralView",
+		meta = (DisplayName = "刷新观测视图"))
+	void RefreshMineralPreview();
+
+	/**
+	 * 把预览标成「显示的是旧矿体」，不做任何重建。
+	 *
+	 * 返回 true 表示这次是「从新变旧」的那一下 —— 只有这一下打日志：改动是连发的，
+	 * 每一下都打会把输出刷满。
+	 */
+	bool MarkPreviewStale();
+
+	/** 预览里的矿体是否落后于地质预设（预设改过、还没点刷新）。 */
+	bool IsPreviewStale() const { return bPreviewStale; }
 #endif
 
 	/**
@@ -160,6 +187,8 @@ private:
 	/** 进入前行星是否已被临时隐藏（编辑器分支的恢复值）。 */
 	bool bSavedPlanetHiddenInEditor = false;
 #if WITH_EDITOR
+	/** 预设自上次构建后被改过：预览显示的是旧矿体。 */
+	bool bPreviewStale = false;
 	/** 预设变更订阅。 */
 	FDelegateHandle PresetChangedHandle;
 	/** 实际订上的那份预设：退订必须找它，不能用「当下」的 GeologyAsset。 */

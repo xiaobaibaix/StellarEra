@@ -975,9 +975,12 @@ bool FPlanetMineralSurfaceClusterMergeTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 钳制的冒烟测试：大矿囊 + 与它 AABB 相交的极小矿囊（不同元素，分簇不分元素）。
-// 同簇内**最小**半径决定基准格边 ⇒ 格边被极小矿囊拖到极小，而簇范围由大矿囊决定，
-// 于是「每轴 ≤ 512 格」与「单簇单元素 ≤ 8e6 角点」两条硬上限都会触发。
+// 钳制的冒烟测试：**单个元素、单片薄透镜**。
+// 片层宽而薄（0.30 × 0.30 × 0.002）⇒ 基准格边由 200 cm 的半厚定（约 33 cm），
+// 簇盒却由 0.6 的长轴定 ⇒ 两条硬上限（每轴 512 格 / 单任务 8e6 角点）都会触发。
+//
+// 分簇改成按元素之后，跨元素的「大盒子 + 极小特征」再也不能合成一个任务（那正是
+// 慢的根因，见 ElementIsolation 测试），所以夹具也改成单元素单片，直接指着钳制本身。
 // 断言的是「不崩、不丢几何、落在上限内」，不是等值面精度。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceClampSmokeTest,
 	"StellarEra.Minerals.MineralSurface.ClampSmoke",
@@ -990,41 +993,35 @@ bool FPlanetMineralSurfaceClampSmokeTest::RunTest(const FString& Parameters)
 	constexpr int32 CellsPerFeature = 12;
 	constexpr int64 MaxTotalCorners = 8000000;
 
-	const FPlanetGeologyElementParams Big = MakeElement(TEXT("big"), 0.20f, 11);
-	FPlanetGeologyElementParams Tiny = MakeElement(TEXT("tiny"), 0.001f, 0);
+	const FPlanetGeologyElementParams Sheet = MakeElement(TEXT("sheet"), 0.002f, 11);
+	UPlanetGeologyPreset* Preset = MakePreset({Sheet});
+	// MakePreset 按值收参数，生成的必须是预设里那个元素 —— 挂在副本上等于没挂。
+	FPlanetGeologyElementParams& Element = Preset->Elements[0];
+	UPlanetGeologyLensDistribution* Lens =
+		AddDistribution<UPlanetGeologyLensDistribution>(*Preset, Element);
+	Lens->SeamCount = 1;
+	Lens->SeamLength = 0.30f;
+	Lens->SeamWidth = 0.30f;
+	Lens->SeamThickness = 0.002f;
+	// 抖动与扭曲都关掉：区域包围盒要能被测试自己算出来，否则断言只能靠抄实现。
+	Lens->SizeJitter = 0.f;
+	Lens->TiltJitterDeg = 0.f;
+	Lens->WarpAmplitude = 0.f;
+	Lens->DepthBias = 0.f;
 
-	int32 TinySeed = 0;
-	for (int32 Seed = 1; Seed <= 4096 && TinySeed == 0; ++Seed)
-	{
-		Tiny.Seed = Seed;
-		const auto ProbeField = MakeField(*MakePreset({Big, Tiny}));
-		const TArray<FPlanetGeologyPod>& BigPods = ProbeField->GetPods(0);
-		const TArray<FPlanetGeologyPod>& TinyPods = ProbeField->GetPods(1);
-		if (BigPods.Num() == 1 && TinyPods.Num() == 1
-			&& ArePodAabbsOverlapping(BigPods[0], TinyPods[0]))
-		{
-			TinySeed = Seed;
-		}
-	}
-	if (!TestTrue(TEXT("找到与大矿囊 AABB 相交的极小矿囊夹具"), TinySeed != 0))
-	{
-		return false;
-	}
+	const auto Field = MakeField(*Preset);
 
-	Tiny.Seed = TinySeed;
-	const auto Field = MakeField(*MakePreset({Big, Tiny}));
-	const TArray<FPlanetGeologyPod>& BigPods = Field->GetPods(0);
-	const TArray<FPlanetGeologyPod>& TinyPods = Field->GetPods(1);
-	if (!TestEqual(TEXT("大矿囊数"), BigPods.Num(), 1)
-		|| !TestEqual(TEXT("极小矿囊数"), TinyPods.Num(), 1))
+	TArray<FPlanetGeologyRegion> Regions;
+	Field->EnumerateRegions(0, Regions);
+	if (!TestEqual(TEXT("单片透镜报出一个区域"), Regions.Num(), 1))
 	{
 		return false;
 	}
 
 	const double RadiusCm = double(SurfaceRadiusCm);
-	const double MinRadiusCm = double(TinyPods[0].Radius) * RadiusCm;
-	const FBox Union = PodAabbCm(BigPods[0], RadiusCm) + PodAabbCm(TinyPods[0], RadiusCm);
+	const FBox Union(Regions[0].Bounds.Min * RadiusCm, Regions[0].Bounds.Max * RadiusCm);
 	const FVector RawExtentCm = Union.Max - Union.Min;
+	const double MinRadiusCm = double(Regions[0].CharacteristicRadius) * RadiusCm;
 	const double BaseCellSizeCm = 2.0 * MinRadiusCm / double(CellsPerFeature);
 	const double CellSizeCm = ExpectedCellSizeCm(MinRadiusCm, RawExtentCm, CellsPerFeature);
 
@@ -1045,40 +1042,251 @@ bool FPlanetMineralSurfaceClampSmokeTest::RunTest(const FString& Parameters)
 		TestTrue(*FString::Printf(TEXT("轴 %d 格数 %d ≤ 512"), Axis, CellCount),
 			CellCount <= 512);
 	}
-	TestTrue(*FString::Printf(TEXT("单簇单元素角点数 %lld ≤ %lld"),
+	TestTrue(*FString::Printf(TEXT("单任务角点数 %lld ≤ %lld"),
 		CornerProduct, MaxTotalCorners), CornerProduct <= MaxTotalCorners);
 
 	PlanetMineralSurface::FBuildResult Result;
 	PlanetMineralSurface::Build(*Field, MakeParams(*Field, CellsPerFeature), Result);
-	AddInfo(FString::Printf(TEXT("格边 %.1f → %.1f cm，%lld 个角点/元素，GridPoints = %d"),
+	AddInfo(FString::Printf(TEXT("格边 %.1f → %.1f cm，%lld 个角点，GridPoints = %d"),
 		BaseCellSizeCm, CellSizeCm, CornerProduct, Result.GridPoints));
 
-	if (!TestEqual(TEXT("网格数等于元素数"), Result.MeshesByElement.Num(), 2)
+	if (!TestEqual(TEXT("网格数等于元素数"), Result.MeshesByElement.Num(), 1)
 		|| !TestEqual(TEXT("簇数组与网格对齐"),
 			Result.ClustersByElement.Num(), Result.MeshesByElement.Num()))
 	{
 		return false;
 	}
+	TestTrue(TEXT("钳制后仍有网格（不跳簇）"), !Result.MeshesByElement[0].IsEmpty());
 
-	int32 TotalTriangles = 0;
-	for (const FPlanetMineralMesh& Mesh : Result.MeshesByElement)
+	// 诊断字段与钳制本身对得上：一个（元素, 簇）任务，且它撞了上限。
+	TestEqual(TEXT("单片单元素 = 一个任务"), Result.PairCount, 1);
+	TestEqual(TEXT("这个任务撞了角点上限"), Result.CappedPairs, 1);
+	TestEqual(TEXT("元素 0 一个簇"), Result.ClustersByElement[0], 1);
+	TestEqual(TEXT("每元素角点之和等于总数"), Result.CornersByElement[0], Result.GridPoints);
+
+	// 单片透镜的区域包围盒**就是**它自己那一簇的盒子，于是块掩码铺满整盒、
+	// 没有一块可跳：求值角点数应当**恰好**等于栅格盒子的角点数。
+	// 这条同时钉住了块掩码的覆盖算术 —— 漏写会产生小于，重复写会产生大于。
+	TestTrue(*FString::Printf(TEXT("没有可跳的块：求值角点 %d == 整盒角点 %lld"),
+		Result.GridPoints, CornerProduct), int64(Result.GridPoints) == CornerProduct);
+	return true;
+}
+
+// 分簇按元素之后，一个元素的网格与其它元素**互不影响**。这条测试直接量的是原来的
+// 根因：跨元素分簇会让「一个元素的包围盒」去背「另一个元素的空域」，还会让簇内最小
+// 特征半径（例如铀颗粒 0.0015）决定整簇格边 —— 两者叠加把每个任务都顶到 8e6 角点上限。
+//
+// 夹具刻意选**重叠**的一对：元素 0 一片大薄透镜（盒子大、半厚小），元素 1 一颗落进
+// 它盒子里的极小矿囊。按元素分簇时两者各算各的，角点数必须可加、元素 0 的网格必须
+// 与「只有元素 0」时逐顶点相同；换回跨元素分簇，格边会被 0.001 拖细 20 倍，两条都挂。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceElementIsolationTest,
+	"StellarEra.Minerals.MineralSurface.ElementIsolation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetMineralSurfaceElementIsolationTest::RunTest(const FString& Parameters)
+{
+	using namespace PlanetMineralSurfaceTest;
+
+	// 元素 0：单片薄透镜，盒大、特征半径小 —— 正是被「别人家的空域」拖慢的那种几何。
+	const FPlanetGeologyElementParams Sheet = MakeElement(TEXT("sheet"), 0.002f, 11);
+	UPlanetGeologyPreset* SheetPreset = MakePreset({Sheet});
+	FPlanetGeologyElementParams& SheetElement = SheetPreset->Elements[0];
+	UPlanetGeologyLensDistribution* Lens =
+		AddDistribution<UPlanetGeologyLensDistribution>(*SheetPreset, SheetElement);
+	Lens->SeamCount = 1;
+	Lens->SeamLength = 0.20f;
+	Lens->SeamWidth = 0.20f;
+	Lens->SeamThickness = 0.002f;
+	Lens->SizeJitter = 0.f;
+	Lens->TiltJitterDeg = 0.f;
+	Lens->WarpAmplitude = 0.f;
+	Lens->DepthBias = 0.f;
+
+	const auto SheetField = MakeField(*SheetPreset);
+	TArray<FPlanetGeologyRegion> SheetRegions;
+	SheetField->EnumerateRegions(0, SheetRegions);
+	if (!TestEqual(TEXT("单片透镜报出一个区域"), SheetRegions.Num(), 1))
 	{
-		TotalTriangles += Mesh.Triangles.Num();
+		return false;
 	}
-	TestTrue(*FString::Printf(TEXT("钳制后仍有三角形（%d 个索引）"), TotalTriangles),
-		TotalTriangles > 0);
+	const FBox SheetBoundsCm(SheetRegions[0].Bounds.Min * double(SurfaceRadiusCm),
+		SheetRegions[0].Bounds.Max * double(SurfaceRadiusCm));
 
-	// 一个簇里有两个元素 ⇒ 两张同样大的栅格。
-	TestEqual(TEXT("两个元素各参与一个簇"),
-		Result.ClustersByElement[0] + Result.ClustersByElement[1], 2);
+	// 元素 1：极小矿囊，位置由种子定。搜一个**落进**片层盒子里的（这正是旧实现会把
+	// 两者并成同一簇、并让 0.002 的格边被 0.001 再拖细一倍的夹具）。
+	//
+	// 复制进新预设的必须是 `SheetPreset->Elements[0]`，不是上面的 `Sheet`：生成器挂在
+	// 预设里的那个元素上（`AddDistribution` 同时把 PodCount 归零），`Sheet` 只是造预设
+	// 时用的参数副本，仍带着 PodCount = 1 —— 照抄过去会走遗留兜底多长一颗囊，
+	// 合建的元素 0 就不是片层了。
+	FPlanetGeologyElementParams Speck = MakeElement(TEXT("speck"), 0.001f, 0);
+	int32 SpeckSeed = 0;
+	for (int32 Seed = 1; Seed <= 4096 && SpeckSeed == 0; ++Seed)
+	{
+		Speck.Seed = Seed;
+		const auto ProbeField = MakeField(*MakePreset({SheetPreset->Elements[0], Speck}));
+		const TArray<FPlanetGeologyPod>& SpeckPods = ProbeField->GetPods(1);
+		if (SpeckPods.Num() != 1)
+		{
+			continue;
+		}
+		const FBox SpeckBoundsCm = PodAabbCm(SpeckPods[0], double(SurfaceRadiusCm));
+		if (BoundsOverlap(SheetBoundsCm, SpeckBoundsCm))
+		{
+			SpeckSeed = Seed;
+		}
+	}
+	if (!TestTrue(TEXT("找到落进片层包围盒里的极小矿囊夹具"), SpeckSeed != 0))
+	{
+		return false;
+	}
+	Speck.Seed = SpeckSeed;
 
-	// 下限证明「极小矿囊确实被并进了大矿囊的簇」：若分成两簇，各簇都是 ~14³ 角点，
-	// 总数只有几千，钳制不会触发。
-	TestTrue(*FString::Printf(TEXT("GridPoints %d 证明大簇被钳制后仍逐点求值"),
-		Result.GridPoints), Result.GridPoints > 1000000);
-	TestTrue(*FString::Printf(TEXT("GridPoints %d ≤ 2 × %lld（一个簇两个元素）"),
-		Result.GridPoints, MaxTotalCorners),
-		Result.GridPoints <= 2 * MaxTotalCorners);
+	const auto SpeckField = MakeField(*MakePreset({Speck}));
+	const auto BothField = MakeField(*MakePreset({SheetPreset->Elements[0], Speck}));
+
+	const PlanetMineralSurface::FBuildParams Params = MakeParams(*BothField, 12);
+
+	PlanetMineralSurface::FBuildResult SheetOnly;
+	PlanetMineralSurface::Build(*SheetField, Params, SheetOnly);
+	PlanetMineralSurface::FBuildResult SpeckOnly;
+	PlanetMineralSurface::Build(*SpeckField, Params, SpeckOnly);
+	PlanetMineralSurface::FBuildResult Both;
+	PlanetMineralSurface::Build(*BothField, Params, Both);
+
+	if (!TestEqual(TEXT("单建：元素数"), SheetOnly.MeshesByElement.Num(), 1)
+		|| !TestEqual(TEXT("合建：元素数"), Both.MeshesByElement.Num(), 2)
+		|| !TestEqual(TEXT("合建：元素 0 一个簇"), Both.ClustersByElement[0], 1)
+		|| !TestEqual(TEXT("合建：元素 1 一个簇"), Both.ClustersByElement[1], 1))
+	{
+		return false;
+	}
+	// 夹具守卫：两个元素都得真的出面，否则下面的「相同」会是 0 == 0 的空转。
+	if (!TestTrue(TEXT("片层的网格非空"), !SheetOnly.MeshesByElement[0].IsEmpty())
+		|| !TestTrue(TEXT("极小结点的网格非空"), !SpeckOnly.MeshesByElement[0].IsEmpty()))
+	{
+		return false;
+	}
+
+	AddInfo(FString::Printf(TEXT("角点：片层 %d + 极小 %d = %d，合建 %d；任务数 %d"),
+		SheetOnly.GridPoints, SpeckOnly.GridPoints,
+		SheetOnly.GridPoints + SpeckOnly.GridPoints, Both.GridPoints, Both.PairCount));
+
+	// ① 可加性：按元素分簇时，合建的求值角点数**恰好**等于两者单建之和。
+	TestTrue(*FString::Printf(TEXT("角点可加（%d + %d == %d）"),
+		SheetOnly.GridPoints, SpeckOnly.GridPoints, Both.GridPoints),
+		int64(Both.GridPoints) == int64(SheetOnly.GridPoints) + int64(SpeckOnly.GridPoints));
+	TestEqual(TEXT("一个元素一个任务"), Both.PairCount, 2);
+
+	// ② 元素 0 的网格与单建逐顶点相同：外来元素既不改它的格边，也不改它的角点。
+	const FPlanetMineralMesh& SheetAlone = SheetOnly.MeshesByElement[0];
+	const FPlanetMineralMesh& SheetBoth = Both.MeshesByElement[0];
+	if (!TestEqual(TEXT("元素 0 顶点数"), SheetBoth.VerticesCm.Num(), SheetAlone.VerticesCm.Num())
+		|| !TestEqual(TEXT("元素 0 三角形索引数"), SheetBoth.Triangles.Num(), SheetAlone.Triangles.Num()))
+	{
+		// 数量不同时逐顶点比较没有意义，直接判失败。
+		return false;
+	}
+
+	int32 VertexMismatches = 0;
+	for (int32 Index = 0; Index < SheetAlone.VerticesCm.Num(); ++Index)
+	{
+		// 逐位相同才是「不影响」：格边、盒子、块掩码只要变一点，顶点就会挪。
+		VertexMismatches += SheetBoth.VerticesCm[Index].Equals(SheetAlone.VerticesCm[Index], 0.f)
+			? 0 : 1;
+	}
+	TestEqual(*FString::Printf(TEXT("元素 0 顶点逐位相同（不同 %d 个）"), VertexMismatches),
+		VertexMismatches, 0);
+
+	int32 IndexMismatches = 0;
+	for (int32 Index = 0; Index < SheetAlone.Triangles.Num(); ++Index)
+	{
+		IndexMismatches += SheetBoth.Triangles[Index] == SheetAlone.Triangles[Index] ? 0 : 1;
+	}
+	TestEqual(*FString::Printf(TEXT("元素 0 索引逐项相同（不同 %d 个）"), IndexMismatches),
+		IndexMismatches, 0);
+	return true;
+}
+
+// 稀疏块只少算、不改值：块外恒为 0（判据是每个分布的零支持域 ⊆ 它报出的 Region.Bounds），
+// 所以「每个角点都求值」与「跳过空块」必须给出逐顶点、逐索引相同的网格。
+// `bSampleEveryCorner` 只给测试用，生产路径恒为稀疏。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceSparseMatchesDenseTest,
+	"StellarEra.Minerals.MineralSurface.SparseMatchesDense",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetMineralSurfaceSparseMatchesDenseTest::RunTest(const FString& Parameters)
+{
+	using namespace PlanetMineralSurfaceTest;
+
+	// 一条中等长度的脉：簇盒远大于管截面，稀疏剪枝才有东西可跳。
+	FPlanetGeologyElementParams Element = MakeElement(TEXT("vein"), 0.02f, 7);
+	UPlanetGeologyPreset* Preset = MakePreset({Element});
+	FPlanetGeologyElementParams& LiveElement = Preset->Elements[0];
+	UPlanetGeologyVeinDistribution* Vein =
+		AddDistribution<UPlanetGeologyVeinDistribution>(*Preset, LiveElement);
+	Vein->VeinCount = 1;
+	Vein->VeinLength = 0.25f;
+	Vein->VeinRadius = 0.02f;
+	Vein->RadiusJitter = 0.f;
+	Vein->BranchCount = 0;
+	Vein->DepthBias = 0.f;
+
+	const auto Field = MakeField(*Preset);
+
+	PlanetMineralSurface::FBuildParams SparseParams = MakeParams(*Field, 8);
+	PlanetMineralSurface::FBuildParams DenseParams = SparseParams;
+	DenseParams.bSampleEveryCorner = true;
+
+	PlanetMineralSurface::FBuildResult Sparse;
+	PlanetMineralSurface::Build(*Field, SparseParams, Sparse);
+	PlanetMineralSurface::FBuildResult Dense;
+	PlanetMineralSurface::Build(*Field, DenseParams, Dense);
+
+	if (!TestEqual(TEXT("网格数等于元素数"), Sparse.MeshesByElement.Num(), 1)
+		|| !TestEqual(TEXT("密集路径的元素数"), Dense.MeshesByElement.Num(), 1))
+	{
+		return false;
+	}
+	if (!TestTrue(TEXT("夹具非空（稀疏路径出面）"), !Sparse.MeshesByElement[0].IsEmpty()))
+	{
+		return false;
+	}
+
+	AddInfo(FString::Printf(TEXT("求值角点：稀疏 %d vs 密集 %d（省 %d）"),
+		Sparse.GridPoints, Dense.GridPoints, Dense.GridPoints - Sparse.GridPoints));
+
+	// 稀疏必须真的少算，否则这条测试对「剪枝被关掉」也会放绿。
+	TestTrue(*FString::Printf(TEXT("稀疏确实少算了（%d < %d）"),
+		Sparse.GridPoints, Dense.GridPoints), Sparse.GridPoints < Dense.GridPoints);
+	// 密集路径的标志：单个任务、单元素时它就是整盒角点数，等于每元素角点统计。
+	TestEqual(TEXT("密集路径每元素角点等于总数"), Dense.CornersByElement[0], Dense.GridPoints);
+
+	const FPlanetMineralMesh& SparseMesh = Sparse.MeshesByElement[0];
+	const FPlanetMineralMesh& DenseMesh = Dense.MeshesByElement[0];
+	if (!TestEqual(TEXT("顶点数相同"), SparseMesh.VerticesCm.Num(), DenseMesh.VerticesCm.Num())
+		|| !TestEqual(TEXT("三角形索引数相同"), SparseMesh.Triangles.Num(), DenseMesh.Triangles.Num())
+		|| !TestEqual(TEXT("占据格数相同"), SparseMesh.OccupiedCells, DenseMesh.OccupiedCells))
+	{
+		return false;
+	}
+
+	int32 VertexMismatches = 0;
+	for (int32 Index = 0; Index < DenseMesh.VerticesCm.Num(); ++Index)
+	{
+		VertexMismatches += SparseMesh.VerticesCm[Index].Equals(DenseMesh.VerticesCm[Index], 0.f)
+			? 0 : 1;
+	}
+	TestEqual(*FString::Printf(TEXT("顶点逐位相同（不同 %d 个）"), VertexMismatches),
+		VertexMismatches, 0);
+
+	int32 IndexMismatches = 0;
+	for (int32 Index = 0; Index < DenseMesh.Triangles.Num(); ++Index)
+	{
+		IndexMismatches += SparseMesh.Triangles[Index] == DenseMesh.Triangles[Index] ? 0 : 1;
+	}
+	TestEqual(*FString::Printf(TEXT("索引逐项相同（不同 %d 个）"), IndexMismatches),
+		IndexMismatches, 0);
 	return true;
 }
 
@@ -1408,6 +1616,23 @@ bool FPlanetMineralSurfaceGridCapTest::RunTest(const FString& Parameters)
 		BaseCellSizeCm, ClampedCellSizeCm), ClampedCellSizeCm > BaseCellSizeCm * 1.2);
 	TestTrue(*FString::Printf(TEXT("夹具未钳制时角点远超钳制后（%lld vs %lld）"),
 		UnclampedCorners, ClampedCorners), UnclampedCorners > 2 * ClampedCorners);
+	// 上面那次是**生产路径**（稀疏块）：细脉的簇盒虽然撞满 8e6 上限，真正有矿的块
+	// 只占一部分，GridPoints 会明显小于盒角点数 —— 所以它能证明「剪枝在跑」，
+	// 却**不能**拿来约束上限公式本身（钳制放宽了它也一样小）。这里只卡严格小于：
+	// 剪枝被关掉时两者恰好相等，够区分；再写「小于几倍」就会随随机游走的长短假红。
+	TestTrue(*FString::Printf(TEXT("稀疏路径确实少算了（%d < 盒角点 %lld）"),
+		Result.GridPoints, ClampedCorners),
+		int64(Result.GridPoints) < ClampedCorners);
+
+	// 钳制公式的约束在密集路径上做：`bSampleEveryCorner` 让盒里每个角点都求值，
+	// 实测值就应当**逐位落在**解析钳制值上。
+	PlanetMineralSurface::FBuildParams DenseParams = Params;
+	DenseParams.bSampleEveryCorner = true;
+	PlanetMineralSurface::FBuildResult DenseResult;
+	PlanetMineralSurface::Build(*Field, DenseParams, DenseResult);
+	AddInfo(FString::Printf(TEXT("密集路径实测 %d 角点（解析钳制值 %lld）"),
+		DenseResult.GridPoints, ClampedCorners));
+
 	// **只有这一条约束实现**：实测值必须落在解析钳制值上（当前逐位相等）。
 	// 容差取 5% 而不是 2× —— 2× 会放过「钳制变松但没删」的退化，例如把除数里的 -3
 	// 去掉（格边 129.35→127.41）后仍能通过。
@@ -1420,8 +1645,9 @@ bool FPlanetMineralSurfaceGridCapTest::RunTest(const FString& Parameters)
 	// 网格非空），不该假红。所以文案写「不超过」，不写「等于」。
 	// 注意：TEXT 里的字面百分号要写成 `%%`，否则 UE 的 printf 格式串检查（consteval）
 	// 会把「5%（」里的孤立 % 判成非法格式并编译失败；渲染后的文案仍是「5%」。
-	TestTrue(*FString::Printf(TEXT("实际角点不超过解析钳制值的 5%%（%d vs %lld）"),
-		Result.GridPoints, ClampedCorners), Result.GridPoints <= ClampedCorners * 1.05);
+	TestTrue(*FString::Printf(TEXT("密集路径角点不超过解析钳制值的 5%%（%d vs %lld）"),
+		DenseResult.GridPoints, ClampedCorners), DenseResult.GridPoints <= ClampedCorners * 1.05);
+	TestTrue(TEXT("密集路径同样出面（对照有效）"), !DenseResult.MeshesByElement[0].IsEmpty());
 	return true;
 }
 

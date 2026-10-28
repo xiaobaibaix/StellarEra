@@ -101,6 +101,12 @@ bool UPlanetMineralViewComponent::Activate(AVoxelPlanetActor* InPlanet)
 		Deactivate();
 	}
 
+#if WITH_EDITOR
+	// 这次要重建的就是当下这份预设：过期标记随之清掉。构建失败时预览也没了，
+	// 留着「过期」只会让人以为还有一份旧矿体可看。
+	bPreviewStale = false;
+#endif
+
 	if (!InPlanet)
 	{
 		return false;
@@ -201,13 +207,26 @@ bool UPlanetMineralViewComponent::Activate(AVoxelPlanetActor* InPlanet)
 			CachedSurface.MeshesByElement[Index].Triangles.Num() / 3));
 	}
 
-	UE_LOG(LogTemp, Display, TEXT("[矿物] %s：每特征 %d 格（%d 个角点），%d 个三角形，构建 %.1f ms%s"),
+	UE_LOG(LogTemp, Display,
+		TEXT("[矿物] %s：每特征 %d 格（%d 个求值角点），%d 个三角形，构建 %.1f ms%s"),
 		*InPlanet->GetName(), CellsPerFeature, CachedSurface.GridPoints, TotalTriangles,
 		CachedSurface.BuildSeconds * 1000.0,
 		bReused ? TEXT("（复用缓存，耗时为首建）") : TEXT(""));
 	UE_LOG(LogTemp, Display, TEXT("[矿物] %s：每元素矿体 %s"),
 		*InPlanet->GetName(),
 		PerElementParts.IsEmpty() ? TEXT("(无元素)") : *FString::Join(PerElementParts, TEXT(" ")));
+
+	// 并行效率一行看全：JobSeconds/BuildSeconds 就是这次实际用到的核数（求值 + 抽面
+	// 的累计墙钟 ÷ 总墙钟）。接近 1 = 有个大任务把并行度卡死了；撞上限的任务数非 0 =
+	// 这批几何被降采样了，光降 CellsPerFeature 也救不回它们。
+	const double EffectiveCores = CachedSurface.BuildSeconds > 0.0
+		? CachedSurface.JobSeconds / CachedSurface.BuildSeconds
+		: 0.0;
+	UE_LOG(LogTemp, Display,
+		TEXT("[矿物] %s：%d 个(元素,簇)任务（%d 个撞角点上限），求值 %.1f ms / 抽面 %.1f ms，约 %.1f 核并行"),
+		*InPlanet->GetName(), CachedSurface.PairCount, CachedSurface.CappedPairs,
+		CachedSurface.SampleSeconds * 1000.0, CachedSurface.MarchSeconds * 1000.0,
+		EffectiveCores);
 
 	FActorSpawnParameters SpawnParams;
 	if (bInEditorWorld)
@@ -315,6 +334,8 @@ void UPlanetMineralViewComponent::Deactivate()
 		PresetChangedHandle.Reset();
 	}
 	SubscribedPreset.Reset();
+	// 预览没了就没有「旧矿体」可言：再进来必然重算。
+	bPreviewStale = false;
 #endif
 
 	if (AVoxelPlanetActor* RestorePlanet = Planet.Get())
@@ -432,6 +453,30 @@ void UPlanetMineralViewComponent::ExitMineralPreviewInEditor()
 	Deactivate();
 }
 
+void UPlanetMineralViewComponent::RefreshMineralPreview()
+{
+	// 与进入预览同一条路，不另写一套：Activate 开头先拆旧观察体，缓存按地质对象
+	// 判等，预设改过就必然重建。两条路分开写，迟早有一边忘了同步。
+	EnterMineralPreviewInEditor();
+}
+
+bool UPlanetMineralViewComponent::MarkPreviewStale()
+{
+	if (bPreviewStale)
+	{
+		return false;
+	}
+	bPreviewStale = true;
+
+	// 刻意不重建：改一次参数要重算整份等值面再加观察体，耗时随 CellsPerFeature
+	// 平方增长；而 Details 拖一次数值框会连发十几次改动，自动重建的结果是编辑器
+	// 一直无响应，中间十几次的结果也没人看。
+	UE_LOG(LogTemp, Display,
+		TEXT("[矿物] %s：地质预设已改动，预览仍是旧矿体。选中行星，在 Details 的"
+			" Planet|MineralView 里点「刷新观测视图」重算。"), *GetNameSafe(GetOwner()));
+	return true;
+}
+
 void UPlanetMineralViewComponent::OnPreviewPresetChanged(UPlanetGeologyPreset* Preset)
 {
 	// 只认当前订上的那份：换过资产的旧订阅回调到这里就丢掉。
@@ -440,17 +485,8 @@ void UPlanetMineralViewComponent::OnPreviewPresetChanged(UPlanetGeologyPreset* P
 		return;
 	}
 
-	// 重新 Activate：BuildFromPreset 会造新场，缓存键里的地质对象随之改变 → 重建网格。
-	if (AVoxelPlanetActor* InPlanet = Planet.Get())
-	{
-		// Activate 开头已 Deactivate，失败时预览已经消失；这里补一条日志，
-		// 否则「预设的元素表被清空」表现为预览无声无息地没了。
-		if (!Activate(InPlanet))
-		{
-			UE_LOG(LogTemp, Warning,
-				TEXT("[矿物] 预设改动后重建失败，预览已退出：预设已无矿囊或采样参数非法（%s）"),
-				*GetNameSafe(InPlanet));
-		}
-	}
+	// 只标脏，不重建：见 MarkPreviewStale 里的理由。重建由 RefreshMineralPreview
+	// 显式触发。
+	MarkPreviewStale();
 }
 #endif
