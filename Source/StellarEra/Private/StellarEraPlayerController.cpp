@@ -1178,9 +1178,10 @@ void AStellarEraPlayerController::OnStarMapSelectCompleted(const FInputActionVal
 {
 	// 连续挖必须在所有早退之前关掉：按下时命中了行星走的是上面的「消费点击」
 	// 分支，bStarMapSelectHeld 没被置位，下面的早退会把它跳过。
-	// 按当前 Pawn 查组件不会漏：M / G / H 三条退出路径都经过 SetEditMode(false)，
-	// 它会顺手清掉连挖标志（见 UPlanetEditComponent::SetEditMode）。新增退出路径时
-	// 必须同样保证连挖被关掉，否则标志会残留到下一次进编辑模式。
+	// 按当前 Pawn 查组件不会漏：现有的每条退出路径（M、G、H、登船）都经过
+	// SetEditMode(false)，它会顺手清掉连挖标志（见 UPlanetEditComponent::SetEditMode）。
+	// 这不是穷举——新增退出路径时必须同样保证连挖被关掉，否则标志会残留到
+	// 下一次进编辑模式。
 	if (UPlanetEditComponent* Edit = GetEditComponentInEditMode())
 	{
 		Edit->SetContinuousDigging(false);
