@@ -27,7 +27,7 @@
 | 1 | `Shift`+左键与现有「填」冲突 | **填挪到 `Ctrl`+左键**，`Shift`+左键独占连续挖 | 用户选定 |
 | 2 | 「细节面板」指哪 | **新建 `BP_StarMapCameraPawn`**，控制器按类名找它生成（与 `BP_PlanetCharacter` / `BP_SpaceshipPawn` 同套路） | 用户选定 |
 | 3 | 连续挖的驱动 | **按住期间按固定间隔重复挖**，间隔可调（默认 0.12 s） | 本设计 |
-| 4 | 连续挖时相机 | **拖鼠标不转视角**（光标用于在球面上移动挖掘点） | 本设计 |
+| 4 | 挖掘时相机 | **拖鼠标不转视角**（光标用于在球面上移动挖掘点）；实现后按用户反馈收紧：编辑模式下**整个左键都不转视角**，转视角改用右键，滚轮缩放照常 | 本设计 + 实现后修正 |
 | 5 | 角色编辑模式 | **完全不动**（左键挖、右键填、滚轮调尺寸） | 本设计 |
 
 ## 3. 非目标
@@ -145,24 +145,23 @@ if (UPlanetEditComponent* Edit = GetEditComponentInEditMode())
 
 放在最前的原因：连续挖按下时走的是「命中行星 → 消费点击」分支，`bStarMapSelectHeld` 没有被置位，函数会在现有的 `if (!bStarMapSelectHeld) return;` 处提前返回，标志就清不掉。
 
-`OnLook` 的星图分支加一条抑制：
+`OnLook` 的星图分支改成走一个纯函数 `ShouldOrbitStarMapLook`（实现后按用户反馈收紧，最终规则见下表）：
 
 ```cpp
 else if (AStarMapCameraPawn* StarMap = Cast<AStarMapCameraPawn>(GetPawn()))
 {
-    // 连续挖期间拖鼠标 = 移动光标，不转视角；否则无法在球面上画挖掘路径。
-    if (UPlanetEditComponent* Edit = GetEditComponentInEditMode())
+    const UPlanetEditComponent* Edit = GetEditComponentInEditMode();
+    if (!ShouldOrbitStarMapLook(
+            bLookHeld, Edit != nullptr, Edit && Edit->IsContinuousDigging(),
+            ActiveMineralView != nullptr))
     {
-        if (Edit->IsContinuousDigging())
-        {
-            return;
-        }
+        return;
     }
-    // …原有 ActiveMineralView 判断与 OrbitLook
+    StarMap->OrbitLook(DeltaYaw, DeltaPitch);
 }
 ```
 
-星图的鼠标位移只在**按住鼠标**（`CaptureDuringMouseDown`）时才有值，所以这条抑制正好覆盖「Shift+左键拖拽」这一种情况，不影响无按键时移动光标瞄准。
+规则：连续挖期间左右键都不转；编辑模式与矿物透视下左键已被借走（挖掘填充 / 图例），只有右键能转；其余情况左键拖拽就转。星图的鼠标位移只在**按住鼠标**（`CaptureDuringMouseDown`）时才有值，所以「现在按的是哪个键」只能靠 `bLookHeld`（右键）区分。缩放走 `OnZoom`（滚轮），与这条门无关，任何状态下都能用。
 
 | 输入（星图编辑模式） | 行为 |
 |---|---|

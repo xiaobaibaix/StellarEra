@@ -592,4 +592,42 @@ bool FStellarEraStarMapBlueprintPawnTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapLookGateTest,
+	"StellarEra.StarMap.LookGate",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraStarMapLookGateTest::RunTest(const FString& Parameters)
+{
+	// 参数顺序：(bLookHeld, bEditMode, bContinuousDigging, bActiveMineralView)
+	// bLookHeld = 右键按着 —— 星图的鼠标位移只在按住鼠标时才有值，
+	// 「按的是哪个键」只能靠它区分。
+	using FGate = AStellarEraPlayerController;
+
+	// ── 普通星图：左键拖拽就转视角（也是选中时区分点击 / 拖拽的那条路）──
+	TestTrue(TEXT("普通星图 左键转视角"),
+		FGate::ShouldOrbitStarMapLook(/*Look*/ false, /*Edit*/ false, /*Dig*/ false, /*Mineral*/ false));
+	TestTrue(TEXT("普通星图 右键转视角"),
+		FGate::ShouldOrbitStarMapLook(true, false, false, false));
+
+	// ── 编辑模式：左键归挖掘 / 填充，视角只认右键 ──
+	TestFalse(TEXT("编辑模式 左键不转视角"),
+		FGate::ShouldOrbitStarMapLook(false, true, false, false));
+	TestTrue(TEXT("编辑模式 右键转视角"),
+		FGate::ShouldOrbitStarMapLook(true, true, false, false));
+
+	// ── 连续挖：右键也压住，否则挖掘点会跟着视角漂 ──
+	TestFalse(TEXT("连续挖 左键不转视角"),
+		FGate::ShouldOrbitStarMapLook(false, true, true, false));
+	TestFalse(TEXT("连续挖 右键也不转视角"),
+		FGate::ShouldOrbitStarMapLook(true, true, true, false));
+
+	// ── 矿物透视：左键归图例，与编辑模式同一套门 ──
+	TestFalse(TEXT("矿物透视 左键不转视角"),
+		FGate::ShouldOrbitStarMapLook(false, false, false, true));
+	TestTrue(TEXT("矿物透视 右键转视角"),
+		FGate::ShouldOrbitStarMapLook(true, false, false, true));
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

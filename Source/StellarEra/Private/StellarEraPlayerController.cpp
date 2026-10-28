@@ -396,6 +396,28 @@ void AStellarEraPlayerController::OnMove(const FInputActionValue& Value)
 	}
 }
 
+bool AStellarEraPlayerController::ShouldOrbitStarMapLook(
+	const bool bLookHeld,
+	const bool bEditMode,
+	const bool bContinuousDigging,
+	const bool bActiveMineralView)
+{
+	// 连续挖期间连右键也不放行：挖掘点跟着光标走，视角一动路径就画歪了。
+	if (bContinuousDigging)
+	{
+		return false;
+	}
+
+	// 编辑模式与矿物透视都把左键借走了 —— 前者是挖掘 / 填充，后者是图例点击。
+	// 这两种状态下视角只认右键（与角色「不按右键就别动视角」是同一套门）。
+	if (!bLookHeld && (bEditMode || bActiveMineralView))
+	{
+		return false;
+	}
+
+	return true;
+}
+
 void AStellarEraPlayerController::OnLook(const FInputActionValue& Value)
 {
 	const FVector2D Axis = Value.Get<FVector2D>();
@@ -419,25 +441,19 @@ void AStellarEraPlayerController::OnLook(const FInputActionValue& Value)
 	}
 	else if (AStarMapCameraPawn* StarMap = Cast<AStarMapCameraPawn>(GetPawn()))
 	{
-		// 连续挖期间拖鼠标 = 移动光标（挖掘点），不转视角；否则没法在球面上
-		// 画挖掘路径。星图的鼠标位移只在按住鼠标（CaptureDuringMouseDown）
-		// 时才有值，所以这条只影响「Shift+左键拖拽」这一种情况。
-		if (UPlanetEditComponent* Edit = GetEditComponentInEditMode())
-		{
-			if (Edit->IsContinuousDigging())
-			{
-				return;
-			}
-		}
-
-		// 星图里左键拖拽就是转视角，不设 bLookHeld 那道门 —— 那道门是给角色
-		// 「不按右键就别动视角」用的；星图的相机除了转视角没有别的职责。
-		//
-		// 矿物透视是唯一例外：左键归图例点击，视角只认右键（与角色同一套门）。
-		if (ActiveMineralView && !bLookHeld)
+		// 星图的鼠标位移只在按住鼠标（CaptureDuringMouseDown）时才有值，所以
+		// 「现在按的是左键还是右键」只能靠 bLookHeld（右键）区分。什么时候该转、
+		// 什么时候不该转全在 ShouldOrbitStarMapLook 里，见它的说明。
+		const UPlanetEditComponent* Edit = GetEditComponentInEditMode();
+		if (!ShouldOrbitStarMapLook(
+				bLookHeld,
+				Edit != nullptr,
+				Edit && Edit->IsContinuousDigging(),
+				ActiveMineralView != nullptr))
 		{
 			return;
 		}
+
 		StarMap->OrbitLook(DeltaYaw, DeltaPitch);
 	}
 }

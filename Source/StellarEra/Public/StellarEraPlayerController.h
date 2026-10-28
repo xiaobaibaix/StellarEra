@@ -68,6 +68,20 @@ public:
 	 */
 	static ASpaceshipPawn* ResolveStarMapFocusShip(APawn* EnteringPawn);
 
+	/**
+	 * 星图的鼠标位移该不该用来转视角。纯函数，OnLook 调它，测试直接调它。
+	 *
+	 * 星图的鼠标位移只在按住鼠标（CaptureDuringMouseDown）时才有值，所以
+	 * 「现在按的是左键还是右键」只能靠 bLookHeld（右键）区分：
+	 *   - 连续挖期间：左右都不转 —— 挖掘点跟着光标走，视角一动就画歪。
+	 *   - 编辑模式 / 矿物透视：左键已被借走（挖掘填充 / 图例），只有右键能转。
+	 *   - 其余：左键拖拽就转（也是选中时区分点击与拖拽的那条路）。
+	 *
+	 * 只决定「转不转」；缩放走 OnZoom（滚轮），任何状态下都能用。
+	 */
+	static bool ShouldOrbitStarMapLook(
+		bool bLookHeld, bool bEditMode, bool bContinuousDigging, bool bActiveMineralView);
+
 	/** 当前激活的矿物透视组件；未激活时为空。星图 UI 用它画图例、喂矿体显隐。 */
 	virtual UPlanetMineralViewComponent* GetActiveMineralView() const override { return ActiveMineralView; }
 
@@ -324,7 +338,11 @@ protected:
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> IA_StarMapToggle;
 
-	/** 星图里选中天体 / 拖拽转视角（鼠标左键）。按下与松开的位移区分两者。 */
+	/**
+	 * 星图里选中天体 / 拖拽转视角（鼠标左键）。按下与松开的位移区分两者。
+	 * 编辑模式与矿物透视下左键已被借走，那时拖拽是编辑 / 图例，转视角改用右键
+	 * —— 见 ShouldOrbitStarMapLook。
+	 */
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> IA_StarMapSelect;
 
