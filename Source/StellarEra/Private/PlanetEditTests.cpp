@@ -643,12 +643,40 @@ bool FStellarEraEditBrushShouldDigNowTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("同一累加器不会连续返回 true"),
 		PlanetEditBrush::ShouldDigNow(Accumulator, 0.f, 0.12f));
 
-	// Interval <= 0 按 0.01 处理：不会每帧都挖。
+	// Interval <= 0 按 0.01 处理。注意这个下限只挡同一帧内的重复调用：
+	// 30 / 60 / 90 FPS 的帧时长都大于 0.01 s，靠下限兜底仍会每帧触发。
 	float ZeroInterval = 0.f;
 	TestFalse(TEXT("间隔 0 时 0.001 s 不触发"),
 		PlanetEditBrush::ShouldDigNow(ZeroInterval, 0.001f, 0.f));
 	TestTrue(TEXT("间隔 0 时累计到 0.021 s 触发"),
 		PlanetEditBrush::ShouldDigNow(ZeroInterval, 0.02f, 0.f));
+
+	// 下限钉死在 0.01：两条探针跨在它两侧，实现改成 0.02 时第二行会变 false。
+	float FloorProbe = 0.f;
+	TestFalse(TEXT("下限探针：0.009 s 不触发"),
+		PlanetEditBrush::ShouldDigNow(FloorProbe, 0.009f, 0.f));
+	TestTrue(TEXT("下限探针：累计 0.018 s 触发"),
+		PlanetEditBrush::ShouldDigNow(FloorProbe, 0.009f, 0.f));
+
+	// 负 delta 按 0：不触发，也不能把已经攒下的时间倒扣回去。
+	float NegativeDelta = 0.05f;
+	TestFalse(TEXT("负 delta 不触发"),
+		PlanetEditBrush::ShouldDigNow(NegativeDelta, -1.f, 0.12f));
+	TestTrue(TEXT("负 delta 不改变累加器"),
+		FMath::IsNearlyEqual(NegativeDelta, 0.05f, 1.e-4f));
+
+	// 累加器恰好等于间隔也触发（判定是「达到或超过」，不是「跨过」）。
+	// 用精确的 0.12f：0.05f + 0.07f 在 float32 下是 0.1200000048，比间隔略大，
+	// 钉不住「等号也触发」；后一条只是照实覆盖累加到间隔的常规路径。
+	float AtBoundary = 0.12f;
+	TestTrue(TEXT("恰好等于间隔也触发"),
+		PlanetEditBrush::ShouldDigNow(AtBoundary, 0.f, 0.12f));
+	TestTrue(TEXT("精确边界触发后清零"),
+		FMath::IsNearlyEqual(AtBoundary, 0.f, 1.e-4f));
+
+	float AccumToBoundary = 0.05f;
+	TestTrue(TEXT("0.05 + 0.07 达到间隔也触发"),
+		PlanetEditBrush::ShouldDigNow(AccumToBoundary, 0.07f, 0.12f));
 
 	return true;
 }

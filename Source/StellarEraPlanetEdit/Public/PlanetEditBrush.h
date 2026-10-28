@@ -75,10 +75,15 @@ namespace PlanetEditBrush
 
 	/**
 	 * 连续挖的节流判定：把 DeltaSeconds 累加进 AccumulatorSeconds，
-	 * 跨过 IntervalSeconds 时返回 true 并把累加器清零。
+	 * 达到或超过 IntervalSeconds 时返回 true 并把累加器清零。
 	 *
 	 * 一次调用最多返回一次 true（不做 while 补偿）：卡顿后不会一帧补挖多下。
-	 * IntervalSeconds <= 0 时按 0.01 处理，避免「每帧都 true」。
+	 * 负 DeltaSeconds 按 0 处理，累加器不会因为调用方传错时间而倒退。
+	 *
+	 * IntervalSeconds 有 0.01 s 的下限：<= 0 与 (0, 0.01) 区间内的值都抬到 0.01。
+	 * 这个下限只挡同一帧内间隔 < 10 ms 的重复调用，不足以限制常规帧率 ——
+	 * 30 / 60 / 90 FPS 的帧时长（0.033 / 0.017 / 0.011 s）都大于 0.01，
+	 * 靠下限兜底照样每帧触发。常规频率必须由调用方传入的 IntervalSeconds 决定。
 	 */
 	STELLARERAPLANETEDIT_API bool ShouldDigNow(
 		float& AccumulatorSeconds, float DeltaSeconds, float IntervalSeconds);

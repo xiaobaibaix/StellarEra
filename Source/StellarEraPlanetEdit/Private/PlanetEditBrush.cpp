@@ -163,7 +163,12 @@ bool PlanetEditBrush::ShouldDigNow(
 	float& AccumulatorSeconds, const float DeltaSeconds, const float IntervalSeconds)
 {
 	const float Interval = FMath::Max(IntervalSeconds, 0.01f);
+
+	// 负 delta 按 0：系统时间回拨或调用方传错时，累加器最多原地不动。
+	// 若直接累加负数，已经把攒下的时间倒扣回去，等于凭空多等一截。
 	AccumulatorSeconds += FMath::Max(DeltaSeconds, 0.f);
+
+	// 用 < 表示「还没到」：累加器恰好等于间隔也算到达，这一帧就挖。
 	if (AccumulatorSeconds < Interval)
 	{
 		return false;
