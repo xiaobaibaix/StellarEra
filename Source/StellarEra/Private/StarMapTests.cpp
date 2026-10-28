@@ -520,7 +520,8 @@ bool FStellarEraStarMapZoomLimitsTest::RunTest(const FString& Parameters)
 }
 
 // 星图 Pawn 的编辑组件参数是构造函数里配的，所以 CDO 上就能读到。
-// 这一项钉的是星图笔刷的四个可调参数（默认 32、区间 8..128、Shift 填、50 AU）：
+// 这一项钉的是星图笔刷的四个可调参数（默认 64、区间 8..128、
+// Shift+左键按住连续挖 / Ctrl+左键填、50 AU）：
 // 构造函数把它们配进组件，测试替 HUD 与输入层看着它们。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapEditComponentDefaultsTest,
 	"StellarEra.StarMap.EditComponentDefaults",
@@ -542,10 +543,11 @@ bool FStellarEraStarMapEditComponentDefaultsTest::RunTest(const FString& Paramet
 		return false;
 	}
 
-	TestEqual(TEXT("默认 32 体素"), Edit->GetBrushSizeVoxels(), 32);
+	TestEqual(TEXT("默认 64 体素"), Edit->GetBrushSizeVoxels(), 64);
 	TestEqual(TEXT("下限 8 体素"), Edit->GetMinBrushSizeVoxels(), 8);
 	TestEqual(TEXT("上限 128 体素"), Edit->GetMaxBrushSizeVoxels(), 128);
-	TestEqual(TEXT("提示为 Shift 填"), Edit->GetPlaceActionHint(), FString(TEXT("Shift+左键填")));
+	TestEqual(TEXT("提示含连续挖与 Ctrl 填"), Edit->GetPlaceActionHint(),
+		FString(TEXT("Shift+左键按住连续挖 · Ctrl+左键填")));
 	TestTrue(TEXT("编辑距离 50 AU"),
 		FMath::IsNearlyEqual(Edit->MaxEditDistanceCm, 5.0e7f));
 	TestTrue(TEXT("大笔刷走并行"), Edit->bMultiThreadedEdits);

@@ -62,19 +62,20 @@ AStarMapCameraPawn::AStarMapCameraPawn()
 	// --- 行星编辑：与角色共用组件，参数按星图尺度调大 ---
 	//
 	// 尺寸 8..128 体素：1 体素 = 100 cm（前两颗行星），128 = 128 米级的陨石坑。
-	// 默认 32 是「能看出是一个坑、又不至于一点就挖穿」的折中。
+	// 默认 64 体素：默认值偏大是因为「直径 32 的坑在这个距离上几乎看不见」，
+	// 64 既看得出是一个坑，又不至于一点就挖穿。
 	// `[` / `]` 每次 ±1（与角色一致，走 AdjustBrushSize）。
 	PlanetEdit = CreateDefaultSubobject<UPlanetEditComponent>(TEXT("PlanetEdit"));
 	// 注意：UPlanetEditComponent 是 UActorComponent（非 SceneComponent），没有
 	// SetupAttachment；它不需要变换，Tick 组已在组件构造函数里设为 TG_PostUpdateWork。
 	PlanetEdit->ConfigureBrushRange(
 		PlanetEditBrush::MinStarMapSizeVoxels, PlanetEditBrush::MaxStarMapSizeVoxels,
-		/*InitialSize=*/32);
+		/*InitialSize=*/64);
 	// 128 是直径：半径 64 体素的球在体素空间里是百万格量级，填充时整球都要改，
 	// 单线程会卡住整帧。
 	PlanetEdit->bMultiThreadedEdits = true;
-	// 右键在星图里已经归绕轨，所以「填」改用 Shift+左键。
-	PlanetEdit->PlaceActionHint = TEXT("Shift+左键填");
+	// 右键在星图里已经归绕轨，所以「填」改用 Ctrl+左键；Shift+左键按住是连续挖。
+	PlanetEdit->PlaceActionHint = TEXT("Shift+左键按住连续挖 · Ctrl+左键填");
 	// 与 MaxOrbitDistanceCm 同一尺度：从最远 50 AU 处也该打得到行星。
 	PlanetEdit->MaxEditDistanceCm = 5.0e7f;
 }
