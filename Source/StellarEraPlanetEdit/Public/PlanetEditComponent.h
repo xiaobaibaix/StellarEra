@@ -87,6 +87,16 @@ public:
 	bool PlaceAtScreenPosition(const FVector2D& ScreenPosition);
 
 	/**
+	 * 按住连续挖：开 / 关。
+	 *
+	 * 开启后组件在 Tick 里按 ContinuousDigIntervalSeconds 节流，在当前光标处
+	 * 重复调用 DigAtScreenPosition。按下那一下由控制器立即挖，这里不补刀。
+	 * 退出编辑模式会自动关闭。
+	 */
+	void SetContinuousDigging(bool bEnabled);
+	bool IsContinuousDigging() const { return bContinuousDigging; }
+
+	/**
 	 * 屏幕位置 → 编辑目标。只解析，不写体素。
 	 *
 	 * 控制器用它判断「这次点击该不该归编辑管」：解析成功就消费掉这次点击，
@@ -111,6 +121,10 @@ public:
 	UPROPERTY(EditAnywhere, Category = "PlanetEdit")
 	bool bMultiThreadedEdits = false;
 
+	/** 连续挖的间隔（秒）。太小会把体素工具刷爆，太大手感发涩。 */
+	UPROPERTY(EditAnywhere, Category = "PlanetEdit", meta = (ClampMin = "0.01"))
+	float ContinuousDigIntervalSeconds = 0.12f;
+
 	/** HUD 提示行里的「怎么放」。角色「右键点放」，星图「Shift+左键填」。 */
 	UPROPERTY(EditAnywhere, Category = "PlanetEdit")
 	FString PlaceActionHint = TEXT("右键点放");
@@ -129,6 +143,12 @@ private:
 
 	bool bPreviewPlacing = false;
 	bool bEditMode = false;
+
+	/** 连续挖是否开启。Tick 只在编辑模式下跑，退出编辑模式时由 SetEditMode 清掉。 */
+	bool bContinuousDigging = false;
+
+	/** 距上次连续挖累计的秒数；由 PlanetEditBrush::ShouldDigNow 推进并清零。 */
+	float ContinuousDigAccumulatorSeconds = 0.f;
 
 	UPROPERTY(EditAnywhere, Category = "PlanetEdit")
 	EPlanetBrushShape BrushShape = EPlanetBrushShape::Sphere;

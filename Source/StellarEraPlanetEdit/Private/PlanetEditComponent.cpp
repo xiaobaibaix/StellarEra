@@ -101,6 +101,8 @@ void UPlanetEditComponent::SetEditMode(const bool bEnabled)
 	{
 		bPreviewPlacing = false;
 		HideBrushPreview();
+		// 退出编辑就停连挖：否则按 G 离开后组件还会在后台继续挖。
+		SetContinuousDigging(false);
 	}
 
 	// 网格归属由 SetGridPlanet 决定（角色 = 脚下行星，星图 = 空）。
@@ -124,6 +126,27 @@ void UPlanetEditComponent::TickComponent(const float DeltaTime, const ELevelTick
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 	UpdateBrushPreview();
+
+	if (!bContinuousDigging)
+	{
+		return;
+	}
+
+	if (!PlanetEditBrush::ShouldDigNow(
+			ContinuousDigAccumulatorSeconds, DeltaTime, ContinuousDigIntervalSeconds))
+	{
+		return;
+	}
+
+	// 与预览同源：Canvas 只在 PostRender 有效，鼠标位置从控制器查。
+	UWorld* World = GetWorld();
+	APlayerController* PlayerController = World ? World->GetFirstPlayerController() : nullptr;
+	float MouseX = 0.f;
+	float MouseY = 0.f;
+	if (PlayerController && PlayerController->GetMousePosition(MouseX, MouseY))
+	{
+		DigAtScreenPosition(FVector2D(MouseX, MouseY));
+	}
 }
 
 void UPlanetEditComponent::SetBrushShape(const EPlanetBrushShape NewShape)
@@ -135,6 +158,14 @@ void UPlanetEditComponent::AdjustBrushSize(const int32 Delta)
 {
 	BrushSizeVoxels = PlanetEditBrush::ClampSize(
 		BrushSizeVoxels + Delta, MinBrushSizeVoxels, MaxBrushSizeVoxels);
+}
+
+void UPlanetEditComponent::SetContinuousDigging(const bool bEnabled)
+{
+	bContinuousDigging = bEnabled;
+	// 无论开还是关都清零：开启时按下那一下已经由控制器挖过，不该立刻再挖；
+	// 关闭时清掉余量，下次开启从干净状态起算。
+	ContinuousDigAccumulatorSeconds = 0.f;
 }
 
 bool UPlanetEditComponent::DigAtScreenPosition(const FVector2D& ScreenPosition)

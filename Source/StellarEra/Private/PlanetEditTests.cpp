@@ -680,4 +680,36 @@ bool FStellarEraEditBrushShouldDigNowTest::RunTest(const FString& Parameters)
 
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraPlanetEditContinuousDigTest,
+	"StellarEra.Planet.EditComponent.ContinuousDig",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraPlanetEditContinuousDigTest::RunTest(const FString& Parameters)
+{
+	// 纯状态接口：NewObject 一个不注册、不进世界的临时组件即可。
+	TStrongObjectPtr<UPlanetEditComponent> Edit(
+		NewObject<UPlanetEditComponent>(GetTransientPackage()));
+	if (!TestNotNull(TEXT("临时编辑组件"), Edit.Get()))
+	{
+		return false;
+	}
+
+	TestFalse(TEXT("默认不连续挖"), Edit->IsContinuousDigging());
+
+	Edit->SetContinuousDigging(true);
+	TestTrue(TEXT("开启后可读回"), Edit->IsContinuousDigging());
+
+	// 退出编辑模式必须顺手关掉连续挖，否则用户按 G 退出后组件还在后台挖。
+	Edit->SetEditMode(true);
+	TestTrue(TEXT("进入编辑模式不改变连续挖状态"), Edit->IsContinuousDigging());
+	Edit->SetEditMode(false);
+	TestFalse(TEXT("退出编辑模式自动关闭连续挖"), Edit->IsContinuousDigging());
+
+	// 重复关闭是幂等的：松开左键会无条件调一次。
+	Edit->SetContinuousDigging(false);
+	TestFalse(TEXT("重复关闭幂等"), Edit->IsContinuousDigging());
+
+	return true;
+}
 #endif
