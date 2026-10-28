@@ -580,7 +580,7 @@ bool FStellarEraEditBrushBoxBounds128Test::RunTest(const FString& Parameters)
 }
 
 // 笔刷尺寸区间：角色 1..8、星图 8..128 共用同一份夹取逻辑。
-// 星图默认 32，而旧的 1 参 ClampSize 会把它悄悄夹成 8 —— 这就是本测试要钉的回归。
+// 旧的一参 ClampSize 会把 32 这样的星图尺寸悄悄夹成 8 —— 这就是本测试要钉的回归。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraEditComponentRangeTest,
 	"StellarEra.Planet.EditComponent.Range",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -598,9 +598,9 @@ bool FStellarEraEditComponentRangeTest::RunTest(const FString& Parameters)
 	Edit->AdjustBrushSize(-100);
 	TestEqual(TEXT("-100 夹到 1"), Edit->GetBrushSizeVoxels(), 1);
 
-	// 星图：8..128、默认 32。
+	// 星图区间 8..128，用 32 作样例初始值。
 	Edit->ConfigureBrushRange(8, 128, 32);
-	TestEqual(TEXT("星图默认 32"), Edit->GetBrushSizeVoxels(), 32);
+	TestEqual(TEXT("样例初始值 32 原样保留"), Edit->GetBrushSizeVoxels(), 32);
 	TestEqual(TEXT("星图下限 8"), Edit->GetMinBrushSizeVoxels(), 8);
 	TestEqual(TEXT("星图上限 128"), Edit->GetMaxBrushSizeVoxels(), 128);
 	Edit->AdjustBrushSize(1000);

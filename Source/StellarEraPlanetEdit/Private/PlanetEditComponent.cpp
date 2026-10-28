@@ -102,7 +102,7 @@ void UPlanetEditComponent::SetEditMode(const bool bEnabled)
 		bPreviewPlacing = false;
 		HideBrushPreview();
 		// 退出编辑就清连挖：Tick 虽已停，但标志留着会让下次进编辑模式直接开挖，
-		// 也会让星图相机一直以为在连挖（Task 4 靠它抑制绕轨）。
+		// 也会让星图相机一直以为在连挖。
 		SetContinuousDigging(false);
 	}
 

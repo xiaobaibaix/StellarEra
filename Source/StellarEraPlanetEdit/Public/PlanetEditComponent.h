@@ -70,7 +70,7 @@ public:
 	void SetGridPlanet(AVoxelPlanetActor* Planet);
 
 	/**
-	 * 配置笔刷尺寸区间与初始尺寸。星图 Pawn 在构造函数里调（8..128，默认 32）；
+	 * 配置笔刷尺寸区间与初始尺寸。星图 Pawn 在构造函数里调（8..128，默认 64）；
 	 * 角色不调，用成员默认值 1..8。
 	 */
 	void ConfigureBrushRange(int32 InMinSize, int32 InMaxSize, int32 InitialSize);
@@ -125,7 +125,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = "PlanetEdit", meta = (ClampMin = "0.01"))
 	float ContinuousDigIntervalSeconds = 0.12f;
 
-	/** HUD 提示行里的「怎么放」。角色「右键点放」，星图「Shift+左键填」。 */
+	/** HUD 提示行里的「怎么放」。角色「右键点放」，星图「Shift+左键按住连续挖 · Ctrl+左键填」。 */
 	UPROPERTY(EditAnywhere, Category = "PlanetEdit")
 	FString PlaceActionHint = TEXT("右键点放");
 

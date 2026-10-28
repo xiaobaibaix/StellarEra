@@ -401,6 +401,17 @@ void AStellarEraPlayerController::OnLook(const FInputActionValue& Value)
 	}
 	else if (AStarMapCameraPawn* StarMap = Cast<AStarMapCameraPawn>(GetPawn()))
 	{
+		// 连续挖期间拖鼠标 = 移动光标（挖掘点），不转视角；否则没法在球面上
+		// 画挖掘路径。星图的鼠标位移只在按住鼠标（CaptureDuringMouseDown）
+		// 时才有值，所以这条只影响「Shift+左键拖拽」这一种情况。
+		if (UPlanetEditComponent* Edit = GetEditComponentInEditMode())
+		{
+			if (Edit->IsContinuousDigging())
+			{
+				return;
+			}
+		}
+
 		// 星图里左键拖拽就是转视角，不设 bLookHeld 那道门 —— 那道门是给角色
 		// 「不按右键就别动视角」用的；星图的相机除了转视角没有别的职责。
 		//
@@ -1062,11 +1073,21 @@ void AStellarEraPlayerController::OnStarMapSelectStarted(const FInputActionValue
 		FPlanetEditTarget Target;
 		if (Edit->TryResolveTarget(MousePosition, Target))
 		{
-			// 星图：Shift+左键填。角色仍只有右键点放（Shift 对角色不新增行为）。
+			// 星图：Shift+左键按住 = 连续挖（移动光标沿路径挖）；Ctrl+左键 = 填一次；
+			// 左键 = 挖一次。角色没有连续挖，也没把「填」挪到 Ctrl —— 仍是右键点放。
 			const bool bStarMap = Cast<AStarMapCameraPawn>(GetPawn()) != nullptr;
-			const bool bPlacing = bStarMap
-				&& (IsInputKeyDown(EKeys::LeftShift) || IsInputKeyDown(EKeys::RightShift));
-			if (bPlacing)
+			const bool bShift =
+				IsInputKeyDown(EKeys::LeftShift) || IsInputKeyDown(EKeys::RightShift);
+			const bool bCtrl =
+				IsInputKeyDown(EKeys::LeftControl) || IsInputKeyDown(EKeys::RightControl);
+
+			if (bStarMap && bShift)
+			{
+				// 按下先挖一次，之后交给组件的 Tick 节流。
+				Edit->SetContinuousDigging(true);
+				Edit->DigAtScreenPosition(MousePosition);
+			}
+			else if (bStarMap && bCtrl)
 			{
 				Edit->PlaceAtScreenPosition(MousePosition);
 			}
@@ -1134,6 +1155,13 @@ void AStellarEraPlayerController::OnStarMapSelectStarted(const FInputActionValue
 
 void AStellarEraPlayerController::OnStarMapSelectCompleted(const FInputActionValue& Value)
 {
+	// 连续挖必须在所有早退之前关掉：按下时命中了行星走的是上面的「消费点击」
+	// 分支，bStarMapSelectHeld 没被置位，下面的早退会把它跳过。
+	if (UPlanetEditComponent* Edit = GetEditComponentInEditMode())
+	{
+		Edit->SetContinuousDigging(false);
+	}
+
 	if (ActiveMineralView)
 	{
 		// 观察模式下左键只用来点图例，松手不做任何事。
