@@ -554,4 +554,42 @@ bool FStellarEraStarMapEditComponentDefaultsTest::RunTest(const FString& Paramet
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapBlueprintPawnTest,
+	"StellarEra.StarMap.BlueprintPawn",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraStarMapBlueprintPawnTest::RunTest(const FString& Parameters)
+{
+	// 游戏里 Spawn 的是蓝图子类，不是原生 CDO：只断言不变量，不钉具体数字，
+	// 这样用户在细节面板里把默认直径从 64 改成别的也不会把测试弄红。
+	UClass* BlueprintClass = LoadClass<AStarMapCameraPawn>(nullptr,
+		TEXT("/Game/Code/BP_StarMapCameraPawn.BP_StarMapCameraPawn_C"));
+	if (!TestNotNull(TEXT("BP_StarMapCameraPawn 蓝图类"), BlueprintClass))
+	{
+		return false;
+	}
+
+	const AStarMapCameraPawn* PawnCDO = Cast<AStarMapCameraPawn>(BlueprintClass->GetDefaultObject());
+	if (!TestNotNull(TEXT("蓝图 CDO 是 AStarMapCameraPawn"), PawnCDO))
+	{
+		return false;
+	}
+
+	const UPlanetEditComponent* Edit = PawnCDO->GetPlanetEditComponent();
+	if (!TestNotNull(TEXT("蓝图 CDO 上有 PlanetEdit 组件"), Edit))
+	{
+		return false;
+	}
+
+	const int32 Size = Edit->GetBrushSizeVoxels();
+	TestTrue(TEXT("默认直径落在区间内"),
+		Size >= Edit->GetMinBrushSizeVoxels() && Size <= Edit->GetMaxBrushSizeVoxels());
+	TestTrue(TEXT("提示串写的是 Ctrl 填"),
+		Edit->GetPlaceActionHint().Contains(TEXT("Ctrl+左键填")));
+	TestTrue(TEXT("编辑距离覆盖到 50 AU 量级"), Edit->MaxEditDistanceCm > 1.0e7f);
+	TestTrue(TEXT("体素编辑走多线程"), Edit->bMultiThreadedEdits);
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

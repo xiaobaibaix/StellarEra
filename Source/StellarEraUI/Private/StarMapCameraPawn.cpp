@@ -66,9 +66,10 @@ AStarMapCameraPawn::AStarMapCameraPawn()
 	// 64 既看得出是一个坑，又不至于一点就挖穿。
 	// `[` / `]` 每次 ±1（与角色一致，走 AdjustBrushSize）。
 	//
-	// 蓝图子类 BP_StarMapCameraPawn 一旦保存，就会把这里的组件模板值快照进自己的资产：
-	// 之后下面这几个数（8 / 128 / 64）不再权威，改 C++ 不会传导到已存在的蓝图。
-	// 调笔刷区间或默认尺寸时，蓝图里 PlanetEdit 组件的细节面板必须同步改。
+	// 蓝图子类 BP_StarMapCameraPawn 只把「在蓝图细节面板里手改过」的组件属性记进
+	// 自己的资产，没改过的继续跟这里的 C++ 默认值走。所以目前蓝图为空，改下面这几个
+	// 数照常生效；一旦有人在蓝图里改过笔刷区间 / 默认尺寸，那条覆盖就会钉住，
+	// 此后改 C++ 不再传导 —— 那时两边要同步。
 	PlanetEdit = CreateDefaultSubobject<UPlanetEditComponent>(TEXT("PlanetEdit"));
 	// 注意：UPlanetEditComponent 是 UActorComponent（非 SceneComponent），没有
 	// SetupAttachment；它不需要变换，Tick 组已在组件构造函数里设为 TG_PostUpdateWork。
