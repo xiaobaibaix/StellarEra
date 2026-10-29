@@ -24,6 +24,10 @@ UPlanetEditComponent::UPlanetEditComponent()
 
 void UPlanetEditComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	// 队列里没做完的编辑必须在这里收尾：Tick 一停就再也没人推进它们，
+	// 留着就是挖了一半的坑 + 没存档。
+	FinishAllEdits();
+
 	// 角色被销毁时把网格收掉，否则切换 Pawn 的路径漏了退出就会留下网格。
 	if (bEditMode)
 	{
@@ -33,6 +37,7 @@ void UPlanetEditComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	// 解析器通常捕获 Owner 自己；Owner 正在销毁，留着就是悬空引用。
 	TargetResolver = nullptr;
 	GridPlanet.Reset();
+	EditQueue.Reset();
 	PendingRenderPlanet.Reset();
 	PendingRenderBounds = FPlanetEditVoxelBox();
 	LastEditedPlanet.Reset();
@@ -61,6 +66,10 @@ void UPlanetEditComponent::SetGridPlanet(AVoxelPlanetActor* Planet)
 	{
 		return;
 	}
+
+	// 换星前把队列做干净：队列里的编辑记着旧星的体素坐标与 Actor，
+	// 换过去之后继续推进就是拿旧坐标写新星（或写已失效的 Actor）。
+	FinishAllEdits();
 
 	// 换星时先把旧星上的网格收掉，再决定新星要不要亮。这条路径原先写在
 	// APlanetCharacter::ReevaluatePlanet 里，现在收进组件：角色调它，星图不调。
@@ -106,6 +115,10 @@ void UPlanetEditComponent::SetEditMode(const bool bEnabled)
 	{
 		bPreviewPlacing = false;
 		HideBrushPreview();
+
+		// Tick 马上要停，队列里没做完的编辑在这里一次做完并刷渲染。
+		// 必须在下面的 RequestSaveEdits **之前**：半成品不该被存下去。
+		FinishAllEdits();
 		// 退出编辑就清连挖：Tick 虽已停，但标志留着会让下次进编辑模式直接开挖，
 		// 也会让星图相机一直以为在连挖。真要关它会先把手头攒的渲染刷新掉。
 		SetContinuousDigging(false);
@@ -154,6 +167,118 @@ void UPlanetEditComponent::FlushPendingRenderUpdate()
 	Planet->GetLODManager().UpdateBounds(FVoxelIntBox(Bounds.Min, Bounds.MaxExclusive));
 }
 
+void UPlanetEditComponent::AccumulateRenderBounds(
+	AVoxelPlanetActor* const Planet, const FPlanetEditVoxelBox& Bounds)
+{
+	if (!IsValid(Planet) || !PlanetEditBrush::IsValidVoxelBox(Bounds))
+	{
+		return;
+	}
+
+	// 换了一颗行星：旧范围的坐标属于旧星的体素空间，不能混进来。
+	if (PendingRenderPlanet.Get() != Planet)
+	{
+		PendingRenderBounds = FPlanetEditVoxelBox();
+		PendingRenderPlanet = Planet;
+	}
+
+	PendingRenderBounds = PlanetEditBrush::UnionVoxelBox(PendingRenderBounds, Bounds);
+}
+
+void UPlanetEditComponent::TickProgressiveEdits()
+{
+	if (EditQueue.Num() == 0)
+	{
+		return;
+	}
+
+	const double StartSeconds = FPlatformTime::Seconds();
+	const double BudgetMs = FMath::Max(static_cast<double>(ProgressiveEditBudgetMs), 0.1);
+
+	bool bAppliedChunk = false;
+	while (EditQueue.Num() > 0)
+	{
+		const TSharedPtr<FPlanetProgressiveEdit>& Edit = EditQueue[0];
+		if (!Edit.IsValid())
+		{
+			// Setup 失败时不会入队，这里只是防御：坏掉的项不能堵住队头。
+			EditQueue.RemoveAt(0);
+			continue;
+		}
+
+		const bool bMoreWork = Edit->ApplyNextChunk();
+		bAppliedChunk = true;
+
+		// 只并刚写完的那一块：整笔的范围在没做完时刷，会让渲染把还没改的
+		// chunk 也重建一遍。
+		AccumulateRenderBounds(Edit->GetPlanet().Get(), Edit->GetLastChunkBounds());
+
+		if (!bMoreWork)
+		{
+			OnEditFinished(*Edit);
+			EditQueue.RemoveAt(0);
+			continue;
+		}
+
+		// 预算检查放在**推进过一块之后**：预算再小，一帧也要往前走一块，
+		// 否则队列永远推不动。
+		if ((FPlatformTime::Seconds() - StartSeconds) * 1000.0 >= BudgetMs)
+		{
+			break;
+		}
+	}
+
+	if (bAppliedChunk)
+	{
+		// 当帧就刷：洞因此看得见地从光标处向外长，而不是等整笔做完才出现。
+		FlushPendingRenderUpdate();
+	}
+}
+
+void UPlanetEditComponent::OnEditFinished(FPlanetProgressiveEdit& Edit)
+{
+	// 一笔都没改到的编辑（在岩石里放石头、挖空气）不该让这颗星被记成
+	// 「编辑过」—— 否则退出编辑模式时会白存一次整星。
+	if (!Edit.DidChangeAnything())
+	{
+		return;
+	}
+
+	AVoxelPlanetActor* const Planet = Edit.GetPlanet().Get();
+	if (!IsValid(Planet))
+	{
+		return;
+	}
+
+	LastEditedPlanet = Planet;
+	Planet->NotifyVoxelEdited();
+}
+
+void UPlanetEditComponent::FinishAllEdits()
+{
+	if (EditQueue.Num() == 0)
+	{
+		return;
+	}
+
+	for (const TSharedPtr<FPlanetProgressiveEdit>& Edit : EditQueue)
+	{
+		if (!Edit.IsValid())
+		{
+			continue;
+		}
+
+		// ApplyAll 内部会一直推进到完成；返回 false 表示行星已经没了，
+		// 此时 AppliedBounds 就是它实际写到的那一部分。
+		Edit->ApplyAll();
+		AccumulateRenderBounds(Edit->GetPlanet().Get(), Edit->GetAppliedBounds());
+		OnEditFinished(*Edit);
+	}
+
+	EditQueue.Reset();
+	FlushPendingRenderUpdate();
+}
+
 void UPlanetEditComponent::SetPreviewPlacing(const bool bPlacing)
 {
 	bPreviewPlacing = bPlacing;
@@ -164,6 +289,9 @@ void UPlanetEditComponent::TickComponent(const float DeltaTime, const ELevelTick
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 	UpdateBrushPreview();
+
+	// 渐进编辑不能挂在 bContinuousDigging 下面：单击一次也要逐帧做完。
+	TickProgressiveEdits();
 
 	if (!bContinuousDigging)
 	{
@@ -252,36 +380,65 @@ bool UPlanetEditComponent::ApplyBrushAtScreenPosition(
 		Target.HitLocation, Target.HitNormal, BrushSizeVoxels, VoxelSize, bPlace,
 		MinBrushSizeVoxels, MaxBrushSizeVoxels);
 
-	// 连挖期间不让工具逐笔刷渲染：0.12 s 一笔就把同一个 chunk 重建一遍，纯浪费。
-	// 关掉 bUpdateRender，把改到的范围攒进 PendingRenderBounds，由
-	// FlushPendingRenderUpdate 按间隔或松手时一次性刷。
-	const bool bDeferRender = bContinuousDigging;
+	// 小笔刷（角色的全部笔刷都在这一侧）包围盒切出来只有一块，排队只是白绕。
+	// 球包围盒每轴是 ±(半径+3) 再取整：半径 = SizeVoxels/2 + 1 个体素，
+	// 于是每轴最多 SizeVoxels + 7 格，+1 留余量。
+	const bool bFitsOneChunk = BrushSizeVoxels + 8 <= ProgressiveEditChunkSizeVoxels;
 
-	FPlanetEditVoxelBox EditedBounds;
-	const bool bEdited = PlanetBrushApplicator::Apply(*Target.Planet, Center, BrushShape,
-		BrushSizeVoxels, MinBrushSizeVoxels, MaxBrushSizeVoxels, bPlace, bMultiThreadedEdits,
-		&EditedBounds, /*bUpdateRender=*/!bDeferRender);
+	if (bFitsOneChunk)
+	{
+		// 连挖期间不让工具逐笔刷渲染：0.12 s 一笔就把同一个 chunk 重建一遍，纯浪费。
+		// 关掉 bUpdateRender，把改到的范围攒进 PendingRenderBounds，由
+		// FlushPendingRenderUpdate 按间隔或松手时一次性刷。
+		const bool bDeferRender = bContinuousDigging;
 
-	if (!bEdited)
+		FPlanetEditVoxelBox EditedBounds;
+		const bool bEdited = PlanetBrushApplicator::Apply(*Target.Planet, Center, BrushShape,
+			BrushSizeVoxels, MinBrushSizeVoxels, MaxBrushSizeVoxels, bPlace, bMultiThreadedEdits,
+			&EditedBounds, /*bUpdateRender=*/!bDeferRender);
+
+		if (!bEdited)
+		{
+			return false;
+		}
+
+		// 只有真的改到过体素才算「这颗星被编辑过」：在岩石里放石头、挖空气不该
+		// 让退出编辑模式时白存一次整星。
+		LastEditedPlanet = Target.Planet;
+
+		if (bDeferRender)
+		{
+			AccumulateRenderBounds(Target.Planet, EditedBounds);
+		}
+
+		return true;
+	}
+
+	// 大笔刷：切成块排队，由 TickProgressiveEdits 每帧推进几块。
+	// 超过上限时丢掉下标 1 的那笔：队首正在做不能丢，而最新的一笔永远比
+	// 排在中间的最有意义。
+	const int32 MaxQueue = FMath::Max(MaxQueuedEdits, 1);
+	if (EditQueue.Num() >= MaxQueue)
+	{
+		if (EditQueue.Num() <= 1)
+		{
+			return false;
+		}
+		EditQueue.RemoveAt(1);
+	}
+
+	TSharedPtr<FPlanetProgressiveEdit> Edit = MakeShared<FPlanetProgressiveEdit>();
+	if (!Edit->Setup(Target.Planet, Center, BrushShape, BrushSizeVoxels, MinBrushSizeVoxels,
+			MaxBrushSizeVoxels, bPlace, ProgressiveEditChunkSizeVoxels, bMultiThreadedEdits))
 	{
 		return false;
 	}
 
-	// 只有真的改到过体素才算「这颗星被编辑过」：在岩石里放石头、挖空气不该
-	// 让退出编辑模式时白存一次整星。
-	LastEditedPlanet = Target.Planet;
+	EditQueue.Add(MoveTemp(Edit));
 
-	if (bDeferRender)
-	{
-		if (PendingRenderPlanet.Get() != Target.Planet)
-		{
-			// 换了一颗行星：旧范围的坐标属于旧星的体素空间，不能混进来。
-			PendingRenderBounds = FPlanetEditVoxelBox();
-			PendingRenderPlanet = Target.Planet;
-		}
-		PendingRenderBounds = PlanetEditBrush::UnionVoxelBox(PendingRenderBounds, EditedBounds);
-	}
-
+	// 返回值语义从「有没有改到体素」变成「有没有接受这一笔」：体素要几帧后
+	// 才写得完，此刻无从知道。控制器本来就不消费它（见 StellarEraPlayerController
+	// 里「不用它判断归属」的注释）。
 	return true;
 }
 

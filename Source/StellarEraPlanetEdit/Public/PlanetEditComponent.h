@@ -10,6 +10,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "PlanetEditBrush.h"
+#include "PlanetProgressiveEdit.h"
 #include "Templates/Function.h"
 #include "PlanetEditComponent.generated.h"
 
@@ -170,17 +171,63 @@ public:
 	UPROPERTY(EditAnywhere, Category = "PlanetEdit")
 	FString PlaceActionHint = TEXT("右键点放");
 
+	/**
+	 * 渐进编辑的块边长（体素）。128³ ≈ 2.1e6 格，16 线程下约 3 ms。
+	 *
+	 * 比它小的笔刷（包围盒每轴 ≤ 块边长）仍走一步做完的同步路径：切出来只有
+	 * 一块，排队只是白绕一圈。角色的全部笔刷（1..8）都在这一侧。
+	 */
+	UPROPERTY(EditAnywhere, Category = "PlanetEdit", meta = (ClampMin = "8"))
+	int32 ProgressiveEditChunkSizeVoxels = 128;
+
+	/**
+	 * 每帧最多花多少毫秒推进编辑。4 ms 在 60 fps 下约把一帧从 16.7 ms 抬到
+	 * 20 ms，手感仍是流畅的；调大 = 更快看到结果、帧率更差。
+	 *
+	 * 每帧**至少**推进一块（第一块不看预算），否则预算再小也永远不动。
+	 */
+	UPROPERTY(EditAnywhere, Category = "PlanetEdit", meta = (ClampMin = "0.1"))
+	float ProgressiveEditBudgetMs = 4.f;
+
+	/**
+	 * 待处理编辑最高笔数。超了丢下标 1 的：队首正在做不能丢，
+	 * 而最新那一笔永远比排在中间的最有意义。
+	 */
+	UPROPERTY(EditAnywhere, Category = "PlanetEdit", meta = (ClampMin = "1"))
+	int32 MaxQueuedEdits = 16;
+
 private:
 	bool ApplyBrushAtScreenPosition(const FVector2D& ScreenPosition, bool bPlace);
 	void UpdateBrushPreview();
 	void EnsurePreviewLineBatch();
 	void HideBrushPreview();
 
+	/** 每帧推进队首编辑，累计超过 ProgressiveEditBudgetMs 就停。 */
+	void TickProgressiveEdits();
+
+	/** 一笔编辑做完：真的改到过体素才记到 LastEditedPlanet 并通知重建 / 存档。 */
+	void OnEditFinished(FPlanetProgressiveEdit& Edit);
+
+	/**
+	 * 把队列里所有编辑一次做完并刷渲染。
+	 *
+	 * 退出编辑模式 / EndPlay / 换星前必须调：这三处之后 Tick 不再推进队列，
+	 * 留着就是「挖了一半的坑」+ 没存档。它们也都要在存档之前调 ——
+	 * 没做完的编辑不该被 RequestSaveEdits 存成一个半成品。
+	 */
+	void FinishAllEdits();
+
+	/** 把 Bounds（属于 Planet）并进待刷范围，换星时丢掉旧星的坐标。 */
+	void AccumulateRenderBounds(AVoxelPlanetActor* Planet, const FPlanetEditVoxelBox& Bounds);
+
 	/** 把连挖期间攒下的范围一次性交给渲染，然后清空。 */
 	void FlushPendingRenderUpdate();
 
 	FPlanetEditTargetResolver TargetResolver;
 	TWeakObjectPtr<AVoxelPlanetActor> GridPlanet;
+
+	/** 还没做完的编辑，下标 0 是正在推进的那一笔。 */
+	TArray<TSharedPtr<FPlanetProgressiveEdit>> EditQueue;
 
 	/**
 	 * 连挖期间攒下的、还没刷给渲染的范围（行星体素空间，Min 含 / MaxExclusive 不含）。
