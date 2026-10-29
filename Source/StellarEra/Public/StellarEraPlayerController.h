@@ -69,6 +69,16 @@ public:
 	static ASpaceshipPawn* ResolveStarMapFocusShip(APawn* EnteringPawn);
 
 	/**
+	 * 换视点的唯一驱动：把 World 里所有实现 IVoxelViewpointInvokers 的 Pawn
+	 * 按 InPawn 设成视点，只有 InPawn 拿到 true。InPawn 为空（OnUnPossess
+	 * 路径）时全部关掉。
+	 *
+	 * 静态是为了让测试能在没有控制器实例的情况下验它 —— 与
+	 * ResolveStarMapFocusShip 同理。不实现本接口的 Pawn 不受影响。
+	 */
+	static void ApplyViewpointInvokerGate(UWorld* World, const APawn* InPawn);
+
+	/**
 	 * 星图的鼠标位移该不该用来转视角。纯函数，OnLook 调它，测试直接调它。
 	 *
 	 * 星图的鼠标位移只在按住鼠标（CaptureDuringMouseDown）时才有值，所以

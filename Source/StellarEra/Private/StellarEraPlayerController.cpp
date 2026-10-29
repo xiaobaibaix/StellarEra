@@ -13,6 +13,7 @@
 #include "CosmosSimulationSubsystem.h"
 #include "StarMapCameraPawn.h"
 #include "VoxelPlanetActor.h"
+#include "VoxelViewpointInvokers.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputAction.h"
@@ -197,7 +198,33 @@ void AStellarEraPlayerController::OnPossess(APawn* InPawn)
 	// 换 Pawn（登船 / 离船 / 进出星图 / DebugPossessShip）一律退出矿物透视。
 	ExitMineralViewIfActive();
 
+	// 换视点：只有新 Pawn 的体素调用器参与 LOD 与碰撞。这是所有换 Pawn 路径的
+	// 唯一收口，所以门控挂在这里，而不是登船 / 离船 / 星图三处各写一遍。
+	ApplyViewpointInvokerGate(GetWorld(), InPawn);
+
 	ApplyMouseModeForPawn(InPawn);
+}
+
+void AStellarEraPlayerController::ApplyViewpointInvokerGate(
+	UWorld* const World, const APawn* const InPawn)
+{
+	if (!World)
+	{
+		return;
+	}
+
+	// OnPossess 是低频事件，遍历全部 Pawn 的开销可忽略。
+	for (TActorIterator<APawn> It(World); It; ++It)
+	{
+		APawn* const Pawn = *It;
+		IVoxelViewpointInvokers* const Viewpoint = Cast<IVoxelViewpointInvokers>(Pawn);
+		if (!Viewpoint)
+		{
+			continue;
+		}
+
+		Viewpoint->SetViewpointInvokersActive(Pawn == InPawn);
+	}
 }
 
 void AStellarEraPlayerController::ApplyMouseModeForPawn(APawn* InPawn)
@@ -627,11 +654,13 @@ void AStellarEraPlayerController::OnZoom(const FInputActionValue& Value)
 		if (Edit)
 		{
 			// 编辑模式下滚轮改笔刷尺寸，相机臂长保持不动 —— 挖洞时要盯着脚下，
-			// 顺手把镜头拉远/拉近会打断瞄准。一格滚轮 = 一档，一档多少体素问组件。
+			// 顺手把镜头拉远/拉近会打断瞄准。一格滚轮 = 一档，一档多少体素问组件；
+			// 按住 Ctrl 走粗调（×10）。
 			if (!FMath::IsNearlyZero(Scroll))
 			{
-				const int32 Step = Edit->GetBrushSizeStepVoxels();
-				Edit->AdjustBrushSize(Scroll > 0.f ? Step : -Step);
+				const bool bCoarse =
+					IsInputKeyDown(EKeys::LeftControl) || IsInputKeyDown(EKeys::RightControl);
+				Edit->AdjustBrushSizeByStep(Scroll > 0.f, bCoarse);
 			}
 			return;
 		}
@@ -784,8 +813,10 @@ void AStellarEraPlayerController::OnBrushSize(const FInputActionValue& Value)
 		const float Axis = Value.Get<float>();
 		if (!FMath::IsNearlyZero(Axis))
 		{
-			const int32 Step = Edit->GetBrushSizeStepVoxels();
-			Edit->AdjustBrushSize(Axis > 0.f ? Step : -Step);
+			// 星图区间跨到 1280，一档 10 体素要按一百多下 —— 按住 Ctrl 走 ×10 粗调。
+			const bool bCoarse =
+				IsInputKeyDown(EKeys::LeftControl) || IsInputKeyDown(EKeys::RightControl);
+			Edit->AdjustBrushSizeByStep(Axis > 0.f, bCoarse);
 		}
 	}
 }

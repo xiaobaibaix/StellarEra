@@ -53,6 +53,9 @@ public class StellarEra : ModuleRules
 			"StellarEraCharacter", // 角色；只在 .cpp 与测试里 include
 			"StellarEraPlanetEdit", // 编辑组件 / 笔刷；只在 .cpp 与测试里 include
 			"StellarEraCosmos", // N 体编排（子系统 / 轨道组件 / 轨迹组件）；Cosmos 的头只在 .cpp 与测试里 include，公开头不出现
+			// 视点门控的测试（VoxelViewpointInvokerTests.cpp）直接摸插件的
+			// UVoxelInvokerComponentBase 与 FVoxelMessages，链接期需要本模块。
+			"Voxel",
 			"InputCore",
 			"EnhancedInput",   // 只有 StellarEraPlayerController.cpp 用到
 		});
