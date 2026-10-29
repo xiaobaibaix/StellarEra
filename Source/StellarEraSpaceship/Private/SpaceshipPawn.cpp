@@ -14,6 +14,7 @@
 #include "PhysicsEngine/BodySetup.h"
 #include "PhysicsEngine/ConvexElem.h"
 #include "AlwaysLocalVoxelInvokerComponent.h"
+#include "VoxelViewpointInvokers.h"
 
 namespace
 {
@@ -307,6 +308,10 @@ void ASpaceshipPawn::BeginPlay()
 	// 落地自由视角绕着摇臂枢轴转，基准朝向同样抄一份：蓝图可能调过摇臂的相对朝向，
 	// 每帧叠加偏移而不是直接覆盖，才不会把那个值冲掉。
 	SpringArmBaseRotation = SpringArm ? SpringArm->GetRelativeRotation().Quaternion() : FQuat::Identity;
+
+	// 调用器在 OnRegister 里已经自动启用了，这里按「还不是视点」关掉。
+	// 飞船在 PIE 开局就生成、由玩家登上后才 Possess，这个窗口里它不该参与 LOD。
+	ApplyViewpointInvokerState();
 }
 
 AVoxelPlanetActor* ASpaceshipPawn::FindNearestPlanet() const
@@ -370,6 +375,20 @@ void ASpaceshipPawn::SetVoxelInvokerCollisionEnabled(const bool bEnabled)
 	// 行星球心调用器的轨道 LOD（约 LOD 8），星球会明显变糊。
 	// 插件在下一次 LOD 更新时比较新旧 bUseForCollisions，变化后自行重建。
 	VoxelInvoker->bUseForCollisions = bEnabled;
+}
+
+void ASpaceshipPawn::SetViewpointInvokersActive(const bool bActive)
+{
+	bIsViewpoint = bActive;
+	ApplyViewpointInvokerState();
+}
+
+void ASpaceshipPawn::ApplyViewpointInvokerState()
+{
+	// 高速门控只改 bUseForCollisions，与这里的整体启停正交，不参与合并。
+	VoxelViewpointInvokers::SetEnabled(VoxelInvoker, bIsViewpoint);
+	VoxelViewpointInvokers::SetEnabled(VoxelInvokerLOD3, bIsViewpoint);
+	VoxelViewpointInvokers::SetEnabled(VoxelInvokerLOD5, bIsViewpoint);
 }
 
 void ASpaceshipPawn::Tick(float DeltaSeconds)

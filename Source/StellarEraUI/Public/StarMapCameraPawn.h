@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Pawn.h"
+#include "VoxelViewpointInvokers.h"
 #include "StarMapCameraPawn.generated.h"
 
 class AVoxelPlanetActor;
@@ -63,7 +64,7 @@ struct FPlanetEditTarget;
  * 看得见、点得中。
  */
 UCLASS()
-class STELLARERAUI_API AStarMapCameraPawn : public APawn
+class STELLARERAUI_API AStarMapCameraPawn : public APawn, public IVoxelViewpointInvokers
 {
 	GENERATED_BODY()
 
@@ -71,6 +72,10 @@ public:
 	AStarMapCameraPawn();
 
 	virtual void BeginPlay() override;
+
+	//~ Begin IVoxelViewpointInvokers Interface
+	virtual void SetViewpointInvokersActive(bool bActive) override;
+	//~ End IVoxelViewpointInvokers Interface
 
 	/** 星图模式的行星编辑组件。参数（尺寸区间、提示、距离）在构造函数里配好。 */
 	UPlanetEditComponent* GetPlanetEditComponent() const;
@@ -246,6 +251,12 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, Category = "StarMap|Voxel")
 	TObjectPtr<UVoxelSimpleInvokerComponent> VoxelInvokerLOD5;
+
+	/** 三档调用器同进同出。 */
+	void ApplyViewpointInvokerState();
+
+	/** 本 Pawn 是否当前视点。初值 false —— OnRegister 会自动启用，BeginPlay 要按它关掉。 */
+	bool bIsViewpoint = false;
 
 	/**
 	 * 行星编辑器。与角色共用同一个组件类，差别只在参数与射线解析器：

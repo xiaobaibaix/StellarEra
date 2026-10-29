@@ -9,6 +9,7 @@
 #include "PlanetSurfaceRay.h"
 #include "VoxelPlanetActor.h"
 #include "AlwaysLocalVoxelInvokerComponent.h"
+#include "VoxelViewpointInvokers.h"
 
 AStarMapCameraPawn::AStarMapCameraPawn()
 {
@@ -61,10 +62,11 @@ AStarMapCameraPawn::AStarMapCameraPawn()
 
 	// --- 行星编辑：与角色共用组件，参数按星图尺度调大 ---
 	//
-	// 尺寸 8..128 体素：1 体素 = 100 cm（前两颗行星），128 = 128 米级的陨石坑。
+	// 尺寸 8..1280 体素：1 体素 = 100 cm（前两颗行星），1280 = 直径 1.28 km 的坑。
 	// 默认 64 体素：默认值偏大是因为「直径 32 的坑在这个距离上几乎看不见」，
 	// 64 既看得出是一个坑，又不至于一点就挖穿。
-	// 一档 10 体素：区间跨 120 格，一档一格的按法等于没反应（从 64 按到上限要 64 下）。
+	// 一档 10 体素（Ctrl 粗调 ×10）：区间跨 1272 格，一档一格的按法等于没反应；
+	// 从 64 直接按到 1280 要 128 下，所以加了 Ctrl 粗调。
 	// 角色仍是 1 —— 它的区间只有 1..8。
 	//
 	// 蓝图子类 BP_StarMapCameraPawn 只把「在蓝图细节面板里手改过」的组件属性记进
@@ -77,10 +79,11 @@ AStarMapCameraPawn::AStarMapCameraPawn()
 	PlanetEdit->ConfigureBrushRange(
 		PlanetEditBrush::MinStarMapSizeVoxels, PlanetEditBrush::MaxStarMapSizeVoxels,
 		/*InitialSize=*/64);
-	// 按键 / 滚轮一档走 10 体素。区间 8..128 下从 8 起步正好能走到 128（8 + 12×10）。
+	// 按键 / 滚轮一档走 10 体素。从默认 64 走到 1280 是 122 档，按住 Ctrl 粗调（×10）
+	// 则是 12 档。
 	PlanetEdit->BrushSizeStepVoxels = 10;
-	// 128 是直径：半径 64 体素的球在体素空间里是百万格量级，填充时整球都要改，
-	// 单线程会卡住整帧。
+	// 1280 是直径、半径 640 体素的球：整块包围盒是十亿格量级，单线程会把整帧卡死，
+	// 多线程按八叉树叶子并行是唯一能接受的方式。
 	PlanetEdit->bMultiThreadedEdits = true;
 	// 右键在星图里已经归绕轨，所以「填」改用 Ctrl+左键；Shift+左键按住是连续挖。
 	PlanetEdit->PlaceActionHint = TEXT("Shift+左键按住连续挖 · Ctrl+左键填");
@@ -103,6 +106,23 @@ void AStarMapCameraPawn::BeginPlay()
 					RayOrigin, RayDirection, MaxDistanceCm, OutTarget);
 			});
 	}
+
+	// 调用器在 OnRegister 里已经自动启用了。星图相机只在被 Possess（进星图）
+	// 期间才是视点，此前一律关掉。
+	ApplyViewpointInvokerState();
+}
+
+void AStarMapCameraPawn::SetViewpointInvokersActive(const bool bActive)
+{
+	bIsViewpoint = bActive;
+	ApplyViewpointInvokerState();
+}
+
+void AStarMapCameraPawn::ApplyViewpointInvokerState()
+{
+	VoxelViewpointInvokers::SetEnabled(VoxelInvoker, bIsViewpoint);
+	VoxelViewpointInvokers::SetEnabled(VoxelInvokerLOD3, bIsViewpoint);
+	VoxelViewpointInvokers::SetEnabled(VoxelInvokerLOD5, bIsViewpoint);
 }
 
 UPlanetEditComponent* AStarMapCameraPawn::GetPlanetEditComponent() const

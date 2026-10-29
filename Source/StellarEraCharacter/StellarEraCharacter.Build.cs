@@ -4,8 +4,12 @@ using UnrealBuildTool;
 
 // 角色控制层：行星角色、球面移动组件、动画实例。
 //
-// Terrain 与 PlanetEdit 是 **Private**：公开头只前置声明 AVoxelPlanetActor /
-// UPlanetEditComponent，完整定义只在 .cpp 里 include。
+// Terrain 是 **Public**：公开头 PlanetCharacter.h 公开继承 IVoxelViewpointInvokers，
+// 而这个接口声明在 StellarEraTerrain 的 VoxelViewpointInvokers.h —— 公开头 include
+// 的头所在模块必须是公开依赖，否则下游 include PlanetCharacter.h 时找不到它。
+// 除这个接口外，AVoxelPlanetActor 等仍只在 .cpp 与测试里用到。
+//
+// PlanetEdit 仍是 **Private**：公开头只前置声明 UPlanetEditComponent。
 //
 // Voxel 必须**显式**列出，尽管本模块的公开头不 include 任何插件头：
 //   - Terrain 把 Voxel 声明成 Public，那只是把插件的 include 路径向下游传，
@@ -27,11 +31,11 @@ public class StellarEraCharacter : ModuleRules
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
 			"Core", "CoreUObject", "Engine",
+			"StellarEraTerrain", // VoxelViewpointInvokers.h（PlanetCharacter.h 公开继承其中的接口）
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			"StellarEraTerrain",
 			"StellarEraPlanetEdit",
 			"Voxel",
 		});

@@ -5,6 +5,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "VoxelViewpointInvokers.h"
 #include "PlanetCharacter.generated.h"
 
 class AVoxelPlanetActor;
@@ -23,7 +24,7 @@ class UVoxelSimpleInvokerComponent;
  * 斜坡、台阶、跳跃就都在“重力空间”里成立了。
  */
 UCLASS()
-class STELLARERACHARACTER_API APlanetCharacter : public ACharacter
+class STELLARERACHARACTER_API APlanetCharacter : public ACharacter, public IVoxelViewpointInvokers
 {
 	GENERATED_BODY()
 
@@ -33,6 +34,10 @@ public:
 	virtual void OnConstruction(const FTransform& Transform) override;
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
+
+	//~ Begin IVoxelViewpointInvokers Interface
+	virtual void SetViewpointInvokersActive(bool bActive) override;
+	//~ End IVoxelViewpointInvokers Interface
 
 	/** 球面行走输入：X = 前后，Y = 左右，取值 [-1, 1]。 */
 	void Move(const FVector2D& Value);
@@ -201,6 +206,22 @@ public:
 	FName FaceAttachBone = TEXT("Head_50");
 
 private:
+	/**
+	 * 按「是当前视点 ∧ 没在船上」开关脚下的体素调用器。
+	 *
+	 * 两条规则必须合成一个谓词：分开写会互相拆台 —— SetBoarded(false) 会把
+	 * 非当前视点的角色重新打开，而登船期间角色跟着飞船高速平移，
+	 * LODToSet = 0 的 200 米盒子每帧都要重网格化。
+	 *
+	 * @param bBoarded 调用方当时知道的登船状态。SetBoarded 传它自己的入参，
+	 *                 其余两处（视点切换 / BeginPlay）现查 GetAttachParentActor()。
+	 *                 不存成员：登船状态的唯一口径是挂接关系，存一份会漂移。
+	 */
+	void ApplyViewpointInvokerState(bool bBoarded);
+
+	/** 本 Pawn 是否当前视点。初值 false —— OnRegister 会自动启用，BeginPlay 要按它关掉。 */
+	bool bIsViewpoint = false;
+
 	/**
 	 * 把 CharacterMesh / MeshRelativeLocation / MeshRelativeRotation / MeshScale
 	 * 套用到 GetMesh() 上。四个属性是一组，换模型只改这一组，不必重新编译。

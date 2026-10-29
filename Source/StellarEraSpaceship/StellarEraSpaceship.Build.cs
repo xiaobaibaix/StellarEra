@@ -7,8 +7,11 @@ using UnrealBuildTool;
 // 飞船**不能**依赖 StellarEraCosmos（那会成环）：推力加速度由子系统每帧下来读走。
 // 大气组件住在 StellarEraAtmosphere（Task 10 已拆出）。
 //
-// Terrain / Character 是 **Private**：公开头 SpaceshipPawn.h 只 include
-// CoreMinimal.h 与 Pawn.h，行星、角色、体素调用器的完整类型只在 .cpp 与测试里用到。
+// Terrain 是 **Public**：公开头 SpaceshipPawn.h 公开继承 IVoxelViewpointInvokers，
+// 而这个接口声明在 StellarEraTerrain 的 VoxelViewpointInvokers.h —— 公开头 include
+// 的头所在模块必须是公开依赖，否则下游 include SpaceshipPawn.h 时找不到它。
+//
+// Character 仍是 **Private**：公开头只前置声明 APlanetCharacter。
 // Atmosphere 同样是 **Private**：SpaceshipPawn.cpp include PlanetAtmosphereComponent.h
 // 并 FindComponentByClass 取壳，公开头不出现大气类型。
 //
@@ -28,11 +31,11 @@ public class StellarEraSpaceship : ModuleRules
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
 			"Core", "CoreUObject", "Engine",
+			"StellarEraTerrain", // VoxelViewpointInvokers.h（SpaceshipPawn.h 公开继承其中的接口）
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			"StellarEraTerrain",
 			"StellarEraAtmosphere",
 			"StellarEraCharacter",
 			"Voxel",

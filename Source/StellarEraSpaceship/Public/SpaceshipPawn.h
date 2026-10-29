@@ -5,6 +5,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Pawn.h"
+#include "VoxelViewpointInvokers.h"
 #include "SpaceshipPawn.generated.h"
 
 class APlanetCharacter;
@@ -104,7 +105,7 @@ struct FSpaceshipStatus
  * 不参与积分。
  */
 UCLASS()
-class STELLARERASPACESHIP_API ASpaceshipPawn : public APawn
+class STELLARERASPACESHIP_API ASpaceshipPawn : public APawn, public IVoxelViewpointInvokers
 {
 	GENERATED_BODY()
 
@@ -114,6 +115,10 @@ public:
 	virtual void OnConstruction(const FTransform& Transform) override;
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
+
+	//~ Begin IVoxelViewpointInvokers Interface
+	virtual void SetViewpointInvokersActive(bool bActive) override;
+	//~ End IVoxelViewpointInvokers Interface
 
 	/** 主推力输入（-1 = 制动，+1 = 前进）。 */
 	void SetThrust(float Value);
@@ -794,6 +799,12 @@ private:
 	 * RefreshAllVoxelInvokers。
 	 */
 	void SetVoxelInvokerCollisionEnabled(bool bEnabled);
+
+	/** 三档调用器一起开关 —— 只留高档近处会糊，只留低档就没有碰撞气泡。 */
+	void ApplyViewpointInvokerState();
+
+	/** 本 Pawn 是否当前视点。初值 false —— OnRegister 会自动启用，BeginPlay 要按它关掉。 */
+	bool bIsViewpoint = false;
 
 	float ThrustInput = 0.f;
 	float RollInput = 0.f;

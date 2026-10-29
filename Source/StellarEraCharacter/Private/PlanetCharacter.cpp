@@ -6,6 +6,7 @@
 #include "PlanetEditComponent.h"
 #include "VoxelPlanetActor.h"
 #include "AlwaysLocalVoxelInvokerComponent.h"
+#include "VoxelViewpointInvokers.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -314,6 +315,12 @@ void APlanetCharacter::BeginPlay()
 			});
 	}
 
+	// 调用器在 OnRegister 里自动启用（VoxelInvokerComponent.cpp:83），那时还没有
+	// 任何人告诉过我们是不是视点。这里按当前已知状态重新应用一次。
+	// 必须在下面「找不到行星」的早退之前 —— 早退之后就没有第二次机会，
+	// 角色会在没被 Possess 的情况下一直开着调用器。
+	ApplyViewpointInvokerState(GetAttachParentActor() != nullptr);
+
 	PlanetActor = FindNearestPlanet();
 
 	if (PlanetEdit)
@@ -601,18 +608,8 @@ void APlanetCharacter::SetBoarded(bool bBoarded)
 
 	// 登船后角色只是被隐藏/禁撞，Actor 和调用器仍然挂在飞船上，会跟着飞船
 	// 一起高速平移：LODToSet = 0 + 200 米的盒子每帧都要重网格化，是飞船自己
-	// 那三档之外的一块大头。登船期间整份关掉，下船时再开。
-	if (VoxelInvoker && VoxelInvoker->IsRegistered())
-	{
-		if (bBoarded && VoxelInvoker->IsInvokerEnabled())
-		{
-			VoxelInvoker->DisableInvoker();
-		}
-		else if (!bBoarded && !VoxelInvoker->IsInvokerEnabled())
-		{
-			VoxelInvoker->EnableInvoker();
-		}
-	}
+	// 那三档之外的一块大头。这里连同「是不是当前视点」一起交给同一个谓词。
+	ApplyViewpointInvokerState(bBoarded);
 
 	if (!bBoarded)
 	{
@@ -623,4 +620,16 @@ void APlanetCharacter::SetBoarded(bool bBoarded)
 		// 让下一帧立刻重找最近的行星，而不是拿着旧星的重力方向等半秒。
 		PlanetReevaluateTimer = 0.f;
 	}
+}
+
+void APlanetCharacter::SetViewpointInvokersActive(const bool bActive)
+{
+	bIsViewpoint = bActive;
+	ApplyViewpointInvokerState(GetAttachParentActor() != nullptr);
+}
+
+void APlanetCharacter::ApplyViewpointInvokerState(const bool bBoarded)
+{
+	// 「参与」= 是当前视点 ∧ 没在船上。
+	VoxelViewpointInvokers::SetEnabled(VoxelInvoker, bIsViewpoint && !bBoarded);
 }

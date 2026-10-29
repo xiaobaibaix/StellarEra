@@ -25,13 +25,16 @@ public class StellarEraUI : ModuleRules
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
 			"Core", "CoreUObject", "Engine",
+			// 公开头 StarMapCameraPawn.h 公开继承 IVoxelViewpointInvokers，
+			// 而 VoxelViewpointInvokers.h 在 StellarEraTerrain —— 公开头 include 的头
+			// 所在模块必须是公开依赖，否则下游 include StarMapCameraPawn.h 时找不到它。
+			"StellarEraTerrain",
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"StellarEraCore",    // Cosmos 单位类型 CosmosTypes.h（生产代码：StarMapUISystem.cpp、StellarEraHUD.cpp）
 			"StellarEraCosmos",  // 选中天体、轨迹、星图状态
-			"StellarEraTerrain",  // 行星 Actor / 行星面射线 / 体素调用器（StarMapCameraPawn.cpp、StarMapUISystem.cpp）
 			"StellarEraGeology", // 地质场/元素类型（StarMapUISystem.cpp 直接用）
 			"StellarEraMinerals", // 矿物观察体组件 PlanetMineralViewComponent.h（StarMapUISystem.cpp 直接用）
 			"StellarEraSpaceship", // 飞船（StellarEraHUD.cpp 用 ASpaceshipPawn）
