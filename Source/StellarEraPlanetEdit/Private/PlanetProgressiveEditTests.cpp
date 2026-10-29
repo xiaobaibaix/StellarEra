@@ -9,10 +9,13 @@
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "PlanetEditBrush.h"
+#include "PlanetProgressiveEditKernel.h"
 #include "VoxelIntBox.h"
+#include "VoxelValue.h"
 #include "VoxelVector.h"
-// 为了直接调 FVoxelSphereToolsImpl::GetBounds 与我们的实现比对。
+// 为了直接调插件的 GetBounds / SphereEdit / BoxEdit 与我们的实现比对。
 // 插件把 inline 定义放在 .inl 里，头文件本身只有声明。
+#include "VoxelTools/Impl/VoxelBoxToolsImpl.inl"
 #include "VoxelTools/Impl/VoxelSphereToolsImpl.inl"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -161,6 +164,345 @@ bool FStellarEraProgressiveChunkTest::RunTest(const FString& Parameters)
 		TArray<FPlanetEditVoxelBox> Chunks;
 		PlanetEditBrush::SplitVoxelBoxIntoChunks(Small, 128, Chunks);
 		TestEqual(TEXT("半径 8 的球必须只切出 1 块"), Chunks.Num(), 1);
+	}
+
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// 逐格等价：插件「一次写完整个包围盒」 vs 我们「按块写完整个包围盒」
+// ---------------------------------------------------------------------------
+//
+// 上一组测试钉的是**几何前提**（块不重叠、并集 == 原盒）。这一组钉的是
+// **结论**：满足那个前提时，我们分块写出来的体素值与插件原函数一次写完
+// 完全相同。
+//
+// 做法上不写死期望值 —— 写死的话，公式改了我们跟着改数字，测试就成了
+// 抄写。这里让**插件自己的** SphereEdit / BoxEdit 在假数据上跑一遍当基准，
+// 再让我们内核按运行期的切块顺序跑一遍，逐格比对。基准永远是插件源码。
+
+namespace
+{
+	/**
+	 * 只为引擎测试存在的假数据：只实现插件工具用到的那个入口
+	 * `template<typename... TArgs, typename F> Set(Bounds, Lambda)`。
+	 * 有了它，FVoxelSphereToolsImpl::SphereEdit / FVoxelBoxToolsImpl::BoxEdit
+	 * 不需要任何体素世界就能跑起来。
+	 *
+	 * 刻意**不**模拟 ParallelSet 的并行：并行与否不改变每格的结果，
+	 * 这里要验的就是逐格取值。
+	 */
+	struct FProgressiveTestVoxelData
+	{
+		FVoxelIntBox Bounds;
+		TArray<FVoxelValue> Cells;
+
+		/** Set 被调用时遍历到的格数。0 = 插件压根没调进来，否则是谓词自己早退。 */
+		int32 SetCalls = 0;
+
+		void Init(const FVoxelIntBox& InBounds)
+		{
+			Bounds = InBounds;
+			// 零初始化：FVoxelValue 的默认构造不写成员（见 VoxelValue.h）。
+			Cells.SetNumZeroed(int32(InBounds.Count()));
+		}
+
+		FVoxelValue& At(const int32 X, const int32 Y, const int32 Z)
+		{
+			return Cells[Index(X, Y, Z)];
+		}
+
+		const FVoxelValue& At(const int32 X, const int32 Y, const int32 Z) const
+		{
+			return Cells[Index(X, Y, Z)];
+		}
+
+		// 插件调用的是 Data.template Set<FVoxelValue>(...)，签名必须对上。
+		template<typename... TArgs, typename F>
+		void Set(const FVoxelIntBox& InBounds, F Lambda)
+		{
+			InBounds.Iterate([&](int32 X, int32 Y, int32 Z)
+			{
+				++SetCalls;
+				Lambda(X, Y, Z, At(X, Y, Z));
+			});
+		}
+
+		/**
+		 * 确定性的种子：铺满**整个存储量程**，而不是清一色的空/实。
+		 *
+		 * 量程必须是真的量程。FVoxelValue 在本工程是 16 位
+		 *（TVoxelValueImpl<int16>，`EIGHT_BITS_VOXEL_VALUE` 为 0），存储取
+		 * [-32767, 32767]。一开始这里按 8 位写成了 ±127，结果球的 merge
+		 * 路径（`Max(旧值, 新表面值)`）恒等于旧值 —— 半径 0.5 的球表面值
+		 * 是 -4178，比任何 ±127 的种子都「实」，Max 永远取种子，于是一格
+		 * 都没变，比对就变成了「两边都没动，所以一样」。
+		 *
+		 * 跳过 INVALID（-32768，即 FVoxelValue::Special，正常构造造不出来）。
+		 */
+		void SeedMixed()
+		{
+			// 量程若被改成 8 位体素值，这里必须跟着改，否则种子又会被压到
+			// 量程的一角而失去意义。宁可编译不过，也不要静默退化成空转。
+			static_assert(FVoxelValue::MAX_VOXELVALUE == 32767,
+				"种子量程按 16 位体素值写的；改成 8 位后需要重算量程与类型");
+
+			constexpr int32 MaxStorage = int32(FVoxelValue::MAX_VOXELVALUE);
+			constexpr uint32 StorageSpan = uint32(MaxStorage) * 2 + 1;
+
+			Bounds.Iterate([&](int32 X, int32 Y, int32 Z)
+			{
+				const uint32 Hash =
+					uint32(X) * 73856093u ^ uint32(Y) * 19349663u ^ uint32(Z) * 83492791u;
+				FVoxelValue Value;
+				Value.GetStorage() =
+					int16(int32((Hash >> 3) % StorageSpan) - MaxStorage);
+				At(X, Y, Z) = Value;
+			});
+		}
+
+	private:
+		int32 Index(const int32 X, const int32 Y, const int32 Z) const
+		{
+			const int32 SizeY = Bounds.Max.Y - Bounds.Min.Y;
+			const int32 SizeZ = Bounds.Max.Z - Bounds.Min.Z;
+			return ((X - Bounds.Min.X) * SizeY + (Y - Bounds.Min.Y)) * SizeZ + (Z - Bounds.Min.Z);
+		}
+	};
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraProgressiveKernelTest,
+	"StellarEra.Planet.Editor.ProgressiveKernel",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraProgressiveKernelTest::RunTest(const FString& Parameters)
+{
+	/** 逐格比对两份数据，报第一处差异。 */
+	const auto CompareCells = [this](
+		const FProgressiveTestVoxelData& Expected,
+		const FProgressiveTestVoxelData& Actual,
+		const FString& Label)
+	{
+		int32 MismatchCount = 0;
+		FString FirstMismatch;
+		Expected.Bounds.Iterate([&](int32 X, int32 Y, int32 Z)
+		{
+			const FVoxelValue& A = Expected.At(X, Y, Z);
+			const FVoxelValue& B = Actual.At(X, Y, Z);
+			if (A != B)
+			{
+				if (MismatchCount == 0)
+				{
+					FirstMismatch = FString::Printf(TEXT("首处 (%d,%d,%d)：插件 %s(%d)，我们 %s(%d)"),
+						X, Y, Z, *A.ToString(), int32(A.GetStorage()),
+						*B.ToString(), int32(B.GetStorage()));
+				}
+				++MismatchCount;
+			}
+		});
+
+		TestEqual(FString::Printf(TEXT("%s：逐格必须与插件完全一致（差异格数 %d，%s）"),
+			*Label, MismatchCount, *FirstMismatch), MismatchCount, 0);
+	};
+
+	// --- 1. 球：插件一次写完 vs 我们按块写 ---
+	// 中心取非整数，半径取到「小于 2」（内圈阈值被夹到 0）与「远大于块」两种极端。
+	{
+		const FVoxelVector Centers[] = {
+			FVoxelVector(0.0, 0.0, 0.0),
+			FVoxelVector(12.4, -7.6, 3.5),
+		};
+		const float Radii[] = {0.5f, 1.f, 3.f, 8.f, 20.f};
+		// 7 让每笔编辑切成上千块（块边界与格子、与球面全都不对齐），
+		// 128 是运行期的默认块边长。
+		const int32 ChunkSizes[] = {7, 128};
+
+		for (const FVoxelVector& Center : Centers)
+		{
+			for (const float Radius : Radii)
+			{
+				for (const int32 ChunkSize : ChunkSizes)
+				{
+					for (const bool bPlace : {false, true})
+					{
+						const FString Label = FString::Printf(TEXT("球 R=%.1f 中心=%s 块=%d %s"),
+							Radius, *Center.ToString(), ChunkSize, bPlace ? TEXT("填") : TEXT("挖"));
+
+						const FVoxelIntBox Bounds = FVoxelSphereToolsImpl::GetBounds(Center, Radius);
+
+						FProgressiveTestVoxelData PluginSide;
+						PluginSide.Init(Bounds);
+						PluginSide.SeedMixed();
+
+						// 留存未编辑的种子：稍后用来证明这一轮确实改到了东西，
+						// 否则「两边一致」可能只是因为都没动过（比对空转）。
+						const TArray<FVoxelValue> UntouchedSeed = PluginSide.Cells;
+
+						if (bPlace)
+						{
+							FVoxelSphereToolsImpl::SphereEdit<true>(PluginSide, Center, Radius);
+						}
+						else
+						{
+							FVoxelSphereToolsImpl::SphereEdit<false>(PluginSide, Center, Radius);
+						}
+
+						FProgressiveTestVoxelData OurSide;
+						OurSide.Init(Bounds);
+						OurSide.SeedMixed();
+
+						const FPlanetEditVoxelBox FullBox{Bounds.Min, Bounds.Max};
+						TArray<FPlanetEditVoxelBox> Chunks;
+						PlanetEditBrush::SplitVoxelBoxIntoChunks(FullBox, ChunkSize, Chunks);
+
+						const FVector CenterVoxels(Center.X, Center.Y, Center.Z);
+						float SquaredRadiusPlus2 = 0.f;
+						float SquaredRadiusMinus2 = 0.f;
+						PlanetProgressiveKernel::GetSphereThresholds(
+							Radius, SquaredRadiusPlus2, SquaredRadiusMinus2);
+
+						// 按运行期那样一块一块写：块内逐格，整盒逐格同结果。
+						for (const FPlanetEditVoxelBox& Chunk : Chunks)
+						{
+							for (int32 X = Chunk.Min.X; X < Chunk.MaxExclusive.X; ++X)
+							{
+								for (int32 Y = Chunk.Min.Y; Y < Chunk.MaxExclusive.Y; ++Y)
+								{
+									for (int32 Z = Chunk.Min.Z; Z < Chunk.MaxExclusive.Z; ++Z)
+									{
+										FVoxelValue& Value = OurSide.At(X, Y, Z);
+										Value = PlanetProgressiveKernel::EvaluateSphereValue(
+											Radius, SquaredRadiusPlus2, SquaredRadiusMinus2,
+											PlanetProgressiveKernel::SquaredDistanceTo(
+												CenterVoxels, X, Y, Z),
+											Value, bPlace);
+									}
+								}
+							}
+						}
+
+						TestTrue(Label + TEXT("：必须切出至少一块（否则下面的比对是空转）"),
+							Chunks.Num() > 0);
+						int32 PluginChangedCells = 0;
+						for (int32 Index = 0; Index < PluginSide.Cells.Num(); ++Index)
+						{
+							PluginChangedCells += PluginSide.Cells[Index] != UntouchedSeed[Index] ? 1 : 0;
+						}
+						TestTrue(FString::Printf(
+							TEXT("%s：插件必须真的改到体素（改了 %d / %d 格，Set 遍历 %d 格，"
+								 "Plus2=%.3f Minus2=%.3f）"),
+							*Label, PluginChangedCells, PluginSide.Cells.Num(), PluginSide.SetCalls,
+							SquaredRadiusPlus2, SquaredRadiusMinus2),
+							PluginChangedCells > 0);
+						CompareCells(PluginSide, OurSide, Label);
+					}
+				}
+			}
+		}
+	}
+
+	// --- 2. 方块：贴边判定必须用整笔编辑的盒子 ---
+	// 盒子边长故意不是块边长的整数倍，块边界必然与盒子边界错开：
+	// 若内核误用「当前块的盒子」判贴边，每个块的内壁都会被刷成表面，
+	// 这一组会立刻炸。
+	{
+		const FPlanetEditVoxelBox FullBox{FIntVector(-33, -18, 7), FIntVector(33, 19, 28)};
+		const FVoxelIntBox Bounds(FullBox.Min, FullBox.MaxExclusive);
+		const int32 ChunkSizes[] = {5, 16, 128};
+
+		for (const int32 ChunkSize : ChunkSizes)
+		{
+			for (const bool bPlace : {false, true})
+			{
+				const FString Label = FString::Printf(
+					TEXT("方块 块=%d %s"), ChunkSize, bPlace ? TEXT("填") : TEXT("挖"));
+
+				FProgressiveTestVoxelData PluginSide;
+				PluginSide.Init(Bounds);
+				PluginSide.SeedMixed();
+				const TArray<FVoxelValue> UntouchedSeed = PluginSide.Cells;
+				if (bPlace)
+				{
+					FVoxelBoxToolsImpl::BoxEdit<true>(PluginSide, Bounds);
+				}
+				else
+				{
+					FVoxelBoxToolsImpl::BoxEdit<false>(PluginSide, Bounds);
+				}
+
+				FProgressiveTestVoxelData OurSide;
+				OurSide.Init(Bounds);
+				OurSide.SeedMixed();
+
+				TArray<FPlanetEditVoxelBox> Chunks;
+				PlanetEditBrush::SplitVoxelBoxIntoChunks(FullBox, ChunkSize, Chunks);
+				for (const FPlanetEditVoxelBox& Chunk : Chunks)
+				{
+					for (int32 X = Chunk.Min.X; X < Chunk.MaxExclusive.X; ++X)
+					{
+						for (int32 Y = Chunk.Min.Y; Y < Chunk.MaxExclusive.Y; ++Y)
+						{
+							for (int32 Z = Chunk.Min.Z; Z < Chunk.MaxExclusive.Z; ++Z)
+							{
+								FVoxelValue& Value = OurSide.At(X, Y, Z);
+								Value = PlanetProgressiveKernel::EvaluateBoxValue(
+									FIntVector(X, Y, Z), FullBox.Min, FullBox.MaxExclusive,
+									Value, bPlace);
+							}
+						}
+					}
+				}
+
+				TestTrue(Label + TEXT("：必须切出至少一块（否则下面的比对是空转）"),
+					Chunks.Num() > 0);
+				TestTrue(Label + TEXT("：插件必须真的改到体素（否则比对是空转）"),
+					PluginSide.Cells != UntouchedSeed);
+				CompareCells(PluginSide, OurSide, Label);
+			}
+		}
+	}
+
+	// --- 3. 球阈值的三段语义（代表点）---
+	// 上面两组是端到端比对；这里单独钉住三段的边界条件，因为「>」与「<=」
+	// 写反了在整数中心的球上可能表现不出来（格心恰好落在边界上时才有区别）。
+	{
+		const float Radius = 8.f;
+		float SquaredRadiusPlus2 = 0.f;
+		float SquaredRadiusMinus2 = 0.f;
+		PlanetProgressiveKernel::GetSphereThresholds(
+			Radius, SquaredRadiusPlus2, SquaredRadiusMinus2);
+
+		TestEqual(TEXT("阈值 (R+2)²"), SquaredRadiusPlus2, FMath::Square(Radius + 2));
+		TestEqual(TEXT("阈值 (R-2)²"), SquaredRadiusMinus2, FMath::Square(Radius - 2));
+
+		// D = R - 2：内圈边界（包含），挖成完全空、填成完全实。
+		const float AtMinus2 = FMath::Square(Radius - 2);
+		TestTrue(TEXT("D = R-2 挖掘必须是完全空"),
+			PlanetProgressiveKernel::EvaluateSphereValue(
+				Radius, SquaredRadiusPlus2, SquaredRadiusMinus2, AtMinus2,
+				FVoxelValue::Full(), false).IsTotallyEmpty());
+		TestTrue(TEXT("D = R-2 填充必须是完全实"),
+			PlanetProgressiveKernel::EvaluateSphereValue(
+				Radius, SquaredRadiusPlus2, SquaredRadiusMinus2, AtMinus2,
+				FVoxelValue::Empty(), true).IsTotallyFull());
+
+		// D = R：衰减带正中，得到表面 0（挖填都是）。
+		const float AtRadius = FMath::Square(Radius);
+		TestTrue(TEXT("D = R 挖掘必须得到表面 0"),
+			PlanetProgressiveKernel::EvaluateSphereValue(
+				Radius, SquaredRadiusPlus2, SquaredRadiusMinus2, AtRadius,
+				FVoxelValue::Full(), false).IsNull());
+		TestTrue(TEXT("D = R 填充必须得到表面 0"),
+			PlanetProgressiveKernel::EvaluateSphereValue(
+				Radius, SquaredRadiusPlus2, SquaredRadiusMinus2, AtRadius,
+				FVoxelValue::Empty(), true).IsNull());
+
+		// D = R + 3：超出外圈，原值一字不动。
+		const FVoxelValue Untouched{ 0.25f };
+		TestTrue(TEXT("D = R+3 必须完全不动"),
+			PlanetProgressiveKernel::EvaluateSphereValue(
+				Radius, SquaredRadiusPlus2, SquaredRadiusMinus2, FMath::Square(Radius + 3),
+				Untouched, false) == Untouched);
 	}
 
 	return true;
