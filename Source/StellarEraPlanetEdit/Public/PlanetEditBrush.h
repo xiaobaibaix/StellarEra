@@ -61,7 +61,47 @@ namespace PlanetEditBrush
 	 * 旧的 1 参 ClampSize 会把 32 悄悄夹成 8。
 	 */
 	constexpr int32 MinStarMapSizeVoxels = 8;
-	constexpr int32 MaxStarMapSizeVoxels = 128;
+
+	/**
+	 * 星图笔刷上限。1280 体素 × 100 cm/体素 = 直径 1.28 km 的坑。
+	 *
+	 * 这个数字不是白给的：体素工具的代价是 Size³，1280 差不多是 128 的一千倍，
+	 * 一次落笔要扫 1286³ ≈ 2.1e9 格。所以上限抬高的同时必须关掉 ModifiedValues
+	 * 记录（见 ShouldRecordModifiedValues），否则光是记录缓冲区就要 40 GB 以上。
+	 */
+	constexpr int32 MaxStarMapSizeVoxels = 1280;
+
+	/** 按住 Ctrl 时一档走几倍。上限 1280 配一档 10 体素要按 128 下，够不着。 */
+	constexpr int32 CoarseStepMultiplier = 10;
+
+	/** 一次改笔刷走多少体素：BaseStepVoxels × (bCoarse ? CoarseStepMultiplier : 1)。 */
+	STELLARERAPLANETEDIT_API int32 ResolveBrushStep(int32 BaseStepVoxels, bool bCoarse);
+
+	/**
+	 * 体素工具一次编辑要扫的格子数：包围盒是 2·R + 6 体素宽，即 (SizeVoxels + 6)³。
+	 *
+	 * 球体真正改到的只是内切球（π/6 ≈ 52%），但工具的包围盒扫描和记录缓冲区
+	 * 都按整块算，所以这里保守取整块。
+	 */
+	STELLARERAPLANETEDIT_API int64 EstimateToolCellCount(int32 SizeVoxels);
+
+	/**
+	 * 记录缓冲区最多允许多少格。20 字节/格 → 4e6 格约 80 MB，已经偏大；
+	 * 对应尺寸约 152 体素，星图默认 64、角色 1..8 都在里面。
+	 *
+	 * 写 4000000 而不是 4'000'000：UHT 的数字字面量解析器不认数字分隔符，
+	 * 会报 "Unterminated character constant"。
+	 */
+	constexpr int64 MaxRecordedCellCount = 4000000;
+
+	/**
+	 * 这次编辑要不要记录 ModifiedValues。
+	 *
+	 * 插件在 TVoxelDataImpl::Set 里**按整个包围盒** AddUninitialized，跟实际改到
+	 * 几格无关 —— 1280 体素的球要 43 GB。超过预算就只能不记录，改用「中心格
+	 * 编辑前后是否相同」判断有没有真的改到东西（见 PlanetBrushApplicator）。
+	 */
+	STELLARERAPLANETEDIT_API bool ShouldRecordModifiedValues(int32 SizeVoxels);
 
 	/** 夹到 [MinSizeVoxels, MaxSizeVoxels]。 */
 	STELLARERAPLANETEDIT_API int32 ClampSize(int32 SizeVoxels);
@@ -126,6 +166,23 @@ namespace PlanetEditBrush
 	 * FVoxelIntBox 的 Max 是开区间（"Exclusive"）：直接透传会让方块少一格。
 	 */
 	STELLARERAPLANETEDIT_API FPlanetEditVoxelBox MakeVoxelBox(const FPlanetEditBox& Box);
+
+	/**
+	 * 体素盒是否有效：三轴都满足 MaxExclusive > Min。
+	 *
+	 * 判据与 FVoxelIntBox::IsValid() 一致 —— 本类型的默认值就是「无效」，
+	 * 用来表示「没有范围」。
+	 */
+	STELLARERAPLANETEDIT_API bool IsValidVoxelBox(const FPlanetEditVoxelBox& Box);
+
+	/**
+	 * 两个体素盒的并集。任一无效时返回另一个，两者都无效时返回无效盒。
+	 *
+	 * 连续挖期间渲染是攒着刷的：每笔工具都不刷渲染，改到的范围在这里累加，
+	 * 到点 / 松手时用并集刷一次，同一个 chunk 只重建一遍。
+	 */
+	STELLARERAPLANETEDIT_API FPlanetEditVoxelBox UnionVoxelBox(
+		const FPlanetEditVoxelBox& A, const FPlanetEditVoxelBox& B);
 
 	/** 球体预览每条大圆的分段数。 */
 	constexpr int32 PreviewSegmentsPerCircle = 32;

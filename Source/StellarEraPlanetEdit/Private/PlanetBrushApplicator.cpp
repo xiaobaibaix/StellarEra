@@ -6,6 +6,7 @@
 #include "VoxelIntBox.h"
 #include "VoxelTools/Gen/VoxelBoxTools.h"
 #include "VoxelTools/Gen/VoxelSphereTools.h"
+#include "VoxelTools/VoxelDataTools.h"
 #include "VoxelVector.h"
 
 bool PlanetBrushApplicator::Apply(
@@ -16,13 +17,43 @@ bool PlanetBrushApplicator::Apply(
 	const int32 MinSizeVoxels,
 	const int32 MaxSizeVoxels,
 	const bool bPlace,
-	const bool bMultiThreaded)
+	const bool bMultiThreaded,
+	FPlanetEditVoxelBox* const OutEditedBounds,
+	const bool bUpdateRender)
 {
 	const float VoxelSize = FMath::Max(Planet.VoxelSize, 1.f);
+	const double StartSeconds = FPlatformTime::Seconds();
 
-	// 工具的 OutModifiedValues 只记录**值真的变了**的体素（VoxelDataImpl::Set 里
-	// `OldValue != NewValue` 才追加），这正是「是否真的改到了体素」的判据。
+	// 记录只在「包围盒不太大」时开。插件的 TVoxelDataImpl::Set 是按**整个包围盒**
+	// AddUninitialized(Bounds.Count())，与真正改到几格无关：1280 体素的球要
+	// 1286³ × 20 字节 ≈ 43 GB，光标还没落地就 OOM。超过预算就传 nullptr，
+	// 改用「中心格前后是否相同」判断有没有真的改到东西。
+	//
+	// 小笔刷仍走记录：OutModifiedValues 只记**值真的变了**的体素
+	// （VoxelDataImpl::Set 里 `OldValue != NewValue` 才追加），是最准的判据。
+	const bool bRecordModifiedValues = PlanetEditBrush::ShouldRecordModifiedValues(SizeVoxels);
+
+	// 中心格的体素坐标。读它只为了「改没改到」这一个是非题，不是采样地形。
+	const FVoxelVector LocalCenter = Planet.GlobalToLocalFloat(CenterWorld);
+	const FIntVector CenterVoxel(
+		static_cast<int32>(FMath::RoundToInt(LocalCenter.X)),
+		static_cast<int32>(FMath::RoundToInt(LocalCenter.Y)),
+		static_cast<int32>(FMath::RoundToInt(LocalCenter.Z)));
+
+	float ValueBefore = 0.f;
+	if (!bRecordModifiedValues)
+	{
+		UVoxelDataTools::GetValue(ValueBefore, &Planet, CenterVoxel);
+	}
+
 	TArray<FModifiedVoxelValue> ModifiedValues;
+	TArray<FModifiedVoxelValue>* const OutModifiedValues =
+		bRecordModifiedValues ? &ModifiedValues : nullptr;
+
+	// 工具会把请求包围盒无条件写进 OutEditedBounds（宏在做事之前就赋值），
+	// 所以它只能用来**刷新渲染**，不能用来判断有没有改到 —— 后者用上面的记录。
+	FVoxelIntBox EditedBounds;
+	FVoxelIntBox* const OutBounds = OutEditedBounds ? &EditedBounds : nullptr;
 
 	if (Shape == EPlanetBrushShape::Sphere)
 	{
@@ -31,19 +62,18 @@ bool PlanetBrushApplicator::Apply(
 		if (bPlace)
 		{
 			UVoxelSphereTools::AddSphere(&Planet, CenterWorld, Radius,
-				/*OutModifiedValues=*/&ModifiedValues, /*OutEditedBounds=*/nullptr,
-				bMultiThreaded, /*bConvertToVoxelSpace=*/true, /*bUpdateRender=*/true);
+				OutModifiedValues, OutBounds,
+				bMultiThreaded, /*bConvertToVoxelSpace=*/true, bUpdateRender);
 		}
 		else
 		{
 			UVoxelSphereTools::RemoveSphere(&Planet, CenterWorld, Radius,
-				/*OutModifiedValues=*/&ModifiedValues, /*OutEditedBounds=*/nullptr,
-				bMultiThreaded, /*bConvertToVoxelSpace=*/true, /*bUpdateRender=*/true);
+				OutModifiedValues, OutBounds,
+				bMultiThreaded, /*bConvertToVoxelSpace=*/true, bUpdateRender);
 		}
 	}
 	else
 	{
-		const FVoxelVector LocalCenter = Planet.GlobalToLocalFloat(CenterWorld);
 		const FPlanetEditBox Box = PlanetEditBrush::MakeBox(
 			FVector(LocalCenter.X, LocalCenter.Y, LocalCenter.Z),
 			SizeVoxels, MinSizeVoxels, MaxSizeVoxels);
@@ -56,23 +86,57 @@ bool PlanetBrushApplicator::Apply(
 		if (bPlace)
 		{
 			UVoxelBoxTools::AddBox(&Planet, Bounds,
-				/*OutModifiedValues=*/&ModifiedValues, /*OutEditedBounds=*/nullptr,
-				bMultiThreaded, /*bUpdateRender=*/true);
+				OutModifiedValues, OutBounds,
+				bMultiThreaded, bUpdateRender);
 		}
 		else
 		{
 			UVoxelBoxTools::RemoveBox(&Planet, Bounds,
-				/*OutModifiedValues=*/&ModifiedValues, /*OutEditedBounds=*/nullptr,
-				bMultiThreaded, /*bUpdateRender=*/true);
+				OutModifiedValues, OutBounds,
+				bMultiThreaded, bUpdateRender);
 		}
 	}
 
-	// 空操作不调 NotifyVoxelEdited（表面网格刷新 + 存档防抖）；渲染仍会在上面按请求包围盒刷新一次。
-	if (ModifiedValues.Num() == 0)
+	const double ToolMs = (FPlatformTime::Seconds() - StartSeconds) * 1000.0;
+
+	bool bEdited = false;
+	if (bRecordModifiedValues)
+	{
+		bEdited = ModifiedValues.Num() > 0;
+	}
+	else
+	{
+		float ValueAfter = 0.f;
+		UVoxelDataTools::GetValue(ValueAfter, &Planet, CenterVoxel);
+		bEdited = !FMath::IsNearlyEqual(ValueBefore, ValueAfter);
+	}
+
+	// 空操作不调 NotifyVoxelEdited（表面网格刷新 + 未保存标记）。
+	if (!bEdited)
 	{
 		return false;
 	}
 
+	if (OutEditedBounds && EditedBounds.IsValid())
+	{
+		OutEditedBounds->Min = EditedBounds.Min;
+		OutEditedBounds->MaxExclusive = EditedBounds.Max;
+	}
+
 	Planet.NotifyVoxelEdited();
+
+	// 只报慢的：一次落笔超过 20 ms 才说话，免得连续挖把日志刷满。
+	// 体素工具的代价是包围盒 Size³（见 PlanetEditBrush::EstimateToolCellCount），
+	// 「工具」一栏就是这块；与总耗时的差值落在渲染刷新上。
+	const double TotalMs = (FPlatformTime::Seconds() - StartSeconds) * 1000.0;
+	if (TotalMs >= 20.0)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Dig] %s %d 体素（%lld 格）：体素工具 %.0f ms，总 %.0f ms，记录=%s"),
+			bPlace ? TEXT("填") : TEXT("挖"), SizeVoxels,
+			PlanetEditBrush::EstimateToolCellCount(SizeVoxels), ToolMs, TotalMs,
+			bRecordModifiedValues ? TEXT("开") : TEXT("关"));
+	}
+
 	return true;
 }

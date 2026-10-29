@@ -70,7 +70,7 @@ public:
 	void SetGridPlanet(AVoxelPlanetActor* Planet);
 
 	/**
-	 * 配置笔刷尺寸区间与初始尺寸。星图 Pawn 在构造函数里调（8..128，默认 64）；
+	 * 配置笔刷尺寸区间与初始尺寸。星图 Pawn 在构造函数里调（8..1280，默认 64）；
 	 * 角色不调，用成员默认值 1..8。
 	 */
 	void ConfigureBrushRange(int32 InMinSize, int32 InMaxSize, int32 InitialSize);
@@ -86,6 +86,15 @@ public:
 	 * GetBrushSizeStepVoxels() —— 角色 1、星图 10。
 	 */
 	void AdjustBrushSize(int32 Delta);
+
+	/**
+	 * 按「档」调尺寸：一档 = BrushSizeStepVoxels，按住 Ctrl 粗调再乘
+	 * PlanetEditBrush::CoarseStepMultiplier。
+	 *
+	 * 星图区间 8..1280，一档 10 体素从默认 64 走到上限要按 128 下 —— 粗调是
+	 * 让这个上限够得着的唯一办法。角色区间只有 1..8，粗调对它是空转。
+	 */
+	void AdjustBrushSizeByStep(bool bIncrease, bool bCoarse);
 
 	/** 一次「调大一档」走多少体素。见 BrushSizeStepVoxels。 */
 	int32 GetBrushSizeStepVoxels() const { return BrushSizeStepVoxels; }
@@ -117,11 +126,16 @@ public:
 	UPROPERTY(EditAnywhere, Category = "PlanetEdit", meta = (ClampMin = "100.0"))
 	float MaxEditDistanceCm = 1.0e5f;
 
-	/** 笔刷尺寸区间（体素数，直径 / 边长）。角色 1..8，星图 8..128。 */
-	UPROPERTY(EditAnywhere, Category = "PlanetEdit", meta = (ClampMin = "1", ClampMax = "128"))
+	/**
+	 * 笔刷尺寸区间（体素数，直径 / 边长）。角色 1..8，星图 8..1280。
+	 *
+	 * ClampMax 只是面板上的滑条上限，真正的夹取在 PlanetEditBrush::ClampSize。
+	 * 星图那套 1280 的代价是 Size³，见 PlanetEditBrush::MaxStarMapSizeVoxels。
+	 */
+	UPROPERTY(EditAnywhere, Category = "PlanetEdit", meta = (ClampMin = "1", ClampMax = "1280"))
 	int32 MinBrushSizeVoxels = 1;
 
-	UPROPERTY(EditAnywhere, Category = "PlanetEdit", meta = (ClampMin = "1", ClampMax = "128"))
+	UPROPERTY(EditAnywhere, Category = "PlanetEdit", meta = (ClampMin = "1", ClampMax = "1280"))
 	int32 MaxBrushSizeVoxels = 8;
 
 	/** 体素工具是否并行。小笔刷单线程延迟更低，128 体素的大笔刷必须并行。 */
@@ -133,9 +147,21 @@ public:
 	float ContinuousDigIntervalSeconds = 0.12f;
 
 	/**
-	 * 一次「调大一档」走多少体素。角色区间只有 1..8，一档一格；星图区间 8..128，
+	 * 连续挖期间多久刷一次渲染（秒）。
+	 *
+	 * 连挖时每一笔都只改体素数据、不刷渲染，改到的范围攒起来，到这里或松手时
+	 * 用并集刷一次 —— 否则 0.12 s 一笔就把同一个 chunk 重建一遍，纯浪费。
+	 * 更短会反复重建，更长就看不见坑在变大；0.5 s 是这两头之间的取舍。
+	 */
+	UPROPERTY(EditAnywhere, Category = "PlanetEdit", meta = (ClampMin = "0.05"))
+	float ContinuousDigRenderFlushIntervalSeconds = 0.5f;
+
+	/**
+	 * 一次「调大一档」走多少体素。角色区间只有 1..8，一档一格；星图区间 8..1280，
 	 * 一档十格 —— 从 64 按一格一档要按三十几下才到上限，手感等于没反应。
 	 * 只影响按键 / 滚轮的步进，不改变区间本身。
+	 *
+	 * 1280 上限配一档十格要按 128 下，所以还有 Ctrl 粗调（×10）。
 	 */
 	UPROPERTY(EditAnywhere, Category = "PlanetEdit", meta = (ClampMin = "1"))
 	int32 BrushSizeStepVoxels = 1;
@@ -150,8 +176,26 @@ private:
 	void EnsurePreviewLineBatch();
 	void HideBrushPreview();
 
+	/** 把连挖期间攒下的范围一次性交给渲染，然后清空。 */
+	void FlushPendingRenderUpdate();
+
 	FPlanetEditTargetResolver TargetResolver;
 	TWeakObjectPtr<AVoxelPlanetActor> GridPlanet;
+
+	/**
+	 * 连挖期间攒下的、还没刷给渲染的范围（行星体素空间，Min 含 / MaxExclusive 不含）。
+	 * 无效 = 没有待刷新的东西。
+	 */
+	FPlanetEditVoxelBox PendingRenderBounds;
+
+	/** PendingRenderBounds 属于哪颗行星：换星后旧范围的坐标不能混到新星上。 */
+	TWeakObjectPtr<AVoxelPlanetActor> PendingRenderPlanet;
+
+	/** 距上次刷渲染过了多久（秒）。Tick 推进，Flush 清零。 */
+	float PendingRenderAgeSeconds = 0.f;
+
+	/** 最后一颗被真正改到过的行星。退出编辑模式时向它请求存档。 */
+	TWeakObjectPtr<AVoxelPlanetActor> LastEditedPlanet;
 
 	UPROPERTY(Transient)
 	TObjectPtr<ULineBatchComponent> PreviewLineBatch;

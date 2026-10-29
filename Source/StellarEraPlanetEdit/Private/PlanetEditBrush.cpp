@@ -15,6 +15,24 @@ int32 PlanetEditBrush::ClampSize(const int32 SizeVoxels, const int32 MinSize, co
 	return FMath::Clamp(SizeVoxels, Low, High);
 }
 
+int32 PlanetEditBrush::ResolveBrushStep(const int32 BaseStepVoxels, const bool bCoarse)
+{
+	const int32 Step = FMath::Max(BaseStepVoxels, 1);
+	return bCoarse ? Step * CoarseStepMultiplier : Step;
+}
+
+int64 PlanetEditBrush::EstimateToolCellCount(const int32 SizeVoxels)
+{
+	// 工具包围盒是中心 ± (R + 3)，R = Size / 2（体素），所以整块边长 = Size + 6。
+	const int64 Side = static_cast<int64>(FMath::Max(SizeVoxels, 1)) + 6;
+	return Side * Side * Side;
+}
+
+bool PlanetEditBrush::ShouldRecordModifiedValues(const int32 SizeVoxels)
+{
+	return EstimateToolCellCount(SizeVoxels) <= MaxRecordedCellCount;
+}
+
 float PlanetEditBrush::GetHalfExtentCm(const int32 SizeVoxels, const float VoxelSizeCm)
 {
 	return GetHalfExtentCm(SizeVoxels, VoxelSizeCm, MinSizeVoxels, MaxSizeVoxels);
@@ -88,6 +106,39 @@ FPlanetEditVoxelBox PlanetEditBrush::MakeVoxelBox(const FPlanetEditBox& Box)
 	// 两端都含 → 右端开：Max 本身也是有效格，开区间要再往后挪一格。
 	VoxelBox.MaxExclusive = Box.Max + FIntVector(1);
 	return VoxelBox;
+}
+
+bool PlanetEditBrush::IsValidVoxelBox(const FPlanetEditVoxelBox& Box)
+{
+	return Box.MaxExclusive.X > Box.Min.X
+		&& Box.MaxExclusive.Y > Box.Min.Y
+		&& Box.MaxExclusive.Z > Box.Min.Z;
+}
+
+FPlanetEditVoxelBox PlanetEditBrush::UnionVoxelBox(
+	const FPlanetEditVoxelBox& A, const FPlanetEditVoxelBox& B)
+{
+	const bool bValidA = IsValidVoxelBox(A);
+	const bool bValidB = IsValidVoxelBox(B);
+	if (!bValidA)
+	{
+		return bValidB ? B : FPlanetEditVoxelBox();
+	}
+	if (!bValidB)
+	{
+		return A;
+	}
+
+	FPlanetEditVoxelBox Union;
+	Union.Min = FIntVector(
+		FMath::Min(A.Min.X, B.Min.X),
+		FMath::Min(A.Min.Y, B.Min.Y),
+		FMath::Min(A.Min.Z, B.Min.Z));
+	Union.MaxExclusive = FIntVector(
+		FMath::Max(A.MaxExclusive.X, B.MaxExclusive.X),
+		FMath::Max(A.MaxExclusive.Y, B.MaxExclusive.Y),
+		FMath::Max(A.MaxExclusive.Z, B.MaxExclusive.Z));
+	return Union;
 }
 
 void PlanetEditBrush::BuildSpherePreviewSegments(const FVector& Center, const float RadiusCm,
