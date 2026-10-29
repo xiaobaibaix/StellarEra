@@ -155,6 +155,22 @@ bool FStellarEraProgressiveChunkTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("空盒（Z 跨度 0）必须切出 0 块"), Chunks.Num(), 0);
 	}
 
+	// --- 3b. 块边长 MAX_int32 必须退化成恰好 1 块 ---
+	// 同步路径（PlanetBrushApplicator）就是这么调的：一步做完，语义与
+	// 「不分块」完全一致。这里同时防 `Min.X + MAX_int32` 的 int32 溢出 ——
+	// 溢出会让循环失控、切出天文数字的块（或直接卡死）。
+	{
+		const FPlanetEditVoxelBox Big{FIntVector(-5000, 200, -7), FIntVector(5000, 900, 13)};
+		TArray<FPlanetEditVoxelBox> Chunks;
+		PlanetEditBrush::SplitVoxelBoxIntoChunks(Big, MAX_int32, Chunks);
+		TestEqual(TEXT("块边长 MAX_int32 必须切出恰好 1 块"), Chunks.Num(), 1);
+		if (Chunks.Num() == 1)
+		{
+			TestTrue(TEXT("单块必须与原盒逐分量相同"),
+				Chunks[0].Min == Big.Min && Chunks[0].MaxExclusive == Big.MaxExclusive);
+		}
+	}
+
 	// --- 4. 小块笔刷必须退化成单块 ---
 	// 半径 8 的球包围盒只有 22³，切 128 的块必须恰好得到 1 块 ——
 	// 这条保证小笔刷的路径与改动前完全一致。

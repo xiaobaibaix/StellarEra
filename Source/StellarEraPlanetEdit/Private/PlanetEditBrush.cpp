@@ -158,19 +158,24 @@ void PlanetEditBrush::SplitVoxelBoxIntoChunks(
 
 	const int32 ChunkSize = FMath::Max(ChunkSizeVoxels, 1);
 
+	// 用 int64 步进：ChunkSize 允许是 MAX_int32（同步路径传「一块到底」），
+	// int32 的 X + ChunkSize 会溢出成负数，循环随即失控。
+	const int64 Step = ChunkSize;
+
 	// 三轴分别按 ChunkSize 步进，笛卡尔积得到块；最后一块按盒子右端裁。
-	for (int32 X = Box.Min.X; X < Box.MaxExclusive.X; X += ChunkSize)
+	for (int64 X = Box.Min.X; X < Box.MaxExclusive.X; X += Step)
 	{
-		for (int32 Y = Box.Min.Y; Y < Box.MaxExclusive.Y; Y += ChunkSize)
+		for (int64 Y = Box.Min.Y; Y < Box.MaxExclusive.Y; Y += Step)
 		{
-			for (int32 Z = Box.Min.Z; Z < Box.MaxExclusive.Z; Z += ChunkSize)
+			for (int64 Z = Box.Min.Z; Z < Box.MaxExclusive.Z; Z += Step)
 			{
 				FPlanetEditVoxelBox Chunk;
-				Chunk.Min = FIntVector(X, Y, Z);
+				Chunk.Min = FIntVector(static_cast<int32>(X), static_cast<int32>(Y),
+					static_cast<int32>(Z));
 				Chunk.MaxExclusive = FIntVector(
-					FMath::Min(X + ChunkSize, Box.MaxExclusive.X),
-					FMath::Min(Y + ChunkSize, Box.MaxExclusive.Y),
-					FMath::Min(Z + ChunkSize, Box.MaxExclusive.Z));
+					static_cast<int32>(FMath::Min(X + Step, int64(Box.MaxExclusive.X))),
+					static_cast<int32>(FMath::Min(Y + Step, int64(Box.MaxExclusive.Y))),
+					static_cast<int32>(FMath::Min(Z + Step, int64(Box.MaxExclusive.Z))));
 				OutChunks.Add(Chunk);
 			}
 		}

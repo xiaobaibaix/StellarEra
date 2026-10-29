@@ -25,11 +25,13 @@ namespace PlanetBrushApplicator
 	 *
 	 * 空操作（在岩石里放石头、挖空气）返回 false，且**不**调 NotifyVoxelEdited
 	 *（表面网格刷新 + 未保存标记）；渲染仍会按请求包围盒刷新一次。
-	 * 判据是工具写回的 OutModifiedValues 数量：它只记录值真的变了的
-	 * 体素。插件的 OutEditedBounds 不能用**来判断有没有改到**，宏会无条件把它
-	 * 设成请求包围盒 —— 但真改到时它正是工具扫过的那一块，所以给渲染合并用。
 	 *
-	 * @param OutEditedBounds  可选。真的改到体素时填工具的包围盒（体素空间，
+	 * 判据是写入谓词逐格比对旧值得到的结果（FPlanetProgressiveEdit::
+	 * DidChangeAnything）：只记「真的变了的格子」，既不像装满的
+	 * OutModifiedValues 那样在大笔刷时吃掉 GB 级内存，也不会像「中心格
+	 * 前后是否相同」那样漏掉只改到外圈的笔刷。
+	 *
+	 * @param OutEditedBounds  可选。真的改到体素时填整笔编辑的包围盒（体素空间，
 	 *                         Min 含 / MaxExclusive 不含）；没改到时不动。
 	 * @param bUpdateRender    false = 只改数据、不请求渲染刷新。连续挖期间用：
 	 *                         每 0.12 s 刷一次同一个 chunk 会把它重建好几遍，
