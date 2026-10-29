@@ -2,6 +2,8 @@
 
 #include "PlanetEditBrush.h"
 
+#include "Algo/Sort.h"
+
 int32 PlanetEditBrush::ClampSize(const int32 SizeVoxels)
 {
 	return ClampSize(SizeVoxels, MinSizeVoxels, MaxSizeVoxels);
@@ -113,6 +115,87 @@ bool PlanetEditBrush::IsValidVoxelBox(const FPlanetEditVoxelBox& Box)
 	return Box.MaxExclusive.X > Box.Min.X
 		&& Box.MaxExclusive.Y > Box.Min.Y
 		&& Box.MaxExclusive.Z > Box.Min.Z;
+}
+
+FPlanetEditVoxelBox PlanetEditBrush::MakeSphereEditVoxelBox(
+	const FVector& CenterVoxels, const float RadiusVoxels)
+{
+	// 按 double 算：插件的 v_flt 是 double（VoxelDefinitions.h 里
+	// VOXEL_DOUBLE_PRECISION 默认 1），所以 GetBounds 里的
+	// `Position - Radius - 3` 是在 double 上做的。降到 float 会在行星体素坐标
+	// 这种大数上丢掉小数位，取整后整个盒子偏一格。
+	const double MinX = CenterVoxels.X - static_cast<double>(RadiusVoxels) - 3.0;
+	const double MinY = CenterVoxels.Y - static_cast<double>(RadiusVoxels) - 3.0;
+	const double MinZ = CenterVoxels.Z - static_cast<double>(RadiusVoxels) - 3.0;
+	const double MaxX = CenterVoxels.X + static_cast<double>(RadiusVoxels) + 3.0;
+	const double MaxY = CenterVoxels.Y + static_cast<double>(RadiusVoxels) + 3.0;
+	const double MaxZ = CenterVoxels.Z + static_cast<double>(RadiusVoxels) + 3.0;
+
+	FPlanetEditVoxelBox Box;
+	// 右端是 CeilToInt(Max) + 1（FVoxelIntBox 从浮点构造时就是 FloorToInt(Min)
+	// 与 CeilToInt(Max) + 1）。不能写成 FloorToInt(Max) + 1：Max 非整数时差一格。
+	// FMath::FloorToInt/CeilToInt 对 double 返回 int64，FIntVector 收 int32，显式窄化。
+	Box.Min = FIntVector(
+		static_cast<int32>(FMath::FloorToInt(MinX)),
+		static_cast<int32>(FMath::FloorToInt(MinY)),
+		static_cast<int32>(FMath::FloorToInt(MinZ)));
+	Box.MaxExclusive = FIntVector(
+		static_cast<int32>(FMath::CeilToInt(MaxX)) + 1,
+		static_cast<int32>(FMath::CeilToInt(MaxY)) + 1,
+		static_cast<int32>(FMath::CeilToInt(MaxZ)) + 1);
+	return Box;
+}
+
+void PlanetEditBrush::SplitVoxelBoxIntoChunks(
+	const FPlanetEditVoxelBox& Box, const int32 ChunkSizeVoxels,
+	TArray<FPlanetEditVoxelBox>& OutChunks)
+{
+	OutChunks.Reset();
+	if (!IsValidVoxelBox(Box))
+	{
+		return;
+	}
+
+	const int32 ChunkSize = FMath::Max(ChunkSizeVoxels, 1);
+
+	// 三轴分别按 ChunkSize 步进，笛卡尔积得到块；最后一块按盒子右端裁。
+	for (int32 X = Box.Min.X; X < Box.MaxExclusive.X; X += ChunkSize)
+	{
+		for (int32 Y = Box.Min.Y; Y < Box.MaxExclusive.Y; Y += ChunkSize)
+		{
+			for (int32 Z = Box.Min.Z; Z < Box.MaxExclusive.Z; Z += ChunkSize)
+			{
+				FPlanetEditVoxelBox Chunk;
+				Chunk.Min = FIntVector(X, Y, Z);
+				Chunk.MaxExclusive = FIntVector(
+					FMath::Min(X + ChunkSize, Box.MaxExclusive.X),
+					FMath::Min(Y + ChunkSize, Box.MaxExclusive.Y),
+					FMath::Min(Z + ChunkSize, Box.MaxExclusive.Z));
+				OutChunks.Add(Chunk);
+			}
+		}
+	}
+
+	// 按块中心到盒子中心的距离升序。用整数平方距离：1280³ 的盒子里分量差
+	// 能到 640，平方和只有几百万，int64 富余。块中心用「两倍」表示，
+	// 避免整除带来的半格误差。
+	const FIntVector BoxCenterTimes2(
+		Box.Min.X + Box.MaxExclusive.X,
+		Box.Min.Y + Box.MaxExclusive.Y,
+		Box.Min.Z + Box.MaxExclusive.Z);
+
+	const auto SquaredDistance = [&BoxCenterTimes2](const FPlanetEditVoxelBox& Chunk)
+	{
+		const int64 DX = static_cast<int64>(Chunk.Min.X + Chunk.MaxExclusive.X) - BoxCenterTimes2.X;
+		const int64 DY = static_cast<int64>(Chunk.Min.Y + Chunk.MaxExclusive.Y) - BoxCenterTimes2.Y;
+		const int64 DZ = static_cast<int64>(Chunk.Min.Z + Chunk.MaxExclusive.Z) - BoxCenterTimes2.Z;
+		return DX * DX + DY * DY + DZ * DZ;
+	};
+
+	Algo::Sort(OutChunks, [&SquaredDistance](const FPlanetEditVoxelBox& A, const FPlanetEditVoxelBox& B)
+	{
+		return SquaredDistance(A) < SquaredDistance(B);
+	});
 }
 
 FPlanetEditVoxelBox PlanetEditBrush::UnionVoxelBox(

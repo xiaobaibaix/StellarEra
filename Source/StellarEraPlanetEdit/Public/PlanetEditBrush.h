@@ -176,6 +176,41 @@ namespace PlanetEditBrush
 	STELLARERAPLANETEDIT_API bool IsValidVoxelBox(const FPlanetEditVoxelBox& Box);
 
 	/**
+	 * 球编辑的完整包围盒（体素空间，右端开区间）。
+	 *
+	 * 与插件的 FVoxelSphereToolsImpl::GetBounds 逐分量相同：
+	 *   Min = FloorToInt(Center - Radius - 3)
+	 *   Max = CeilToInt(Center + Radius + 3) + 1
+	 *
+	 * 那个 ±3 是插件留的余量（SphereEdit 的衰减带最外圈在 Radius + 2，
+	 * 再垫一格）。抄错方向很危险：少一格会削掉球最外圈，多一格会多挖。
+	 * 有单测直接与插件比对，不写死期望值。
+	 *
+	 * 按 double 算：插件的 v_flt 是 double（`VOXEL_DOUBLE_PRECISION` 默认 1），
+	 * GetBounds 里那两式也在 double 上做。降到 float 会在体素坐标这种大数上
+	 * 丢掉小数位，取整后整个盒子偏一格。
+	 */
+	STELLARERAPLANETEDIT_API FPlanetEditVoxelBox MakeSphereEditVoxelBox(
+		const FVector& CenterVoxels, float RadiusVoxels);
+
+	/**
+	 * 把体素盒切成边长不超过 ChunkSizeVoxels 的块，按「离盒子中心由近到远」排序。
+	 *
+	 * 保证：块两两不重叠，并集**恰好**等于输入盒（单测钉住）。这两条是
+	 * 「分块写 == 一次写」的充分条件 —— 逐格谓词只看格子自己的坐标、不依赖
+	 * 邻格状态，所以按任意划分分别应用再并起来，与一次性应用完全相同。
+	 *
+	 * 不要求块边界落在 32 的网格上：FVoxelData::ParallelSet 是按
+	 * 「叶子与本块的 Overlap」迭代的，跨边界的叶子被两块各处理一部分，结果仍对。
+	 *
+	 * 排序是为了让挖掘时洞从光标处向外长，而不是从左下角开始逐行填 ——
+	 * 逐帧刷新渲染时，这个顺序就是用户看到的样子。
+	 */
+	STELLARERAPLANETEDIT_API void SplitVoxelBoxIntoChunks(
+		const FPlanetEditVoxelBox& Box, int32 ChunkSizeVoxels,
+		TArray<FPlanetEditVoxelBox>& OutChunks);
+
+	/**
 	 * 两个体素盒的并集。任一无效时返回另一个，两者都无效时返回无效盒。
 	 *
 	 * 连续挖期间渲染是攒着刷的：每笔工具都不刷渲染，改到的范围在这里累加，
