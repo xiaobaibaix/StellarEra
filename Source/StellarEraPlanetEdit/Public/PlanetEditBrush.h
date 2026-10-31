@@ -219,17 +219,50 @@ namespace PlanetEditBrush
 	STELLARERAPLANETEDIT_API FPlanetEditVoxelBox UnionVoxelBox(
 		const FPlanetEditVoxelBox& A, const FPlanetEditVoxelBox& B);
 
-	/** 球体预览每条大圆的分段数。 */
+	/** 球体预览每条纬线的分段数。 */
 	constexpr int32 PreviewSegmentsPerCircle = 32;
 
+	/** 球体预览的纬线条数（不含两级）。取奇数，中间那条正好是赤道。 */
+	constexpr int32 PreviewParallels = 5;
+
+	/** 球体预览的经线条数（每条是南极到北极的半圆，相邻两条隔 180°/M）。 */
+	constexpr int32 PreviewMeridians = 8;
+
+	/** 每条经线的分段数（半圆，所以只有纬线的一半）。 */
+	constexpr int32 PreviewSegmentsPerMeridian = 16;
+
 	/**
-	 * 球体笔刷预览：过球心的三个正交大圆（XY / XZ / YZ）。
+	 * 让预览线框在屏幕上保持固定像素宽所需的**世界厚度**（厘米）。
 	 *
-	 * **世界空间**：Center 与 RadiusCm 都直接是调用方算好的世界坐标，
-	 * 球体对旋转不敏感，不需要行星变换。
+	 * 引擎厚线的 Thickness 是世界单位（bScreenSpace = false 那条路径），投影宽度
+	 * 与距离成反比 —— 星图远看整颗星球时线就细成发丝。这里把它反解出来：
+	 *
+	 *     T_world = P_px × 2 × d × tan(FOV/2) / ViewportWidth_px
+	 *
+	 * FOV 是**水平** FOV（与 APlayerCameraManager::GetFOVAngle 同口径）。用水平而不是
+	 * 垂直，是因为世界厚线的四边形在相机 X/Y 两个轴上都按同一个厚度撑开，按水平
+	 * 算出来的像素宽在两个轴上也一致。
+	 *
+	 * 任一参数非法（距离 ≤ 0、FOV 不在 (0, 180)、视口宽 ≤ 0、像素宽 ≤ 0）时返回
+	 * FallbackThicknessCm：没有相机信息时也不该画出一条 0 宽的线。
 	 */
-	STELLARERAPLANETEDIT_API void BuildSpherePreviewSegments(const FVector& Center, float RadiusCm,
-		TArray<FPlanetEditSegment>& OutSegments);
+	STELLARERAPLANETEDIT_API float PreviewLineThicknessWorld(
+		float DistanceCm, float HorizontalFovDegrees, float ViewportWidthPx,
+		float ThicknessPx, float FallbackThicknessCm);
+
+	/**
+	 * 球体笔刷预览：经纬线球（5 条纬线 + 8 条经线），极轴 = Axis。
+	 *
+	 * 原来画的是世界 X/Y/Z 轴上的三个大圆，相机一转就有两个侧对镜头、退化成两条
+	 * 斜穿的直线，看着像「两个圆交叉」。改成经纬球并让极轴对准**地表法线**：
+	 * 中间那条纬线正好是赤道，躺在脚下的地面上，相机怎么转都还是个规整的球。
+	 * 纬线条数取奇数就是为了这条赤道。
+	 *
+	 * **世界空间**：Center / Axis / RadiusCm 都是调用方算好的世界量。Axis 为零时
+	 * 退回世界 Z 轴。
+	 */
+	STELLARERAPLANETEDIT_API void BuildSpherePreviewSegments(const FVector& Center,
+		const FVector& Axis, float RadiusCm, TArray<FPlanetEditSegment>& OutSegments);
 
 	/**
 	 * 正方体笔刷预览：盒子 Min..MaxExclusive 的 12 条棱。

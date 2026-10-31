@@ -4,6 +4,7 @@
 
 #include "PlanetBrushApplicator.h"
 #include "VoxelPlanetActor.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Components/LineBatchComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
@@ -517,7 +518,10 @@ void UPlanetEditComponent::UpdateBrushPreview()
 	{
 		const float Radius = PlanetEditBrush::GetHalfExtentCm(
 			BrushSizeVoxels, VoxelSize, MinBrushSizeVoxels, MaxBrushSizeVoxels);
-		PlanetEditBrush::BuildSpherePreviewSegments(Center, Radius, Segments);
+		// 极轴用命中点的地表法线：中间那条纬线就是贴地的赤道，相机怎么转都是个
+		// 规整的球，不会退化成两条斜穿的直线。
+		PlanetEditBrush::BuildSpherePreviewSegments(
+			Center, Target.HitNormal, Radius, Segments);
 	}
 	else
 	{
@@ -551,13 +555,38 @@ void UPlanetEditComponent::UpdateBrushPreview()
 		? FLinearColor(0.20f, 0.90f, 0.95f)
 		: FLinearColor(1.00f, 0.80f, 0.25f);
 
+	// 线宽按**屏幕像素**恒定：FBatchedLine 的厚度是世界单位，不换算的话星图远看
+	// 整颗星球时线会细成发丝。取不到相机信息（无 camera manager / 视口宽为 0）时
+	// 退回旧的 1.5 世界厘米。
+	constexpr float FallbackThicknessCm = 1.5f;
+	float LineThicknessCm = FallbackThicknessCm;
+	if (const APlayerCameraManager* CameraManager = PlayerController->PlayerCameraManager)
+	{
+		int32 ViewportWidthPx = 0;
+		int32 ViewportHeightPx = 0;
+		PlayerController->GetViewportSize(ViewportWidthPx, ViewportHeightPx);
+		LineThicknessCm = PlanetEditBrush::PreviewLineThicknessWorld(
+			static_cast<float>(FVector::Dist(CameraManager->GetCameraLocation(), Center)),
+			CameraManager->GetFOVAngle(),
+			static_cast<float>(ViewportWidthPx),
+			PreviewLineThicknessPixels,
+			FallbackThicknessCm);
+	}
+
 	TArray<FBatchedLine> Lines;
 	Lines.Reserve(Segments.Num());
 	for (const FPlanetEditSegment& Segment : Segments)
 	{
 		// LifeTime < 0：不自动过期；本组件每帧 Flush + 重画，鼠标一动线框就跟着走。
-		Lines.Emplace(Segment.Start, Segment.End, PreviewColor, -1.f, 1.5f,
-			static_cast<uint8>(SDPG_World));
+		//
+		// 深度组用 Foreground 而不是 World：挖模式下球心就落在命中点上，有一半球埋在地表
+		// 以下，World 组要过深度测试，埋掉的那半球与地形重叠的部分根本画不出来 ——
+		// 用户看到的只有切平面以上的半个球（赤道成了「完整的大圆」，经线全断在它上面）。
+		// 笔刷预览要表达的是「这次会改到哪个体积」，看不见地下那半就等于谎报范围。
+		// 渲染侧对 Foreground 会先用 CF_Always 无深度测试画一遍（BasePassRendering.cpp
+		// 的 RenderEditorPrimitivesForDPG），所以整颗球都能透出来。
+		Lines.Emplace(Segment.Start, Segment.End, PreviewColor, -1.f, LineThicknessCm,
+			static_cast<uint8>(SDPG_Foreground));
 	}
 
 	PreviewLineBatch->Flush();

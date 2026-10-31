@@ -229,8 +229,33 @@ FPlanetEditVoxelBox PlanetEditBrush::UnionVoxelBox(
 	return Union;
 }
 
-void PlanetEditBrush::BuildSpherePreviewSegments(const FVector& Center, const float RadiusCm,
-	TArray<FPlanetEditSegment>& OutSegments)
+float PlanetEditBrush::PreviewLineThicknessWorld(
+	const float DistanceCm, const float HorizontalFovDegrees,
+	const float ViewportWidthPx, const float ThicknessPx,
+	const float FallbackThicknessCm)
+{
+	if (DistanceCm <= 0.f || ViewportWidthPx <= 0.f || ThicknessPx <= 0.f)
+	{
+		return FallbackThicknessCm;
+	}
+	if (HorizontalFovDegrees <= 0.f || HorizontalFovDegrees >= 180.f)
+	{
+		return FallbackThicknessCm;
+	}
+
+	const float TanHalfFov = FMath::Tan(FMath::DegreesToRadians(HorizontalFovDegrees * 0.5f));
+	if (!(TanHalfFov > 0.f) || !FMath::IsFinite(TanHalfFov))
+	{
+		return FallbackThicknessCm;
+	}
+
+	// 距离 d 处、一个世界厘米对应的像素数 = ViewportWidth / (2 d tan(FOV/2))。
+	// 取倒数再乘上想要的像素宽，就是世界厚度。
+	return ThicknessPx * 2.f * DistanceCm * TanHalfFov / ViewportWidthPx;
+}
+
+void PlanetEditBrush::BuildSpherePreviewSegments(const FVector& Center, const FVector& Axis,
+	const float RadiusCm, TArray<FPlanetEditSegment>& OutSegments)
 {
 	OutSegments.Reset();
 
@@ -239,25 +264,53 @@ void PlanetEditBrush::BuildSpherePreviewSegments(const FVector& Center, const fl
 		return;
 	}
 
-	// 三个正交大圆：XY、XZ、YZ。每对轴按平面序号取，避免写三份几乎相同的循环。
-	constexpr int32 AxisPairs[3][2] = { {0, 1}, {0, 2}, {1, 2} };
+	// 极轴：零向量退回世界 Z，保证任何调用点都画得出东西而不是一片空白。
+	const FVector UpRaw = Axis.GetSafeNormal();
+	const FVector Up = UpRaw.IsNearlyZero() ? FVector::UpVector : UpRaw;
 
-	for (int32 Plane = 0; Plane < 3; ++Plane)
+	// 与极轴正交的两个单位向量，经纬线都从它们张成的平面起步。
+	FVector Right = FVector::ZeroVector;
+	FVector Forward = FVector::ZeroVector;
+	Up.FindBestAxisVectors(Right, Forward);
+
+	// 纬线：极角 θ = kπ/(K+1)，k = 1..K。K 为奇数时 k = (K+1)/2 那条 θ = π/2，
+	// 正好是赤道 —— 笔刷落在地面上时它就是「贴地的那一圈」。
+	for (int32 Parallel = 1; Parallel <= PreviewParallels; ++Parallel)
 	{
-		const int32 AxisA = AxisPairs[Plane][0];
-		const int32 AxisB = AxisPairs[Plane][1];
+		const float Theta = PI * static_cast<float>(Parallel) / (PreviewParallels + 1);
+		const float RingRadiusCm = FMath::Sin(Theta) * RadiusCm;
+		const FVector RingCenter = Center + Up * (FMath::Cos(Theta) * RadiusCm);
 
 		for (int32 Index = 0; Index < PreviewSegmentsPerCircle; ++Index)
 		{
 			const float Angle0 = 2.f * PI * static_cast<float>(Index) / PreviewSegmentsPerCircle;
 			const float Angle1 = 2.f * PI * static_cast<float>(Index + 1) / PreviewSegmentsPerCircle;
 
-			FVector Start = Center;
-			FVector End = Center;
-			Start[AxisA] += FMath::Cos(Angle0) * RadiusCm;
-			Start[AxisB] += FMath::Sin(Angle0) * RadiusCm;
-			End[AxisA] += FMath::Cos(Angle1) * RadiusCm;
-			End[AxisB] += FMath::Sin(Angle1) * RadiusCm;
+			const FVector Offset0 =
+				(Right * FMath::Cos(Angle0) + Forward * FMath::Sin(Angle0)) * RingRadiusCm;
+			const FVector Offset1 =
+				(Right * FMath::Cos(Angle1) + Forward * FMath::Sin(Angle1)) * RingRadiusCm;
+
+			OutSegments.Add({RingCenter + Offset0, RingCenter + Offset1});
+		}
+	}
+
+	// 经线：方位角 φ = mπ/M 处的半圆，从北极沿 φ 方向绕到南极。
+	// 一条半圆同时覆盖方位 φ 与 φ+π，所以 M 条就铺满整圈。
+	for (int32 Meridian = 0; Meridian < PreviewMeridians; ++Meridian)
+	{
+		const float Phi = PI * static_cast<float>(Meridian) / PreviewMeridians;
+		const FVector Direction = Right * FMath::Cos(Phi) + Forward * FMath::Sin(Phi);
+
+		for (int32 Index = 0; Index < PreviewSegmentsPerMeridian; ++Index)
+		{
+			const float Theta0 = PI * static_cast<float>(Index) / PreviewSegmentsPerMeridian;
+			const float Theta1 = PI * static_cast<float>(Index + 1) / PreviewSegmentsPerMeridian;
+
+			const FVector Start = Center + RadiusCm *
+				(Up * FMath::Cos(Theta0) + Direction * FMath::Sin(Theta0));
+			const FVector End = Center + RadiusCm *
+				(Up * FMath::Cos(Theta1) + Direction * FMath::Sin(Theta1));
 
 			OutSegments.Add({Start, End});
 		}

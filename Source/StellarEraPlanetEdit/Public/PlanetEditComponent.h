@@ -172,6 +172,16 @@ public:
 	FString PlaceActionHint = TEXT("右键点放");
 
 	/**
+	 * 预览线框**在屏幕上**的目标线宽（像素）。
+	 *
+	 * 引擎的线厚是世界单位，星图远看整颗星球时会细成发丝；这里按相机距离每帧
+	 * 换算成世界厚度（PlanetEditBrush::PreviewLineThicknessWorld），所以不管
+	 * 相机离星球多远，屏幕上看到的都一样粗。
+	 */
+	UPROPERTY(EditAnywhere, Category = "PlanetEdit", meta = (ClampMin = "0.5"))
+	float PreviewLineThicknessPixels = 2.0f;
+
+	/**
 	 * 渐进编辑的块边长（体素）。128³ ≈ 2.1e6 格，16 线程下约 3 ms。
 	 *
 	 * 比它小的笔刷（包围盒每轴 ≤ 块边长）仍走一步做完的同步路径：切出来只有
