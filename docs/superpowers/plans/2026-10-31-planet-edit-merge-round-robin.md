@@ -2026,15 +2026,16 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>" -- \
      无条件按 0.7 拆分会把单笔挖掘从 4 ms 砍到 2.8 ms —— 用户最常用的动作不该为轮转买单。
   4. 阶段二的循环只受**剩余预算**约束，不是「每帧每笔一块」的硬保证：块很便宜时
      游标会绕回来，同一笔可能在一帧里被推进两次（代码注释
-     `PlanetEditComponent.cpp:250-253` 已承认这一点，本文原先没记）。最坏只是多一块
+     `PlanetEditComponent.cpp:255-259` 已承认这一点，本文原先没记）。最坏只是多一块
      的超出量；不做「再补一块」的补偿，否则 128³ 的块会把单帧顶到 9 ms 以上。
 
 ### 复审修复（2026-10-31）
 
 - **方块 op 的盒外格子**：`EvaluateOps` 现在先判 `Op.Bounds`，盒外格子直接跳过。
-  合并后新块会落在旧 op 的盒外，原先会调 `EvaluateBoxValue` 并把那些格子写成
-  `Full`/`Empty`（插件原实现只在 `Bounds` 内迭代），等于给合并过的方块笔画多改
-  一圈壳。`EvaluateBoxValue` 本身不动，仍是插件盒内语义的忠实副本。
+  合并后新块会落在旧 op 的盒外，原先会调 `EvaluateBoxValue`：它没有盒内判定，
+  盒外格子会被当成「内部」写成 `Full`/`Empty`，恰好落在某个贴边平面延伸面上的
+  还会按「外壳」写 0（插件原实现只在 `Bounds` 内迭代），等于给合并过的方块笔画
+  多改一圈壳。`EvaluateBoxValue` 本身不动，仍是插件盒内语义的忠实副本。
 - **方块等价测试**：新增 `StellarEra.Planet.Editor.Merge.CubeResultEqualsSequential`，
   两个相交但不等、第二个伸出第一个的方块（挖 / 填各一遍），逐格比对合并执行与
   依次独立执行。修复前该测试报告 46 格（挖）/ 42 格（填）差异，修复后为 0。

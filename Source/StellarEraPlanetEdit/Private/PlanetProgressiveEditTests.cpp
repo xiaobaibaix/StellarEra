@@ -1134,10 +1134,11 @@ bool FStellarEraProgressiveMergeEquivalenceTest::RunTest(const FString& Paramete
 // 方块版判据：合并后按运行期块序执行 == 依次独立执行，逐格全等。
 //
 // 球之所以对合并免疫，是 EvaluateSphereValue 对 (R+2)² 之外的格子返回原值；
-// 方块没有这层天然保护 —— EvaluateBoxValue 对盒外格子返回 Full/Empty。合并后
-// 新块的块会落在旧 op 的盒外，旧 op 若照评估就会在那些格子上写下 Full/Empty，
-// 在方块表面上多改一圈。这条测试把两个「相交但不等、且第二个伸出第一个」的
-// 方块并起来，逐格与「先 op0 再 op1」比对。
+// 方块没有这层天然保护 —— EvaluateBoxValue 没有盒内判定，盒外格子会被当成
+// 「内部」写成 Full/Empty（贴边平面延伸面上则按「外壳」写 0）。合并后新块的块
+// 会落在旧 op 的盒外，旧 op 若照评估就会在那些格子上多改一圈。这条测试把两个
+// 「相交但不等、且第二个伸出第一个」的方块并起来，逐格与「先 op0 再 op1」比对；
+// 第二个方块分别沿 +X、+Y、−X 偏移，X 轴两端与 Y 轴都会被踩到。
 //
 // 合成网格与 Merge.ResultEqualsSequential 同一套：谓词用的是运行期那一份
 // EvaluateOps，不是另写一份。
@@ -1147,15 +1148,26 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraProgressiveMergeCubeEquivalenceTest,
 
 bool FStellarEraProgressiveMergeCubeEquivalenceTest::RunTest(const FString& Parameters)
 {
-	for (int32 PlaceIndex = 0; PlaceIndex < 2; ++PlaceIndex)
-	{
-		const bool bPlace = PlaceIndex != 0;
-		const FString Label = bPlace ? TEXT("方块填") : TEXT("方块挖");
+	// 六种组合 = 挖/填 × 三组偏移（+X、+Y、−X）。只守一根轴的守卫删掉就有人变红。
+	static const FVector Offsets[] = {
+		FVector(2.0, 0.0, 0.0),   // +X
+		FVector(0.0, 2.0, 0.0),   // +Y
+		FVector(-2.0, 0.0, 0.0)   // −X
+	};
+	static const TCHAR* const OffsetNames[] = { TEXT("+X"), TEXT("+Y"), TEXT("-X") };
+	constexpr int32 NumOffsets = UE_ARRAY_COUNT(Offsets);
 
-		// 两个相交但不相等的方块（边长 10）：第二个沿 +X 伸出第一个的包围盒。
+	for (int32 CaseIndex = 0; CaseIndex < 2 * NumOffsets; ++CaseIndex)
+	{
+		const bool bPlace = CaseIndex >= NumOffsets;
+		const int32 OffsetIndex = CaseIndex % NumOffsets;
+		const FString Label = FString::Printf(
+			TEXT("%s/%s"), bPlace ? TEXT("方块填") : TEXT("方块挖"), OffsetNames[OffsetIndex]);
+
+		// 两个相交但不相等的方块（边长 10）：第二个按上面的偏移伸出第一个的包围盒。
 		// 合并后新块（NumOps = 2）里有一整片格子落在 op0 的盒外。
 		const FPlanetEditRequest First = MakeMergeTestCubeRequest(FVector::ZeroVector, bPlace);
-		const FPlanetEditRequest Second = MakeMergeTestCubeRequest(FVector(2.0, 0.0, 0.0), bPlace);
+		const FPlanetEditRequest Second = MakeMergeTestCubeRequest(Offsets[OffsetIndex], bPlace);
 
 		TSharedPtr<FPlanetProgressiveEdit> Job = MakeShared<FPlanetProgressiveEdit>();
 		if (!TestTrue(Label + TEXT("：装配成功"), Job->SetupFromRequest(First)))
@@ -1174,7 +1186,11 @@ bool FStellarEraProgressiveMergeCubeEquivalenceTest::RunTest(const FString& Para
 
 		// 夹具前提：第二个盒子必须真的伸出第一个，否则覆盖不到「盒外格子」。
 		TestTrue(Label + TEXT("：第二个盒子必须伸出第一个盒子之外（否则测不到缺陷）"),
-			Ops[1].Bounds.MaxExclusive.X > Ops[0].Bounds.MaxExclusive.X);
+			Union.Min.X < Ops[0].Bounds.Min.X || Union.Min.Y < Ops[0].Bounds.Min.Y
+			|| Union.Min.Z < Ops[0].Bounds.Min.Z
+			|| Union.MaxExclusive.X > Ops[0].Bounds.MaxExclusive.X
+			|| Union.MaxExclusive.Y > Ops[0].Bounds.MaxExclusive.Y
+			|| Union.MaxExclusive.Z > Ops[0].Bounds.MaxExclusive.Z);
 
 		const FIntVector Min = Union.Min;
 		const FIntVector Size(
