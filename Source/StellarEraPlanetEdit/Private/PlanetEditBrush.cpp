@@ -308,11 +308,15 @@ void PlanetEditBrush::BuildSpherePreviewSegments(const FVector& Center, const FV
 		}
 	}
 
-	// 经线：方位角 φ = mπ/M 处的半圆，从北极沿 φ 方向绕到南极。
-	// 一条半圆同时覆盖方位 φ 与 φ+π，所以 M 条就铺满整圈。
+	// 经线：方位角 φ = 2πm/M 处的半圆，从北极沿 φ 方向绕到南极。
+	//
+	// 每条只画半圈（北极→南极），所以它只覆盖 φ 这一个方位；球面「背面」那条
+	// 经线（φ+π）是**另一条**半圆，不会顺带画出来。因此 φ 必须扫满 2π：
+	// 写成 mπ/M 时 M 条全挤在半个球上，星图沿地表法线俯视（极轴正对镜头）时
+	// 屏幕上只有一侧有经线，看起来就是「经线只有一半」。
 	for (int32 Meridian = 0; Meridian < PreviewMeridians; ++Meridian)
 	{
-		const float Phi = PI * static_cast<float>(Meridian) / PreviewMeridians;
+		const float Phi = 2.f * PI * static_cast<float>(Meridian) / PreviewMeridians;
 		const FVector Direction = Right * FMath::Cos(Phi) + Forward * FMath::Sin(Phi);
 
 		for (int32 Index = 0; Index < PreviewSegmentsPerMeridian; ++Index)

@@ -580,6 +580,50 @@ bool FStellarEraEditBrushSpherePreviewTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("经线都汇到北极"), bFoundNorthPole);
 	TestTrue(TEXT("经线都汇到南极"), bFoundSouthPole);
 
+	// 经线要铺满整圈。每条经线只是半圆，只覆盖自己那一个方位，所以 M 条的方位角
+	// 应当把赤道面切成 M 等份。判据用「相邻方位角的最大空隙」，比数扇区稳：
+	// 扇区边界归属会随浮点取整漂，空隙是连续量。
+	//
+	// 曾经写成 φ = mπ/M：M 条全挤在半个球上，最大空隙 202.5°，而星图恰好沿
+	// 地表法线俯视（极轴正对镜头），屏幕上只有一侧有经线 —— 就是「经线只有一半」。
+	{
+		// 只取经线段。纬线是完整圆，会覆盖所有方位，混进来判据就恒真。
+		const int32 FirstMeridianSegment =
+			PlanetEditBrush::PreviewParallels * PlanetEditBrush::PreviewSegmentsPerCircle;
+
+		FVector Right = FVector::ZeroVector;
+		FVector Forward = FVector::ZeroVector;
+		Axis.FindBestAxisVectors(Right, Forward);
+
+		TArray<float> Azimuths;
+		Azimuths.Reserve(Segments.Num() - FirstMeridianSegment);
+		for (int32 Index = FirstMeridianSegment; Index < Segments.Num(); ++Index)
+		{
+			const FVector Delta = Segments[Index].Start - Center;
+			const FVector Radial = Delta - Axis * FVector::DotProduct(Delta, Axis);
+			if (Radial.SizeSquared() > 1.f)	// 极点没有方位
+			{
+				Azimuths.Add(FMath::Atan2(
+					static_cast<float>(FVector::DotProduct(Radial, Forward)),
+					static_cast<float>(FVector::DotProduct(Radial, Right))));
+			}
+		}
+		Azimuths.Sort();
+
+		float MaxGap = 0.f;
+		for (int32 Index = 0; Index < Azimuths.Num(); ++Index)
+		{
+			// 首尾环绕：最后一个方位到第一个方位要跨过 2π 接回去。
+			const float Next = Index + 1 < Azimuths.Num()
+				? Azimuths[Index + 1]
+				: Azimuths[0] + 2.f * PI;
+			MaxGap = FMath::Max(MaxGap, Next - Azimuths[Index]);
+		}
+
+		const float ExpectedGap = 2.f * PI / PlanetEditBrush::PreviewMeridians;
+		TestTrue(TEXT("经线方位铺满整圈（最大空隙不超过一格）"), MaxGap <= ExpectedGap * 1.01f);
+	}
+
 	// 半径 <= 0 时不应产生任何线。
 	TArray<FPlanetEditSegment> Empty;
 	PlanetEditBrush::BuildSpherePreviewSegments(Center, Axis, 0.f, Empty);
