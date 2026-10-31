@@ -474,9 +474,12 @@ bool UPlanetEditComponent::ApplyBrushAtScreenPosition(
 		return true;
 	}
 
-	// 先试着并进已有的笔：同一片区域连点时，不再把 (Size+6)³ 格扫 N 遍。
-	// 从队尾往前找，最新的一笔优先接收。合并失败（不相交 / 参数不同 / 到
-	// MaxMergedOps）才往下走「新开一笔」—— 所以这里不能动队列。
+	// 先试着并进已有的笔。合进来的落笔只切它自己的包围盒，块接在已做前缀之后，
+	// 下一块就轮上（FPlanetProgressiveEdit::TryMerge）；重叠的格子仍会被两边的
+	// 块各写一次，所以除了包围盒完全相同的重复点击，省下的不是扫描量，而是
+	// 队列条目：被吸收的点击不占槽位，也不会在队列满时挤掉别的笔 —— 这个循环
+	// 不能动队列。从队尾往前找，最新的一笔优先接收；所有候选都合不进去，才
+	// 往下走「新开一笔」。
 	for (int32 Index = EditQueue.Num() - 1; Index >= 0; --Index)
 	{
 		const TSharedPtr<FPlanetProgressiveEdit>& Edit = EditQueue[Index];
