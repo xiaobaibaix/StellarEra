@@ -2,19 +2,20 @@
 
 using UnrealBuildTool;
 
-// 框架层：游戏框架（GameMode / PlayerController）。HUD 与星图已搬到 StellarEraUI。
+// 装配层：游戏框架（GameMode / PlayerController）。HUD 与星图在 StellarEraUI。
 //
 // 本模块**保留原名 StellarEra**，因此它仍是 primary game module ——
 // StellarEra.cpp 里的 IMPLEMENT_PRIMARY_GAME_MODULE 不动。
 // 保留原名还有个副作用：AStellarEraGameMode / AStellarEraPlayerController 的
 // /Script/ 路径不变，DefaultEngine.ini 与 UniverseMap.umap 里指向它们的引用
-// 无需任何改动。Cosmos 三个类已搬到 StellarEraCosmos，旧路径由
-// DefaultEngine.ini 的 [CoreRedirects] 兜底。
+// 无需任何改动。
 //
 // 依赖方向（严格分层，无环）：
-//     StellarEra ─→ StellarEraUI ─→ StellarEraCosmos ─→ StellarEraSpaceship ─→ StellarEraTerrain / StellarEraCharacter
-//          │            └──────→ StellarEraCore
-//          └──────→ StellarEraCore
+//     StellarEra ─→ StellarEraUI ─→ StellarEraCosmos ─→ StellarEraPawns ─→ StellarEraPlanet
+//          │            │                                    │                  │
+//          └────────────┴────────────────────────────────────┴─────→ StellarEraCore
+//                                                                        ↑
+//                                                              StellarEraGeology
 //
 // StellarEraUI 是 **Public**：公开头 StellarEraPlayerController.h include 了
 // StarMapUIInputs.h —— AStellarEraPlayerController 公开继承 IStarMapUIInputs，
@@ -23,13 +24,9 @@ using UnrealBuildTool;
 // 指向 UI 的文件而不是它自己的 Build.cs。
 // 反向（UI → Game）禁止，需要控制器数据的地方走 IStarMapUIInputs。
 //
-// StellarEraTerrain 是 **Private**：本模块没有任何公开头 include 行星模块的头，
+// StellarEraPlanet 是 **Private**：本模块没有任何公开头 include 行星模块的头，
 // StellarEraPlayerController.h 里的行星类型一律前置声明 + TObjectPtr，用到完整类型的
 // 地方都在 .cpp 里。行星模块的头因而不需要向下游传播。
-// 之所以曾经写成 Public：早期公开头以成员类型引用了行星模块里的一个类型定义，
-// 那处引用已随旧系统一并删除。现在公开头只以前置声明 + 指针接触行星模块的类型，
-// 例如 AStellarEraPlayerController::GetActiveMineralView() 返回
-// UPlanetMineralViewComponent*，完整类型只在 .cpp 里用到。
 public class StellarEra : ModuleRules
 {
 	public StellarEra(ReadOnlyTargetRules Target) : base(Target)
@@ -46,13 +43,18 @@ public class StellarEra : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			"StellarEraTerrain", // 行星 Actor / 行星面网格与网格几何（VoxelPlanetActor.h、PlanetSurfaceGridComponent.h、PlanetEditGridGeometry.h）；只在 .cpp 与测试里 include
-			"StellarEraMinerals", // 矿物观察体 / 等值面；只在 .cpp 里 include
+			// 行星：Actor / 表面网格 / 编辑组件 / 笔刷 / 矿物观察体 / 大气。
+			// 全部只在 .cpp 与测试里 include，公开头不出现。
+			"StellarEraPlanet",
+
+			// 受控实体：角色 / 飞船 / 星图相机。换视点时控制器逐个 possess。
+			"StellarEraPawns",
+
 			"StellarEraCore",
-			"StellarEraSpaceship",
-			"StellarEraCharacter", // 角色；只在 .cpp 与测试里 include
-			"StellarEraPlanetEdit", // 编辑组件 / 笔刷；只在 .cpp 与测试里 include
-			"StellarEraCosmos", // N 体编排（子系统 / 轨道组件 / 轨迹组件）；Cosmos 的头只在 .cpp 与测试里 include，公开头不出现
+
+			// N 体编排（子系统 / 轨道组件 / 轨迹组件）；只在 .cpp 与测试里 include。
+			"StellarEraCosmos",
+
 			// 视点门控的测试（VoxelViewpointInvokerTests.cpp）直接摸插件的
 			// UVoxelInvokerComponentBase 与 FVoxelMessages，链接期需要本模块。
 			"Voxel",

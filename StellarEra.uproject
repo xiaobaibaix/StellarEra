@@ -10,22 +10,7 @@
 			"LoadingPhase": "Default"
 		},
 		{
-			"Name": "StellarEraCosmos",
-			"Type": "Runtime",
-			"LoadingPhase": "Default"
-		},
-		{
-			"Name": "StellarEraUI",
-			"Type": "Runtime",
-			"LoadingPhase": "Default"
-		},
-		{
 			"Name": "StellarEraCore",
-			"Type": "Runtime",
-			"LoadingPhase": "Default"
-		},
-		{
-			"Name": "StellarEraTerrain",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
 		},
@@ -35,27 +20,22 @@
 			"LoadingPhase": "Default"
 		},
 		{
-			"Name": "StellarEraAtmosphere",
+			"Name": "StellarEraPlanet",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
 		},
 		{
-			"Name": "StellarEraMinerals",
+			"Name": "StellarEraPawns",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
 		},
 		{
-			"Name": "StellarEraSpaceship",
+			"Name": "StellarEraCosmos",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
 		},
 		{
-			"Name": "StellarEraPlanetEdit",
-			"Type": "Runtime",
-			"LoadingPhase": "Default"
-		},
-		{
-			"Name": "StellarEraCharacter",
+			"Name": "StellarEraUI",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
 		}

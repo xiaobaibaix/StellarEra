@@ -1,8 +1,9 @@
 ﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
+using System.IO;
 using UnrealBuildTool;
 
-// 天体力学纯模拟层：单位系统与 N 体求解器。
+// 底座层：单位系统、N 体求解器，以及跨模块共用的接口。
 //
 // Engine 依赖**不能去掉**。NBodySimulator.h 持有 TWeakObjectPtr<AActor>，
 // NBodySimulator.cpp 定义了 FindBodyByActor(const AActor*)，但两处既没有
@@ -10,11 +11,18 @@ using UnrealBuildTool;
 // 靠的是模块依赖 Engine 时 UBT 选用的 SharedPCH.Engine.h，它经
 // EngineMinimal.h:26 带进 GameFramework/Actor.h。
 // 把 Engine 拿掉会退到 SharedPCH.Core.h，上述两处立刻报未定义类型。
+//
+// Public/Interfaces 是本模块唯一需要显式声明 include 路径的子目录
+// （UBT 只加 Public/ 本身，不递归）。IVoxelViewpointInvokers 放在那里：
+// 实现方是 Pawns 的三个 Pawn，使用方是主模块的控制器，两边都不该为
+// 这一个头互相依赖，所以放在所有人共同的下游。
 public class StellarEraCore : ModuleRules
 {
 	public StellarEraCore(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
+
+		PublicIncludePaths.Add(Path.Combine(ModuleDirectory, "Public", "Interfaces"));
 
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine" });
 	}

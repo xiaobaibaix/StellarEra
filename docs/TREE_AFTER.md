@@ -1,7 +1,10 @@
-# 模块合并方案：11 → 7
+# 模块合并方案：11 → 7（已实施）
 
 > 本文取代上一版 TREE_AFTER.md 的 17 模块方案。
 > 依据是 2026-10-31 的实际文件清单与 Build.cs 依赖实测，不含推测。
+>
+> **状态：已完成**，分支 `refactor/module-merge`，worktree `F:/workspace/ue/StellarEra-refactor`。
+> 实施结果与本文有两处偏差，已就地修正并标注（§3 Pawns 与 §5.5）。
 
 ---
 
@@ -148,7 +151,7 @@ StellarEraPlanet/
 
 `VoxelPlanetTerrainModule.h` 名字里带 Module 容易和模块入口混淆，但它是 `UDataAsset` 基类，**不改名**——改文件名要动一堆 include，收益不抵成本。
 
-### StellarEraPawns（原 Character + Spaceship + StarMapCameraPawn）
+### StellarEraPawns（原 Character + Spaceship）
 
 ```
 StellarEraPawns/
@@ -158,10 +161,8 @@ StellarEraPawns/
 │   │   ├── PlanetCharacter.h
 │   │   ├── PlanetCharacterAnimInstance.h
 │   │   └── PlanetCharacterMovementComponent.h
-│   ├── Spaceship/
-│   │   └── SpaceshipPawn.h
-│   └── Camera/
-│       └── StarMapCameraPawn.h                         ← 从 StellarEraUI/Public 搬
+│   └── Spaceship/
+│       └── SpaceshipPawn.h
 ├── Private/
 │   ├── StellarEraPawns.cpp                             ★ 新模块入口
 │   ├── Character/
@@ -170,36 +171,42 @@ StellarEraPawns/
 │   │   └── PlanetCharacterMovementComponent.cpp
 │   ├── Spaceship/
 │   │   └── SpaceshipPawn.cpp
-│   ├── Camera/
-│   │   └── StarMapCameraPawn.cpp                       ← 从 StellarEraUI/Private 搬
-│   └── Tests/                                          8 个
+│   └── Tests/                                          7 个
 │       ├── PlanetCharacterAnimTests.cpp
 │       ├── SpaceshipAtmosphereDragTests.cpp
 │       ├── SpaceshipCollisionTests.cpp
 │       ├── SpaceshipFreeLookTests.cpp
 │       ├── SpaceshipLODInvokerTests.cpp
 │       ├── SpaceshipSpeedLimitTests.cpp
-│       ├── SpaceshipThrustDirectionTests.cpp
-│       └── StarMapCameraInvokerTests.cpp               ← 从 StellarEraUI/Private 搬
+│       └── SpaceshipThrustDirectionTests.cpp
 ```
 
-### StellarEraUI（只剩 3 个类）
+**`StarMapCameraPawn` 没能搬进来**（原计划搬入，实测会成环）：
+它调用 `UCosmosSimulationSubsystem`，而 `StellarEraCosmos` 又有 4 处
+`Cast<ASpaceshipPawn>` 依赖 Pawns。相机进 Pawns 就是
+`Pawns → Cosmos → Pawns`。等 `ICosmosBody` 那笔债还清后再搬。
+
+### StellarEraUI（4 个类 + 星图相机）
 
 ```
 StellarEraUI/
-├── StellarEraUI.Build.cs                               依赖从 8 个降到 6 个
+├── StellarEraUI.Build.cs                               依赖从 8 个降到 5 个
 ├── Public/
 │   ├── StellarEraHUD.h
 │   ├── StarMapUISystem.h
-│   └── PlanetEditUI.h
+│   ├── PlanetEditUI.h
+│   ├── StarMapUIInputs.h                              IStarMapUIInputs（依赖倒置，留在这里）
+│   └── StarMapCameraPawn.h                            暂留：搬去 Pawns 会成环，见 §3
 ├── Private/
 │   ├── StellarEraHUD.cpp
 │   ├── StarMapUISystem.cpp
 │   ├── PlanetEditUI.cpp
-│   └── Tests/                                          4 个
+│   ├── StarMapCameraPawn.cpp
+│   └── Tests/                                          5 个
 │       ├── StellarEraHUDTests.cpp
 │       ├── StarMapUISystemTests.cpp
 │       ├── MineralLegendTests.cpp
+│       ├── StarMapCameraInvokerTests.cpp
 │       └── PlanetEditTests.cpp                         ← 从 StellarEra/Private 搬
 └── StellarEraUI.cpp / .h
 ```
@@ -329,7 +336,7 @@ Content/Code/BP_StarMapCameraPawn.uasset    → StarMapCameraPawn
 | 移文件 | `git mv`，保留历史 |
 | 改 API 宏 | `sed -i 's/STELLARERATERRAIN_API/STELLARERAPLANET_API/g'`，另三个宏同理 |
 | 改模块入口 | 删 4 个 `StellarEra{Terrain,Atmosphere,Minerals,PlanetEdit}.{h,cpp}`，新建 `StellarEraPlanet.{h,cpp}` 里的 `IMPLEMENT_MODULE(FDefaultModuleImpl, StellarEraPlanet)` |
-| 改 include | **不用改**。UBT 会把 `Public/` 下所有子目录递归加入搜索路径，`#include "VoxelPlanetGenerator.h"` 裸文件名继续有效。已核对四个子目录无重名头文件 |
+| 改 include | **不用改**（裸文件名继续有效）。但 **Build.cs 必须显式声明子目录**：`PublicIncludePaths.Add(Path.Combine(ModuleDirectory, "Public", "Terrain"))`，四个子目录各一行。UBT **只加 `Public/` 本身，不递归** —— 这一条与初稿写的相反，实测漏写直接 C1083 |
 | 改 Build.cs | 7 个模块的依赖名重写 |
 | 改 uproject | `Modules` 数组 11 项 → 7 项 |
 | 加 redirect | 见 5.1 |
@@ -343,7 +350,7 @@ Content/Code/BP_StarMapCameraPawn.uasset    → StarMapCameraPawn
 | 测试 | 引用 | 归属 |
 |---|---|---|
 | `PlanetEditTests.cpp` 933 行 | `PlanetEditBrush.h` `PlanetEditGridGeometry.h`（Planet）+ `PlanetEditUI.h`（UI） | **UI/Tests**。只有 UI 同时看得见两边，放 Planet 会形成 `Planet → UI` 环 |
-| `StarMapTests.cpp` 696 行 | `CosmosOrbitComponent.h` `CosmosSimulationSubsystem.h` `CosmosTrajectoryComponent.h` | **Cosmos/Tests**，全在 Cosmos 内 |
+| `StarMapTests.cpp` 696 行 | `CosmosOrbitComponent.h` `CosmosSimulationSubsystem.h` `CosmosTrajectoryComponent.h`，另有 `PlanetCharacter.h` `SpaceshipPawn.h` `StarMapCameraPawn.h` `StellarEraPlayerController.h` | **留在主模块/Tests**。初稿以为它只引用 Cosmos，实测还拉控制器（主模块），放 Cosmos 会成环 |
 | `VoxelViewpointInvokerTests.cpp` 316 行 | `PlanetCharacter.h` `SpaceshipPawn.h` `StarMapCameraPawn.h` `StellarEraPlayerController.h` | **留在主模块/Tests**。跨 Pawns + Controller 的集成测试，只有装配层看得见全部 |
 
 这就是分界线：**单元测试跟着被测模块走，集成测试留在装配层**。

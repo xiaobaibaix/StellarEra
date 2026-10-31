@@ -12,17 +12,13 @@ public class StellarEraTarget : TargetRules
 		IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_8;
 		ExtraModuleNames.AddRange(new string[]
 		{
-			"StellarEra",          // 框架（primary game module）
-			"StellarEraCosmos",    // 万有引力
-			"StellarEraCore",      // 天体力学
-			"StellarEraTerrain",    // 体素星球
-			"StellarEraGeology",   // 地质
-			"StellarEraAtmosphere", // 大气
-			"StellarEraMinerals",  // 矿物
-			"StellarEraSpaceship", // 飞船
-			"StellarEraUI",    // 显示与控制
-			"StellarEraPlanetEdit",  // 行星编辑
-			"StellarEraCharacter", // 角色控制
+			"StellarEra",         // 装配：GameMode / PlayerController（primary game module）
+			"StellarEraCore",     // 底座：N 体求解器、物理单位、通用接口
+			"StellarEraGeology",  // 底座：元素表与地质场
+			"StellarEraPlanet",   // 世界：地形 / 大气 / 矿物 / 编辑
+			"StellarEraPawns",    // 受控实体：角色 / 飞船 / 星图相机
+			"StellarEraCosmos",   // 天体：N 体编排与轨迹
+			"StellarEraUI",       // 界面：HUD / 星图面板 / 编辑 UI
 		});
 	}
 }

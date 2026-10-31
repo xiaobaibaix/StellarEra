@@ -10,6 +10,7 @@
 #include "VoxelPlanetActor.h"
 #include "AlwaysLocalVoxelInvokerComponent.h"
 #include "VoxelViewpointInvokers.h"
+#include "VoxelViewpointInvokerUtils.h"
 
 AStarMapCameraPawn::AStarMapCameraPawn()
 {

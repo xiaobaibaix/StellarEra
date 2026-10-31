@@ -7,36 +7,25 @@
 - C++ 为主；蓝图只承载资产配置（`Content/Code/BP_*`）
 - 编辑器用 VS Code。仓库没有 `.sln` / `.vcxproj` 是正常的，别把 IDE 生成物入库
 
-## 模块结构（依赖严格分层，无环）
+## 模块结构（7 个模块，依赖严格分层，无环）
 ```
-StellarEra           ─→ StellarEraUI（Public）, StellarEraCosmos, StellarEraTerrain,
-                         StellarEraMinerals, StellarEraPlanetEdit, StellarEraCharacter,
-                         StellarEraSpaceship, StellarEraCore
-StellarEraUI         ─→ StellarEraCosmos, StellarEraTerrain, StellarEraGeology,
-                         StellarEraMinerals, StellarEraPlanetEdit, StellarEraCharacter,
-                         StellarEraSpaceship, StellarEraCore
-StellarEraCosmos     ─→ StellarEraCore（Public）, StellarEraSpaceship, StellarEraTerrain
-StellarEraSpaceship  ─→ StellarEraCharacter, StellarEraTerrain, StellarEraAtmosphere
-StellarEraCharacter  ─→ StellarEraPlanetEdit, StellarEraTerrain
-StellarEraPlanetEdit ─→ StellarEraTerrain
-StellarEraMinerals   ─→ StellarEraGeology（Public）, StellarEraTerrain, StellarEraAtmosphere
-StellarEraAtmosphere ─→ StellarEraTerrain
-StellarEraTerrain    ─→ StellarEraGeology（Public）
-StellarEraGeology    ─→ 无项目依赖（Voxel 是 Public）
-StellarEraCore       ─→ 无项目依赖
+StellarEra        ─→ StellarEraUI（Public）, StellarEraCosmos, StellarEraPawns,
+                     StellarEraPlanet, StellarEraCore
+StellarEraUI      ─→ StellarEraCosmos, StellarEraPlanet, StellarEraGeology, StellarEraCore
+StellarEraCosmos  ─→ StellarEraCore（Public）, StellarEraPawns, StellarEraPlanet
+StellarEraPawns   ─→ StellarEraCore, StellarEraPlanet
+StellarEraPlanet  ─→ StellarEraCore, StellarEraGeology（Public）, Voxel（Public）
+StellarEraGeology ─→ 无项目依赖（Voxel 是 Public）
+StellarEraCore    ─→ 无项目依赖
 ```
 ```
 Source/
 ├── StellarEra/            主游戏模块（primary game module）：GameMode / PlayerController
-├── StellarEraCore/        N 体求解器与 Cosmos 单位类型
-├── StellarEraCosmos/      N 体编排（子系统 / 轨道组件 / 轨迹组件）
+├── StellarEraCore/        N 体求解器、Cosmos 单位类型、通用接口（Public/Interfaces/）
 ├── StellarEraGeology/     元素表、行星地质场、噪声采样、UDataAsset 预设
-├── StellarEraTerrain/     行星 Actor / 生成器 / 地形模块 / 行星面射线与网格
-├── StellarEraAtmosphere/  大气壳与大气参数
-├── StellarEraMinerals/    矿物等值面 / 观察体 / 矿体材质
-├── StellarEraPlanetEdit/  行星编辑组件、笔刷几何
-├── StellarEraCharacter/   球面角色与移动组件、动画实例
-├── StellarEraSpaceship/   飞船 Pawn
+├── StellarEraPlanet/      世界：Terrain/ Atmosphere/ Minerals/ Edit/ 四个子目录
+├── StellarEraPawns/       受控实体：Character/ Spaceship/ 两个子目录
+├── StellarEraCosmos/      N 体编排（子系统 / 轨道组件 / 轨迹组件）
 └── StellarEraUI/          HUD、星图相机、星图面板、矿物图例、编辑按钮布局
 Plugins/
 ├── VoxelFree/          第三方体素插件，勿改
@@ -46,7 +35,24 @@ Content/
 ├── Geology/Planets/    DA_Geology_<名字>（行星矿物预设；JSON 已退役）
 └── Code/               BP_SpaceshipPawn / BP_PlanetCharacter / BP_VoxelPlanet / DA_Terrain_*
 ```
-自定义代码不进第三方插件目录，一律写进上面十一个模块并改对应 `Build.cs`。
+
+模块内部按子目录分功能，**不靠拆模块来分**。两条硬规则：
+
+1. **`*Tests.cpp` 只能放 `Private/Tests/`。** 测试放哪个模块，看它 include 了谁 ——
+   必须是所引头文件的下游。跨模块的集成测试放装配层（`StellarEra/Private/Tests/`）。
+2. **Build.cs 必须显式声明子目录的 `PublicIncludePaths`。** UBT **不会**递归把
+   `Public/` 的子目录加入搜索路径，只加 `Public/` 本身；漏写就是 C1083。
+
+2026-10 做过一次 11 → 7 的模块合并（Terrain/Atmosphere/Minerals/PlanetEdit → Planet，
+Character/Spaceship → Pawns），历史类路径由 `Config/DefaultEngine.ini` 的
+`[CoreRedirects]` 兜底，**那段配置不要删**。
+
+`AStarMapCameraPawn` 仍在 `StellarEraUI` 而不是 `StellarEraPawns`：它调用
+`UCosmosSimulationSubsystem`，而 `StellarEraCosmos` 又 `Cast<ASpaceshipPawn>`
+依赖 Pawns，两边放一起会成环。等 `Cosmos → Pawns` 这笔债（抽 `ICosmosBody` 接口）
+还清之后，相机才能搬进 Pawns。
+
+自定义代码不进第三方插件目录，一律写进上面七个模块并改对应 `Build.cs`。
 
 **`StellarEraUI` 不依赖 `StellarEra`**（Game 依赖 UI，反向就成环）。星图 UI 需要控制器数据时走
 `IStarMapUIInputs`（`Source/StellarEraUI/Public/StarMapUIInputs.h`），由 `AStellarEraPlayerController` 实现。
