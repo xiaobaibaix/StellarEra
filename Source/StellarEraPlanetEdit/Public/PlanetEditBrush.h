@@ -219,6 +219,15 @@ namespace PlanetEditBrush
 	STELLARERAPLANETEDIT_API FPlanetEditVoxelBox UnionVoxelBox(
 		const FPlanetEditVoxelBox& A, const FPlanetEditVoxelBox& B);
 
+	/**
+	 * 两个右端开的体素盒是否有公共格。
+	 *
+	 * A.MaxExclusive == B.Min 不算相交（没有公共格）—— 合并只对真正重叠的落笔
+	 * 有意义，贴边相邻的两笔并起来会凭空多出一片没挖过的范围。
+	 */
+	STELLARERAPLANETEDIT_API bool VoxelBoxesIntersect(
+		const FPlanetEditVoxelBox& A, const FPlanetEditVoxelBox& B);
+
 	/** 球体预览每条纬线的分段数。 */
 	constexpr int32 PreviewSegmentsPerCircle = 32;
 

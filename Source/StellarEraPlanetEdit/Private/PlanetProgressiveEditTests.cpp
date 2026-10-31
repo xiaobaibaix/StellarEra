@@ -751,4 +751,171 @@ bool FStellarEraProgressiveJobSetupTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+namespace
+{
+	/** 合并测试共用的一套请求：球、半径 6 体素、4 体素的块（好切出多块）。 */
+	FPlanetEditRequest MakeMergeTestRequest(const FVector& Center, const bool bPlace = false)
+	{
+		FPlanetEditRequest Request;
+		Request.Shape = EPlanetBrushShape::Sphere;
+		Request.CenterVoxels = Center;
+		Request.RadiusVoxels = 6.f;
+		Request.SizeVoxels = 10;
+		Request.MinSizeVoxels = 1;
+		Request.MaxSizeVoxels = 64;
+		Request.bPlace = bPlace;
+		Request.bMultiThreaded = false;
+		Request.ChunkSizeVoxels = 4;
+		return Request;
+	}
+
+	void TestBoxesEqual(
+		FAutomationTestBase& Test, const TCHAR* What,
+		const FPlanetEditVoxelBox& Actual, const FPlanetEditVoxelBox& Expected)
+	{
+		Test.TestTrue(What,
+			Actual.Min == Expected.Min && Actual.MaxExclusive == Expected.MaxExclusive);
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraProgressiveMergeRejectTest,
+	"StellarEra.Planet.Editor.Merge.Rejects",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraProgressiveMergeRejectTest::RunTest(const FString& Parameters)
+{
+	TSharedPtr<FPlanetProgressiveEdit> Job = MakeShared<FPlanetProgressiveEdit>();
+	if (!TestTrue(TEXT("装配成功"), Job->SetupFromRequest(MakeMergeTestRequest(FVector::ZeroVector))))
+	{
+		return false;
+	}
+
+	const int32 ChunksBefore = Job->GetChunkCount();
+	const FPlanetEditVoxelBox FullBefore = Job->GetFullBounds();
+
+	// 1. 离得远 → 包围盒不相交。
+	TestFalse(TEXT("不相交必须拒绝"),
+		Job->TryMerge(MakeMergeTestRequest(FVector(500.0, 0.0, 0.0)), 8));
+
+	// 2. 形状不同。
+	{
+		FPlanetEditRequest Box = MakeMergeTestRequest(FVector(1.0, 0.0, 0.0));
+		Box.Shape = EPlanetBrushShape::Cube;
+		Box.RadiusVoxels = 0.f;
+		TestFalse(TEXT("形状不同必须拒绝"), Job->TryMerge(Box, 8));
+	}
+
+	// 3. 笔刷尺寸不同。
+	{
+		FPlanetEditRequest Bigger = MakeMergeTestRequest(FVector(1.0, 0.0, 0.0));
+		Bigger.SizeVoxels = 12;
+		TestFalse(TEXT("尺寸不同必须拒绝"), Job->TryMerge(Bigger, 8));
+	}
+
+	// 4. 挖 / 填不同。
+	TestFalse(TEXT("挖填不同必须拒绝"),
+		Job->TryMerge(MakeMergeTestRequest(FVector(1.0, 0.0, 0.0), /*bPlace=*/true), 8));
+
+	// 5. op 数到上限：相交、不重复，但 MaxOps = 1 时已满。
+	TestFalse(TEXT("op 数到上限必须拒绝"),
+		Job->TryMerge(MakeMergeTestRequest(FVector(3.0, 0.0, 0.0)), /*MaxOps=*/1));
+
+	// 一次拒绝都不能改状态。
+	TestEqual(TEXT("拒绝后 op 数不变"), Job->GetOpCount(), 1);
+	TestEqual(TEXT("拒绝后块数不变"), Job->GetChunkCount(), ChunksBefore);
+	TestBoxesEqual(*this, TEXT("拒绝后包围盒不变"), Job->GetFullBounds(), FullBefore);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraProgressiveMergeDedupeTest,
+	"StellarEra.Planet.Editor.Merge.DedupesIdenticalOps",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraProgressiveMergeDedupeTest::RunTest(const FString& Parameters)
+{
+	const FPlanetEditRequest Request = MakeMergeTestRequest(FVector(2.0, 2.0, 2.0));
+
+	TSharedPtr<FPlanetProgressiveEdit> Job = MakeShared<FPlanetProgressiveEdit>();
+	if (!TestTrue(TEXT("装配成功"), Job->SetupFromRequest(Request)))
+	{
+		return false;
+	}
+
+	const int32 ChunksBefore = Job->GetChunkCount();
+	const int32 OpsBefore = Job->GetOpCount();
+
+	// 同一个落笔再来一遍：已经在这一笔里，返回 true 但不追加任何东西。
+	// 挖取 max、填取 min，重复一次是同值 —— 追加纯属浪费。
+	TestTrue(TEXT("重复的落笔返回 true"), Job->TryMerge(Request, 8));
+	TestEqual(TEXT("重复的落笔不追加 op"), Job->GetOpCount(), OpsBefore);
+	TestEqual(TEXT("重复的落笔不追加块"), Job->GetChunkCount(), ChunksBefore);
+
+	// 连点 5 下：仍然只有一笔。
+	for (int32 Index = 0; Index < 5; ++Index)
+	{
+		Job->TryMerge(Request, 8);
+	}
+	TestEqual(TEXT("连点 5 下仍然只有一个 op"), Job->GetOpCount(), 1);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraProgressiveMergeProgressTest,
+	"StellarEra.Planet.Editor.Merge.PreservesProgress",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraProgressiveMergeProgressTest::RunTest(const FString& Parameters)
+{
+	const FPlanetEditRequest First = MakeMergeTestRequest(FVector::ZeroVector);
+
+	TSharedPtr<FPlanetProgressiveEdit> Job = MakeShared<FPlanetProgressiveEdit>();
+	if (!TestTrue(TEXT("装配成功"), Job->SetupFromRequest(First)))
+	{
+		return false;
+	}
+
+	const int32 ChunksBefore = Job->GetChunkCount();
+	const int32 IndexBefore = Job->GetNextChunkIndex();
+	const FPlanetEditVoxelBox AppliedBefore = Job->GetAppliedBounds();
+	const FPlanetEditVoxelBox FullBefore = Job->GetFullBounds();
+
+	// 相交的新落笔必须被接受。
+	const FPlanetEditRequest Second = MakeMergeTestRequest(FVector(4.0, 0.0, 0.0));
+	TestTrue(TEXT("相交必须接受"), Job->TryMerge(Second, 8));
+
+	TestEqual(TEXT("op 数 +1"), Job->GetOpCount(), 2);
+	TestTrue(TEXT("块数增加"), Job->GetChunkCount() > ChunksBefore);
+
+	// 进度一字未动：已做前缀的下标不变，AppliedBounds 不变。
+	TestEqual(TEXT("已做前缀不变"), Job->GetNextChunkIndex(), IndexBefore);
+	TestBoxesEqual(*this, TEXT("AppliedBounds 不变"), Job->GetAppliedBounds(), AppliedBefore);
+
+	// 整笔范围是两支的并集。
+	TestBoxesEqual(*this, TEXT("FullBounds == 两支包围盒的并集"), Job->GetFullBounds(),
+		PlanetEditBrush::UnionVoxelBox(FullBefore, Job->GetOps()[1].Bounds));
+
+	// 老块的前缀仍是 1、新块的前缀是 2 —— 这就是「进度不丢」的机制。
+	// 按 NumOps 数而不是按下标数：插入点在 NextChunkIndex（这里是 0），
+	// 新块排在前面，下标区间跟「新旧」不对应。
+	int32 PrefixOneCount = 0;
+	int32 PrefixTwoCount = 0;
+	for (const FPlanetEditChunk& Chunk : Job->GetChunks())
+	{
+		if (Chunk.NumOps == 1)
+		{
+			++PrefixOneCount;
+		}
+		else if (Chunk.NumOps == 2)
+		{
+			++PrefixTwoCount;
+		}
+	}
+	TestEqual(TEXT("老块（前缀 1）数量不变"), PrefixOneCount, ChunksBefore);
+	TestEqual(TEXT("新块（前缀 2）数量等于新增的块数"),
+		PrefixTwoCount, Job->GetChunkCount() - ChunksBefore);
+
+	return true;
+}
+
 #endif

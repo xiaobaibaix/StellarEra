@@ -103,6 +103,34 @@ public:
 	bool SetupFromRequest(const FPlanetEditRequest& Request);
 
 	/**
+	 * 纯策略合并：把一个请求并进本 job。
+	 *
+	 * 包围盒不相交、参数不兼容（形状 / 尺寸 / 挖填 / 多线程）、op 数到 MaxOps
+	 * → false（调用方另起一笔）。
+	 * 完全重复的落笔（包围盒一致）→ true 且不追加任何东西：挖取 max、填取 min，
+	 * 重复一次是同值。
+	 *
+	 * **进度不丢**靠插入位置：新块插在 NextChunkIndex 上，已做前缀一个都不动。
+	 */
+	bool TryMerge(const FPlanetEditRequest& Request, int32 MaxOps);
+
+	/**
+	 * 世界空间版的 TryMerge：换算成体素后交给 TryMerge。
+	 * 行星不是本 job 的行星、或本 job 已做完 → false。
+	 */
+	bool TryMergeWorld(
+		AVoxelPlanetActor* InPlanet,
+		const FVector& CenterWorld,
+		EPlanetBrushShape InShape,
+		int32 SizeVoxels,
+		int32 MinSizeVoxels,
+		int32 MaxSizeVoxels,
+		bool bInPlace,
+		int32 ChunkSizeVoxels,
+		bool bMultiThreaded,
+		int32 MaxOps);
+
+	/**
 	 * 应用下一块。返回 true = 还有剩余块；false = 已完成（或行星已失效）。
 	 * 每块内部开一个只覆盖该块的写锁，锁的持有时间因此与块大小成正比，
 	 * 而不是与整笔编辑成正比。

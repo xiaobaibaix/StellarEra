@@ -229,6 +229,19 @@ FPlanetEditVoxelBox PlanetEditBrush::UnionVoxelBox(
 	return Union;
 }
 
+bool PlanetEditBrush::VoxelBoxesIntersect(
+	const FPlanetEditVoxelBox& A, const FPlanetEditVoxelBox& B)
+{
+	if (!IsValidVoxelBox(A) || !IsValidVoxelBox(B))
+	{
+		return false;
+	}
+
+	return A.Min.X < B.MaxExclusive.X && B.Min.X < A.MaxExclusive.X
+		&& A.Min.Y < B.MaxExclusive.Y && B.Min.Y < A.MaxExclusive.Y
+		&& A.Min.Z < B.MaxExclusive.Z && B.Min.Z < A.MaxExclusive.Z;
+}
+
 float PlanetEditBrush::PreviewLineThicknessWorld(
 	const float DistanceCm, const float HorizontalFovDegrees,
 	const float ViewportWidthPx, const float ThicknessPx,

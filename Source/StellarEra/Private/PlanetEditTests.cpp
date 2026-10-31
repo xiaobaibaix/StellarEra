@@ -159,6 +159,46 @@ bool FStellarEraEditBrushUnionVoxelBoxTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraEditBrushVoxelBoxesIntersectTest,
+	"StellarEra.Planet.Editor.Brush.VoxelBoxesIntersect",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraEditBrushVoxelBoxesIntersectTest::RunTest(const FString& Parameters)
+{
+	// FPlanetEditVoxelBox 没有构造函数，用局部小工具拼，别为测试去改公开结构体。
+	auto Box = [](const FIntVector& Mn, const FIntVector& MaxEx)
+	{
+		FPlanetEditVoxelBox Out;
+		Out.Min = Mn;
+		Out.MaxExclusive = MaxEx;
+		return Out;
+	};
+
+	const FPlanetEditVoxelBox A = Box(FIntVector(0, 0, 0), FIntVector(10, 10, 10));
+
+	TestTrue(TEXT("自己与自己相交"), PlanetEditBrush::VoxelBoxesIntersect(A, A));
+	TestTrue(TEXT("部分重叠"), PlanetEditBrush::VoxelBoxesIntersect(
+		A, Box(FIntVector(5, 5, 5), FIntVector(15, 15, 15))));
+	TestTrue(TEXT("完全包含"), PlanetEditBrush::VoxelBoxesIntersect(
+		A, Box(FIntVector(2, 2, 2), FIntVector(4, 4, 4))));
+
+	// 右端开：贴边相邻没有公共格。
+	TestFalse(TEXT("X 轴贴边不相交"), PlanetEditBrush::VoxelBoxesIntersect(
+		A, Box(FIntVector(10, 0, 0), FIntVector(20, 10, 10))));
+	TestFalse(TEXT("Y 轴贴边不相交"), PlanetEditBrush::VoxelBoxesIntersect(
+		A, Box(FIntVector(0, 10, 0), FIntVector(10, 20, 10))));
+	TestFalse(TEXT("Z 轴贴边不相交"), PlanetEditBrush::VoxelBoxesIntersect(
+		A, Box(FIntVector(0, 0, 10), FIntVector(10, 10, 20))));
+	TestFalse(TEXT("离得远不相交"), PlanetEditBrush::VoxelBoxesIntersect(
+		A, Box(FIntVector(100, 0, 0), FIntVector(110, 10, 10))));
+
+	// 无效盒子一律 false。
+	TestFalse(TEXT("无效盒子不相交"),
+		PlanetEditBrush::VoxelBoxesIntersect(A, FPlanetEditVoxelBox()));
+
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraEditBrushClampSizeTest,
 	"StellarEra.Planet.EditBrush.ClampSize",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
