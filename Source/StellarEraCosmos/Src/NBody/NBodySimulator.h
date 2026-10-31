@@ -88,6 +88,23 @@ struct FCosmosBodyState
 	/** 最远探针到中心的距离。由 SetContactProbes 维护，用于接触前的快速排除。 */
 	double ContactProbeRadius = 0.0;
 
+	/**
+	 * 逐探针的真实地表半径（求解器单位 AU），与 ContactProbes 一一对应。
+	 *
+	 * 空数组 / 数量对不上 = 全部按对方的 Radius 球面接触（加这个字段之前的行为）。
+	 * 由子系统每帧写一次（UCosmosSimulationSubsystem::RefreshShipContactProbes），
+	 * 求解器只读 —— 求解器一帧最多跑 200 个子步，体素查询不能放在这里。
+	 */
+	TArray<double> ContactProbeSurfaceRadii;
+
+	/**
+	 * 上面这份半径是对着哪个天体（求解器下标）算的。INDEX_NONE = 没有。
+	 *
+	 * 接触是成对的：同一份半径拿去碰另一颗星就是错的，所以 ResolveProbeContact
+	 * 只在「当前这颗星的下标 == 这里记录的下标」时才用逐探针半径。
+	 */
+	int32 ContactSurfaceSphereIndex = INDEX_NONE;
+
 	/** 写入探针并同步 ContactProbeRadius。传空数组即退回球-球接触。 */
 	void SetContactProbes(TArray<FVector3d> InProbes)
 	{
@@ -97,6 +114,11 @@ struct FCosmosBodyState
 		{
 			ContactProbeRadius = FMath::Max(ContactProbeRadius, Probe.Size());
 		}
+
+		// 探针换了，逐探针地表半径就不再对应任何东西 —— 一并清掉，让接触退回
+		// 球面，而不是拿旧世界的半径去碰。子系统每帧先调本函数、再写半径。
+		ContactProbeSurfaceRadii.Reset();
+		ContactSurfaceSphereIndex = INDEX_NONE;
 	}
 
 	/** 软化半径。等于 0 时使用求解器的全局设置。 */

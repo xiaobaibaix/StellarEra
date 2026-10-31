@@ -1105,4 +1105,188 @@ bool FStellarEraClosedOrbitPredictionTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// 逐探针地表半径：飞船停在哪，由「那个探针方向上的真实地表」决定，而不是由
+// 行星那一颗解析球的半径决定。挖出来的坑就靠这条落下去。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraNBodyProbeSurfaceRadiiTest,
+	"StellarEra.Cosmos.NBodyProbeSurfaceRadii",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraNBodyProbeSurfaceRadiiTest::RunTest(const FString& Parameters)
+{
+	// 统一几何：球体（行星）质量 3、半径 0.1 在原点；探针体（飞船）质量 1，
+	// 一个探针在本地 (−0.06, 0, 0)。
+
+	const auto MakeSimulator = []()
+	{
+		FNBodySimulator Simulator;
+		Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
+		Simulator.SetIntegrator(ECosmosIntegrator::VelocityVerlet);
+		Simulator.SetSofteningLength(1.0e-5);
+
+		FCosmosBodyState Planet;
+		Planet.Mass = 3.0;
+		Planet.Radius = 0.1;
+		Planet.Position = FVector3d::ZeroVector;
+		Simulator.AddBody(Planet);
+		return Simulator;
+	};
+
+	// 每条分支都要在 SetContactProbes **之后**才写逐探针半径：那个函数会把
+	// 它清空（防止探针重建后留下对不上的旧半径）。
+	const auto MakeShip = [](const double ShipX)
+	{
+		FCosmosBodyState Ship;
+		Ship.Mass = 1.0;
+		Ship.Position = FVector3d(ShipX, 0.0, 0.0);
+		Ship.SetContactProbes({FVector3d(-0.06, 0.0, 0.0)});
+		return Ship;
+	};
+
+	// ── 1. 坑：逐探针半径 0.05 比球半径 0.1 低，船落到 0.05 的面上 ──
+	// 船心 0.09 + 探针 (−0.06) = 0.03，低于 0.05 → 穿透 0.02。
+	// 让路比例：船 3/4、行星 1/4。
+	{
+		FNBodySimulator Simulator = MakeSimulator();
+
+		FCosmosBodyState Ship = MakeShip(0.09);
+		Ship.ContactProbeSurfaceRadii.Add(0.05);
+		Ship.ContactSurfaceSphereIndex = 0;
+		Simulator.AddBody(Ship);
+
+		Simulator.StepExact(0.0);
+
+		TestEqual(TEXT("船心让 3/4：0.09 + 0.015 = 0.105"),
+			Simulator.GetBody(1).Position.X, 0.105, 1.0e-15);
+		TestEqual(TEXT("行星反向让 1/4"),
+			Simulator.GetBody(0).Position.X, -0.005, 1.0e-15);
+		TestEqual(TEXT("探针恰好落在 0.05 的地表上"),
+			(Simulator.GetBody(1).Position + FVector3d(-0.06, 0.0, 0.0)
+				- Simulator.GetBody(0).Position).Size(), 0.05, 1.0e-15);
+	}
+
+	// ── 2. 同一个坑，船悬在 0.12：探针落在 0.06，比 0.05 高 → 不接触 ──
+	// 这条是「停在空气上」的反向断言：装着逐探针半径时，探针已在坑底之下才算碰到。
+	{
+		FNBodySimulator Simulator = MakeSimulator();
+
+		FCosmosBodyState Ship = MakeShip(0.12);
+		Ship.ContactProbeSurfaceRadii.Add(0.05);
+		Ship.ContactSurfaceSphereIndex = 0;
+		Simulator.AddBody(Ship);
+
+		Simulator.StepExact(0.0);
+
+		TestEqual(TEXT("没碰到 0.05 的地表就不该被推开"),
+			Simulator.GetBody(1).Position.X, 0.12, 1.0e-15);
+
+		// 对照组：同样的摆位、不给逐探针半径，必须被 0.1 的球面拦住 ——
+		// 否则上一条是恒真的。
+		FNBodySimulator Control = MakeSimulator();
+		Control.AddBody(MakeShip(0.12));
+		Control.StepExact(0.0);
+		TestTrue(TEXT("对照组：没有逐探针半径时会被球面拦住"),
+			Control.GetBody(1).Position.X > 0.12 + 1.0e-6);
+	}
+
+	// ── 3. 索引对不上 → 退回球半径（0.1）──
+	{
+		FNBodySimulator Simulator = MakeSimulator();
+
+		FCosmosBodyState Ship = MakeShip(0.09);
+		Ship.ContactProbeSurfaceRadii.Add(0.05);
+		Ship.ContactSurfaceSphereIndex = 99;
+		Simulator.AddBody(Ship);
+
+		Simulator.StepExact(0.0);
+
+		// 半径按 0.1：穿透 0.1 − 0.03 = 0.07 → 船心 0.09 + 0.07×0.75 = 0.1425。
+		TestEqual(TEXT("索引不匹配：按球半径算"),
+			Simulator.GetBody(1).Position.X, 0.1425, 1.0e-15);
+	}
+
+	// ── 4. 数量对不上 → 退回球半径 ──
+	{
+		FNBodySimulator Simulator = MakeSimulator();
+
+		FCosmosBodyState Ship = MakeShip(0.09);
+		Ship.ContactProbeSurfaceRadii.Add(0.05);
+		Ship.ContactProbeSurfaceRadii.Add(0.05);   // 探针只有 1 个
+		Ship.ContactSurfaceSphereIndex = 0;
+		Simulator.AddBody(Ship);
+
+		Simulator.StepExact(0.0);
+
+		TestEqual(TEXT("数量不匹配：按球半径算"),
+			Simulator.GetBody(1).Position.X, 0.1425, 1.0e-15);
+	}
+
+	// ── 5. 抬高地形：逐探针半径**大于**球半径时，快速排除不能误杀 ──
+	// 探针在船心（ContactProbeRadius = 0），船心距 0.15 ≥ 球半径 0.1 ——
+	// 只按球半径做快速排除会把这条接触整个漏掉。
+	{
+		FNBodySimulator Simulator = MakeSimulator();
+
+		FCosmosBodyState Ship;
+		Ship.Mass = 1.0;
+		Ship.Position = FVector3d(0.15, 0.0, 0.0);
+		Ship.SetContactProbes({FVector3d::ZeroVector});
+		Ship.ContactProbeSurfaceRadii.Add(0.2);
+		Ship.ContactSurfaceSphereIndex = 0;
+		Simulator.AddBody(Ship);
+
+		Simulator.StepExact(0.0);
+
+		// 穿透 0.2 − 0.15 = 0.05 → 船心 0.15 + 0.05×0.75 = 0.1875。
+		TestEqual(TEXT("抬高地表：0.15 + 0.0375"),
+			Simulator.GetBody(1).Position.X, 0.1875, 1.0e-15);
+		TestEqual(TEXT("探针落在 0.2 的地表上"),
+			(Simulator.GetBody(1).Position - Simulator.GetBody(0).Position).Size(),
+			0.2, 1.0e-15);
+	}
+
+	// ── 6. 三个探针各带半径：最深的那一个说了算 ──
+	// 探针 (−0.06) / (−0.08) / (−0.02)，船心 0.15 → 距球心 0.09 / 0.07 / 0.13。
+	// 半径 {0.1, 0.06, 0.06} → 穿透 0.01 / −0.01 / −0.07：只有第一个是真穿透。
+	{
+		FNBodySimulator Simulator = MakeSimulator();
+
+		FCosmosBodyState Ship;
+		Ship.Mass = 1.0;
+		Ship.Position = FVector3d(0.15, 0.0, 0.0);
+		Ship.SetContactProbes({
+			FVector3d(-0.06, 0.0, 0.0),
+			FVector3d(-0.08, 0.0, 0.0),
+			FVector3d(-0.02, 0.0, 0.0)});
+		Ship.ContactProbeSurfaceRadii.Append({0.1, 0.06, 0.06});
+		Ship.ContactSurfaceSphereIndex = 0;
+		Simulator.AddBody(Ship);
+
+		Simulator.StepExact(0.0);
+
+		TestEqual(TEXT("最深的探针决定位移：0.15 + 0.0075"),
+			Simulator.GetBody(1).Position.X, 0.1575, 1.0e-15);
+	}
+
+	// ── 7. 撞上即停与逐探针半径共存：速度仍钉到行星上 ──
+	{
+		FNBodySimulator Simulator = MakeSimulator();
+
+		FCosmosBodyState Ship = MakeShip(0.09);
+		Ship.Velocity = FVector3d(-0.01, 0.002, 0.0);
+		Ship.bZeroVelocityOnContact = true;
+		Ship.ContactProbeSurfaceRadii.Add(0.05);
+		Ship.ContactSurfaceSphereIndex = 0;
+		Simulator.AddBody(Ship);
+
+		Simulator.StepExact(0.0);
+
+		TestEqual(TEXT("撞上即停：速度 X 归零"),
+			Simulator.GetBody(1).Velocity.X, 0.0, 1.0e-15);
+		TestEqual(TEXT("撞上即停：速度 Y 也钉到行星上"),
+			Simulator.GetBody(1).Velocity.Y, 0.0, 1.0e-15);
+	}
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

@@ -329,9 +329,26 @@ void FNBodySimulator::ResolveProbeContact(int32 ProbeIndex, int32 SphereIndex)
 
 	const double SphereRadius = SphereBody.Radius;
 
-	// 快速排除：中心距 ≥ 球半径 + 最远探针时，不可能有探针进入球内。
+	// 逐探针地表半径只在「算它的那颗球」上有效：索引对不上、或数量对不上
+	// （探针重建过）时一律退回球面 —— 与加这个字段之前逐字等价。
+	const bool bUsePerProbe =
+		ProbeBody.ContactSurfaceSphereIndex == SphereIndex
+		&& ProbeBody.ContactProbeSurfaceRadii.Num() == ProbeBody.ContactProbes.Num();
+
+	// 快速排除：中心距 ≥ 排除半径 + 最远探针时不可能有探针进入表面。
+	// 抬高地形时逐探针半径会**大于**球半径，所以排除半径取两者的较大者，
+	// 否则那条接触会被整个漏掉。
+	double RejectRadius = SphereRadius;
+	if (bUsePerProbe)
+	{
+		for (const double ProbeSurfaceRadius : ProbeBody.ContactProbeSurfaceRadii)
+		{
+			RejectRadius = FMath::Max(RejectRadius, ProbeSurfaceRadius);
+		}
+	}
+
 	const double CenterDistance = (ProbeBody.Position - SphereBody.Position).Size();
-	if (CenterDistance >= SphereRadius + ProbeBody.ContactProbeRadius)
+	if (CenterDistance >= RejectRadius + ProbeBody.ContactProbeRadius)
 	{
 		return;
 	}
@@ -340,11 +357,15 @@ void FNBodySimulator::ResolveProbeContact(int32 ProbeIndex, int32 SphereIndex)
 	double DeepestPenetration = 0.0;
 	FVector3d Normal = FVector3d(1.0, 0.0, 0.0);
 
-	for (const FVector3d& Probe : ProbeBody.ContactProbes)
+	for (int32 Index = 0; Index < ProbeBody.ContactProbes.Num(); ++Index)
 	{
+		const FVector3d& Probe = ProbeBody.ContactProbes[Index];
+		const double ProbeSurfaceRadius =
+			bUsePerProbe ? ProbeBody.ContactProbeSurfaceRadii[Index] : SphereRadius;
+
 		const FVector3d ProbeDelta = ProbeBody.Position + Probe - SphereBody.Position;
 		const double Distance = ProbeDelta.Size();
-		const double Penetration = SphereRadius - Distance;
+		const double Penetration = ProbeSurfaceRadius - Distance;
 		if (Penetration > DeepestPenetration)
 		{
 			DeepestPenetration = Penetration;
@@ -365,7 +386,7 @@ void FNBodySimulator::ResolveProbeContact(int32 ProbeIndex, int32 SphereIndex)
 	double ShareSphere = 0.0;
 	ComputeContactShares(ProbeBody.Mass, SphereBody.Mass, ShareProbe, ShareSphere);
 
-	// ① 位置：推开到最深探针刚好落在球面上。与球-球分支同样的让路比例。
+	// ① 位置：推开到最深探针刚好落在它自己的地表半径上。与球-球分支同样的让路比例。
 	ProbeBody.Position += Normal * (DeepestPenetration * ShareProbe);
 	SphereBody.Position -= Normal * (DeepestPenetration * ShareSphere);
 
