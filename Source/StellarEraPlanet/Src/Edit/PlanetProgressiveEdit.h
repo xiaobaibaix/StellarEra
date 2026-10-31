@@ -55,6 +55,26 @@ struct FPlanetEditRequest
 };
 
 /**
+ * 编辑队列的推进策略。
+ *
+ * 放在这里而不是组件里，是因为组件是 UObject：纯函数独立出来才能无头测试。
+ * 规则只有一条 —— 0 号是队首，由「队首优先」阶段独占，轮转只碰 1..N-1。
+ */
+namespace PlanetEditSchedule
+{
+	/** 除队首外可轮转的笔数。队列 ≤ 1 时为 0。 */
+	STELLARERAPLANET_API int32 GetFairCandidateCount(int32 QueueSize);
+
+	/**
+	 * 下一个轮转下标：夹到 [1, QueueSize-1] 并回绕；没有候选时返回 INDEX_NONE。
+	 *
+	 * 越界只夹不取模：队列长度在帧与帧之间会变，「Cursor % N」会让游标指到
+	 * 另一笔身上，看起来像跳笔。
+	 */
+	STELLARERAPLANET_API int32 GetNextFairIndex(int32 Cursor, int32 QueueSize);
+}
+
+/**
  * 一笔渐进式编辑。
  *
  * 存在理由：体素工具的代价是包围盒 Size³，一次 1280 体素的挖掘要扫 2×10⁹ 格，
@@ -103,6 +123,34 @@ public:
 	bool SetupFromRequest(const FPlanetEditRequest& Request);
 
 	/**
+	 * 纯策略合并：把一个请求并进本 job。
+	 *
+	 * 包围盒不相交、参数不兼容（形状 / 尺寸 / 挖填 / 多线程）、op 数到 MaxOps
+	 * → false（调用方另起一笔）。
+	 * 完全重复的落笔（包围盒一致）→ true 且不追加任何东西：挖取 max、填取 min，
+	 * 重复一次是同值。
+	 *
+	 * **进度不丢**靠插入位置：新块插在 NextChunkIndex 上，已做前缀一个都不动。
+	 */
+	bool TryMerge(const FPlanetEditRequest& Request, int32 MaxOps);
+
+	/**
+	 * 世界空间版的 TryMerge：换算成体素后交给 TryMerge。
+	 * 行星不是本 job 的行星、或本 job 已做完 → false。
+	 */
+	bool TryMergeWorld(
+		AVoxelPlanetActor* InPlanet,
+		const FVector& CenterWorld,
+		EPlanetBrushShape InShape,
+		int32 InSizeVoxels,
+		int32 InMinSizeVoxels,
+		int32 InMaxSizeVoxels,
+		bool bInPlace,
+		int32 ChunkSizeVoxels,
+		bool bInMultiThreaded,
+		int32 MaxOps);
+
+	/**
 	 * 应用下一块。返回 true = 还有剩余块；false = 已完成（或行星已失效）。
 	 * 每块内部开一个只覆盖该块的写锁，锁的持有时间因此与块大小成正比，
 	 * 而不是与整笔编辑成正比。
@@ -120,6 +168,20 @@ public:
 	/** 已合并的落笔与切块。块的 NumOps 是创建时的稳定前缀。测试与诊断用。 */
 	const TArray<FPlanetEditOp>& GetOps() const { return Ops; }
 	const TArray<FPlanetEditChunk>& GetChunks() const { return Chunks; }
+
+#if WITH_DEV_AUTOMATION_TESTS
+	/**
+	 * 测试专用：把进度游标设到指定块，模拟「已经做了一部分」。
+	 *
+	 * 生产路径推不动进度就没法钉「新块插在已做前缀之后」这条不变量
+	 *（ApplyNextChunk 在没有行星时直接判完成），所以留这一个受
+	 * WITH_DEV_AUTOMATION_TESTS 保护的缝。
+	 */
+	void SetNextChunkIndexForTest(const int32 Index)
+	{
+		NextChunkIndex = FMath::Clamp(Index, 0, Chunks.Num());
+	}
+#endif
 
 	/** 笔刷尺寸（体素数）。日志用。 */
 	int32 GetSizeVoxels() const { return SizeVoxels; }

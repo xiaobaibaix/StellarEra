@@ -177,9 +177,11 @@ void UPlanetEditComponent::AccumulateRenderBounds(
 	}
 
 	// 换了一颗行星：旧范围的坐标属于旧星的体素空间，不能混进来。
+	// 轮转下同一帧里可能真的换星，所以必须先把旧的刷掉再换 —— 直接清空会
+	// 把旧星还等着刷的范围丢掉，那一片的网格就永远停在旧数据上。
 	if (PendingRenderPlanet.Get() != Planet)
 	{
-		PendingRenderBounds = FPlanetEditVoxelBox();
+		FlushPendingRenderUpdate();
 		PendingRenderPlanet = Planet;
 	}
 
@@ -190,13 +192,30 @@ void UPlanetEditComponent::TickProgressiveEdits()
 {
 	if (EditQueue.Num() == 0)
 	{
+		NextFairEditIndex = INDEX_NONE;
 		return;
 	}
 
 	const double StartSeconds = FPlatformTime::Seconds();
 	const double BudgetMs = FMath::Max(static_cast<double>(ProgressiveEditBudgetMs), 0.1);
+	const double Share = FMath::Clamp(
+		static_cast<double>(ProgressiveEditHeadBudgetShare), 0.0, 1.0);
+	// 只有一笔活跃时没有可以轮转的对象，余量份额无处可去：整份预算都给队首，
+	// 否则单笔挖掘会比改前慢（旧实现独占 4 ms）。
+	const double HeadBudgetMs =
+		EditQueue.Num() > 1 ? BudgetMs * Share : BudgetMs;
+
+	// 取「已用毫秒」：两个阶段用同一把尺子，预算才好分配。
+	auto ElapsedMs = [StartSeconds]()
+	{
+		return (FPlatformTime::Seconds() - StartSeconds) * 1000.0;
+	};
 
 	bool bAppliedChunk = false;
+
+	// --- 阶段一：队首优先 ---
+	// 预算检查放在**推进过一块之后**：份额再小，这一帧也要往前走一块，
+	// 否则队列永远推不动。
 	while (EditQueue.Num() > 0)
 	{
 		const TSharedPtr<FPlanetProgressiveEdit>& Edit = EditQueue[0];
@@ -221,11 +240,52 @@ void UPlanetEditComponent::TickProgressiveEdits()
 			continue;
 		}
 
-		// 预算检查放在**推进过一块之后**：预算再小，一帧也要往前走一块，
-		// 否则队列永远推不动。
-		if ((FPlatformTime::Seconds() - StartSeconds) * 1000.0 >= BudgetMs)
+		if (ElapsedMs() >= HeadBudgetMs)
 		{
 			break;
+		}
+	}
+
+	// --- 阶段二：余量轮转 ---
+	// 循环只受**剩余预算**约束，不是「每帧每笔一块」的硬保证：块很便宜时
+	//（大包围盒的零角块、薄盒）游标会绕回来，同一笔可能在本帧被推进两次。
+	// 最坏只是多一块的超出量。不做「再补一块」的补偿：块粒度 128³ 约 2.9 ms，
+	// 补一块就会把单帧顶到 9 ms 以上。
+	while (PlanetEditSchedule::GetFairCandidateCount(EditQueue.Num()) > 0)
+	{
+		if (ElapsedMs() >= BudgetMs)
+		{
+			break;
+		}
+
+		NextFairEditIndex = PlanetEditSchedule::GetNextFairIndex(
+			NextFairEditIndex, EditQueue.Num());
+		if (NextFairEditIndex == INDEX_NONE)
+		{
+			break;
+		}
+
+		const TSharedPtr<FPlanetProgressiveEdit>& Edit = EditQueue[NextFairEditIndex];
+		if (!Edit.IsValid())
+		{
+			EditQueue.RemoveAt(NextFairEditIndex);
+			continue;
+		}
+
+		const bool bMoreWork = Edit->ApplyNextChunk();
+		bAppliedChunk = true;
+
+		AccumulateRenderBounds(Edit->GetPlanet().Get(), Edit->GetLastChunkBounds());
+
+		if (!bMoreWork)
+		{
+			OnEditFinished(*Edit);
+			// 删掉后数组变短：滑进游标那一格的笔此刻就在游标原来的下标上。
+			// 下一次 GetNextFairIndex 要么越过它、要么回绕 / 夹回 1，本帧具体
+			// 轮到谁取决于这次算术。游标每圈从 1 扫到 N-1、从不取 0，所以某一笔
+			// 只会因为前面的笔恰好做完、自己往前挪了一格而被推迟；队列只变短，
+			// 推迟次数有上限，不会有笔永远轮不到。
+			EditQueue.RemoveAt(NextFairEditIndex);
 		}
 	}
 

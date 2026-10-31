@@ -219,13 +219,27 @@ namespace PlanetEditBrush
 	STELLARERAPLANET_API FPlanetEditVoxelBox UnionVoxelBox(
 		const FPlanetEditVoxelBox& A, const FPlanetEditVoxelBox& B);
 
+	/**
+	 * 两个右端开的体素盒是否有公共格。
+	 *
+	 * A.MaxExclusive == B.Min 不算相交（没有公共格）—— 合并只对真正重叠的落笔
+	 * 有意义，贴边相邻的两笔并起来会凭空多出一片没挖过的范围。
+	 */
+	STELLARERAPLANET_API bool VoxelBoxesIntersect(
+		const FPlanetEditVoxelBox& A, const FPlanetEditVoxelBox& B);
+
 	/** 球体预览每条纬线的分段数。 */
 	constexpr int32 PreviewSegmentsPerCircle = 32;
 
 	/** 球体预览的纬线条数（不含两级）。取奇数，中间那条正好是赤道。 */
 	constexpr int32 PreviewParallels = 5;
 
-	/** 球体预览的经线条数（每条是南极到北极的半圆，相邻两条隔 180°/M）。 */
+	/**
+	 * 球体预览的经线条数（每条是南极到北极的半圆，相邻两条隔 360°/M）。
+	 *
+	 * 必须是 360°：一条半圆只覆盖一个方位，间隔写成 180°/M 的话 M 条全挤在
+	 * 半个球上，星图沿法线俯视时屏幕上一侧完全没线（「经线只有一半」）。
+	 */
 	constexpr int32 PreviewMeridians = 8;
 
 	/** 每条经线的分段数（半圆，所以只有纬线的一半）。 */

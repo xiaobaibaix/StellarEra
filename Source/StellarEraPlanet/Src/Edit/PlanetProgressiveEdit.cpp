@@ -245,3 +245,132 @@ void FPlanetProgressiveEdit::ApplyChunk(const FPlanetEditChunk& Chunk)
 	LastChunkBounds = Chunk.Bounds;
 	AppliedBounds = PlanetEditBrush::UnionVoxelBox(AppliedBounds, Chunk.Bounds);
 }
+
+bool FPlanetProgressiveEdit::TryMerge(
+	const FPlanetEditRequest& Request, const int32 MaxOps)
+{
+	// 没装配过、或已经做完：没有可并的目标。做完的 job 马上会被移出队列，
+	// 往它后面追加块永远不会被执行。
+	if (Ops.Num() == 0 || Chunks.Num() == 0 || IsFinished())
+	{
+		return false;
+	}
+
+	// 参数必须完全兼容。挖填混排、中途改笔刷尺寸都不合并 —— 挖与填在同一格上
+	// 不是同一种操作，混起来「合并结果 == 依次执行」就不再成立。
+	if (Request.Shape != Shape
+		|| Request.SizeVoxels != SizeVoxels
+		|| Request.bPlace != bPlace
+		|| Request.bMultiThreaded != bMultiThreaded)
+	{
+		return false;
+	}
+
+	const FPlanetEditOp NewOp = MakeOp(Request);
+	if (!PlanetEditBrush::IsValidVoxelBox(NewOp.Bounds))
+	{
+		return false;
+	}
+
+	// 只合并包围盒相交的落笔：否则整笔范围会膨胀成一片没挖过的大区域，
+	// 每次刷新都要重建它。
+	if (!PlanetEditBrush::VoxelBoxesIntersect(NewOp.Bounds, FullBounds))
+	{
+		return false;
+	}
+
+	// 去重放在 op 上限之前：同一片区域连点，不管点多少下都该被吸收，
+	// 而不是在到上限之后突然开始排新任务。
+	for (const FPlanetEditOp& Existing : Ops)
+	{
+		if (Existing.Bounds.Min == NewOp.Bounds.Min
+			&& Existing.Bounds.MaxExclusive == NewOp.Bounds.MaxExclusive)
+		{
+			return true;
+		}
+	}
+
+	if (Ops.Num() >= FMath::Max(MaxOps, 1))
+	{
+		return false;
+	}
+
+	// 只切新包围盒。老块的边界一个都不动 —— 这就是进度能保留的原因。
+	TArray<FPlanetEditVoxelBox> NewBoxes;
+	PlanetEditBrush::SplitVoxelBoxIntoChunks(
+		NewOp.Bounds, Request.ChunkSizeVoxels, NewBoxes);
+	if (NewBoxes.Num() == 0)
+	{
+		return false;
+	}
+
+	// 到这一步才动状态：上面任何一步失败都不能留下半个 op。
+	Ops.Add(NewOp);
+	FullBounds = PlanetEditBrush::UnionVoxelBox(FullBounds, NewOp.Bounds);
+
+	TArray<FPlanetEditChunk> NewChunks;
+	NewChunks.Reserve(NewBoxes.Num());
+	for (const FPlanetEditVoxelBox& Box : NewBoxes)
+	{
+		FPlanetEditChunk& Chunk = NewChunks.AddDefaulted_GetRef();
+		Chunk.Bounds = Box;
+		Chunk.NumOps = Ops.Num();
+	}
+
+	// 插在已做前缀之后：做过的下标一个都不动，新点的那一下排在下一个被执行。
+	Chunks.Insert(NewChunks.GetData(), NewChunks.Num(), NextChunkIndex);
+	return true;
+}
+
+bool FPlanetProgressiveEdit::TryMergeWorld(
+	AVoxelPlanetActor* const InPlanet,
+	const FVector& CenterWorld,
+	const EPlanetBrushShape InShape,
+	const int32 InSizeVoxels,
+	const int32 InMinSizeVoxels,
+	const int32 InMaxSizeVoxels,
+	const bool bInPlace,
+	const int32 ChunkSizeVoxels,
+	const bool bInMultiThreaded,
+	const int32 MaxOps)
+{
+	// 换星了就不能合：体素空间不同，包围盒没有可比性。
+	if (!IsValid(InPlanet) || InPlanet != Planet.Get())
+	{
+		return false;
+	}
+
+	FPlanetEditRequest Request;
+	if (!MakeRequest(InPlanet, CenterWorld, InShape, InSizeVoxels, InMinSizeVoxels,
+			InMaxSizeVoxels, bInPlace, ChunkSizeVoxels, bInMultiThreaded, Request))
+	{
+		return false;
+	}
+
+	return TryMerge(Request, MaxOps);
+}
+
+int32 PlanetEditSchedule::GetFairCandidateCount(const int32 QueueSize)
+{
+	return QueueSize > 1 ? QueueSize - 1 : 0;
+}
+
+int32 PlanetEditSchedule::GetNextFairIndex(const int32 Cursor, const int32 QueueSize)
+{
+	if (QueueSize <= 1)
+	{
+		return INDEX_NONE;
+	}
+
+	const int32 MinIndex = 1;
+	const int32 MaxIndex = QueueSize - 1;
+
+	// 游标未初始化、或队列变短后越界：从 1 重新开始。
+	if (Cursor < MinIndex || Cursor > MaxIndex)
+	{
+		return MinIndex;
+	}
+
+	const int32 NextIndex = Cursor + 1;
+	return NextIndex > MaxIndex ? MinIndex : NextIndex;
+}

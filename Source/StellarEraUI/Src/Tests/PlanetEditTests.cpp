@@ -159,6 +159,46 @@ bool FStellarEraEditBrushUnionVoxelBoxTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraEditBrushVoxelBoxesIntersectTest,
+	"StellarEra.Planet.Editor.Brush.VoxelBoxesIntersect",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraEditBrushVoxelBoxesIntersectTest::RunTest(const FString& Parameters)
+{
+	// FPlanetEditVoxelBox 没有构造函数，用局部小工具拼，别为测试去改公开结构体。
+	auto Box = [](const FIntVector& Mn, const FIntVector& MaxEx)
+	{
+		FPlanetEditVoxelBox Out;
+		Out.Min = Mn;
+		Out.MaxExclusive = MaxEx;
+		return Out;
+	};
+
+	const FPlanetEditVoxelBox A = Box(FIntVector(0, 0, 0), FIntVector(10, 10, 10));
+
+	TestTrue(TEXT("自己与自己相交"), PlanetEditBrush::VoxelBoxesIntersect(A, A));
+	TestTrue(TEXT("部分重叠"), PlanetEditBrush::VoxelBoxesIntersect(
+		A, Box(FIntVector(5, 5, 5), FIntVector(15, 15, 15))));
+	TestTrue(TEXT("完全包含"), PlanetEditBrush::VoxelBoxesIntersect(
+		A, Box(FIntVector(2, 2, 2), FIntVector(4, 4, 4))));
+
+	// 右端开：贴边相邻没有公共格。
+	TestFalse(TEXT("X 轴贴边不相交"), PlanetEditBrush::VoxelBoxesIntersect(
+		A, Box(FIntVector(10, 0, 0), FIntVector(20, 10, 10))));
+	TestFalse(TEXT("Y 轴贴边不相交"), PlanetEditBrush::VoxelBoxesIntersect(
+		A, Box(FIntVector(0, 10, 0), FIntVector(10, 20, 10))));
+	TestFalse(TEXT("Z 轴贴边不相交"), PlanetEditBrush::VoxelBoxesIntersect(
+		A, Box(FIntVector(0, 0, 10), FIntVector(10, 10, 20))));
+	TestFalse(TEXT("离得远不相交"), PlanetEditBrush::VoxelBoxesIntersect(
+		A, Box(FIntVector(100, 0, 0), FIntVector(110, 10, 10))));
+
+	// 无效盒子一律 false。
+	TestFalse(TEXT("无效盒子不相交"),
+		PlanetEditBrush::VoxelBoxesIntersect(A, FPlanetEditVoxelBox()));
+
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraEditBrushClampSizeTest,
 	"StellarEra.Planet.EditBrush.ClampSize",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -539,6 +579,50 @@ bool FStellarEraEditBrushSpherePreviewTest::RunTest(const FString& Parameters)
 	}
 	TestTrue(TEXT("经线都汇到北极"), bFoundNorthPole);
 	TestTrue(TEXT("经线都汇到南极"), bFoundSouthPole);
+
+	// 经线要铺满整圈。每条经线只是半圆，只覆盖自己那一个方位，所以 M 条的方位角
+	// 应当把赤道面切成 M 等份。判据用「相邻方位角的最大空隙」，比数扇区稳：
+	// 扇区边界归属会随浮点取整漂，空隙是连续量。
+	//
+	// 曾经写成 φ = mπ/M：M 条全挤在半个球上，最大空隙 202.5°，而星图恰好沿
+	// 地表法线俯视（极轴正对镜头），屏幕上只有一侧有经线 —— 就是「经线只有一半」。
+	{
+		// 只取经线段。纬线是完整圆，会覆盖所有方位，混进来判据就恒真。
+		const int32 FirstMeridianSegment =
+			PlanetEditBrush::PreviewParallels * PlanetEditBrush::PreviewSegmentsPerCircle;
+
+		FVector Right = FVector::ZeroVector;
+		FVector Forward = FVector::ZeroVector;
+		Axis.FindBestAxisVectors(Right, Forward);
+
+		TArray<float> Azimuths;
+		Azimuths.Reserve(Segments.Num() - FirstMeridianSegment);
+		for (int32 Index = FirstMeridianSegment; Index < Segments.Num(); ++Index)
+		{
+			const FVector Delta = Segments[Index].Start - Center;
+			const FVector Radial = Delta - Axis * FVector::DotProduct(Delta, Axis);
+			if (Radial.SizeSquared() > 1.f)	// 极点没有方位
+			{
+				Azimuths.Add(FMath::Atan2(
+					static_cast<float>(FVector::DotProduct(Radial, Forward)),
+					static_cast<float>(FVector::DotProduct(Radial, Right))));
+			}
+		}
+		Azimuths.Sort();
+
+		float MaxGap = 0.f;
+		for (int32 Index = 0; Index < Azimuths.Num(); ++Index)
+		{
+			// 首尾环绕：最后一个方位到第一个方位要跨过 2π 接回去。
+			const float Next = Index + 1 < Azimuths.Num()
+				? Azimuths[Index + 1]
+				: Azimuths[0] + 2.f * PI;
+			MaxGap = FMath::Max(MaxGap, Next - Azimuths[Index]);
+		}
+
+		const float ExpectedGap = 2.f * PI / PlanetEditBrush::PreviewMeridians;
+		TestTrue(TEXT("经线方位铺满整圈（最大空隙不超过一格）"), MaxGap <= ExpectedGap * 1.01f);
+	}
 
 	// 半径 <= 0 时不应产生任何线。
 	TArray<FPlanetEditSegment> Empty;
