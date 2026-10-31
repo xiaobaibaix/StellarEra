@@ -584,8 +584,14 @@ void UPlanetEditComponent::UpdateBrushPreview()
 		if (PreviewDepthBiasFraction > 0.f)
 		{
 			// 至少一条线宽：比线本身还薄的偏移看不出效果（星图的线宽按屏幕像素换算，
-			// 贴近看时反而比「半径的一个百分点」大）。
-			DepthBiasCm = FMath::Max(PreviewExtentCm * PreviewDepthBiasFraction, LineThicknessCm);
+			// 离得越远换算出来的世界厚度越大）。
+			const float BiasFromExtent = PreviewExtentCm * PreviewDepthBiasFraction;
+
+			// 但最多推到预览尺寸的 10%（比例本身更大的话以它为准）。再往上就不是
+			// 「压过与地形共面的那一圈」，而是把埋在地下的那半也一起翻上来了 ——
+			// 星图缩到整颗星球时线宽换算会有上千米，没有这个上限就会越界。
+			const float BiasCap = PreviewExtentCm * FMath::Max(PreviewDepthBiasFraction, 0.1f);
+			DepthBiasCm = FMath::Min(FMath::Max(BiasFromExtent, LineThicknessCm), BiasCap);
 		}
 	}
 
