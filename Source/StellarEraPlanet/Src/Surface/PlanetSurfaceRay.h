@@ -54,6 +54,24 @@ namespace PlanetSurfaceRay
 		double AnalyticDistanceCm, double BoundingRadiusCm, double VoxelSizeCm);
 
 	/**
+	 * 沿一条线找空/实翻转。SampleEmptyAt(Step) 抽样，Step 是相对起点（Step 0）
+	 * 的体素步数，正 = 沿查询方向。
+	 *
+	 * 规则与 RaycastSurfaceCm 相同：起点为空就往负方向走、找第一格实心；
+	 * 起点为实则往正方向走、找第一格空气。
+	 *
+	 * 找到时 OutBoundaryStep = ±(边界步 − 0.5)，即两个采样点的中点 —— 真实表面
+	 * 一定在这两格之间，误差 ≤ 1 体素。走完预算仍未翻转时返回 false
+	 * （挖穿 / 整段全实）且不写 OutBoundaryStep，调用方据此退回解析值。
+	 *
+	 * 抽样回调的锁由调用方自己管（可以每段一取）—— 本函数只管走哪边、走多远。
+	 */
+	STELLARERAPLANET_API bool FindSurfaceBoundaryStep(
+		int32 MaxForwardSteps, int32 MaxBackwardSteps,
+		TFunctionRef<bool(int32 Step)> SampleEmptyAt,
+		double& OutBoundaryStep);
+
+	/**
 	 * 球面不平（地形起伏）时的解析命中距离。
 	 *
 	 * 先用 BaseRadiusCm 求一个球面交点，再按该方向上的真实半径重算交点，迭代

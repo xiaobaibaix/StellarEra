@@ -265,4 +265,82 @@ bool FStellarEraSurfaceRayMarchStepRangeTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// 径向步进判决：起点空朝里找实、起点实朝外找空，边界取两格中点。
+// Task 2 的 GetVoxelSurfaceRadiusCmAtDirection 直接调它，所以这里钉死符号约定。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSurfaceRayBoundaryStepTest,
+	"StellarEra.Planet.SurfaceRay.BoundaryStep",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraSurfaceRayBoundaryStepTest::RunTest(const FString& Parameters)
+{
+	// 起点空：地表在解析点**里侧** 3 格处（挖低了 2 格多）。
+	// Step 0/1/2 为空，Step −3 起为实 → 边界 = −(3 − 0.5) = −2.5。
+	{
+		const auto SampleEmpty = [](const int32 Step)
+		{
+			return Step > -3;
+		};
+
+		double BoundaryStep = 0.0;
+		TestTrue(TEXT("起点空、往里找到实"),
+			PlanetSurfaceRay::FindSurfaceBoundaryStep(
+				/*MaxForwardSteps=*/8, /*MaxBackwardSteps=*/8,
+				SampleEmpty, BoundaryStep));
+		TestEqual(TEXT("边界 = −2.5"), BoundaryStep, -2.5, 1.0e-12);
+	}
+
+	// 起点实：解析点比真实地表低（地形抬高）。Step 0..3 为实，Step 4 起为空
+	// → 边界 = +(4 − 0.5) = +3.5。
+	{
+		const auto SampleEmpty = [](const int32 Step)
+		{
+			return Step >= 4;
+		};
+
+		double BoundaryStep = 0.0;
+		TestTrue(TEXT("起点实、往外找到空"),
+			PlanetSurfaceRay::FindSurfaceBoundaryStep(8, 8, SampleEmpty, BoundaryStep));
+		TestEqual(TEXT("边界 = +3.5"), BoundaryStep, 3.5, 1.0e-12);
+	}
+
+	// 预算走完没翻转（挖穿）：返回 false，并且不写 Out 参数 ——
+	// 调用方拿它当「退回解析半径」的信号，残留的旧值会被当成真命中。
+	{
+		const auto SampleEmpty = [](const int32 Step)
+		{
+			return Step > -1000;
+		};
+
+		double BoundaryStep = -123.0;
+		TestFalse(TEXT("全空到预算尽头：找不到翻转"),
+			PlanetSurfaceRay::FindSurfaceBoundaryStep(8, 8, SampleEmpty, BoundaryStep));
+		TestEqual(TEXT("失败时不写 Out 参数"), BoundaryStep, -123.0, 1.0e-12);
+	}
+
+	// 预算 = 1 的两个方向：正好在最后一格翻转 → 成功；下一格才翻转 → 失败。
+	{
+		double BoundaryStep = 0.0;
+		TestTrue(TEXT("预算 1、第 1 格就翻转"),
+			PlanetSurfaceRay::FindSurfaceBoundaryStep(
+				8, 1, [](const int32 Step) { return Step > -1; }, BoundaryStep));
+		TestEqual(TEXT("边界 = −0.5"), BoundaryStep, -0.5, 1.0e-12);
+
+		BoundaryStep = 0.0;
+		TestFalse(TEXT("预算 1、第 2 格才翻转 → 失败"),
+			PlanetSurfaceRay::FindSurfaceBoundaryStep(
+				8, 1, [](const int32 Step) { return Step > -2; }, BoundaryStep));
+	}
+
+	// 正向预算为 1 的同一条规则（起点实）。
+	{
+		double BoundaryStep = 0.0;
+		TestTrue(TEXT("起点实、正向预算 1、第 1 格就翻转"),
+			PlanetSurfaceRay::FindSurfaceBoundaryStep(
+				1, 8, [](const int32 Step) { return Step >= 1; }, BoundaryStep));
+		TestEqual(TEXT("边界 = +0.5"), BoundaryStep, 0.5, 1.0e-12);
+	}
+
+	return true;
+}
+
 #endif

@@ -106,6 +106,32 @@ namespace PlanetSurfaceRay
 		return Range;
 	}
 
+	bool FindSurfaceBoundaryStep(
+		const int32 MaxForwardSteps, const int32 MaxBackwardSteps,
+		const TFunctionRef<bool(int32 Step)> SampleEmptyAt,
+		double& OutBoundaryStep)
+	{
+		// 起点单独抽一次：它决定往哪个方向走。
+		const bool bStartsEmpty = SampleEmptyAt(0);
+
+		// 起点空 = 在解析地表之上 → 朝里（负方向）找第一格实。
+		// 起点实 = 地形被抬高 → 朝外（正方向）找第一格空。
+		const int32 StepSign = bStartsEmpty ? -1 : 1;
+		const int32 MaxSteps = bStartsEmpty ? MaxBackwardSteps : MaxForwardSteps;
+
+		for (int32 Step = 1; Step <= MaxSteps; ++Step)
+		{
+			if (SampleEmptyAt(StepSign * Step) != bStartsEmpty)
+			{
+				// 边界取两个采样点的中点。
+				OutBoundaryStep = static_cast<double>(StepSign) * (Step - 0.5);
+				return true;
+			}
+		}
+
+		return false;
+	}
+
 	bool SolveAnalyticHit(
 		const FVector& LocalOrigin,
 		const FVector& LocalDir,
