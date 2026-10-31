@@ -221,7 +221,8 @@ public:
 	/**
 	 * 队首独占的预算份额（0~1）。剩下的留给其他活跃的笔轮转。
 	 *
-	 * 默认 0.7：队首仍拿大头，别的笔每帧也能往前走一块，不会饿死。
+	 * 只有一笔时没有轮转对象，整份预算都归队首，本份额不生效。
+	 * 默认 0.7：多笔时队首仍拿大头，别的笔每帧也能往前走一块，不会饿死。
 	 */
 	UPROPERTY(EditAnywhere, Category = "PlanetEdit", meta = (ClampMin = "0", ClampMax = "1"))
 	float ProgressiveEditHeadBudgetShare = 0.7f;
@@ -249,9 +250,9 @@ private:
 	void HideBrushPreview();
 
 	/**
-	 * 每帧推进队列：队首先吃 ProgressiveEditHeadBudgetShare 的预算，
-	 * 剩下的按 NextFairEditIndex 在 1..N-1 之间轮转，累计超过
-	 * ProgressiveEditBudgetMs 就停。
+	 * 每帧推进队列：多笔时队首先吃 ProgressiveEditHeadBudgetShare 的预算，
+	 * 剩下的按 NextFairEditIndex 在 1..N-1 之间轮转；只有一笔时没有轮转对象，
+	 * 队首独占整份预算。累计超过 ProgressiveEditBudgetMs 就停。
 	 */
 	void TickProgressiveEdits();
 

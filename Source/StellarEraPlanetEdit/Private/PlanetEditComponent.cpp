@@ -280,9 +280,10 @@ void UPlanetEditComponent::TickProgressiveEdits()
 		if (!bMoreWork)
 		{
 			OnEditFinished(*Edit);
-			// 删掉之后游标位置换成了下一笔，而 GetNextFairIndex 会从游标 +1 取，
-			// 所以滑到游标位上的这一笔本帧被跳过、下一帧才轮到 —— 不漏笔，也不饿死。
-			// 夹回 1 的那条路径只在游标越界时才会走，这里触发不到。
+			// 删掉后数组变短：滑进游标那一格的笔此刻就在游标原来的下标上。
+			// 下一次 GetNextFairIndex 要么越过它、要么回绕 / 夹回 1，本帧具体
+			// 轮到谁取决于这次算术；但不会有笔被永久跳过 —— 游标从不回到 0，
+			// 任何一笔最多一圈就会被重新取到。
 			EditQueue.RemoveAt(NextFairEditIndex);
 		}
 	}
