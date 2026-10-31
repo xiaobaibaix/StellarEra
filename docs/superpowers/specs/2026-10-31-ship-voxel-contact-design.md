@@ -63,14 +63,14 @@
 /**
  * 真实地表半径：解析半径当种子，沿该方向 march 体素找空/实翻转。
  *
- * QueryMarginCm：探针在该方向上离解析球面超过这个距离时不可能碰到体素地表，
- * 直接返回解析半径，不做体素查询。
- *
  * 找不到翻转（挖穿/整段全实）时退回解析值。没创建（IsCreated() == false）
  * 时同样退回解析值。
+ *
+ * 不做「探针离得多远就不必查」的判断 —— 那需要探针位置，函数这里没有；
+ * 距离上的闸门由调用方做（见 §3.3 的粗筛），本函数只负责「给我这个方向的
+ * 真实半径」。
  */
-float GetVoxelSurfaceRadiusCmAtDirection(
-	const FVector& WorldDirection, float QueryMarginCm) const;
+float GetVoxelSurfaceRadiusCmAtDirection(const FVector& WorldDirection) const;
 ```
 
 实现与 `RaycastSurfaceCm` 同构，但**射线是径向线**（起点 = 行星中心）：
@@ -172,8 +172,7 @@ for (int32 ProbeIndex = 0; ProbeIndex < ProbeBody.ContactProbes.Num(); ++ProbeIn
    - **方向缓存键** = `Round(Dir · BaseRadiusVoxels)`（`BaseRadiusVoxels =
      GetSurfaceRadiusCm() / VoxelSize`）。一格 ≈ 地表 1 体素，船体投影到地表通常
      只有个位数格，所以一帧真正 march 的次数是**个位数**，不是探针数。
-   - 未命中缓存 → `Planet->GetVoxelSurfaceRadiusCmAtDirection(Dir, ContactProbeRadiusCm)`，
-     写进缓存。
+   - 未命中缓存 → `Planet->GetVoxelSurfaceRadiusCmAtDirection(Dir)`，写进缓存。
    - 一帧查询次数上限 `MaxSurfaceQueriesPerFrame = 32`：超了剩下的探针用解析半径，
      首次触发打一次 `Warning`，之后 `Verbose`。
 4. 写入 `State.ContactProbeSurfaceRadii`（除以 `CentimetersPerAu`）与
@@ -186,7 +185,7 @@ for (int32 ProbeIndex = 0; ProbeIndex < ProbeBody.ContactProbes.Num(); ++ProbeIn
 
 | 情形 | 处理 | 理由 |
 |---|---|---|
-| 探针离解析球面超过 `QueryMarginCm` | 不查体素，直接用解析半径 | 没接触就不需要精度；抬高地形见 §7 |
+| 船心离星心超过 `1.25 × 基准半径 + 最远探针` | 整支跳过，全按球面 | 不在包围球附近就碰不到体素地表；这也是唯一的距离闸门 |
 | march 走完全空 / 全实 | 退回解析半径 | 挖穿星心。宁可悬空也不让飞船掉进无底洞；`Verbose` 一行日志 |
 | 没有行星在范围内 | 索引 `INDEX_NONE`、半径数组空 | 不清的话会拿上一帧的半径去碰 |
 | 探针数量变了 | 数量对不上 → 退回球面 | 现有行为，不需要额外兜底 |
@@ -203,7 +202,8 @@ for (int32 ProbeIndex = 0; ProbeIndex < ProbeBody.ContactProbes.Num(); ++ProbeIn
 - 求解器里的半径一律 **AU**；子系统用 `CentimetersPerAu` 换算。
 - 方向在两个空间之间**可以原样传递**：AU 世界空间与世界空间只差等比缩放与平移，
   没有旋转（`RefreshPlanetContactRadii` 里已有同一条说明）。
-- 探针的"最远距离"用 `State.ContactProbeRadius`（AU）乘回厘米传给行星 API 当查询余量。
+- 粗筛比较的两个量都要在同一单位里：`Distance（AU）× CentimetersPerAu` 对
+  `1.25 × GetSurfaceRadiusCm() + ContactProbeRadius（AU）× CentimetersPerAu`。
 
 ---
 
@@ -278,9 +278,9 @@ for (int32 ProbeIndex = 0; ProbeIndex < ProbeBody.ContactProbes.Num(); ++ProbeIn
 
 ## 7. 已知限制
 
-1. **抬高地形有上限**。查询余量是 `ContactProbeRadius`：地形被抬高超过船体尺寸
-   时，飞船要先陷到解析球面附近才被顶出来，表现为一次下沉再弹起。挖（降低地表）
-   没有这个限制 —— 而挖正是本次要修的场景。后续若需要，放宽这个余量只是一处常量。
+1. **抬高地形有上限**。闸门是 `1.25 × 基准半径 + 最远探针`：地形被抬到包围球
+   之外（超过基准半径 25%）时，飞船落上去不会触发逐探针查询。这个幅度远大于
+   地形振幅（8 体素 vs 半径 100 体素），挖（降低地表）更不受影响。
 2. **帧内快照**。逐探针半径每帧算一次，帧内别的玩家继续挖不会立即反映；下一帧跟上。
    半径按**方向**缓存，所以船在帧内平飞不会让缓存失效。
 3. **预测轨迹**复制同一份 `FCosmosBodyState`，所以预测里的接触也用当前快照半径。
