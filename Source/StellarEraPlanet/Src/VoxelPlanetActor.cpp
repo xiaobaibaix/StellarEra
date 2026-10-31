@@ -213,13 +213,14 @@ AVoxelPlanetActor::AVoxelPlanetActor()
 	LODInvoker->LODToSet = 6;
 	LODInvoker->LODRange = 150000.f;
 
-	// 大气壳与矿物观察组件不在这里创建：它们由 BP_VoxelPlanet 挂载。
-	// 原生 AVoxelPlanetActor 实例因此不带这两个组件，本项目只用 BP。
+	// 大气壳、矿物观察组件与表面编辑网格都不在这里创建：它们由 BP_VoxelPlanet
+	// 挂载。原生 AVoxelPlanetActor 实例因此不带这三个组件，本项目只用 BP。
+	// 编辑相关的调用一律走 FindEditGrid()，找不到就跳过（见头文件）。
+}
 
-	// 表面网格：默认隐藏、不 tick，编辑模式打开时才工作。
-	// 它是纯 UActorComponent（不带变换），跟着 Owner Tick 即可，不需要 SetupAttachment
-	// —— 那个函数只存在于 USceneComponent。
-	EditGrid = CreateDefaultSubobject<UPlanetSurfaceGridComponent>(TEXT("PlanetEditGrid"));
+UPlanetSurfaceGridComponent* AVoxelPlanetActor::FindEditGrid() const
+{
+	return FindComponentByClass<UPlanetSurfaceGridComponent>();
 }
 
 float AVoxelPlanetActor::GetScaledRadiusVoxels() const
@@ -759,9 +760,9 @@ void AVoxelPlanetActor::RebuildPlanet()
 	// 世界刚被 DestroyWorld + CreateWorld 重建，旧的表面网格采样全部作废。
 	// 这里只刷新网格、**不**调用本 Actor 的 NotifyVoxelEdited()：重建不是编辑，
 	// 不能因此把行星标脏并触发保存。
-	if (EditGrid)
+	if (UPlanetSurfaceGridComponent* Grid = FindEditGrid())
 	{
-		EditGrid->NotifyVoxelEdited();
+		Grid->NotifyVoxelEdited();
 	}
 }
 
@@ -923,17 +924,19 @@ void AVoxelPlanetActor::InvalidateAndRebuild()
 	RebuildPlanet();
 
 	// 地形布局变了，表面网格必须重新采样（组件内部按防抖时间重建）。
-	if (EditGrid)
+	if (UPlanetSurfaceGridComponent* Grid = FindEditGrid())
 	{
-		EditGrid->NotifyVoxelEdited();
+		Grid->NotifyVoxelEdited();
 	}
 }
 
 void AVoxelPlanetActor::SetEditGridVisible(const bool bVisible)
 {
-	if (EditGrid)
+	// 组件由蓝图挂载：原生实例（或用户没给 BP_VoxelPlanet 加网格时）静默跳过。
+	// 编辑模式照常可用，只是看不到表面网格基线。
+	if (UPlanetSurfaceGridComponent* Grid = FindEditGrid())
 	{
-		EditGrid->SetGridVisible(bVisible);
+		Grid->SetGridVisible(bVisible);
 	}
 }
 
@@ -941,9 +944,9 @@ void AVoxelPlanetActor::NotifyVoxelEdited()
 {
 	bHasUnsavedEdits = true;
 
-	if (EditGrid)
+	if (UPlanetSurfaceGridComponent* Grid = FindEditGrid())
 	{
-		EditGrid->NotifyVoxelEdited();
+		Grid->NotifyVoxelEdited();
 	}
 }
 

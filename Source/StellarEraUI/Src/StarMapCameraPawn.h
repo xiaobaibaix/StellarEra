@@ -77,7 +77,11 @@ public:
 	virtual void SetViewpointInvokersActive(bool bActive) override;
 	//~ End IVoxelViewpointInvokers Interface
 
-	/** 星图模式的行星编辑组件。参数（尺寸区间、提示、距离）在构造函数里配好。 */
+	/**
+	 * 星图模式的行星编辑组件。**由蓝图子类 BP_StarMapCameraPawn 挂载**
+	 * （2026-10-31 从构造函数移出），笔刷区间 / 默认尺寸 / 步长 / 提示文案 /
+	 * 最大编辑距离都在它的类默认值里配。原生实例没有编辑功能，调用方按空处理。
+	 */
 	UPlanetEditComponent* GetPlanetEditComponent() const;
 
 	/** 进入星图模式时由控制器调用：把相机原地钉住，并重置为「未选中」。 */
@@ -305,16 +309,6 @@ protected:
 
 	/** 本 Pawn 是否当前视点。初值 false —— OnRegister 会自动启用，BeginPlay 要按它关掉。 */
 	bool bIsViewpoint = false;
-
-	/**
-	 * 行星编辑器。与角色共用同一个组件类，差别只在参数与射线解析器：
-	 * 角色 1..8 体素、LineTrace；星图 8..128 体素、解析 + 体素行进。
-	 *
-	 * 挂在本 Pawn 上而不是行星上：换焦点、换行星都不影响它的生命周期，
-	 * 而且它不参与 N 体搬运。
-	 */
-	UPROPERTY(VisibleAnywhere, Category = "StarMap|Edit")
-	TObjectPtr<UPlanetEditComponent> PlanetEdit;
 
 	// ── 运行时状态 ──
 

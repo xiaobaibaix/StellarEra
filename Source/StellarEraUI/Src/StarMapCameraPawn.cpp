@@ -77,35 +77,16 @@ AStarMapCameraPawn::AStarMapCameraPawn()
 	VoxelInvokerLOD6->bUseForEvents = false;
 	VoxelInvokerLOD6->bUseForPriorities = false;
 
-	// --- 行星编辑：与角色共用组件，参数按星图尺度调大 ---
+	// --- 行星编辑 ---
 	//
-	// 尺寸 8..1280 体素：1 体素 = 100 cm（前两颗行星），1280 = 直径 1.28 km 的坑。
-	// 默认 64 体素：默认值偏大是因为「直径 32 的坑在这个距离上几乎看不见」，
-	// 64 既看得出是一个坑，又不至于一点就挖穿。
-	// 一档 10 体素（Ctrl 粗调 ×10）：区间跨 1272 格，一档一格的按法等于没反应；
-	// 从 64 直接按到 1280 要 128 下，所以加了 Ctrl 粗调。
-	// 角色仍是 1 —— 它的区间只有 1..8。
-	//
-	// 蓝图子类 BP_StarMapCameraPawn 只把「在蓝图细节面板里手改过」的组件属性记进
-	// 自己的资产，没改过的继续跟这里的 C++ 默认值走。所以目前蓝图为空，改下面这几个
-	// 数照常生效；一旦有人在蓝图里改过笔刷区间 / 默认尺寸，那条覆盖就会钉住，
-	// 此后改 C++ 不再传导 —— 那时两边要同步。
-	PlanetEdit = CreateDefaultSubobject<UPlanetEditComponent>(TEXT("PlanetEdit"));
-	// 注意：UPlanetEditComponent 是 UActorComponent（非 SceneComponent），没有
-	// SetupAttachment；它不需要变换，Tick 组已在组件构造函数里设为 TG_PostUpdateWork。
-	PlanetEdit->ConfigureBrushRange(
-		PlanetEditBrush::MinStarMapSizeVoxels, PlanetEditBrush::MaxStarMapSizeVoxels,
-		/*InitialSize=*/64);
-	// 按键 / 滚轮一档走 10 体素。从默认 64 走到 1280 是 122 档，按住 Ctrl 粗调（×10）
-	// 则是 12 档。
-	PlanetEdit->BrushSizeStepVoxels = 10;
-	// 1280 是直径、半径 640 体素的球：整块包围盒是十亿格量级，单线程会把整帧卡死，
-	// 多线程按八叉树叶子并行是唯一能接受的方式。
-	PlanetEdit->bMultiThreadedEdits = true;
-	// 右键在星图里已经归绕轨，所以「填」改用 Ctrl+左键；Shift+左键按住是连续挖。
-	PlanetEdit->PlaceActionHint = TEXT("Shift+左键按住连续挖 · Ctrl+左键填");
-	// 与 MaxOrbitDistanceCm 同一尺度：从最远 50 AU 处也该打得到行星。
-	PlanetEdit->MaxEditDistanceCm = 5.0e7f;
+	// 组件由 BP_StarMapCameraPawn 挂载（2026-10-31 移出），参数在它的类默认值里：
+	//   尺寸 8..1280 体素（1 体素 = 100 cm，1280 = 直径 1.28 km 的坑）；
+	//   默认 64 —— 直径 32 的坑在星图距离上几乎看不见，64 既看得出又不至于挖穿；
+	//   一档 10 体素（Ctrl 粗调 ×10）—— 区间跨 1272 格，一档一格等于没反应；
+	//   bMultiThreadedEdits —— 1280 是半径 640 体素的球，单线程会把整帧卡死；
+	//   提示串写 Ctrl+左键填（右键已归绕轨）、MaxEditDistanceCm = 5e7（与最远
+	//   50 AU 的绕轨距离同一尺度）。
+	// 原生 AStarMapCameraPawn 实例没有编辑功能，调用方按空处理。
 }
 
 void AStarMapCameraPawn::BeginPlay()
@@ -113,9 +94,9 @@ void AStarMapCameraPawn::BeginPlay()
 	Super::BeginPlay();
 
 	// 解析器捕获 this：Pawn 与组件同生共死，组件在 EndPlay 里会清掉它。
-	if (PlanetEdit)
+	if (UPlanetEditComponent* Edit = GetPlanetEditComponent())
 	{
-		PlanetEdit->SetTargetResolver(
+		Edit->SetTargetResolver(
 			[this](const FVector& RayOrigin, const FVector& RayDirection,
 				const float MaxDistanceCm, FPlanetEditTarget& OutTarget)
 			{
@@ -145,7 +126,8 @@ void AStarMapCameraPawn::ApplyViewpointInvokerState()
 
 UPlanetEditComponent* AStarMapCameraPawn::GetPlanetEditComponent() const
 {
-	return PlanetEdit;
+	// 组件由 BP_StarMapCameraPawn 挂载，现查不缓存（同 APlanetCharacter 的理由）。
+	return FindComponentByClass<UPlanetEditComponent>();
 }
 
 void AStarMapCameraPawn::EnterFrom(const FVector& InCameraLocation, const FRotator& InCameraRotation)

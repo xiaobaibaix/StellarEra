@@ -215,7 +215,9 @@ APlanetCharacter::APlanetCharacter(const FObjectInitializer& ObjectInitializer)
 		FarVoxelInvokers.Add(NewInvoker);
 	}
 
-	PlanetEdit = CreateDefaultSubobject<UPlanetEditComponent>(TEXT("PlanetEdit"));
+	// 行星编辑组件不在这里创建：它由 BP_PlanetCharacter 挂载（2026-10-31 移出）。
+	// 原生 APlanetCharacter 实例因此没有编辑功能，GetPlanetEditComponent() 返回
+	// 空，调用方都按空处理。
 
 	// C++ 只给一个引擎骷髅方块兜底，让裸放的 APlanetCharacter 不至于隐形。
 	//
@@ -242,7 +244,9 @@ APlanetCharacter::APlanetCharacter(const FObjectInitializer& ObjectInitializer)
 
 UPlanetEditComponent* APlanetCharacter::GetPlanetEditComponent() const
 {
-	return PlanetEdit;
+	// 组件由 BP_PlanetCharacter 挂载，这里现查不缓存：缓存时机（构造 / BeginPlay）
+	// 在编辑器世界里不可靠，而本函数只在输入处理与换星时调用，开销可忽略。
+	return FindComponentByClass<UPlanetEditComponent>();
 }
 
 void APlanetCharacter::ApplyCharacterMesh()
@@ -346,9 +350,9 @@ void APlanetCharacter::BeginPlay()
 	// 解析器必须在「找不到行星」的早退之前装好：它读的是 PlanetActor 的当前值，
 	// 而不是安装时的快照，所以先装后查没有时序问题；反过来（查到之后才装）
 	// 一旦此刻没找到行星，早退就把安装也跳过了，再也补不上。
-	if (PlanetEdit)
+	if (UPlanetEditComponent* Edit = GetPlanetEditComponent())
 	{
-		PlanetEdit->SetTargetResolver(
+		Edit->SetTargetResolver(
 			[this](const FVector& RayOrigin, const FVector& RayDirection,
 				const float MaxDistanceCm, FPlanetEditTarget& OutTarget)
 			{
@@ -365,10 +369,10 @@ void APlanetCharacter::BeginPlay()
 
 	PlanetActor = FindNearestPlanet();
 
-	if (PlanetEdit)
+	if (UPlanetEditComponent* Edit = GetPlanetEditComponent())
 	{
 		// 网格只跟角色走。星图 Pawn 从不调这个，所以星图里没有地表网格。
-		PlanetEdit->SetGridPlanet(PlanetActor);
+		Edit->SetGridPlanet(PlanetActor);
 	}
 
 	if (!PlanetActor)
@@ -585,9 +589,9 @@ void APlanetCharacter::ReevaluatePlanet()
 	}
 
 	// 编辑网格跟着角色走：组件内部会先把旧星的网格收掉再点亮新星。
-	if (PlanetEdit)
+	if (UPlanetEditComponent* Edit = GetPlanetEditComponent())
 	{
-		PlanetEdit->SetGridPlanet(PlanetActor);
+		Edit->SetGridPlanet(PlanetActor);
 	}
 }
 

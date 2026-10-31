@@ -73,10 +73,12 @@ public:
 	TObjectPtr<AVoxelPlanetActor> PlanetActor;
 
 	/**
-	 * 编辑模式组件。角色天生带一个，不需要蓝图配置。
+	 * 编辑模式组件。**由蓝图子类 BP_PlanetCharacter 挂载**（2026-10-31 从构造函数
+	 * 移出）：原生 APlanetCharacter 实例没有它，编辑功能随之消失 —— 这是「可选
+	 * 玩法由蓝图提供」的预期结果，调用方全部按可能为空处理。
 	 *
-	 * 定义在 .cpp：本头只前向声明 UPlanetEditComponent，内联返回 TObjectPtr 的
-	 * Get() 会退化成 reinterpret_cast。
+	 * 定义在 .cpp：本头只前向声明 UPlanetEditComponent，`FindComponentByClass`
+	 * 需要完整类型，不能内联在头里。
 	 */
 	UPlanetEditComponent* GetPlanetEditComponent() const;
 
@@ -132,10 +134,6 @@ protected:
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet")
 	TArray<TObjectPtr<UVoxelSimpleInvokerComponent>> FarVoxelInvokers;
-
-	/** 行星编辑模式的状态与执行。 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet")
-	TObjectPtr<UPlanetEditComponent> PlanetEdit;
 
 	/** 相机臂长（厘米）。滚轮缩放的基准值，见 BaseCameraArmLength。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")

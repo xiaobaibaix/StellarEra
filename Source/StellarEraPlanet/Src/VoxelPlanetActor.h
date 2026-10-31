@@ -353,19 +353,17 @@ public:
 	 */
 	static UMaterialInterface* StripMaterialInstanceDynamic(UMaterialInterface* Candidate);
 
-	/**
-	 * 编辑模式下的表面网格基线。构造时自动创建。
-	 *
-	 * `DisplayName` 是给组件树的：SSCSEditor 对原生组件按
-	 * `{变量显示名} ({对象名})` 拼标题（SSCSEditor.cpp 的 `GetDisplayString`），
-	 * 而变量显示名默认走 `NameToDisplayString`，会把 `EditGrid` 拆成「Edit Grid」。
-	 * 这里显式给回原名，组件树里就不会多出那个空格。
-	 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet|Edit",
-		meta = (DisplayName = "EditGrid"))
-	TObjectPtr<UPlanetSurfaceGridComponent> EditGrid;
-
 private:
+	/**
+	 * 编辑模式下的表面网格基线。
+	 *
+	 * **由蓝图子类 BP_VoxelPlanet 挂载**（2026-10-31 从构造函数移出）：编辑是可选
+	 * 玩法，原生 AVoxelPlanetActor 实例不带它，相关调用全部按「找不到就跳过」处理。
+	 * 每次现查而不是缓存成员：组件在编辑器世界与 PIE 里都要能用，而缓存时机
+	 * （BeginPlay / PostInitializeComponents）在编辑器世界里并不可靠。
+	 */
+	UPlanetSurfaceGridComponent* FindEditGrid() const;
+
 	/**
 	 * 修正继承重构前遗留的组件树：确保基类的 WorldRoot 就是本 Actor 的根组件。
 	 *

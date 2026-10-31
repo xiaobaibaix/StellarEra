@@ -15,6 +15,8 @@
 #include "StarMapCameraPawn.h"
 #include "StellarEraPlayerController.h"
 
+#include "BlueprintComponentTestHelpers.h"
+
 #if WITH_DEV_AUTOMATION_TESTS
 
 // 断言写法说明：指针一律用 TestTrue/TestFalse 比较。TestEqual 的泛型重载要走
@@ -581,25 +583,23 @@ bool FStellarEraStarMapZoomLimitsTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 星图 Pawn 的编辑组件参数是构造函数里配的，所以 CDO 上就能读到。
+// 星图 Pawn 的编辑组件由 BP_StarMapCameraPawn 挂载（2026-10-31 从构造函数移出），
+// 笔刷参数在蓝图的类默认值里，所以这里查蓝图 SCS 里的组件模板（不是 CDO ——
+// 蓝图挂的组件不在 CDO 上，见 BlueprintComponentTestHelpers.h）。
 // 这一项钉的是星图笔刷的四个可调参数（默认 64、区间 8..1280、
-// Shift+左键按住连续挖 / Ctrl+左键填、50 AU）：
-// 构造函数把它们配进组件，测试替 HUD 与输入层看着它们。
+// Shift+左键按住连续挖 / Ctrl+左键填、50 AU）：测试替 HUD 与输入层看着它们。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapEditComponentDefaultsTest,
 	"StellarEra.StarMap.EditComponentDefaults",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FStellarEraStarMapEditComponentDefaultsTest::RunTest(const FString& Parameters)
 {
-	const AStarMapCameraPawn* PawnCDO = GetDefault<AStarMapCameraPawn>();
-	TestNotNull(TEXT("星图 Pawn 有 CDO"), PawnCDO);
-	if (!PawnCDO)
-	{
-		return false;
-	}
-
-	const UPlanetEditComponent* Edit = PawnCDO->GetPlanetEditComponent();
-	TestNotNull(TEXT("星图 Pawn 带编辑组件"), Edit);
+	const UPlanetEditComponent* Edit =
+		Cast<UPlanetEditComponent>(
+			StellarEraTest::FindBlueprintComponentTemplate(
+				TEXT("/Game/Code/BP_StarMapCameraPawn.BP_StarMapCameraPawn"),
+				UPlanetEditComponent::StaticClass()));
+	TestNotNull(TEXT("BP_StarMapCameraPawn 蓝图里挂着 PlanetEdit"), Edit);
 	if (!Edit)
 	{
 		return false;
@@ -625,21 +625,12 @@ bool FStellarEraStarMapBlueprintPawnTest::RunTest(const FString& Parameters)
 {
 	// 游戏里 Spawn 的是蓝图子类，不是原生 CDO：只断言不变量，不钉具体数字，
 	// 这样用户在细节面板里把默认直径从 64 改成别的也不会把测试弄红。
-	UClass* BlueprintClass = LoadClass<AStarMapCameraPawn>(nullptr,
-		TEXT("/Game/Code/BP_StarMapCameraPawn.BP_StarMapCameraPawn_C"));
-	if (!TestNotNull(TEXT("BP_StarMapCameraPawn 蓝图类"), BlueprintClass))
-	{
-		return false;
-	}
-
-	const AStarMapCameraPawn* PawnCDO = Cast<AStarMapCameraPawn>(BlueprintClass->GetDefaultObject());
-	if (!TestNotNull(TEXT("蓝图 CDO 是 AStarMapCameraPawn"), PawnCDO))
-	{
-		return false;
-	}
-
-	const UPlanetEditComponent* Edit = PawnCDO->GetPlanetEditComponent();
-	if (!TestNotNull(TEXT("蓝图 CDO 上有 PlanetEdit 组件"), Edit))
+	const UPlanetEditComponent* Edit =
+		Cast<UPlanetEditComponent>(
+			StellarEraTest::FindBlueprintComponentTemplate(
+				TEXT("/Game/Code/BP_StarMapCameraPawn.BP_StarMapCameraPawn"),
+				UPlanetEditComponent::StaticClass()));
+	if (!TestNotNull(TEXT("BP_StarMapCameraPawn 蓝图里挂着 PlanetEdit"), Edit))
 	{
 		return false;
 	}

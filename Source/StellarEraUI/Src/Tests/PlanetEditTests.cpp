@@ -15,6 +15,8 @@
 #include "PlanetEditComponent.h"
 #include "PlanetCharacter.h"
 
+#include "BlueprintComponentTestHelpers.h"
+
 #if WITH_DEV_AUTOMATION_TESTS
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraEditBrushSphereCenterTest,
@@ -415,17 +417,15 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraPlanetEditGridDefaultsTest,
 
 bool FStellarEraPlanetEditGridDefaultsTest::RunTest(const FString& Parameters)
 {
-	// GetDefault<> 返回 const 指针，而 GetDefaultSubobjectByName 是非 const 成员；
-	// 这里只读取，用 GetMutableDefault 取到可调用的 CDO 指针。
-	AVoxelPlanetActor* PlanetCDO = GetMutableDefault<AVoxelPlanetActor>();
-	if (!TestNotNull(TEXT("AVoxelPlanetActor CDO"), PlanetCDO))
-	{
-		return false;
-	}
-
-	const UPlanetSurfaceGridComponent* Grid = Cast<UPlanetSurfaceGridComponent>(
-		PlanetCDO->GetDefaultSubobjectByName(TEXT("PlanetEditGrid")));
-	if (!TestNotNull(TEXT("行星 CDO 上的 PlanetEditGrid 组件"), Grid))
+	// 组件已从 C++ 构造函数移到蓝图（2026-10-31）：原生 AVoxelPlanetActor 上
+	// 不再有 EditGrid，要验就看 BP_VoxelPlanet 的 SCS 模板。查 CDO 是错的 ——
+	// 蓝图挂的组件不在 CDO 上（见 BlueprintComponentTestHelpers.h）。
+	const UPlanetSurfaceGridComponent* Grid =
+		Cast<UPlanetSurfaceGridComponent>(
+			StellarEraTest::FindBlueprintComponentTemplate(
+				TEXT("/Game/Code/BP_VoxelPlanet.BP_VoxelPlanet"),
+				UPlanetSurfaceGridComponent::StaticClass()));
+	if (!TestNotNull(TEXT("BP_VoxelPlanet 蓝图里挂着 EditGrid"), Grid))
 	{
 		return false;
 	}
@@ -471,17 +471,14 @@ bool FStellarEraPlanetEditComponentDefaultsTest::RunTest(const FString& Paramete
 		EditCDO->ProgressiveEditHeadBudgetShare, 0.7f, 0.001f);
 	TestEqual(TEXT("默认单笔最多合并 8 次落笔"), EditCDO->MaxMergedOps, 8);
 
-	// GetDefaultSubobjectByName 只有非 const 版本（CDO 查默认子对象必然需要
-	// 非 const 入口），而 GetDefault<T>() 只返回 const 指针。这里只读取，不修改 CDO。
-	APlanetCharacter* CharacterCDO = const_cast<APlanetCharacter*>(GetDefault<APlanetCharacter>());
-	if (!TestNotNull(TEXT("APlanetCharacter CDO"), CharacterCDO))
-	{
-		return false;
-	}
-
-	const UPlanetEditComponent* CharacterEdit = Cast<UPlanetEditComponent>(
-		CharacterCDO->GetDefaultSubobjectByName(TEXT("PlanetEdit")));
-	TestNotNull(TEXT("角色 CDO 上挂了 PlanetEdit 组件"), CharacterEdit);
+	// 编辑组件已从 APlanetCharacter 构造函数移到 BP_PlanetCharacter（2026-10-31）：
+	// 原生类上不再有 PlanetEdit，要验就看蓝图 SCS 里的模板。
+	const UPlanetEditComponent* CharacterEdit =
+		Cast<UPlanetEditComponent>(
+			StellarEraTest::FindBlueprintComponentTemplate(
+				TEXT("/Game/Code/BP_PlanetCharacter.BP_PlanetCharacter"),
+				UPlanetEditComponent::StaticClass()));
+	TestNotNull(TEXT("BP_PlanetCharacter 蓝图里挂着 PlanetEdit"), CharacterEdit);
 
 	return true;
 }
