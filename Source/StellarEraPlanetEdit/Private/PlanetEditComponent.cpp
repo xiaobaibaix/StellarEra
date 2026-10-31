@@ -474,6 +474,25 @@ bool UPlanetEditComponent::ApplyBrushAtScreenPosition(
 		return true;
 	}
 
+	// 先试着并进已有的笔：同一片区域连点时，不再把 (Size+6)³ 格扫 N 遍。
+	// 从队尾往前找，最新的一笔优先接收。合并失败（不相交 / 参数不同 / 到
+	// MaxMergedOps）才往下走「新开一笔」—— 所以这里不能动队列。
+	for (int32 Index = EditQueue.Num() - 1; Index >= 0; --Index)
+	{
+		const TSharedPtr<FPlanetProgressiveEdit>& Edit = EditQueue[Index];
+		if (!Edit.IsValid())
+		{
+			continue;
+		}
+
+		if (Edit->TryMergeWorld(Target.Planet, Center, BrushShape, BrushSizeVoxels,
+				MinBrushSizeVoxels, MaxBrushSizeVoxels, bPlace,
+				ProgressiveEditChunkSizeVoxels, bMultiThreadedEdits, MaxMergedOps))
+		{
+			return true;
+		}
+	}
+
 	// 大笔刷：切成块排队，由 TickProgressiveEdits 每帧推进几块。
 	// 超过上限时丢掉下标 1 的那笔：队首正在做不能丢，而最新的一笔永远比
 	// 排在中间的最有意义。

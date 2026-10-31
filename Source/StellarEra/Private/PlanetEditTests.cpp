@@ -467,6 +467,10 @@ bool FStellarEraPlanetEditComponentDefaultsTest::RunTest(const FString& Paramete
 	TestEqual(TEXT("默认连挖间隔 0.12 秒"),
 		EditCDO->ContinuousDigIntervalSeconds, 0.12f, 0.001f);
 
+	TestEqual(TEXT("默认队首预算份额 0.7"),
+		EditCDO->ProgressiveEditHeadBudgetShare, 0.7f, 0.001f);
+	TestEqual(TEXT("默认单笔最多合并 8 次落笔"), EditCDO->MaxMergedOps, 8);
+
 	// GetDefaultSubobjectByName 只有非 const 版本（CDO 查默认子对象必然需要
 	// 非 const 入口），而 GetDefault<T>() 只返回 const 指针。这里只读取，不修改 CDO。
 	APlanetCharacter* CharacterCDO = const_cast<APlanetCharacter*>(GetDefault<APlanetCharacter>());
