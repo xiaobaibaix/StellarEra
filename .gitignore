@@ -1,4 +1,7 @@
 Binaries
+# 本机绕过：安全软件会拒绝往名为 Binaries 的目录写 .pdb，
+# 因此 Binaries 是指向 BinariesReal 的目录联接（见 docs/BUILD_NOTES.md）
+BinariesReal
 DerivedDataCache
 Intermediate
 Saved
