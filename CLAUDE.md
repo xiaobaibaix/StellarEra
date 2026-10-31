@@ -22,8 +22,8 @@ StellarEraCore    ─→ 无项目依赖
 Source/
 ├── StellarEra/            主游戏模块（primary game module）：GameMode / PlayerController
 ├── StellarEraCore/        N 体求解器、Cosmos 单位类型、通用接口（Src/Interfaces/）
-├── StellarEraGeology/     元素表、行星地质场、噪声采样、UDataAsset 预设
-├── StellarEraPlanet/      世界：Src/{Terrain,Atmosphere,Minerals,Edit}/
+├── StellarEraGeology/     元素表、行星地质场、噪声采样、UDataAsset 预设（Src/Distributions/ 放分布变体）
+├── StellarEraPlanet/      世界：Src/{Terrain,Surface,Invokers,Atmosphere,Minerals,Edit}/
 ├── StellarEraPawns/       受控实体：Src/{Character,Spaceship}/
 ├── StellarEraCosmos/      N 体编排（子系统 / 轨道组件 / 轨迹组件）
 └── StellarEraUI/          HUD、星图相机、星图面板、矿物图例、编辑按钮布局
@@ -63,6 +63,13 @@ StellarEraXxx/
 2026-10 做过一次 11 → 7 的模块合并（Terrain/Atmosphere/Minerals/PlanetEdit → Planet，
 Character/Spaceship → Pawns），历史类路径由 `Config/DefaultEngine.ini` 的
 `[CoreRedirects]` 兜底，**那段配置不要删**。
+
+之后又做了一次模块**内部**的子目录细分：`Terrain/` 18 个文件拆成
+`Terrain`（地形形状）/ `Surface`（球面几何）/ `Invokers`（体素 LOD 接线，被 Pawns 与 UI
+跨模块引用）；`Geology/Src` 的分布基类与 4 个变体移入 `Distributions/`。
+
+两级目录（`Src/功能面/文件`）就是上限 —— `Edit/` 12 个、`Minerals/` 8 个、`UI/Src` 9 个
+都保持平铺。判据写在 `Source/README.md` 的「什么时候该建子目录」。
 
 `AStarMapCameraPawn` 仍在 `StellarEraUI` 而不是 `StellarEraPawns`：它调用
 `UCosmosSimulationSubsystem`，而 `StellarEraCosmos` 又 `Cast<ASpaceshipPawn>`

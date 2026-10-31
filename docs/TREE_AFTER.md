@@ -80,80 +80,65 @@ Core 的定位从「纯计算」扩成「纯计算 + 通用契约」。这是不
 
 ### StellarEraPlanet（原 Terrain + Atmosphere + Minerals + PlanetEdit）
 
+> 这一节已于 2026-10-31 按实际磁盘结构重写。原先的 `Public/` `Private/` 双树
+> 是取消分层之前的记录，已删除 —— 保留只会误导。
+
 ```
 StellarEraPlanet/
 ├── StellarEraPlanet.Build.cs
-├── Public/
-│   ├── VoxelPlanetActor.h                              ← 星球本体
-│   ├── Terrain/
-│   │   ├── VoxelPlanetGenerator.h
-│   │   ├── VoxelPlanetTerrainModule.h                  地形模块基类（UDataAsset）
-│   │   ├── VoxelPlanetNoiseTerrain.h
-│   │   ├── VoxelPlanetSphereTerrain.h
-│   │   ├── PlanetSurfaceRay.h
-│   │   ├── PlanetSurfaceGridComponent.h
-│   │   ├── PlanetBiomeCubemap.h
-│   │   └── AlwaysLocalVoxelInvokerComponent.h
-│   ├── Atmosphere/
-│   │   ├── PlanetAtmosphereComponent.h
-│   │   └── PlanetAtmosphereParams.h
-│   ├── Minerals/
-│   │   ├── PlanetMineralSurface.h
-│   │   ├── PlanetMineralViewComponent.h
-│   │   ├── PlanetMineralViewActor.h
-│   │   └── PlanetMineralMaterialBuilder.h
-│   └── Edit/
-│       ├── PlanetEditComponent.h
-│       ├── PlanetEditBrush.h
-│       ├── PlanetBrushApplicator.h
-│       ├── PlanetProgressiveEdit.h
-│       └── PlanetEditGridGeometry.h
-├── Private/
-│   ├── StellarEraPlanet.cpp                            ★ 新模块入口
-│   ├── VoxelPlanetActor.cpp                            星球本体（与 Public 根对应）
-│   ├── Terrain/
-│   │   ├── VoxelPlanetGenerator.cpp
-│   │   ├── VoxelPlanetTerrainModule.cpp
-│   │   ├── VoxelPlanetNoiseTerrain.cpp
-│   │   ├── VoxelPlanetSphereTerrain.cpp
-│   │   ├── PlanetSurfaceRay.cpp
-│   │   ├── PlanetSurfaceGridComponent.cpp
-│   │   ├── PlanetBiomeCubemap.cpp
-│   │   └── AlwaysLocalVoxelInvokerComponent.cpp
-│   ├── Atmosphere/
-│   │   ├── PlanetAtmosphereComponent.cpp
-│   │   ├── PlanetAtmosphereParams.cpp
-│   │   └── PlanetAtmosphereMaterialBuilder.cpp
-│   ├── Minerals/
-│   │   ├── PlanetMineralSurface.cpp
-│   │   ├── PlanetMineralViewComponent.cpp
-│   │   ├── PlanetMineralViewActor.cpp
-│   │   └── PlanetMineralMaterialBuilder.cpp
-│   ├── Edit/
-│   │   ├── PlanetEditComponent.cpp
-│   │   ├── PlanetEditBrush.cpp
-│   │   ├── PlanetBrushApplicator.cpp
-│   │   ├── PlanetProgressiveEdit.cpp
-│   │   ├── PlanetProgressiveEditKernel.cpp
-│   │   ├── PlanetProgressiveEditKernel.h              内部头，仍留 Private
-│   │   ├── PlanetEditGridGeometry.cpp
-│   │   └── VoxelViewpointInvokers.cpp                 只剩 SetEnabled 工具函数
-│   └── Tests/                                          12 个
-│       ├── PlanetBiomeCubemapTests.cpp
-│       ├── PlanetEditGridGeometryTests.cpp
-│       ├── PlanetGeologyPodTests.cpp
-│       ├── PlanetGeologyPresetTests.cpp
-│       ├── PlanetLODTransitionTests.cpp
-│       ├── PlanetSurfaceRayTests.cpp
-│       ├── PlanetTerrainEarlyOutTests.cpp
-│       ├── PlanetTerrainGradientNormalTests.cpp
-│       ├── VoxelPlanetBiomeMaterialTests.cpp
-│       ├── PlanetAtmosphereParamsTests.cpp
-│       ├── PlanetMineralSurfaceTests.cpp
-│       └── PlanetMineralViewTests.cpp
+├── StellarEraPlanet.h / .cpp              模块入口（与 Build.cs 并排）
+└── Src/
+    ├── VoxelPlanetActor.h/.cpp         星球本体（模块门面，放 Src 根）
+    ├── Atmosphere/
+    │   ├── PlanetAtmosphereComponent.h/cpp
+    │   ├── PlanetAtmosphereMaterialBuilder.cpp
+    │   └── PlanetAtmosphereParams.h/cpp
+    ├── Edit/
+    │   ├── PlanetBrushApplicator.h/cpp
+    │   ├── PlanetEditBrush.h/cpp
+    │   ├── PlanetEditComponent.h/cpp
+    │   ├── PlanetEditGridGeometry.h/cpp
+    │   ├── PlanetProgressiveEdit.h/cpp
+    │   └── PlanetProgressiveEditKernel.h/cpp
+    ├── Invokers/
+    │   ├── AlwaysLocalVoxelInvokerComponent.h/cpp
+    │   ├── VoxelViewpointInvokers.cpp
+    │   └── VoxelViewpointInvokerUtils.h
+    ├── Minerals/
+    │   ├── PlanetMineralMaterialBuilder.h/cpp
+    │   ├── PlanetMineralSurface.h/cpp
+    │   ├── PlanetMineralViewActor.h/cpp
+    │   └── PlanetMineralViewComponent.h/cpp
+    ├── Surface/
+    │   ├── PlanetSurfaceGridComponent.h/cpp
+    │   └── PlanetSurfaceRay.h/cpp
+    ├── Terrain/
+    │   ├── PlanetBiomeCubemap.h/cpp
+    │   ├── VoxelPlanetGenerator.h/cpp
+    │   ├── VoxelPlanetNoiseTerrain.h/cpp
+    │   ├── VoxelPlanetSphereTerrain.h/cpp
+    │   └── VoxelPlanetTerrainModule.h/cpp
+    └── Tests/
+        ├── PlanetAtmosphereParamsTests.cpp
+        ├── PlanetBiomeCubemapTests.cpp
+        ├── PlanetGeologyPodTests.cpp
+        ├── PlanetGeologyPresetTests.cpp
+        ├── PlanetLODTransitionTests.cpp
+        ├── PlanetMineralSurfaceTests.cpp
+        ├── PlanetMineralViewTests.cpp
+        ├── PlanetProgressiveEditTests.cpp
+        ├── PlanetSurfaceRayTests.cpp
+        ├── PlanetTerrainEarlyOutTests.cpp
+        ├── PlanetTerrainGradientNormalTests.cpp
+        └── VoxelPlanetBiomeMaterialTests.cpp
 ```
 
-`VoxelPlanetTerrainModule.h` 名字里带 Module 容易和模块入口混淆，但它是 `UDataAsset` 基类，**不改名**——改文件名要动一堆 include，收益不抵成本。
+**`Invokers/` 不在 `Terrain/` 里的理由**：那 4 个文件被 `StellarEraPawns`
+（角色、飞船）和 `StellarEraUI`（星图相机）跨模块 include，它们是 Voxel 插件
+LOD 的接线层，不是地形本身。判据看 include 关系，不看文件名前缀。
+
+`VoxelPlanetTerrainModule.h` 名字里带 Module 容易和模块入口混淆，但它是 `UDataAsset`
+基类，**不改名**——改文件名要动一堆 include，收益不抵成本。
 
 ### StellarEraPawns（原 Character + Spaceship）
 

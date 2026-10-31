@@ -50,6 +50,15 @@ StellarEraPlanet/
 它住在这里而不是某个实现模块，是因为实现方（Pawns 的两个 Pawn）和使用方（控制器）
 不该为这一个头互相依赖。
 
+```
+StellarEraGeology/Src/
+├── PlanetGeologyTypes.h       元素 / 矿物类型
+├── PlanetGeologyField.h/.cpp  地质场：从位置与噪声取元素浓度
+├── PlanetGeologyPreset.h/.cpp 行星级预设 UDataAsset
+├── Distributions/             分布基类 + 囊状 / 片层 / 脉状 / 浸染四个变体
+└── Tests/
+```
+
 ### L1 世界 —— 一颗行星的全部
 
 | 模块 | 行数 | 一句话 | 什么时候动它 |
@@ -59,12 +68,18 @@ StellarEraPlanet/
 ```
 StellarEraPlanet/Src/
 ├── VoxelPlanetActor.h/.cpp    星球本体（对外门面，所以放在 Src 根）
-├── Terrain/                   生成器、地形模块、表面射线、网格、生物群系、调用器
+├── Terrain/                   地形长什么样：模块基类、噪声、纯球、适配器、生物群系配色
+├── Surface/                   星球这个球本身：解析射线、编辑经纬网格
+├── Invokers/                  体素 LOD 调用器接线（角色 / 飞船 / 相机共用）
 ├── Atmosphere/                大气组件与参数
 ├── Minerals/                  矿物表面、观察组件、观察 Actor、材质
 ├── Edit/                      编辑组件、笔刷、涂抹、渐进编辑、网格几何
 └── Tests/                     12 个测试
 ```
+
+`Terrain/` 里的东西只被 Planet 内部用；`Invokers/` 里的被 `StellarEraPawns` 与
+`StellarEraUI` 跨模块引用 —— 它们不属于「地形」，是 Voxel 插件 LOD 的接线层，
+当初只是恰好放在 Terrain 文件夹里。
 
 四个子目录共享同一份体素密度场，这是它们合在一个模块里的理由。
 编辑内核直接写它、地形生成直接写它、矿物与大气按它取采样点 ——
@@ -144,6 +159,20 @@ UI 声明自己需要什么，Game 去实现，于是 UI 不需要 include 控�
    那一层只留模块门面（`VoxelPlanetActor.h` 这类被外部当入口用的）。
 3. **接口放 `StellarEraCore/Src/Interfaces/`**，除非它像 `IStarMapUIInputs` 那样
    明确属于某个使用方（那时由使用方定义，上层实现）。
+
+### 什么时候该建子目录
+
+| 目录内文件数 | 怎么做 |
+|---|---|
+| ≤ 12 | 别拆。命名前缀（`PlanetMineral*`）已经够用 |
+| 13–15 | 先问「这里面有没有两类职责」，有才拆 |
+| ≥ 16 | 基本是已经过载了，拆 |
+
+拆的方式：**按「它回答什么问题」分，不按类名分**。拆完每族至少 4 个文件才值得
+单独开一个目录 —— 一个目录里只放两个文件，是把分类做成了负担。
+
+判据要看 include 关系而不是文件名：被别的模块引用的东西，往往根本不属于当前这个
+功能面（`Invokers/` 就是这么从 `Terrain/` 里分出来的）。
 
 ---
 
