@@ -122,12 +122,12 @@ public:
 		AVoxelPlanetActor* InPlanet,
 		const FVector& CenterWorld,
 		EPlanetBrushShape InShape,
-		int32 SizeVoxels,
-		int32 MinSizeVoxels,
-		int32 MaxSizeVoxels,
+		int32 InSizeVoxels,
+		int32 InMinSizeVoxels,
+		int32 InMaxSizeVoxels,
 		bool bInPlace,
 		int32 ChunkSizeVoxels,
-		bool bMultiThreaded,
+		bool bInMultiThreaded,
 		int32 MaxOps);
 
 	/**
@@ -148,6 +148,20 @@ public:
 	/** 已合并的落笔与切块。块的 NumOps 是创建时的稳定前缀。测试与诊断用。 */
 	const TArray<FPlanetEditOp>& GetOps() const { return Ops; }
 	const TArray<FPlanetEditChunk>& GetChunks() const { return Chunks; }
+
+#if WITH_DEV_AUTOMATION_TESTS
+	/**
+	 * 测试专用：把进度游标设到指定块，模拟「已经做了一部分」。
+	 *
+	 * 生产路径推不动进度就没法钉「新块插在已做前缀之后」这条不变量
+	 *（ApplyNextChunk 在没有行星时直接判完成），所以留这一个受
+	 * WITH_DEV_AUTOMATION_TESTS 保护的缝。
+	 */
+	void SetNextChunkIndexForTest(const int32 Index)
+	{
+		NextChunkIndex = FMath::Clamp(Index, 0, Chunks.Num());
+	}
+#endif
 
 	/** 笔刷尺寸（体素数）。日志用。 */
 	int32 GetSizeVoxels() const { return SizeVoxels; }

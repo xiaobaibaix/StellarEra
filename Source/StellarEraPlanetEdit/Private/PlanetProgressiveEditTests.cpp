@@ -851,6 +851,12 @@ bool FStellarEraProgressiveMergeDedupeTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("重复的落笔不追加 op"), Job->GetOpCount(), OpsBefore);
 	TestEqual(TEXT("重复的落笔不追加块"), Job->GetChunkCount(), ChunksBefore);
 
+	// 去重必须排在 op 上限之前：已经有 1 个 op、MaxOps = 1 时若先判上限，
+	// 这里会返回 false —— 同一片区域在到达上限后就突然开始排新任务了。
+	TestTrue(TEXT("MaxOps=1 时重复落笔仍返回 true"), Job->TryMerge(Request, /*MaxOps=*/1));
+	TestEqual(TEXT("MaxOps=1 时重复落笔不追加 op"), Job->GetOpCount(), 1);
+	TestEqual(TEXT("MaxOps=1 时重复落笔不追加块"), Job->GetChunkCount(), ChunksBefore);
+
 	// 连点 5 下：仍然只有一笔。
 	for (int32 Index = 0; Index < 5; ++Index)
 	{
@@ -876,15 +882,36 @@ bool FStellarEraProgressiveMergeProgressTest::RunTest(const FString& Parameters)
 	}
 
 	const int32 ChunksBefore = Job->GetChunkCount();
+	// 前缀必须严格落在老块列表内部：游标为 0 时 Insert 与 Append 无法区分。
+	if (!TestTrue(TEXT("老块数必须大于 3（否则进度下标挑不出来）"), ChunksBefore > 3))
+	{
+		return false;
+	}
+
+	// 模拟「已经做了三块」。ApplyNextChunk 在没有行星时会直接判完成，
+	// 生产路径推不动游标，所以走测试专用的缝。
+	Job->SetNextChunkIndexForTest(3);
+
 	const int32 IndexBefore = Job->GetNextChunkIndex();
 	const FPlanetEditVoxelBox AppliedBefore = Job->GetAppliedBounds();
 	const FPlanetEditVoxelBox FullBefore = Job->GetFullBounds();
+
+	// 已做前缀的块边界：合并后这三块必须原样待在 [0, 3)。
+	FPlanetEditVoxelBox OldPrefix[3];
+	for (int32 Index = 0; Index < 3; ++Index)
+	{
+		OldPrefix[Index] = Job->GetChunks()[Index].Bounds;
+	}
 
 	// 相交的新落笔必须被接受。
 	const FPlanetEditRequest Second = MakeMergeTestRequest(FVector(4.0, 0.0, 0.0));
 	TestTrue(TEXT("相交必须接受"), Job->TryMerge(Second, 8));
 
-	TestEqual(TEXT("op 数 +1"), Job->GetOpCount(), 2);
+	// 下面要取 Ops()[1] 当期望值：op 数不对时先失败退出，别越界。
+	if (!TestEqual(TEXT("op 数 +1"), Job->GetOpCount(), 2))
+	{
+		return false;
+	}
 	TestTrue(TEXT("块数增加"), Job->GetChunkCount() > ChunksBefore);
 
 	// 进度一字未动：已做前缀的下标不变，AppliedBounds 不变。
@@ -895,25 +922,50 @@ bool FStellarEraProgressiveMergeProgressTest::RunTest(const FString& Parameters)
 	TestBoxesEqual(*this, TEXT("FullBounds == 两支包围盒的并集"), Job->GetFullBounds(),
 		PlanetEditBrush::UnionVoxelBox(FullBefore, Job->GetOps()[1].Bounds));
 
-	// 老块的前缀仍是 1、新块的前缀是 2 —— 这就是「进度不丢」的机制。
-	// 按 NumOps 数而不是按下标数：插入点在 NextChunkIndex（这里是 0），
-	// 新块排在前面，下标区间跟「新旧」不对应。
-	int32 PrefixOneCount = 0;
-	int32 PrefixTwoCount = 0;
-	for (const FPlanetEditChunk& Chunk : Job->GetChunks())
+	// --- 位置断言：新块必须插在已做前缀之后，而不是追加到末尾 ---
+	//
+	// 合并后的布局：[0, 3) 老前缀 | [3, 3+M) 新块 | [3+M, N+M) 老块尾巴，
+	// 其中 N = ChunksBefore、M = 本次新增的块数。
+	//
+	// 只按 NumOps 数个数不够：Append 实现把新块排在 N 个老块后面，计数一样能
+	// 对上，却会让已做前缀在下一次 ApplyNextChunk 时整段重做一遍。
+	//
+	// 老块尾巴的起点是 3 + M，不是 ChunksBefore：新块有 M 个，可能比 N - 3
+	// 还多（本测试 N = M = 125），拿 N 当起点会切进新块中间。三段首尾相接、
+	// 合起来必须正好覆盖全部块。
+	const int32 NewChunkCount = Job->GetChunkCount() - ChunksBefore;
+	const int32 OldTailStart = IndexBefore + NewChunkCount;
+	const TArray<FPlanetEditChunk>& Chunks = Job->GetChunks();
+
+	for (int32 Index = 0; Index < IndexBefore; ++Index)
 	{
-		if (Chunk.NumOps == 1)
-		{
-			++PrefixOneCount;
-		}
-		else if (Chunk.NumOps == 2)
-		{
-			++PrefixTwoCount;
-		}
+		TestEqual(*FString::Printf(
+			TEXT("已做前缀区间 [0,%d)：块 %d 的 NumOps 必须是 1"), IndexBefore, Index),
+			Chunks[Index].NumOps, 1);
+		TestBoxesEqual(*this, *FString::Printf(
+			TEXT("已做前缀区间 [0,%d)：块 %d 的边界必须原样保留"), IndexBefore, Index),
+			Chunks[Index].Bounds, OldPrefix[Index]);
 	}
-	TestEqual(TEXT("老块（前缀 1）数量不变"), PrefixOneCount, ChunksBefore);
-	TestEqual(TEXT("新块（前缀 2）数量等于新增的块数"),
-		PrefixTwoCount, Job->GetChunkCount() - ChunksBefore);
+
+	for (int32 Index = IndexBefore; Index < OldTailStart; ++Index)
+	{
+		TestEqual(*FString::Printf(
+			TEXT("新块区间 [%d,%d)：块 %d 的 NumOps 必须是 2"),
+			IndexBefore, OldTailStart, Index),
+			Chunks[Index].NumOps, 2);
+	}
+
+	for (int32 Index = OldTailStart; Index < Job->GetChunkCount(); ++Index)
+	{
+		TestEqual(*FString::Printf(
+			TEXT("老块尾巴区间 [%d,%d)：块 %d 的 NumOps 必须是 1"),
+			OldTailStart, Job->GetChunkCount(), Index),
+			Chunks[Index].NumOps, 1);
+	}
+
+	// 三段必须正好铺满全部块，且老块一个不多一个不少。
+	TestEqual(TEXT("老块总数不变（前缀 + 尾巴）"),
+		IndexBefore + (Job->GetChunkCount() - OldTailStart), ChunksBefore);
 
 	return true;
 }
