@@ -1233,6 +1233,118 @@ float AVoxelPlanetActor::GetSurfaceRadiusCmAtDirection(const FVector& WorldDirec
 	return PlanetGenerator->Terrain->GetSurfaceRadiusVoxels(Context, Direction) * VoxelSize;
 }
 
+float AVoxelPlanetActor::GetVoxelSurfaceRadiusCmAtDirection(const FVector& WorldDirection) const
+{
+	const FVector Direction = WorldDirection.GetSafeNormal();
+	if (Direction.IsNearlyZero())
+	{
+		return GetSurfaceRadiusCm();
+	}
+
+	// 解析半径既是种子，也是所有兜底的答案：没体素数据时它是唯一能给的。
+	const float AnalyticRadiusCm = GetSurfaceRadiusCmAtDirection(Direction);
+	if (!IsCreated() || VoxelSize <= 0.f)
+	{
+		return AnalyticRadiusCm;
+	}
+
+	// 体素空间：球心在原点，单位 = 体素。与世界空间只差等比缩放与平移、没有旋转
+	// （与 RaycastSurfaceCm 里那条说明同源）。本函数同样假定 Actor 缩放 S = 1。
+	const double BaseRadiusVoxels = double(GetSurfaceRadiusCm()) / VoxelSize;
+	const double AnalyticRadiusVoxels = double(AnalyticRadiusCm) / VoxelSize;
+	if (AnalyticRadiusVoxels <= 0.0)
+	{
+		return AnalyticRadiusCm;
+	}
+
+	// 种子点：解析半径上的那个点（体素坐标）。
+	const FVector HitLocal = Direction * AnalyticRadiusVoxels;
+
+	// 两个方向的预算：向外到 1.25 倍包围球（与 RaycastSurfaceCm 同一份余量），
+	// 向里到球心前一格为止（再往里就穿到对面半球去了）。
+	//
+	// 不复用 ComputeMarchStepRange：它那两个上界是按「调用方给的射线原点在球外」
+	// 定义的，径向线以球心为原点时代入只是把 Inward/Backward 换个名字，读代码
+	// 的人会把方向读反。
+	const int32 MaxForwardSteps = FMath::Max(1,
+		FMath::CeilToInt(BaseRadiusVoxels * 1.25 - AnalyticRadiusVoxels));
+	const int32 MaxBackwardSteps = FMath::Max(1,
+		FMath::CeilToInt(AnalyticRadiusVoxels) - 1);
+	const int32 MaxAbsStep = FMath::Max(MaxForwardSteps, MaxBackwardSteps);
+
+	const auto VoxelOf = [](const FVector& Point)
+	{
+		return FIntVector(
+			static_cast<int32>(FMath::FloorToInt(Point.X)),
+			static_cast<int32>(FMath::FloorToInt(Point.Y)),
+			static_cast<int32>(FMath::FloorToInt(Point.Z)));
+	};
+
+	// 读锁按 128 体素一段取：整条径向线取一把锁会锁住大半棵八叉树，体素线程全被
+	// 卡住（RaycastSurfaceCm 里同一条理由）。步进是单调的，所以「当前段」一个就够。
+	constexpr int32 SegmentVoxels = 128;
+	int32 LockedSign = 0;      // 当前锁覆盖的方向（±1），0 = 还没取
+	int32 LockedThrough = 0;   // 已覆盖到 |Step| = LockedThrough
+	TUniquePtr<FVoxelReadScopeLock> SegmentLock;
+
+	const auto SampleEmptyAt = [&](const int32 Step) -> bool
+	{
+		const int32 Sign = Step >= 0 ? 1 : -1;
+		const int32 AbsStep = FMath::Abs(Step);
+
+		if (Sign != LockedSign || AbsStep > LockedThrough)
+		{
+			// 先放旧锁再取新锁：两把同时在手时，另一条线程按相反顺序取锁会死锁。
+			SegmentLock.Reset();
+
+			const int32 SegmentBegin = FMath::Max(AbsStep, 1);
+			const int32 SegmentEnd =
+				FMath::Min(SegmentBegin + SegmentVoxels - 1, MaxAbsStep);
+
+			// 盒子要盖住 SegmentBegin − 1 到 SegmentEnd 的所有采样点（Step 0 也包在
+			// 第一段里），+2 是取整余量。
+			const FVector PointA =
+				HitLocal + Direction * (static_cast<double>(Sign) * (SegmentBegin - 1));
+			const FVector PointB =
+				HitLocal + Direction * (static_cast<double>(Sign) * SegmentEnd);
+			const FIntVector ScanMin(
+				FMath::FloorToInt(FMath::Min(PointA.X, PointB.X)) - 2,
+				FMath::FloorToInt(FMath::Min(PointA.Y, PointB.Y)) - 2,
+				FMath::FloorToInt(FMath::Min(PointA.Z, PointB.Z)) - 2);
+			const FIntVector ScanMax(
+				FMath::CeilToInt(FMath::Max(PointA.X, PointB.X)) + 2,
+				FMath::CeilToInt(FMath::Max(PointA.Y, PointB.Y)) + 2,
+				FMath::CeilToInt(FMath::Max(PointA.Z, PointB.Z)) + 2);
+
+			// FVoxelIntBox 的 Max 是开区间，所以 +1。
+			SegmentLock = MakeUnique<FVoxelReadScopeLock>(
+				GetData(), FVoxelIntBox(ScanMin, ScanMax + FIntVector(1, 1, 1)),
+				TEXT("PlanetVoxelSurfaceRadius"));
+
+			LockedSign = Sign;
+			LockedThrough = SegmentEnd;
+		}
+
+		const FVector Sample = HitLocal + Direction * static_cast<double>(Step);
+		return GetData().GetValue(VoxelOf(Sample), /*LOD=*/0).IsEmpty();
+	};
+
+	double BoundaryStep = 0.0;
+	if (!PlanetSurfaceRay::FindSurfaceBoundaryStep(
+		MaxForwardSteps, MaxBackwardSteps, SampleEmptyAt, BoundaryStep))
+	{
+		// 走完全部预算都没翻转：挖穿了，或整段全是实的。用 Verbose —— 每帧都会走
+		// 到这条路时 Warning 会把日志刷满。
+		UE_LOG(LogTemp, Verbose,
+			TEXT("%s：方向 %s 走了 %d 步仍未找到空/实翻转，退回解析半径 %.1f cm。"),
+			*GetName(), *Direction.ToCompactString(), MaxAbsStep, AnalyticRadiusCm);
+		return AnalyticRadiusCm;
+	}
+
+	// 边界是两格的中点，误差 ≤ 1 体素。
+	return static_cast<float>((AnalyticRadiusVoxels + BoundaryStep) * VoxelSize);
+}
+
 TSharedPtr<const FPlanetGeologyField> AVoxelPlanetActor::GetGeologyField()
 {
 	return PlanetGenerator ? PlanetGenerator->GetGeology() : nullptr;

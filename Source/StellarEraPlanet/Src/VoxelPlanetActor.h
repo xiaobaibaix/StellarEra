@@ -128,6 +128,24 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Planet")
 	float GetSurfaceRadiusCmAtDirection(const FVector& WorldDirection) const;
 
+	/**
+	 * 指定方向上的**真实体素地表**半径（厘米）。
+	 *
+	 * 与 GetSurfaceRadiusCmAtDirection 的唯一区别：那个读的是生成器的理想地表
+	 * （噪声 + 地质场），挖掘改的是体素数据，它看不见；这个从体素数据里找空/实
+	 * 翻转，挖出来的坑它看得见。误差 ≤ 1 体素。
+	 *
+	 * 做法：解析半径当种子，沿该方向的径向线（从球心出发）march 体素数据 ——
+	 * 种子在上方就往里找第一格实，种子埋在地下就往外找第一格空。
+	 *
+	 * 找不到翻转（挖穿、整段全实）或行星还没创建（IsCreated() 为假）时返回解析
+	 * 半径。距离上的闸门（离多远就不必查）由调用方做 —— 本函数没有探针位置。
+	 *
+	 * 成本：最多 (1.25 × 基准半径 + 解析半径) / 体素 次采样，按 128 体素分段持
+	 * 读锁。**每帧每方向调一次就够**，不要逐子步调。
+	 */
+	float GetVoxelSurfaceRadiusCmAtDirection(const FVector& WorldDirection) const;
+
 	/** 行星的地质场。生成器还没建好时为 nullptr。 */
 	TSharedPtr<const FPlanetGeologyField> GetGeologyField();
 
