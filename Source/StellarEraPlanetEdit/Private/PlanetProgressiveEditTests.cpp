@@ -1101,4 +1101,35 @@ bool FStellarEraProgressiveMergeEquivalenceTest::RunTest(const FString& Paramete
 	return true;
 }
 
+// 轮转游标必须满足三条，任一条错都会退化成「某笔永远饿着」或「某笔被跳过」：
+//  1) 0 号是队首，永远不进轮转；
+//  2) 走到末尾回绕到 1，不回到 0；
+//  3) 队列变短导致越界时夹回 1，不取模（取模在队列动态变化时会跳笔）。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraProgressiveScheduleTest,
+	"StellarEra.Planet.Editor.Schedule.FairCursor",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraProgressiveScheduleTest::RunTest(const FString& Parameters)
+{
+	TestEqual(TEXT("空队列没有候选"), PlanetEditSchedule::GetFairCandidateCount(0), 0);
+	TestEqual(TEXT("单笔没有候选"), PlanetEditSchedule::GetFairCandidateCount(1), 0);
+	TestEqual(TEXT("三笔有两个候选"), PlanetEditSchedule::GetFairCandidateCount(3), 2);
+
+	TestEqual(TEXT("空队列取不到下标"),
+		PlanetEditSchedule::GetNextFairIndex(INDEX_NONE, 0), INDEX_NONE);
+	TestEqual(TEXT("单笔取不到下标"),
+		PlanetEditSchedule::GetNextFairIndex(INDEX_NONE, 1), INDEX_NONE);
+
+	// 首次从 1 开始：0 是队首，由阶段一负责。
+	TestEqual(TEXT("游标未初始化时从 1 开始"),
+		PlanetEditSchedule::GetNextFairIndex(INDEX_NONE, 3), 1);
+	TestEqual(TEXT("1 之后是 2"), PlanetEditSchedule::GetNextFairIndex(1, 3), 2);
+	TestEqual(TEXT("2 之后回绕到 1"), PlanetEditSchedule::GetNextFairIndex(2, 3), 1);
+	TestEqual(TEXT("越界夹回 1"), PlanetEditSchedule::GetNextFairIndex(9, 3), 1);
+	TestEqual(TEXT("两笔时 2 越界夹回 1"), PlanetEditSchedule::GetNextFairIndex(2, 2), 1);
+	TestEqual(TEXT("游标 0 不进轮转"), PlanetEditSchedule::GetNextFairIndex(0, 3), 1);
+
+	return true;
+}
+
 #endif

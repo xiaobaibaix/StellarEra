@@ -177,9 +177,11 @@ void UPlanetEditComponent::AccumulateRenderBounds(
 	}
 
 	// 换了一颗行星：旧范围的坐标属于旧星的体素空间，不能混进来。
+	// 轮转下同一帧里可能真的换星，所以必须先把旧的刷掉再换 —— 直接清空会
+	// 把旧星还等着刷的范围丢掉，那一片的网格就永远停在旧数据上。
 	if (PendingRenderPlanet.Get() != Planet)
 	{
-		PendingRenderBounds = FPlanetEditVoxelBox();
+		FlushPendingRenderUpdate();
 		PendingRenderPlanet = Planet;
 	}
 
@@ -190,13 +192,27 @@ void UPlanetEditComponent::TickProgressiveEdits()
 {
 	if (EditQueue.Num() == 0)
 	{
+		NextFairEditIndex = INDEX_NONE;
 		return;
 	}
 
 	const double StartSeconds = FPlatformTime::Seconds();
 	const double BudgetMs = FMath::Max(static_cast<double>(ProgressiveEditBudgetMs), 0.1);
+	const double Share = FMath::Clamp(
+		static_cast<double>(ProgressiveEditHeadBudgetShare), 0.0, 1.0);
+	const double HeadBudgetMs = BudgetMs * Share;
+
+	// 取「已用毫秒」：两个阶段用同一把尺子，预算才好分配。
+	auto ElapsedMs = [StartSeconds]()
+	{
+		return (FPlatformTime::Seconds() - StartSeconds) * 1000.0;
+	};
 
 	bool bAppliedChunk = false;
+
+	// --- 阶段一：队首优先 ---
+	// 预算检查放在**推进过一块之后**：份额再小，这一帧也要往前走一块，
+	// 否则队列永远推不动。
 	while (EditQueue.Num() > 0)
 	{
 		const TSharedPtr<FPlanetProgressiveEdit>& Edit = EditQueue[0];
@@ -221,11 +237,46 @@ void UPlanetEditComponent::TickProgressiveEdits()
 			continue;
 		}
 
-		// 预算检查放在**推进过一块之后**：预算再小，一帧也要往前走一块，
-		// 否则队列永远推不动。
-		if ((FPlatformTime::Seconds() - StartSeconds) * 1000.0 >= BudgetMs)
+		if (ElapsedMs() >= HeadBudgetMs)
 		{
 			break;
+		}
+	}
+
+	// --- 阶段二：余量轮转 ---
+	// 每帧每笔最多推一块，不做「再补一块」的补偿：块粒度 128³ 约 2.9 ms，
+	// 补一块就会把单帧顶到 9 ms 以上。
+	while (EditQueue.Num() > 1)
+	{
+		if (ElapsedMs() >= BudgetMs)
+		{
+			break;
+		}
+
+		NextFairEditIndex = PlanetEditSchedule::GetNextFairIndex(
+			NextFairEditIndex, EditQueue.Num());
+		if (NextFairEditIndex == INDEX_NONE)
+		{
+			break;
+		}
+
+		const TSharedPtr<FPlanetProgressiveEdit>& Edit = EditQueue[NextFairEditIndex];
+		if (!Edit.IsValid())
+		{
+			EditQueue.RemoveAt(NextFairEditIndex);
+			continue;
+		}
+
+		const bool bMoreWork = Edit->ApplyNextChunk();
+		bAppliedChunk = true;
+
+		AccumulateRenderBounds(Edit->GetPlanet().Get(), Edit->GetLastChunkBounds());
+
+		if (!bMoreWork)
+		{
+			OnEditFinished(*Edit);
+			// 删掉之后游标指向的位置已经换了笔，下一轮由 GetNextFairIndex 夹回来。
+			EditQueue.RemoveAt(NextFairEditIndex);
 		}
 	}
 

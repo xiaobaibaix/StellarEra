@@ -219,6 +219,23 @@ public:
 	float ProgressiveEditBudgetMs = 4.f;
 
 	/**
+	 * 队首独占的预算份额（0~1）。剩下的留给其他活跃的笔轮转。
+	 *
+	 * 默认 0.7：队首仍拿大头，别的笔每帧也能往前走一块，不会饿死。
+	 */
+	UPROPERTY(EditAnywhere, Category = "PlanetEdit", meta = (ClampMin = "0", ClampMax = "1"))
+	float ProgressiveEditHeadBudgetShare = 0.7f;
+
+	/**
+	 * 一笔编辑最多合并多少次落笔。
+	 *
+	 * 合并的 job 每格要按顺序过 op，上限是防「一格里过几十个球」。
+	 * 到上限后新的点击另起一笔。
+	 */
+	UPROPERTY(EditAnywhere, Category = "PlanetEdit", meta = (ClampMin = "1"))
+	int32 MaxMergedOps = 8;
+
+	/**
 	 * 待处理编辑最高笔数。超了丢下标 1 的：队首正在做不能丢，
 	 * 而最新那一笔永远比排在中间的最有意义。
 	 */
@@ -231,7 +248,11 @@ private:
 	void EnsurePreviewLineBatch();
 	void HideBrushPreview();
 
-	/** 每帧推进队首编辑，累计超过 ProgressiveEditBudgetMs 就停。 */
+	/**
+	 * 每帧推进队列：队首先吃 ProgressiveEditHeadBudgetShare 的预算，
+	 * 剩下的按 NextFairEditIndex 在 1..N-1 之间轮转，累计超过
+	 * ProgressiveEditBudgetMs 就停。
+	 */
 	void TickProgressiveEdits();
 
 	/** 一笔编辑做完：真的改到过体素才记到 LastEditedPlanet 并通知重建 / 存档。 */
@@ -246,7 +267,7 @@ private:
 	 */
 	void FinishAllEdits();
 
-	/** 把 Bounds（属于 Planet）并进待刷范围，换星时丢掉旧星的坐标。 */
+	/** 把 Bounds（属于 Planet）并进待刷范围；换星时先把旧星攒的范围刷掉再记新星。 */
 	void AccumulateRenderBounds(AVoxelPlanetActor* Planet, const FPlanetEditVoxelBox& Bounds);
 
 	/** 把连挖期间攒下的范围一次性交给渲染，然后清空。 */
@@ -257,6 +278,9 @@ private:
 
 	/** 还没做完的编辑，下标 0 是正在推进的那一笔。 */
 	TArray<TSharedPtr<FPlanetProgressiveEdit>> EditQueue;
+
+	/** 余量轮转的游标（跨帧保留）。INDEX_NONE = 还没开始轮转。 */
+	int32 NextFairEditIndex = INDEX_NONE;
 
 	/**
 	 * 连挖期间攒下的、还没刷给渲染的范围（行星体素空间，Min 含 / MaxExclusive 不含）。

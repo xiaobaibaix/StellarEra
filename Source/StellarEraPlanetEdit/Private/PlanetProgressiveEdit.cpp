@@ -349,3 +349,28 @@ bool FPlanetProgressiveEdit::TryMergeWorld(
 
 	return TryMerge(Request, MaxOps);
 }
+
+int32 PlanetEditSchedule::GetFairCandidateCount(const int32 QueueSize)
+{
+	return QueueSize > 1 ? QueueSize - 1 : 0;
+}
+
+int32 PlanetEditSchedule::GetNextFairIndex(const int32 Cursor, const int32 QueueSize)
+{
+	if (QueueSize <= 1)
+	{
+		return INDEX_NONE;
+	}
+
+	const int32 MinIndex = 1;
+	const int32 MaxIndex = QueueSize - 1;
+
+	// 游标未初始化、或队列变短后越界：从 1 重新开始。
+	if (Cursor < MinIndex || Cursor > MaxIndex)
+	{
+		return MinIndex;
+	}
+
+	const int32 NextIndex = Cursor + 1;
+	return NextIndex > MaxIndex ? MinIndex : NextIndex;
+}

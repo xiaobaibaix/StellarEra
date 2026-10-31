@@ -55,6 +55,26 @@ struct FPlanetEditRequest
 };
 
 /**
+ * 编辑队列的推进策略。
+ *
+ * 放在这里而不是组件里，是因为组件是 UObject：纯函数独立出来才能无头测试。
+ * 规则只有一条 —— 0 号是队首，由「队首优先」阶段独占，轮转只碰 1..N-1。
+ */
+namespace PlanetEditSchedule
+{
+	/** 除队首外可轮转的笔数。队列 ≤ 1 时为 0。 */
+	STELLARERAPLANETEDIT_API int32 GetFairCandidateCount(int32 QueueSize);
+
+	/**
+	 * 下一个轮转下标：夹到 [1, QueueSize-1] 并回绕；没有候选时返回 INDEX_NONE。
+	 *
+	 * 越界只夹不取模：队列长度在帧与帧之间会变，「Cursor % N」会让游标指到
+	 * 另一笔身上，看起来像跳笔。
+	 */
+	STELLARERAPLANETEDIT_API int32 GetNextFairIndex(int32 Cursor, int32 QueueSize);
+}
+
+/**
  * 一笔渐进式编辑。
  *
  * 存在理由：体素工具的代价是包围盒 Size³，一次 1280 体素的挖掘要扫 2×10⁹ 格，
