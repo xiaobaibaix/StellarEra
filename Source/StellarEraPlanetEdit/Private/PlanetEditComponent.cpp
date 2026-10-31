@@ -200,7 +200,10 @@ void UPlanetEditComponent::TickProgressiveEdits()
 	const double BudgetMs = FMath::Max(static_cast<double>(ProgressiveEditBudgetMs), 0.1);
 	const double Share = FMath::Clamp(
 		static_cast<double>(ProgressiveEditHeadBudgetShare), 0.0, 1.0);
-	const double HeadBudgetMs = BudgetMs * Share;
+	// 只有一笔活跃时没有可以轮转的对象，余量份额无处可去：整份预算都给队首，
+	// 否则单笔挖掘会比改前慢（旧实现独占 4 ms）。
+	const double HeadBudgetMs =
+		EditQueue.Num() > 1 ? BudgetMs * Share : BudgetMs;
 
 	// 取「已用毫秒」：两个阶段用同一把尺子，预算才好分配。
 	auto ElapsedMs = [StartSeconds]()
@@ -244,9 +247,11 @@ void UPlanetEditComponent::TickProgressiveEdits()
 	}
 
 	// --- 阶段二：余量轮转 ---
-	// 每帧每笔最多推一块，不做「再补一块」的补偿：块粒度 128³ 约 2.9 ms，
+	// 循环只受**剩余预算**约束，不是「每帧每笔一块」的硬保证：块很便宜时
+	//（大包围盒的零角块、薄盒）游标会绕回来，同一笔可能在本帧被推进两次。
+	// 最坏只是多一块的超出量。不做「再补一块」的补偿：块粒度 128³ 约 2.9 ms，
 	// 补一块就会把单帧顶到 9 ms 以上。
-	while (EditQueue.Num() > 1)
+	while (PlanetEditSchedule::GetFairCandidateCount(EditQueue.Num()) > 0)
 	{
 		if (ElapsedMs() >= BudgetMs)
 		{
@@ -275,7 +280,9 @@ void UPlanetEditComponent::TickProgressiveEdits()
 		if (!bMoreWork)
 		{
 			OnEditFinished(*Edit);
-			// 删掉之后游标指向的位置已经换了笔，下一轮由 GetNextFairIndex 夹回来。
+			// 删掉之后游标位置换成了下一笔，而 GetNextFairIndex 会从游标 +1 取，
+			// 所以滑到游标位上的这一笔本帧被跳过、下一帧才轮到 —— 不漏笔，也不饿死。
+			// 夹回 1 的那条路径只在游标越界时才会走，这里触发不到。
 			EditQueue.RemoveAt(NextFairEditIndex);
 		}
 	}
