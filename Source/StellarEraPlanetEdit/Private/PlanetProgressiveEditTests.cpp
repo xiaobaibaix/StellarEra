@@ -659,4 +659,96 @@ bool FStellarEraProgressiveOpsKernelTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// 装配的纯几何入口：没有行星也要能用同一套公式算出包围盒与块。
+//
+// 钉两件事：
+//  1) 包围盒 / 块数必须与笔刷的那两个函数逐分量一致（不能有第二套公式）；
+//  2) 每个块的 NumOps 都等于当时已有的 op 数 —— 这是「块只认自己创建时的前缀」
+//     这条不变式的第一次落地。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraProgressiveJobSetupTest,
+	"StellarEra.Planet.Editor.Job.SetupFromRequest",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraProgressiveJobSetupTest::RunTest(const FString& Parameters)
+{
+	FPlanetEditRequest Sphere;
+	Sphere.Shape = EPlanetBrushShape::Sphere;
+	Sphere.CenterVoxels = FVector(10.0, -4.0, 7.0);
+	Sphere.RadiusVoxels = 6.f;
+	Sphere.SizeVoxels = 10;
+	Sphere.MinSizeVoxels = 1;
+	Sphere.MaxSizeVoxels = 64;
+	Sphere.bPlace = false;
+	Sphere.bMultiThreaded = false;
+	Sphere.ChunkSizeVoxels = 4;
+
+	TSharedPtr<FPlanetProgressiveEdit> Job = MakeShared<FPlanetProgressiveEdit>();
+	if (!TestTrue(TEXT("球装配成功"), Job->SetupFromRequest(Sphere)))
+	{
+		return false;
+	}
+
+	const FPlanetEditVoxelBox ExpectedBounds =
+		PlanetEditBrush::MakeSphereEditVoxelBox(Sphere.CenterVoxels, Sphere.RadiusVoxels);
+
+	TestEqual(TEXT("一个 op"), Job->GetOpCount(), 1);
+	TestTrue(TEXT("整笔包围盒与笔刷同一个函数同值"),
+		Job->GetFullBounds().Min == ExpectedBounds.Min
+		&& Job->GetFullBounds().MaxExclusive == ExpectedBounds.MaxExclusive);
+	TestTrue(TEXT("op 的包围盒就是整笔的包围盒"),
+		Job->GetOps()[0].Bounds.Min == ExpectedBounds.Min
+		&& Job->GetOps()[0].Bounds.MaxExclusive == ExpectedBounds.MaxExclusive);
+
+	TArray<FPlanetEditVoxelBox> ExpectedChunks;
+	PlanetEditBrush::SplitVoxelBoxIntoChunks(
+		ExpectedBounds, Sphere.ChunkSizeVoxels, ExpectedChunks);
+	TestEqual(TEXT("块数与切块函数一致"), Job->GetChunkCount(), ExpectedChunks.Num());
+	TestEqual(TEXT("还没开始推"), Job->GetNextChunkIndex(), 0);
+	TestFalse(TEXT("还没做完"), Job->IsFinished());
+
+	int32 WrongPrefix = 0;
+	for (const FPlanetEditChunk& Chunk : Job->GetChunks())
+	{
+		if (Chunk.NumOps != 1)
+		{
+			++WrongPrefix;
+		}
+	}
+	TestEqual(TEXT("只有一个 op 时每个块的前缀都是 1"), WrongPrefix, 0);
+
+	// --- 方块：包围盒走 MakeBox + MakeVoxelBox，半径留 0 ---
+	FPlanetEditRequest Cube = Sphere;
+	Cube.Shape = EPlanetBrushShape::Cube;
+	Cube.RadiusVoxels = 0.f;
+	Cube.CenterVoxels = FVector(2.0, 2.0, 2.0);
+	Cube.SizeVoxels = 6;
+
+	TSharedPtr<FPlanetProgressiveEdit> CubeJob = MakeShared<FPlanetProgressiveEdit>();
+	if (!TestTrue(TEXT("方块装配成功"), CubeJob->SetupFromRequest(Cube)))
+	{
+		return false;
+	}
+
+	const FPlanetEditVoxelBox ExpectedCubeBounds = PlanetEditBrush::MakeVoxelBox(
+		PlanetEditBrush::MakeBox(Cube.CenterVoxels, Cube.SizeVoxels,
+			Cube.MinSizeVoxels, Cube.MaxSizeVoxels));
+	TestTrue(TEXT("方块包围盒与笔刷同一个函数同值"),
+		CubeJob->GetFullBounds().Min == ExpectedCubeBounds.Min
+		&& CubeJob->GetFullBounds().MaxExclusive == ExpectedCubeBounds.MaxExclusive);
+	TestEqual(TEXT("方块没有半径"), CubeJob->GetOps()[0].RadiusVoxels, 0.f, 0.001f);
+
+	// --- 再装配一次必须整体重置：旧 op / 旧块不能残留 ---
+	FPlanetEditRequest Again = Sphere;
+	Again.CenterVoxels = FVector(1000.0, 0.0, 0.0);
+	if (TestTrue(TEXT("重新装配成功"), Job->SetupFromRequest(Again)))
+	{
+		TestEqual(TEXT("重新装配后 op 数回到 1"), Job->GetOpCount(), 1);
+		TestTrue(TEXT("重新装配后包围盒换到了新位置"),
+			Job->GetFullBounds().Min.X > ExpectedBounds.MaxExclusive.X);
+		TestEqual(TEXT("重新装配后进度归零"), Job->GetNextChunkIndex(), 0);
+	}
+
+	return true;
+}
+
 #endif

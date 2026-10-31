@@ -139,4 +139,130 @@ bool FStellarEraSurfaceRayMidIterationMissTest::RunTest(const FString& Parameter
 	return true;
 }
 
+// 远根：与 FirstHit 唯一的语义差别就是「起点在球内也给正数」。
+// 体素射线行进拿它当几何终点，所以这两条必须钉死。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSurfaceRaySphereFarHitTest,
+	"StellarEra.Planet.SurfaceRay.SphereFarHit",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraSurfaceRaySphereFarHitTest::RunTest(const FString& Parameters)
+{
+	const FVector Forward(0.0, 0.0, 1.0);
+	const FVector Center = FVector::ZeroVector;
+
+	// 球外、正穿球心：穿出点 z = +5，距离 15；穿入 5，弦长 10。
+	const double Entry = PlanetSurfaceRay::RaySphereFirstHit(
+		FVector(0.0, 0.0, -10.0), Forward, Center, 5.0);
+	const double Exit = PlanetSurfaceRay::RaySphereFarHit(
+		FVector(0.0, 0.0, -10.0), Forward, Center, 5.0);
+	TestTrue(TEXT("穿出点 15"), FMath::IsNearlyEqual(Exit, 15.0, 1e-6));
+	TestTrue(TEXT("弦长 10 = 远根 − 近根"), FMath::IsNearlyEqual(Exit - Entry, 10.0, 1e-6));
+
+	// 起点在球心：FirstHit 返回 −1，FarHit 必须给 5。
+	TestTrue(TEXT("起点在球内时近根仍是 −1"),
+		PlanetSurfaceRay::RaySphereFirstHit(
+			Center, Forward, Center, 5.0) < 0.0);
+	TestTrue(TEXT("起点在球内时远根 = 5"),
+		FMath::IsNearlyEqual(
+			PlanetSurfaceRay::RaySphereFarHit(Center, Forward, Center, 5.0), 5.0, 1e-6));
+
+	// 相切：两个根重合，仍算命中。
+	TestTrue(TEXT("相切远根 = 10"),
+		FMath::IsNearlyEqual(
+			PlanetSurfaceRay::RaySphereFarHit(
+				FVector(0.0, 5.0, -10.0), Forward, Center, 5.0), 10.0, 1e-6));
+
+	// 失败面与近根一致。
+	TestTrue(TEXT("擦不到 → −1"),
+		PlanetSurfaceRay::RaySphereFarHit(
+			FVector(0.0, 10.0, -10.0), Forward, Center, 5.0) < 0.0);
+	TestTrue(TEXT("球在背后 → −1"),
+		PlanetSurfaceRay::RaySphereFarHit(
+			FVector(0.0, 0.0, 10.0), Forward, Center, 5.0) < 0.0);
+	TestTrue(TEXT("半径 0 → −1"),
+		PlanetSurfaceRay::RaySphereFarHit(
+			FVector(0.0, 0.0, -10.0), Forward, Center, 0.0) < 0.0);
+	TestTrue(TEXT("方向 0 → −1"),
+		PlanetSurfaceRay::RaySphereFarHit(
+			FVector(0.0, 0.0, -10.0), FVector::ZeroVector, Center, 5.0) < 0.0);
+	return true;
+}
+
+// 行进范围：钉「不再有 128 体素的深度上限」这条回归。步数只由行星几何
+// （包围球弦长）与体素尺寸决定，随半径成比例增长。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSurfaceRayMarchStepRangeTest,
+	"StellarEra.Planet.SurfaceRay.MarchStepRange",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraSurfaceRayMarchStepRangeTest::RunTest(const FString& Parameters)
+{
+	const FVector Forward(0.0, 0.0, 1.0);
+
+	// 基准场景：半径 1000 cm（包围球 1250），相机在球外 10R 处，体素 1 cm，
+	// 解析命中落在理想地表距离 9000。弦长 = 11250 − 9000 = 2250 体素。
+	{
+		const PlanetSurfaceRay::FMarchStepRange Range =
+			PlanetSurfaceRay::ComputeMarchStepRange(
+				FVector(0.0, 0.0, -10000.0), Forward,
+				/*AnalyticDistanceCm=*/9000.0, /*BoundingRadiusCm=*/1250.0,
+				/*VoxelSizeCm=*/1.0);
+		TestEqual(TEXT("往里能走完整条弦 2250 步"), Range.InwardMaxSteps, 2250);
+		TestEqual(TEXT("往外只到包围球近根 250 步"), Range.BackwardMaxSteps, 250);
+		TestTrue(TEXT("远超旧的 128 固定窗口"), Range.InwardMaxSteps > 128);
+	}
+
+	// 起比例：半径 ×1000，步数也 ×1000。
+	{
+		const PlanetSurfaceRay::FMarchStepRange Range =
+			PlanetSurfaceRay::ComputeMarchStepRange(
+				FVector(0.0, 0.0, -10000000.0), Forward,
+				/*AnalyticDistanceCm=*/9000000.0,
+				/*BoundingRadiusCm=*/1250000.0, /*VoxelSizeCm=*/1.0);
+		TestEqual(TEXT("半径放大 1000 倍 → 2250000 步"),
+			Range.InwardMaxSteps, 2250000);
+	}
+
+	// 体素变大，同样的距离步数变少（2250 cm ÷ 100 cm = 22.5 → 向上取整 23）。
+	{
+		const PlanetSurfaceRay::FMarchStepRange Range =
+			PlanetSurfaceRay::ComputeMarchStepRange(
+				FVector(0.0, 0.0, -10000.0), Forward,
+				9000.0, 1250.0, /*VoxelSizeCm=*/100.0);
+		TestEqual(TEXT("体素 100 cm → 23 步"), Range.InwardMaxSteps, 23);
+	}
+
+	// 相机已经进了包围球（近根为 −1）：朝外只走到射线原点。
+	{
+		const PlanetSurfaceRay::FMarchStepRange Range =
+			PlanetSurfaceRay::ComputeMarchStepRange(
+				FVector(0.0, 0.0, -1100.0), Forward,
+				/*AnalyticDistanceCm=*/100.0, /*BoundingRadiusCm=*/1250.0,
+				/*VoxelSizeCm=*/1.0);
+		TestEqual(TEXT("朝外到射线原点 100 步"), Range.BackwardMaxSteps, 100);
+		TestEqual(TEXT("朝里仍是整条弦 2250 步"), Range.InwardMaxSteps, 2250);
+	}
+
+	// 射线擦不到包围球：退化成「解析距离 + 包围半径」，不静默失效。
+	{
+		const PlanetSurfaceRay::FMarchStepRange Range =
+			PlanetSurfaceRay::ComputeMarchStepRange(
+				FVector(0.0, 5000.0, -10000.0), Forward,
+				/*AnalyticDistanceCm=*/9000.0, /*BoundingRadiusCm=*/1250.0,
+				/*VoxelSizeCm=*/1.0);
+		TestEqual(TEXT("退化终点 = 9000 + 1250"), Range.InwardMaxSteps, 1250);
+		TestEqual(TEXT("退化时朝外走到原点 9000 步"), Range.BackwardMaxSteps, 9000);
+	}
+
+	// 体素尺寸为 0 也不能除零：步数是有限的且至少 1。
+	{
+		const PlanetSurfaceRay::FMarchStepRange Range =
+			PlanetSurfaceRay::ComputeMarchStepRange(
+				FVector(0.0, 0.0, -10000.0), Forward,
+				9000.0, 1250.0, /*VoxelSizeCm=*/0.0);
+		TestTrue(TEXT("体素 0 不除零"), Range.InwardMaxSteps >= 1);
+		TestTrue(TEXT("体素 0 朝外也有限"), Range.BackwardMaxSteps >= 1);
+	}
+	return true;
+}
+
 #endif

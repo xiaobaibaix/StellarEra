@@ -42,6 +42,70 @@ namespace PlanetSurfaceRay
 		return (Exit > 0.0 && Entry > 0.0) ? Entry : -1.0;
 	}
 
+	double RaySphereFarHit(
+		const FVector& RayOrigin,
+		const FVector& UnitDir,
+		const FVector& SphereCenter,
+		const double SphereRadiusCm)
+	{
+		if (SphereRadiusCm <= 0.0)
+		{
+			return -1.0;
+		}
+
+		const FVector Direction = UnitDir.GetSafeNormal();
+		if (Direction.IsNearlyZero())
+		{
+			return -1.0;
+		}
+
+		// 与 RaySphereFirstHit 同一套推导，只取 Exit 这一根。
+		const FVector ToCenter = SphereCenter - RayOrigin;
+		const double Projection = ToCenter.Dot(Direction);
+		const double PerpSq = ToCenter.SizeSquared() - Projection * Projection;
+		const double RadiusSq = SphereRadiusCm * SphereRadiusCm;
+		if (PerpSq > RadiusSq)
+		{
+			return -1.0; // 射线擦不到球
+		}
+
+		const double Exit = Projection + FMath::Sqrt(RadiusSq - PerpSq);
+		// 只有 Exit ≤ 0（整个球在背后）才算失败；起点在球内时 Entry < 0 < Exit，
+		// 照样给出尽头 —— 这正是与 FirstHit 的区别。
+		return Exit > 0.0 ? Exit : -1.0;
+	}
+
+	FMarchStepRange ComputeMarchStepRange(
+		const FVector& RayOrigin,
+		const FVector& UnitDir,
+		const double AnalyticDistanceCm,
+		const double BoundingRadiusCm,
+		const double VoxelSizeCm)
+	{
+		FMarchStepRange Range;
+		const double StepCm = FMath::Max(VoxelSizeCm, 1.0e-4);
+
+		// 往里：走到包围球在行星**另一侧**的穿出点，也就是整条弦。
+		double FarRootCm = RaySphereFarHit(
+			RayOrigin, UnitDir, FVector::ZeroVector, BoundingRadiusCm);
+		if (FarRootCm < 0.0)
+		{
+			// 解析命中点必然落在包围球内，理论上走不到这里。真走到了也给一个有限终点。
+			FarRootCm = AnalyticDistanceCm + FMath::Max(BoundingRadiusCm, 0.0);
+		}
+
+		// 往外：走到包围球近根；起点在球内（近根为 −1）时退到射线原点。
+		const double NearRootCm = RaySphereFirstHit(
+			RayOrigin, UnitDir, FVector::ZeroVector, BoundingRadiusCm);
+		const double BackwardLimitCm = FMath::Max(NearRootCm, 0.0);
+
+		Range.InwardMaxSteps = FMath::Max(1,
+			FMath::CeilToInt((FarRootCm - AnalyticDistanceCm) / StepCm));
+		Range.BackwardMaxSteps = FMath::Max(1,
+			FMath::CeilToInt((AnalyticDistanceCm - BackwardLimitCm) / StepCm));
+		return Range;
+	}
+
 	bool SolveAnalyticHit(
 		const FVector& LocalOrigin,
 		const FVector& LocalDir,

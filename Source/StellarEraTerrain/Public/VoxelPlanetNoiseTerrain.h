@@ -54,6 +54,26 @@ struct FPlanetNoiseParams
 /** 归一化位移，输出必然落在 [SeaLevel, 1]。模块与实例共用的唯一实现。 */
 float ComputePlanetOffset(const FPlanetNoiseParams& Params, const FVector& UnitDir);
 
+class FPlanetGeologyField;
+
+/**
+ * 地表配色：水/沙/草/岩/雪分带 + 极地雪 + 地质元素色。
+ *
+ * 这是**唯一实现**。生成器按采样点取色（顶点色），biome cubemap 烘焙按方向
+ * 取色（材质查表），两条路必须逐字走同一段代码 —— 否则近处的顶点色和远处的
+ * 查表色会在 LOD 边界上对不上，接缝从「采样密度差」变成「两套配色」。
+ *
+ * @param UnitDir  相对球心的单位方向
+ * @param Distance 采样点到球心的距离（体素）。只用于地质采样深度；
+ *                 烘焙时传该方向的基准地表半径。
+ */
+FLinearColor ComputePlanetSurfaceColor(
+	const FPlanetNoiseParams& Params,
+	const FPlanetGeologyField* Geology,
+	double Radius,
+	const FVector& UnitDir,
+	double Distance);
+
 /**
  * 噪声地形：球面被一个三维噪声场推高推低，低于海平面的部分被削平成海。
  *
@@ -191,6 +211,20 @@ private:
 
 	/** 与 Context.Geology 同一份只读场；为空 = 没有矿。 */
 	const TSharedPtr<const FPlanetGeologyField> Geology;
+
+	/**
+	 * 地表可能落在的径向区间，构造时按区间查询用的同一套包络算好。
+	 *
+	 * 下界 = Radius + Amplitude × SeaLevel（位移的下界就是 SeaLevel，见
+	 * ComputePlanetOffset 末尾的 Max）；上界 = Radius + Amplitude × 1 +
+	 * 最大几何外凸量。GetValueImpl 靠这两个数做**内外早退**：比下界还深的
+	 * 点必然是实体，比上界还高的点必然是空气，两者都不必算噪声和地质场。
+	 *
+	 * 缓存而不是每次现算：这两个数要在每次采样时用，而 GetValueImpl 是
+	 * 被调用次数最多的函数（一次 1280 体素的挖掘 ≈ 2×10⁹ 次）。
+	 */
+	const double MinSurfaceRadius;
+	const double MaxSurfaceRadius;
 
 	/** 由采样点求相对球心的单位方向；退化到球心时给一个任意方向。 */
 	FVector GetUnitDirection(const FVector& RelativePosition) const;

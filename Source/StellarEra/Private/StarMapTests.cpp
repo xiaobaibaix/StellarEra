@@ -341,6 +341,68 @@ bool FStellarEraStarMapSilhouetteScaleTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// 绕行灵敏度随「离焦点表面的高度 / 表面半径」缩放。相机绕的是焦点中心：贴地时
+// 同样的鼠标位移对画面的影响必须很小（用户原话「一不小心就移过了」），拉远看整个
+// 星系时则要一拖就扫过去（「鼠标很难移动星球」）。所以倍率跨到 1 以上，两端各夹
+// 一个可调上限。数值都在 double 上，用 TestEqual 的浮点容差重载（现有约定）。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapOrbitLookScaleTest,
+	"StellarEra.StarMap.OrbitLookScale",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraStarMapOrbitLookScaleTest::RunTest(const FString& Parameters)
+{
+	constexpr double Tolerance = 1e-9;
+	constexpr double Min = 0.05;
+	constexpr double Max = 8.0;
+
+	// ── 小天体（飞船/角色）：参考高度按 5 米兜底，5 米处仍是 0.9 ──
+	// 这条钉住「贴着飞船进星图不会变成一碰就飞」。
+	TestEqual(TEXT("飞船焦点 5 米、碰撞半径 0.5 米"),
+		AStarMapCameraPawn::OrbitLookScale(500.0, 50.0, Min, Max), 0.9, Tolerance);
+
+	// ── 行星：2R 处高度 = 半径，倍率 1；再远按比例增长 ──
+	TestEqual(TEXT("距离 = 2R：倍率 1"),
+		AStarMapCameraPawn::OrbitLookScale(2.0e6, 1.0e6, Min, Max), 1.0, Tolerance);
+	TestEqual(TEXT("距离 = 3R（整颗入画）：倍率 2"),
+		AStarMapCameraPawn::OrbitLookScale(3.0e6, 1.0e6, Min, Max), 2.0, Tolerance);
+	TestEqual(TEXT("距离 = 4R：倍率 3"),
+		AStarMapCameraPawn::OrbitLookScale(4.0e6, 1.0e6, Min, Max), 3.0, Tolerance);
+
+	// ── 远距离封顶：10R 时原始倍率 9，夹到 Max ──
+	TestEqual(TEXT("距离 = 10R：夹到上限"),
+		AStarMapCameraPawn::OrbitLookScale(1.0e7, 1.0e6, Min, Max), 8.0, Tolerance);
+	TestEqual(TEXT("距离 50 AU：仍夹在上限"),
+		AStarMapCameraPawn::OrbitLookScale(5.0e7, 1.0e6, Min, Max), 8.0, Tolerance);
+
+	// ── 贴地下限（MinSurfaceAltitudeCm = 5000 厘米）：高度比 0.005，夹到下限 ──
+	TestEqual(TEXT("贴地 50 米：夹到下限"),
+		AStarMapCameraPawn::OrbitLookScale(1.005e6, 1.0e6, Min, Max), 0.05, Tolerance);
+	TestEqual(TEXT("高度 0：夹到下限"),
+		AStarMapCameraPawn::OrbitLookScale(1.0e6, 1.0e6, Min, Max), 0.05, Tolerance);
+
+	// ── 还没选中过焦点（OrbitDistanceCm 哨兵 0）：不缩放，也躲开除零 ──
+	TestEqual(TEXT("距离 0：不缩放"),
+		AStarMapCameraPawn::OrbitLookScale(0.0, 1.0e6, Min, Max), 1.0, Tolerance);
+	TestEqual(TEXT("距离为负：不缩放"),
+		AStarMapCameraPawn::OrbitLookScale(-1.0, 1.0e6, Min, Max), 1.0, Tolerance);
+
+	// ── 表面半径非正（没有碰撞几何的 Actor）：不缩放 ──
+	TestEqual(TEXT("半径 0：不缩放"),
+		AStarMapCameraPawn::OrbitLookScale(1.0e6, 0.0, Min, Max), 1.0, Tolerance);
+
+	// ── 参数越界：下限被上限压住（Min > Max 时返回上限，不能把反向区间喂给 Clamp）──
+	TestEqual(TEXT("下限 > 上限：按下限被压到上限"),
+		AStarMapCameraPawn::OrbitLookScale(3.0e6, 1.0e6, 5.0, 2.0), 2.0, Tolerance);
+	// 下限为负夹到 0：高度 0 时得到精确的 0。
+	TestEqual(TEXT("下限 < 0：夹到 0"),
+		AStarMapCameraPawn::OrbitLookScale(1.0e6, 1.0e6, -1.0, Max), 0.0, Tolerance);
+	// 上限为负夹到 0：倍率整体为 0（调用方不该这么配，但函数必须确定）。
+	TestEqual(TEXT("上限 < 0：倍率 0"),
+		AStarMapCameraPawn::OrbitLookScale(3.0e6, 1.0e6, Min, -1.0), 0.0, Tolerance);
+
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapVelocityQueryTest,
 	"StellarEra.StarMap.VelocityQuery",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -520,7 +582,7 @@ bool FStellarEraStarMapZoomLimitsTest::RunTest(const FString& Parameters)
 }
 
 // 星图 Pawn 的编辑组件参数是构造函数里配的，所以 CDO 上就能读到。
-// 这一项钉的是星图笔刷的四个可调参数（默认 64、区间 8..128、
+// 这一项钉的是星图笔刷的四个可调参数（默认 64、区间 8..1280、
 // Shift+左键按住连续挖 / Ctrl+左键填、50 AU）：
 // 构造函数把它们配进组件，测试替 HUD 与输入层看着它们。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapEditComponentDefaultsTest,
@@ -545,7 +607,7 @@ bool FStellarEraStarMapEditComponentDefaultsTest::RunTest(const FString& Paramet
 
 	TestEqual(TEXT("默认 64 体素"), Edit->GetBrushSizeVoxels(), 64);
 	TestEqual(TEXT("下限 8 体素"), Edit->GetMinBrushSizeVoxels(), 8);
-	TestEqual(TEXT("上限 128 体素"), Edit->GetMaxBrushSizeVoxels(), 128);
+	TestEqual(TEXT("上限 1280 体素"), Edit->GetMaxBrushSizeVoxels(), 1280);
 	TestEqual(TEXT("一档 10 体素"), Edit->GetBrushSizeStepVoxels(), 10);
 	TestEqual(TEXT("提示含连续挖与 Ctrl 填"), Edit->GetPlaceActionHint(),
 		FString(TEXT("Shift+左键按住连续挖 · Ctrl+左键填")));

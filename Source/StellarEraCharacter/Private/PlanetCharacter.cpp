@@ -173,6 +173,47 @@ APlanetCharacter::APlanetCharacter(const FObjectInitializer& ObjectInitializer)
 	VoxelInvoker->bUseForEvents = false;
 	VoxelInvoker->bUseForPriorities = false;
 
+	// 200 米以外的过渡环。上面那个 Invoker 只管到 200 米（叶块 32 · VoxelSize），
+	// 再外面就只剩行星自带的 OrbitLOD（调用器给 8，实际被行星的 MaxLOD 夹住 ——
+	// 这颗星现在是 LOD 7，叶块 2 公里），中间一档都没有。
+	// 两档分辨率对同一片山坡的近似不同，粗的那层会从细的表面里戳出来，
+	// 视觉上就是「大片三角面横穿地形」。
+	//
+	// 每圈把 LODToSet +2、LODRange 大约 ×4：叶块边长翻 4 倍，而表面积翻 16 倍，
+	// 覆盖的块数反而少。这三圈加起来只多几百个表面块，比 200 米那圈的 600 多块还少。
+	//
+	// 全部用 AlwaysLocal 版，理由同上面的 VoxelInvoker：进星图时控制器换 Possess，
+	// 普通调用器会掉出 LOD 触发整棵八叉树重建。
+	static constexpr struct
+	{
+		int32 LODToSet;
+		float LODRange;
+		const TCHAR* Name;
+	} FarRings[] =
+	{
+		{ 2,   40000.f, TEXT("VoxelInvokerLOD2") }, // 400 米
+		{ 4,  150000.f, TEXT("VoxelInvokerLOD4") }, // 1.5 公里
+		{ 6,  600000.f, TEXT("VoxelInvokerLOD6") }, // 6 公里
+		// 再外面交给行星自带的 OrbitLOD，这颗星是 LOD 8。
+	};
+
+	for (const auto& Ring : FarRings)
+	{
+		UAlwaysLocalVoxelInvokerComponent* NewInvoker =
+			CreateDefaultSubobject<UAlwaysLocalVoxelInvokerComponent>(Ring.Name);
+		NewInvoker->SetupAttachment(GetCapsuleComponent());
+		NewInvoker->bUseForLOD = true;
+		NewInvoker->LODToSet = Ring.LODToSet;
+		NewInvoker->LODRange = Ring.LODRange;
+		// 碰撞、导航、事件、优先级全关：这些环只负责把 LOD 阶梯填平。
+		NewInvoker->bUseForCollisions = false;
+		NewInvoker->bUseForNavmesh = false;
+		NewInvoker->bUseForEvents = false;
+		NewInvoker->bUseForPriorities = false;
+
+		FarVoxelInvokers.Add(NewInvoker);
+	}
+
 	PlanetEdit = CreateDefaultSubobject<UPlanetEditComponent>(TEXT("PlanetEdit"));
 
 	// C++ 只给一个引擎骷髅方块兜底，让裸放的 APlanetCharacter 不至于隐形。
@@ -631,5 +672,13 @@ void APlanetCharacter::SetViewpointInvokersActive(const bool bActive)
 void APlanetCharacter::ApplyViewpointInvokerState(const bool bBoarded)
 {
 	// 「参与」= 是当前视点 ∧ 没在船上。
-	VoxelViewpointInvokers::SetEnabled(VoxelInvoker, bIsViewpoint && !bBoarded);
+	const bool bActive = bIsViewpoint && !bBoarded;
+	VoxelViewpointInvokers::SetEnabled(VoxelInvoker, bActive);
+
+	// 过渡环与主 Invoker 同进同退：留下任何一个都会在星图里继续生效，
+	// 让「只有被 Possess 的 Pawn 起作用」这条契约失效。
+	for (const TObjectPtr<UVoxelSimpleInvokerComponent>& Invoker : FarVoxelInvokers)
+	{
+		VoxelViewpointInvokers::SetEnabled(Invoker, bActive);
+	}
 }

@@ -317,9 +317,12 @@ public:
 	 *
 	 * 参数非法（半径 / 标高比 / 壳厚比 ≤ 0）也返回 0 —— 宁可不加阻力，也不要
 	 * 除零或 exp 溢出把飞船弹飞。
+	 *
+	 * @param bAtmosphereEnabled 行星的大气总开关；false 时恒返回 0（整颗行星没有大气）
 	 */
 	static float ComputeAtmosphereDensityRatio(double AltitudeCm, double SurfaceRadiusCm,
-		double ScaleHeightRatio, double AtmosphereHeightRatio);
+		double ScaleHeightRatio, double AtmosphereHeightRatio,
+		bool bAtmosphereEnabled = true);
 
 	/**
 	 * 二次大气阻力：a = −D · ρ · (v / 1 km/s)²，方向与速度相反。
@@ -333,7 +336,7 @@ public:
 		const FVector& VelocityCmPerSecond, double DensityRatio,
 		double DragAccelerationKmPerS2);
 
-	/** 当前参考行星大气里的密度比。没有参考行星 / 壳外时为 0。 */
+	/** 当前参考行星大气里的密度比。没有参考行星 / 壳外 / 行星大气总开关关闭时为 0。 */
 	float GetAtmosphereDensityRatio() const;
 
 	/**
@@ -444,6 +447,19 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spaceship")
 	TObjectPtr<UVoxelInvokerWithPredictionComponent> VoxelInvokerLOD5;
+
+	/**
+	 * 1 公里外的过渡环：叶块 1.02 公里，补 LOD5（512 米）与行星 MaxLOD（2.05 公里）
+	 * 之间的那一档。没有它，1 公里处一步跨 3 级、8 倍，轴对齐的块边界在地表上
+	 * 就是一条笔直的硬接缝，两侧一个是有细节的地形、一个是抹平的壳。
+	 *
+	 * 范围 ±10 公里而不是 ±3 公里：20 公里半径的星，1 公里高度地平线约 6.4 公里，
+	 * 环必须把地平线整个盖住，否则那条接缝会横在画面中间。
+	 *
+	 * 只做 LOD，碰撞照旧交给细气泡。预测 0.2 s，偏移 72000 厘米 ≤ 范围 1000000。
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spaceship")
+	TObjectPtr<UVoxelInvokerWithPredictionComponent> VoxelInvokerLOD6;
 
 	/**
 	 * 外壳网格。**网格与变换都归蓝图管**：

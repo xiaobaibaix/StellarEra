@@ -35,6 +35,26 @@ struct FPlanetEditChunk
 };
 
 /**
+ * 一次落笔的请求：全是体素空间的纯数据。
+ *
+ * 存在的理由：生产路径要先经过行星做「世界 → 体素」换算，而合并判定本身
+ * 只跟体素空间有关。把两者拆开，合并就能在无头测试里被直接驱动。
+ */
+struct FPlanetEditRequest
+{
+	EPlanetBrushShape Shape = EPlanetBrushShape::Sphere;
+	FVector CenterVoxels = FVector::ZeroVector;
+	/** 只有球用；方块填 0。 */
+	float RadiusVoxels = 0.f;
+	int32 SizeVoxels = 1;
+	int32 MinSizeVoxels = 1;
+	int32 MaxSizeVoxels = 1;
+	bool bPlace = false;
+	bool bMultiThreaded = true;
+	int32 ChunkSizeVoxels = 128;
+};
+
+/**
  * 一笔渐进式编辑。
  *
  * 存在理由：体素工具的代价是包围盒 Size³，一次 1280 体素的挖掘要扫 2×10⁹ 格，
@@ -59,10 +79,8 @@ public:
 	FPlanetProgressiveEdit() = default;
 
 	/**
-	 * 算包围盒、切块、记下球的两个阈值。行星无效 / 未创建、盒子无效时返回 false。
-	 *
-	 * 世界 → 体素的换算走插件的 FVoxelToolHelpers（与 UVoxelSphereTools 内部
-	 * 同一个函数），不自己除 VoxelSize —— 那会漏掉 VoxelWorld 的缩放。
+	 * 世界空间入口：换算成体素后交给 SetupFromRequest。
+	 * 行星无效 / 未创建、包围盒退化时返回 false 且状态清零。
 	 */
 	bool Setup(
 		AVoxelPlanetActor* InPlanet,
@@ -76,6 +94,15 @@ public:
 		bool bMultiThreaded);
 
 	/**
+	 * 纯几何装配：建第一个 op 并切块。
+	 *
+	 * 公开只为一件事：自动化测试要在没有体素世界的情况下构造 job
+	 *（AVoxelPlanetActor 需要一个带 Voxel LOD 管理器的 UWorld 才 IsCreated()）。
+	 * 生产路径一律走 Setup()。
+	 */
+	bool SetupFromRequest(const FPlanetEditRequest& Request);
+
+	/**
 	 * 应用下一块。返回 true = 还有剩余块；false = 已完成（或行星已失效）。
 	 * 每块内部开一个只覆盖该块的写锁，锁的持有时间因此与块大小成正比，
 	 * 而不是与整笔编辑成正比。
@@ -87,6 +114,12 @@ public:
 
 	bool IsFinished() const { return NextChunkIndex >= Chunks.Num(); }
 	int32 GetChunkCount() const { return Chunks.Num(); }
+	int32 GetNextChunkIndex() const { return NextChunkIndex; }
+	int32 GetOpCount() const { return Ops.Num(); }
+
+	/** 已合并的落笔与切块。块的 NumOps 是创建时的稳定前缀。测试与诊断用。 */
+	const TArray<FPlanetEditOp>& GetOps() const { return Ops; }
+	const TArray<FPlanetEditChunk>& GetChunks() const { return Chunks; }
 
 	/** 笔刷尺寸（体素数）。日志用。 */
 	int32 GetSizeVoxels() const { return SizeVoxels; }
@@ -105,35 +138,49 @@ public:
 	/** 最近一次 ApplyNextChunk 真正写的范围。逐块刷渲染用。 */
 	const FPlanetEditVoxelBox& GetLastChunkBounds() const { return LastChunkBounds; }
 
-	/** 整笔编辑的完整包围盒。 */
+	/** 整笔编辑的完整包围盒（所有 op 的并集）。 */
 	const FPlanetEditVoxelBox& GetFullBounds() const { return FullBounds; }
 
 	TWeakObjectPtr<AVoxelPlanetActor> GetPlanet() const { return Planet; }
 
 private:
+	/** 世界 → 体素，与插件同一套换算。Setup 与（后续的）TryMergeWorld 共用。 */
+	static bool MakeRequest(
+		AVoxelPlanetActor* InPlanet,
+		const FVector& CenterWorld,
+		EPlanetBrushShape InShape,
+		int32 SizeVoxels,
+		int32 MinSizeVoxels,
+		int32 MaxSizeVoxels,
+		bool bInPlace,
+		int32 ChunkSizeVoxels,
+		bool bMultiThreaded,
+		FPlanetEditRequest& OutRequest);
+
+	/** 请求 → op（包围盒 + 球阈值）。纯函数。 */
+	static FPlanetEditOp MakeOp(const FPlanetEditRequest& Request);
+
+	/** 清空一切状态（不含 Planet）。失败路径与装配开头共用。 */
+	void ResetState();
+
 	/** 开写锁 + ParallelSet，写一块。 */
-	void ApplyChunk(const FPlanetEditVoxelBox& Chunk);
+	void ApplyChunk(const FPlanetEditChunk& Chunk);
 
 	TWeakObjectPtr<AVoxelPlanetActor> Planet;
 
 	EPlanetBrushShape Shape = EPlanetBrushShape::Sphere;
 	bool bPlace = false;
 	bool bMultiThreaded = true;
-
-	/** 体素空间的球心（double）与半径（float，与插件同一个精度）。 */
-	FVector CenterVoxels = FVector::ZeroVector;
-	float RadiusVoxels = 0.f;
-	float SquaredRadiusPlus2 = 0.f;
-	float SquaredRadiusMinus2 = 0.f;
-
 	int32 SizeVoxels = 1;
+
+	/** op 只追加、不修改 —— 块的前缀因此永远稳定。 */
+	TArray<FPlanetEditOp> Ops;
+	TArray<FPlanetEditChunk> Chunks;
+	int32 NextChunkIndex = 0;
 
 	FPlanetEditVoxelBox FullBounds;
 	FPlanetEditVoxelBox AppliedBounds;
 	FPlanetEditVoxelBox LastChunkBounds;
-
-	TArray<FPlanetEditVoxelBox> Chunks;
-	int32 NextChunkIndex = 0;
 
 	/** 多线程写入，只能用原子量。FThreadSafeBool 在 5.8 已标记弃用。 */
 	std::atomic<bool> bChangedAnything{ false };

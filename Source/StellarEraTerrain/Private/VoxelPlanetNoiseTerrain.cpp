@@ -28,12 +28,8 @@ namespace
 	 * 材质打包的唯一出口。本期 = RGB 顶点色；未来换 MultiIndex 只改这里，
 	 * 地形与地质场的代码都不动。
 	 */
-	FVoxelMaterial MakeVoxelMaterial(const FPlanetGeologySample& Sample, const FLinearColor& FinalColor)
+	FVoxelMaterial MakeVoxelMaterial(const FLinearColor& FinalColor)
 	{
-		// 本期不用 Sample：元素颜色已经折算进 FinalColor。参数留着是为了
-		// 将来接真实矿物材质时能直接拿到纯度与混合权重，不必再改调用点。
-		(void)Sample;
-
 		FVoxelMaterialBuilder Builder;
 		Builder.SetMaterialConfig(EVoxelMaterialConfig::RGB);
 		Builder.SetColor(FinalColor);
@@ -150,6 +146,12 @@ FVoxelPlanetNoiseTerrainInstance::FVoxelPlanetNoiseTerrainInstance(const FVoxelP
 	, Center(Context.Center)
 	, Params(InParams)
 	, Geology(Context.Geology)
+	// 与 GetValueRangeImpl 完全相同的包络，只是在这里一次算好。SeaLevel 再夹
+	// 一次到 ≤ 1：两者都是区间正确性的前提（下界不能高于上界）。
+	, MinSurfaceRadius(double(Radius)
+		+ double(Params.Amplitude) * FMath::Min(double(Params.SeaLevel), 1.0))
+	, MaxSurfaceRadius(double(Radius) + double(Params.Amplitude)
+		+ (Context.Geology.IsValid() ? double(Context.Geology->GetMaxGeometryDelta()) : 0.0))
 {
 }
 
@@ -175,6 +177,33 @@ v_flt FVoxelPlanetNoiseTerrainInstance::GetValueImpl(v_flt X, v_flt Y, v_flt Z, 
 		double(Z) - Center.Z + PlanetCenterEpsilon);
 
 	const double Distance = Relative.Size();
+
+	// ---- 内外早退：挖掘/建造的绝大部分体素落在这里 ----
+	//
+	// 地表只可能出现在 [MinSurfaceRadius, MaxSurfaceRadius] 这条径向带里，带外
+	// 的符号是**确定**的：更深必然是实体，更高必然是空气。这两支只做一次比较
+	// 就返回，跳过 Perlin（Octaves 层）和整张地质场（每个元素 × 每个生成器）。
+	// 这一步之所以是最大的一笔：体素工具每碰到一个 32³ 叶子就把**整叶**当生成器
+	// 采样一遍（FVoxelDataOctreeLeaf::InitForEdit → GetValues），而这条路径没有
+	// 任何区间预判；一次 1280 体素的挖掘 ≈ 2×10⁹ 次调用。
+	//
+	// 返回值刻意取**保守界**而不是真值，两个要求同时满足：
+	//   1) 落在 GetValueRangeImpl 报出的区间内（该函数未改，仍是 MinValue/MaxValue
+	//      那两式）。实体支返回 (D - MaxSurface)，它是真值的下界且随 D 单调，
+	//      带内任一点都落在 [MinValue, MaxValue] 里（推导见 .h 的成员注释）。
+	//   2) 存储值**与精确计算完全相同**：两支的触发条件各自留了 DensityScale(5)
+	//      的余量，所以真值在实体支必然 ≤ -1、空气支必然 ≥ +1；而 FVoxelValue
+	//      是 int8 且按 ±1 饱和（VoxelValue.h），两者存进去都是 Full()/Empty()。
+	//      因此这次优化对存下来的体素数据是零差异，不改变洞壁位置。
+	if (Distance < MinSurfaceRadius - DensityScale)
+	{
+		return v_flt((Distance - MaxSurfaceRadius) / DensityScale);
+	}
+	if (Distance > MaxSurfaceRadius + DensityScale)
+	{
+		return v_flt((Distance - MinSurfaceRadius) / DensityScale);
+	}
+
 	const FVector UnitDir = GetUnitDirection(Relative);
 	const double BaseSurface =
 		double(Radius) + double(Params.Amplitude) * double(ComputePlanetOffset(Params, UnitDir));
@@ -195,14 +224,13 @@ v_flt FVoxelPlanetNoiseTerrainInstance::GetValueImpl(v_flt X, v_flt Y, v_flt Z, 
 	return v_flt(Value);
 }
 
-FVoxelMaterial FVoxelPlanetNoiseTerrainInstance::GetMaterialImpl(v_flt X, v_flt Y, v_flt Z, int32 LOD, const FVoxelItemStack& Items) const
+FLinearColor ComputePlanetSurfaceColor(
+	const FPlanetNoiseParams& Params,
+	const FPlanetGeologyField* Geology,
+	double Radius,
+	const FVector& UnitDir,
+	double Distance)
 {
-	const FVector Relative(
-		double(X) - Center.X + PlanetCenterEpsilon,
-		double(Y) - Center.Y + PlanetCenterEpsilon,
-		double(Z) - Center.Z + PlanetCenterEpsilon);
-
-	const FVector UnitDir = GetUnitDirection(Relative);
 	const float Offset = ComputePlanetOffset(Params, UnitDir);
 
 	FLinearColor Color;
@@ -249,12 +277,10 @@ FVoxelMaterial FVoxelPlanetNoiseTerrainInstance::GetMaterialImpl(v_flt X, v_flt 
 		}
 	}
 
-	FPlanetGeologySample GeologySample;
-	if (Geology.IsValid() && Offset > Params.SeaLevel + UE_KINDA_SMALL_NUMBER)
+	if (Geology && Offset > Params.SeaLevel + UE_KINDA_SMALL_NUMBER)
 	{
-		const double Distance = Relative.Size();
-		const double Depth = double(Radius) - Distance;
-		GeologySample = Geology->Sample(UnitDir, Depth);
+		const double Depth = Radius - Distance;
+		const FPlanetGeologySample GeologySample = Geology->Sample(UnitDir, Depth);
 
 		const FPlanetGeologyAppearance& Appearance = Geology->GetAppearance();
 		// 用最强元素自身的强度判定显现：TotalNorm 会被「丰度和」稀释，
@@ -273,7 +299,20 @@ FVoxelMaterial FVoxelPlanetNoiseTerrainInstance::GetMaterialImpl(v_flt X, v_flt 
 		}
 	}
 
-	return MakeVoxelMaterial(GeologySample, Color);
+	return Color;
+}
+
+FVoxelMaterial FVoxelPlanetNoiseTerrainInstance::GetMaterialImpl(v_flt X, v_flt Y, v_flt Z, int32 LOD, const FVoxelItemStack& Items) const
+{
+	const FVector Relative(
+		double(X) - Center.X + PlanetCenterEpsilon,
+		double(Y) - Center.Y + PlanetCenterEpsilon,
+		double(Z) - Center.Z + PlanetCenterEpsilon);
+
+	const FVector UnitDir = GetUnitDirection(Relative);
+
+	return MakeVoxelMaterial(ComputePlanetSurfaceColor(
+		Params, Geology.Get(), double(Radius), UnitDir, Relative.Size()));
 }
 
 TVoxelRange<v_flt> FVoxelPlanetNoiseTerrainInstance::GetValueRangeImpl(const FVoxelIntBox& Bounds, int32 LOD, const FVoxelItemStack& Items) const

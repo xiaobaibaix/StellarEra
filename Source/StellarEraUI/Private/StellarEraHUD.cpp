@@ -277,9 +277,15 @@ void AStellarEraHUD::DrawPlanetEditPanel(const UPlanetEditComponent& Edit)
 	// ── 提示行 ──
 	// 「怎么放」由组件说：角色是右键点放，星图是 Shift+左键按住连续挖 · Ctrl+左键填。写死在 HUD 里
 	// 就等于把两种输入方案各抄一份，改一处忘一处。
+	// 粗调只在「有档可粗」时提示：星图一档 10 体素、上限 1280，不按住 Ctrl 得按
+	// 一百多下；角色一档 1 格、区间 1..8，粗调对它没意义，别在 HUD 上挂一条按了
+	// 没反应的键。
+	const FString CoarseHint = Edit.GetBrushSizeStepVoxels() > 1
+		? FString(TEXT(" · Ctrl 粗调"))
+		: FString();
 	const FString Hint = FString::Printf(
-		TEXT("笔刷 %d 体素 · 左键挖 / %s · G 退出"),
-		Edit.GetBrushSizeVoxels(), *Edit.GetPlaceActionHint());
+		TEXT("笔刷 %d 体素 · 左键挖 / %s · G 退出%s"),
+		Edit.GetBrushSizeVoxels(), *Edit.GetPlaceActionHint(), *CoarseHint);
 
 	float TextWidth = 0.f;
 	float TextHeight = 0.f;

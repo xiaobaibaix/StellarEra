@@ -100,8 +100,41 @@ public:
 	 */
 	void FocusOn(AActor* Body, double DistanceCm);
 
-	/** 鼠标位移 → 绕焦点转视角。单位是度，来自控制器的 LookSensitivity。 */
+	/**
+	 * 鼠标位移 → 绕焦点转视角。单位是度，来自控制器的 LookSensitivity。
+	 *
+	 * 实际转过的角度按 OrbitLookScale 缩放：贴着地表看细节时同样的鼠标位移只转
+	 * 一小点，拉到远处看整个星系时转得比基准快。
+	 */
 	void OrbitLook(float DeltaYaw, float DeltaPitch);
+
+	/**
+	 * 绕行视角的灵敏度倍率，夹在 [MinScale, MaxScale]：相机离焦点表面越近越小，
+	 * 越远越大（可以超过 1）。
+	 *
+	 * 相机绕的是**焦点中心**，转动只改变视角朝向，而「画面里星球挪了多少」与
+	 * 朝向变化成正比、与距离无关。所以手感的目标是：**贴得越近，同样的鼠标位移
+	 * 对画面的影响越小；拉得越远，一拖就扫过整个星系**。
+	 *
+	 * 倍率 = 离焦点表面的高度 / 参考高度，参考高度 = max(焦点表面半径, 5 米)：
+	 *   - 行星（半径 1e6 厘米）：2R 处 = 1，3R（整颗入画） = 2，约 9R 起封顶；
+	 *   - 贴地 50 米 → 0.005，夹到下限 MinScale；
+	 *   - 飞船/角色这类小天体按 5 米兜底，5 米处仍是 0.9 —— 与旧曲线一致，
+	 *     否则「贴着飞船看一眼」会变成几十倍灵敏度。
+	 *
+	 * 5 米兜底与 MinFocusDistanceCm 的默认值同源，但它是函数内的常量而不是读实例：
+	 * 本函数必须是纯函数才能无头测。
+	 *
+	 * DistanceCm ≤ 0（还没选中过焦点，OrbitDistanceCm 还是哨兵）或
+	 * FocusSurfaceRadiusCm ≤ 0（没有可信几何）返回 1。
+	 * MinScale / MaxScale 先夹进 [0, +∞)，且下限不高于上限：MaxScale < MinScale
+	 * 时以下限为准（返回上限值）。
+	 */
+	static double OrbitLookScale(
+		double DistanceCm,
+		double FocusSurfaceRadiusCm,
+		double MinScale,
+		double MaxScale);
 
 	/** 滚轮 → 按倍率缩放相机到**地表的高度**。Value 每格 ±1，正值为拉近。 */
 	void AddZoom(float Value);
@@ -226,7 +259,7 @@ protected:
 	TObjectPtr<UCameraComponent> Camera;
 
 	/**
-	 * 体素调用器：三档 LOD，配置与飞船（ASpaceshipPawn）同一套。
+	 * 体素调用器：四档 LOD，配置与飞船（ASpaceshipPawn）同一套。
 	 *
 	 * 类型是本项目的 UAlwaysLocalVoxelInvokerComponent，不是插件的 Simple 版。
 	 * 插件原版只把「被本地控制器 Possess 的 Pawn」算作 local invoker
@@ -240,7 +273,7 @@ protected:
 	 * CalcCamera 里现算，`GetVelocity()` 恒为零 —— 预测位移永远是 0，
 	 * 挂预测版只是多一层没有作用的计算。
 	 *
-	 * 三档只做 LOD；碰撞只开在细气泡上（碰撞细分路径不读 LODToSet，锁死
+	 * 四档只做 LOD；碰撞只开在细气泡上（碰撞细分路径不读 LODToSet，锁死
 	 * Height 0，开大了会顶爆显存，详见 SpaceshipPawn.cpp 构造函数的注释）。
 	 */
 	UPROPERTY(VisibleAnywhere, Category = "StarMap|Voxel")
@@ -252,7 +285,22 @@ protected:
 	UPROPERTY(VisibleAnywhere, Category = "StarMap|Voxel")
 	TObjectPtr<UVoxelSimpleInvokerComponent> VoxelInvokerLOD5;
 
-	/** 三档调用器同进同出。 */
+	/**
+	 * 1 公里外的过渡环：补上 LOD5（叶块 512 米）与行星自身 LOD 之间的那一档。
+	 *
+	 * 没有它，离相机 1 公里处分辨率直接跨 3 级、8 倍（行星 3 是 512 米 → 4.1 公里）。
+	 * 八叉树块是轴对齐立方体，边界投到地表上就是一条笔直的接缝；粗的一侧 32³ 个
+	 * 采样点跨 4 公里，法线、顶点色、地形起伏全被抹平，看起来像一片悬空的板子
+	 * 横穿地形。行星的 MaxLOD 把全星压到 7（叶块 2.05 公里）之后，
+	 * 这一环（1.02 公里）就是 512 米与 2.05 公里之间唯一的台阶。
+	 *
+	 * 范围 ±10 公里而不是 ±3 公里：20 公里半径的星，1 公里高度地平线约 6.4 公里，
+	 * 2.5 公里高度约 10.3 公里。环必须盖住整条地平线，否则那道台阶会横在画面中间。
+	 */
+	UPROPERTY(VisibleAnywhere, Category = "StarMap|Voxel")
+	TObjectPtr<UVoxelSimpleInvokerComponent> VoxelInvokerLOD6;
+
+	/** 四档调用器同进同出。 */
 	void ApplyViewpointInvokerState();
 
 	/** 本 Pawn 是否当前视点。初值 false —— OnRegister 会自动启用，BeginPlay 要按它关掉。 */
@@ -354,6 +402,26 @@ protected:
 	 */
 	UPROPERTY(EditAnywhere, Category = "StarMap")
 	double ZoomStepFactor = 1.15;
+
+	/**
+	 * 绕行视角的灵敏度下限（倍率），见 OrbitLookScale。
+	 *
+	 * 贴地表时实际灵敏度 = 控制器 LookSensitivity × 这个值。0.05 = 慢到二十分之一：
+	 * 调小更好对细节，但转身要多拖几倍；调大更好转身，但贴地容易「移过」。
+	 * 远处的灵敏度由 MaxOrbitLookScale 决定，不受这个值影响。
+	 */
+	UPROPERTY(EditAnywhere, Category = "StarMap", meta = (ClampMin = "0.0"))
+	double MinOrbitLookScale = 0.05;
+
+	/**
+	 * 绕行视角的灵敏度上限（倍率），见 OrbitLookScale。
+	 *
+	 * 拉到看整个星系时实际灵敏度 = 控制器 LookSensitivity × 这个值。8 = 远距离
+	 * 一拖就横扫过去；调小更好精确定位远处天体，调大更容易大范围扫视。
+	 * 2R–3R（整颗行星入画）那一段的倍率是 1–2，不受这个值影响。
+	 */
+	UPROPERTY(EditAnywhere, Category = "StarMap", meta = (ClampMin = "1.0"))
+	double MaxOrbitLookScale = 8.0;
 
 	/**
 	 * 相机在地表之上的最小高度（厘米）。

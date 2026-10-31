@@ -15,7 +15,12 @@
 #include "PlanetSurfaceGridComponent.h"
 #include "PlanetGeologyField.h"
 #include "PlanetGeologyPreset.h"
+// biome cubemap：配色按方向烘成贴图，材质逐像素查表 —— 颜色与网格密度解耦。
+#include "PlanetBiomeCubemap.h"
+#include "VoxelPlanetNoiseTerrain.h"
 #include "Materials/MaterialInterface.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Engine/TextureCube.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
 #include "UObject/ConstructorHelpers.h"
@@ -28,6 +33,13 @@
 #include "VoxelIntBox.h"
 #include "VoxelValue.h"
 #include "VoxelVector.h"
+// 后台存档任务（Async(EAsyncExecution::ThreadPool, ...)）。
+#include "Async/Async.h"
+#include "HAL/PlatformTime.h"
+#include "HAL/IConsoleManager.h"
+#include "Containers/Ticker.h"
+#include "Engine/Engine.h"
+#include "EngineUtils.h"
 
 #if WITH_EDITOR
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -37,6 +49,89 @@
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
 #endif
+
+///////////////////////////////////////////////////////////////////////////////
+// 存档迁移工具
+///////////////////////////////////////////////////////////////////////////////
+
+/**
+ * 把当前世界里所有行星的存档按**当前** CVar 设置重存一次。
+ *
+ * 用途只有一个：把 Special 值格式的旧存档迁到普通格式。
+ * `voxel.data.StoreSpecialValueForGeneratorValuesInSaves=1` 时，存档把「与生成器
+ * 输出相同的值」写成 FVoxelValue::Special() 哨兵；装填时每个哨兵体素都要重算一次
+ * 生成器（VoxelData.cpp:704-727）。UniverseMap 第三颗行星为此实测 36 秒，
+ * 设成 0 之后同样内容 3.4 秒。存与读必须同设置，所以只在 ini 里改不够 ——
+ * 旧存档还得重写一遍。
+ *
+ * 迁移必须「按旧格式读、按新格式写」：读的时候那个 CVar 必须还是 1，
+ * 否则哨兵值解释不出来、世界是坏的；写之前把它切成 0。之后在 ini 里固化 0，
+ * 两端就一致了。
+ *
+ * 用法：先让 ini 里是 1（或本会话没改过 cvar），进关卡等它加载完，执行
+ * `StellarEra.Planet.ResaveAll 0`，再把 ini 改成 0。
+ *
+ * 命令排到第一个「世界里已经有行星」的 tick 执行 —— -ExecCmds 早于关卡加载，
+ * 当场执行只会看到空世界。返回 false 让 ticker 自己摘掉，不用管句柄。
+ */
+static FAutoConsoleCommandWithWorldAndArgs CVoxelPlanetResaveAll(
+	TEXT("StellarEra.Planet.ResaveAll"),
+	TEXT("按 voxel.data.StoreSpecialValueForGeneratorValuesInSaves 重存当前世界里所有行星的存档。\n")
+	TEXT("可选参数 0 / 1：先在写之前把那个 CVar 切过去。迁移旧存档时传 0 ——\n")
+	TEXT("读的时候它必须还是 1，所以切换不能提前到命令行，只能在这里、加载之后。"),
+	FConsoleCommandWithWorldAndArgsDelegate::CreateStatic([](const TArray<FString>& Args, UWorld* World)
+	{
+		FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([Args](float) -> bool
+		{
+			TArray<AVoxelPlanetActor*> Planets;
+			for (const FWorldContext& Context : GEngine->GetWorldContexts())
+			{
+				UWorld* const World = Context.World();
+				if (!World)
+				{
+					continue;
+				}
+				for (TActorIterator<AVoxelPlanetActor> It(World); It; ++It)
+				{
+					Planets.Add(*It);
+				}
+				if (!Planets.IsEmpty())
+				{
+					break;
+				}
+			}
+
+			if (Planets.IsEmpty())
+			{
+				// 世界还没起来，下一帧再试。
+				return true;
+			}
+
+			if (!Args.IsEmpty())
+			{
+				const FString Command = FString::Printf(
+					TEXT("voxel.data.StoreSpecialValueForGeneratorValuesInSaves %s"), *Args[0]);
+				if (UWorld* const World = Planets[0]->GetWorld())
+				{
+					if (GEngine)
+					{
+						GEngine->Exec(World, *Command);
+					}
+					UE_LOG(LogTemp, Log, TEXT("重存前切换：%s"), *Command);
+				}
+			}
+
+			for (AVoxelPlanetActor* const Planet : Planets)
+			{
+				// SaveEditsToSaveObject 没有「未保存编辑」就早退，而这里要的是无条件
+				// 重存：NotifyVoxelEdited 只负责把那个标志置位。
+				Planet->NotifyVoxelEdited();
+				Planet->SaveEditsToSaveObject();
+				UE_LOG(LogTemp, Log, TEXT("重存行星存档：%s 完成。"), *Planet->GetName());
+			}
+			return false;
+		}));
+	}));
 
 AVoxelPlanetActor::AVoxelPlanetActor()
 {
@@ -67,9 +162,18 @@ AVoxelPlanetActor::AVoxelPlanetActor()
 	NumberOfThreads = 4;
 	MaxLOD = 6;
 
-	// LOD 切换的过渡时长（基类默认 1 秒）：插件在旧块被新块完全替代后，要等
-	// 2 × 这个值才把旧块淡出（VoxelDefaultRenderer.cpp:900），期间两套不同 LOD
-	// 的网格同时可见。1 秒 ⇒ 2 秒的叠影窗口对高速飞行太长；0.3 秒压到 0.6 秒。
+	// LOD 切换**不做淡入淡出**：新块一建好就立刻顶掉旧块。
+	//
+	// 基类默认开抖动，新块建好后旧块还要再画 2 × ChunksDitheringDuration
+	// （VoxelDefaultRenderer.cpp:900）才被移除，这段时间里两套不同 LOD 的网格
+	// 同时可见 —— 就是「不同 LOD 的 mesh 重叠在一起」那个画面。关掉之后走的是
+	// NewChunksFinished 的另一条分支（同函数 :895 的 else → RemoveOrHideChunk），
+	// 旧块当场删掉。没有空洞风险：这条路径只在全部替换块都建好（NumNewChunksLeft
+	// == 0）之后才走。
+	//
+	// 代价是 LOD 边界会「啪」地跳一下，不再有过渡。要淡入淡出就把这个改回 true。
+	// 关闭抖动后 ChunksDitheringDuration 不再生效，保留 0.3 只作为改回 true 时的默认。
+	bDitherChunks = false;
 	ChunksDitheringDuration = 0.3f;
 
 	// 每帧应用已完成块网格的时间预算（毫秒）。基类默认 1000 毫秒，意味着一批
@@ -263,6 +367,38 @@ FString AVoxelPlanetActor::MakePlanetSaveObjectAssetPath(const FString& MapName,
 	return FString::Printf(TEXT("/Game/Saves/PlanetVoxel/%s/%s"), *SafeMap, *SafeLabel);
 }
 
+UMaterialInterface* AVoxelPlanetActor::StripMaterialInstanceDynamic(UMaterialInterface* Candidate)
+{
+	if (!Candidate)
+	{
+		return nullptr;
+	}
+
+	// 只沿 MID 往上走。MaterialInstanceConstant 是**合法**父材质（SetParentInternal
+	// 接受它），剥到它就停 —— 再往上剥会丢掉用户在 MIC 里设的参数。
+	//
+	// 上限只是防脏数据里的环：Create 本身拒绝成环，正常链长 1~2 层。
+	UMaterialInterface* Current = Candidate;
+	for (int32 Depth = 0; Depth < 8; ++Depth)
+	{
+		const UMaterialInstanceDynamic* Dynamic = Cast<UMaterialInstanceDynamic>(Current);
+		if (!Dynamic)
+		{
+			return Current;
+		}
+
+		Current = Dynamic->Parent;
+		if (!Current)
+		{
+			// 链走到父为空的 MID：什么都剥不出来。返回 nullptr 让调用方走兜底，
+			// 别把这张父为空的 MID 返回去 —— 那正是 ensure 的请柬。
+			return nullptr;
+		}
+	}
+
+	return nullptr;
+}
+
 #if WITH_EDITOR
 void AVoxelPlanetActor::EnsureSaveObject()
 {
@@ -353,6 +489,8 @@ bool AVoxelPlanetActor::SaveSaveObjectToDisk()
 	SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
 	// SAVE_NoError：自动化 / 无头跑不能弹「保存失败」对话框，失败由下面的日志暴露。
 	SaveArgs.SaveFlags = SAVE_NoError;
+	// 不加 SAVE_Async：它只把文件写入挪到写入器线程，序列化仍在调用线程上，
+	// 省的不是主要那块；而异步写不保证在进程退出前写完（见头文件注释）。
 
 	if (UPackage::SavePackage(Package, SaveObject, *FileName, SaveArgs))
 	{
@@ -422,6 +560,17 @@ void AVoxelPlanetActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyCh
 		== GET_MEMBER_NAME_CHECKED(AVoxelPlanetActor, GeologyAsset))
 	{
 		OnGeologyAssetChanged.Broadcast();
+	}
+
+	// biome cubemap：分辨率 / 混合权重只改一张瞬态贴图和几个材质参数，不该推倒
+	// 体素世界。这里先做一次「不强制重烘」的安装，紧接着的 RebuildPlanet 会因为
+	// 参数哈希未变而早退 —— 于是调这两个旋钮只花一次烘焙的时间。
+	//
+	// 也顺手覆盖了「用户在 Details 里换 VoxelMaterial」：基类先用新材质重建了
+	// 渲染，这里把 MID 换到新父材质上再通知渲染器一次，查表不会因此丢掉。
+	if (InstallBiomeMaterial(/*bForceBake=*/false) && IsCreated())
+	{
+		UVoxelBlueprintLibrary::ApplyNewMaterials(this);
 	}
 
 	// OnConstruction 只在移动/添加时重新执行：否则单纯在细节面板里改参数
@@ -523,6 +672,16 @@ void AVoxelPlanetActor::RebuildPlanet()
 		LODInvoker ? LODInvoker->LODToSet : -1,
 		LODInvoker ? LODInvoker->LODRange : 0.f);
 
+	// --- 3.5 biome cubemap ---
+	//
+	// 必须排在 CreateWorld / Toggle 之前，理由与 VoxelMaterial 完全相同：渲染器
+	// 在创建那一刻把材质快照进各 LOD 的设置里，之后换材质不会自己重读。
+	//
+	// 放在哈希守卫**之后**：烘焙是一次性的重活（256² × 6 个采样点，每个点要算
+	// 分形噪声和整张地质场），而 RebuildPlanet 在拖动星球时每帧都会被
+	// OnConstruction 调到；摆在这里就只在真正重建时发生一次。
+	InstallBiomeMaterial(/*bForceBake=*/true);
+
 	// --- 4. 重建世界，让新生成器生效 ---
 	// CreateWorld 会报 "already created" 并保留旧生成器实例（它在创建时把
 	// 所有参数快照为 const），因此不先销毁的话，参数编辑会被静默忽略。
@@ -587,6 +746,14 @@ void AVoxelPlanetActor::RebuildPlanet()
 		}
 	}
 
+	// --- 6. 存档 ---
+	//
+	// CreateWorld 内部会同步走 LoadFromSaveObject（VoxelWorld.cpp:1107）：
+	// DecompressVoxelSave + FVoxelData::LoadFromSave，全程占着游戏线程。
+	// 这一步的代价几乎全在装填里，取决于存档用哪种格式（见文件顶部的
+	// StellarEra.Planet.ResaveAll）。144 MB 的存档在 Special 格式下是 34 秒，
+	// 普通格式下 3.4 秒；渲染器要等这一段结束才开始网格化，所以「进 PIE 卡半天」
+	// 和「进去瞬间没有网格」是同一个根因。要治的是格式，不是把它挪到别的线程。
 	CreateWorld(FVoxelWorldCreateInfo());
 
 	// 世界刚被 DestroyWorld + CreateWorld 重建，旧的表面网格采样全部作废。
@@ -595,6 +762,153 @@ void AVoxelPlanetActor::RebuildPlanet()
 	if (EditGrid)
 	{
 		EditGrid->NotifyVoxelEdited();
+	}
+}
+
+bool AVoxelPlanetActor::InstallBiomeMaterial(bool bForceBake)
+{
+	if (BiomeCubemapResolution <= 0)
+	{
+		return false;
+	}
+
+	// 生成器还没建 = 世界从没建过（RebuildPlanet 的第一步在守卫之后）。
+	// 此时没有参数可烘，等真正的重建再走这条。
+	if (!PlanetGenerator)
+	{
+		return false;
+	}
+
+	const UVoxelPlanetNoiseTerrain* NoiseTerrain =
+		Cast<UVoxelPlanetNoiseTerrain>(PlanetGenerator->Terrain);
+	if (!NoiseTerrain)
+	{
+		// 纯球模块没有配色：颜色来自 SurfaceColor 的顶点色，没有可查的表。
+		// 这不是错误，摆一颗光滑球本来就用不上 cubemap。
+		return false;
+	}
+
+	// MID 的父材质永远是**用户设的**那个。VoxelMaterial 此刻可能还指着上一次
+	// 重建留下的 MID（PreSave 只在保存那一刻把它换回去），别把 MID 自己当父材质。
+	if (!BiomeMaterial || VoxelMaterial != BiomeMaterial)
+	{
+		BaseVoxelMaterial = StripMaterialInstanceDynamic(VoxelMaterial);
+
+		// PIE 复制关卡时：VoxelMaterial（非 Transient）被拷成上一轮 MID 的副本，
+		// 而 BiomeMaterial / BaseVoxelMaterial（都 Transient）被清空。副本的父
+		// 还指着真材质，剥一层就能拿到。剥不出来（父为空的期间产物）才退回
+		// 类默认值 —— 那是蓝图里用户原本设的那个材质。
+		if (!BaseVoxelMaterial)
+		{
+			const AVoxelPlanetActor* Defaults = GetClass()->GetDefaultObject<AVoxelPlanetActor>();
+			if (Defaults)
+			{
+				BaseVoxelMaterial = StripMaterialInstanceDynamic(Defaults->VoxelMaterial);
+			}
+		}
+	}
+	if (!BaseVoxelMaterial)
+	{
+		// 用户没设材质：世界本来就该报 "Invalid VoxelMaterial"，这里插一脚只会
+		// 把一个明确的错误变成一张看不出原因的纯色星。
+		return false;
+	}
+
+	if (bForceBake || !BiomeCubemap || BakedCubemapResolution != BiomeCubemapResolution)
+	{
+		const double BakeStart = FPlatformTime::Seconds();
+
+		UTextureCube* Cube = PlanetBiomeCubemap::BakeTexture(
+			NoiseTerrain->MakeParams(),
+			PlanetGenerator->GetGeology().Get(),
+			double(GetScaledRadiusVoxels()),
+			BiomeCubemapResolution);
+
+		if (!Cube)
+		{
+			if (!bLoggedBiomeBakeFailure)
+			{
+				bLoggedBiomeBakeFailure = true;
+				UE_LOG(LogTemp, Warning,
+					TEXT("AVoxelPlanetActor %s: biome cubemap 烘焙失败（分辨率 %d），本颗星继续用顶点色。"),
+					*GetName(), BiomeCubemapResolution);
+			}
+			return false;
+		}
+
+		BiomeCubemap = Cube;
+		BakedCubemapResolution = BiomeCubemapResolution;
+
+		// 打一行耗时：这是「烘焙到底贵不贵」的唯一可观测证据。
+		UE_LOG(LogTemp, Log,
+			TEXT("AVoxelPlanetActor %s: biome cubemap %d² × 6 面烘焙完成，用时 %.1f 毫秒"),
+			*GetName(), BiomeCubemapResolution,
+			(FPlatformTime::Seconds() - BakeStart) * 1000.0);
+	}
+
+	if (!BiomeMaterial || BiomeMaterial->Parent != BaseVoxelMaterial)
+	{
+		BiomeMaterial = UMaterialInstanceDynamic::Create(
+			BaseVoxelMaterial, this, TEXT("BiomeMaterialMID"));
+		if (!BiomeMaterial)
+		{
+			return false;
+		}
+
+		// 父材质类型不被接受时 Create 不会返回 null：SetParentInternal 静默拒绝，
+		// 留下一张 Parent 为空的 MID。把它交给插件，插件的 CreateMaterialInstance
+		// 会回退到默认材质，在 VoxelRenderUtilities.cpp:518 ensure，整颗星变灰。
+		// 宁可这颗星继续用顶点色，也不能把坏 MID 递出去。
+		if (!BiomeMaterial->Parent)
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("AVoxelPlanetActor %s: 无法为用户材质 %s 创建 biome MID（父材质被拒绝），本颗星继续用顶点色。"),
+				*GetName(), *GetNameSafe(BaseVoxelMaterial));
+			BiomeMaterial = nullptr;
+			return false;
+		}
+	}
+
+	// 参数名与 M_PlanetVertexColor 里的对得上才生效；材质里没有这两个参数时
+	// 这里不会报错，只是查表不生效（表现为回到纯顶点色）。
+	BiomeMaterial->SetTextureParameterValue(TEXT("BiomeCube"), BiomeCubemap);
+	BiomeMaterial->SetScalarParameterValue(TEXT("BiomeCubeBlend"), BiomeCubemapBlend);
+
+	const bool bSwitched = (VoxelMaterial != BiomeMaterial);
+	VoxelMaterial = BiomeMaterial;
+	return bSwitched;
+}
+
+void AVoxelPlanetActor::PreSave(FObjectPreSaveContext ObjectSaveContext)
+{
+	// 运行期的 VoxelMaterial 指向一张瞬态 MID（见 InstallBiomeMaterial）。瞬态对象
+	// 不进包，直接存会把 VoxelMaterial 写成一个空引用 —— 下次加载就是
+	// "Invalid VoxelMaterial" 的灰球，而且很难联想到是颜色优化造成的。
+	// 存之前换回用户原本的材质，PostSaveRoot 再换回来（期间渲染仍是 MID）。
+	if (BiomeMaterial && VoxelMaterial == BiomeMaterial)
+	{
+		VoxelMaterial = BaseVoxelMaterial;
+		bRestoreVoxelMaterialAfterSave = true;
+	}
+
+	Super::PreSave(ObjectSaveContext);
+}
+
+void AVoxelPlanetActor::PostSaveRoot(FObjectPostSaveRootContext ObjectSaveContext)
+{
+	Super::PostSaveRoot(ObjectSaveContext);
+
+	if (bRestoreVoxelMaterialAfterSave)
+	{
+		bRestoreVoxelMaterialAfterSave = false;
+
+		// MID 可能已经被 GC（极端情况：保存期间换了关卡）。为空就保持父材质，
+		// 下次 RebuildPlanet 会重新装一个 —— 这条分支的错误方向是「退回顶点色」，
+		// 不是「材质变空」。
+		if (BiomeMaterial)
+		{
+			VoxelMaterial = BiomeMaterial;
+		}
 	}
 }
 
@@ -631,18 +945,9 @@ void AVoxelPlanetActor::NotifyVoxelEdited()
 	{
 		EditGrid->NotifyVoxelEdited();
 	}
-
-	if (UWorld* World = GetWorld())
-	{
-		// SaveDebounceSeconds = 0 时引擎不会建定时器（SetTimer 只在 rate > 0 时生效），
-		// 语义是「只在 EndPlay 保存」，不是「立即保存」。
-		World->GetTimerManager().SetTimer(SaveTimerHandle,
-			FTimerDelegate::CreateUObject(this, &AVoxelPlanetActor::SaveEditsToSaveObject),
-			FMath::Max(SaveDebounceSeconds, 0.f), false);
-	}
 }
 
-void AVoxelPlanetActor::SaveEditsToSaveObject()
+void AVoxelPlanetActor::RequestSaveEdits()
 {
 	if (!bHasUnsavedEdits)
 	{
@@ -669,19 +974,171 @@ void AVoxelPlanetActor::SaveEditsToSaveObject()
 		return;
 	}
 
-	FVoxelUncompressedWorldSave UncompressedSave;
-	UVoxelDataTools::GetSave(this, UncompressedSave);
-	UVoxelSaveUtilities::CompressVoxelSave(UncompressedSave, SaveObject->Save);
+	// 已经有一份任务在读体素数据：只记「回来再存一次」，不并发第二份。
+	if (SaveJob.IsValid())
+	{
+		bSavePending = true;
+		return;
+	}
 
+	// 先清脏：任务跑起来之后的新编辑会把它重新置起来，收尾时据此再排一次。
+	bHasUnsavedEdits = false;
+	bSavePending = false;
+
+	UWorld* const World = GetWorld();
+
+	// 没有世界就没有定时器可轮询；世界正在拆除时后台任务回来也没人收尾，
+	// 而 Actor 随时会被销毁 —— 两种情况都退回同步。
+	//
+	// 「拆除中」这一条不是防御性代码：PIE 停止时组件与行星的 EndPlay 先后不定，
+	// 若行星先存过（脏标志已清）这里根本走不到；走得到就说明同步那次没成，
+	// 此时再起后台任务只会读到一份正在被释放的体素数据。
+	if (!World || World->bIsTearingDown)
+	{
+		bHasUnsavedEdits = true;
+		SaveEditsToSaveObject();
+		return;
+	}
+
+	// 捕获弱引用：任务在后台跑，Actor 可能已经进入销毁流程。
+	TWeakObjectPtr<AVoxelPlanetActor> WeakThis(this);
+	SaveJob = Async(EAsyncExecution::ThreadPool,
+		[WeakThis]() -> TSharedPtr<FVoxelCompressedWorldSave>
+		{
+			AVoxelPlanetActor* const Self = WeakThis.Get();
+			if (!Self)
+			{
+				// 任务排上之前 Actor 就没了：返回空，收尾时据此把脏标志还回去。
+				return nullptr;
+			}
+
+			// GetSave 持体素数据的读锁（与编辑的写锁互斥），CompressVoxelSave
+			// 是纯数据变换 —— 两者都不需要游戏线程。日志里 0.29–1.92 s 的
+			// 那两行原先就压在这条路径上。
+			//
+			// 插件自己的 GetCompressedSaveAsync 也是在工作线程里跑同一段
+			// （VoxelDataTools.cpp:205-209），所以这里不是新开的口子。
+			TSharedPtr<FVoxelCompressedWorldSave> Compressed =
+				MakeShared<FVoxelCompressedWorldSave>();
+			UVoxelDataTools::GetCompressedSave(Self, *Compressed);
+			return Compressed;
+		});
+
+	// 轮询而不是 AsyncTask(GameThread)：EndPlay 需要「先等它跑完再同步兜底」，
+	// 轮询把先后顺序交给游戏线程自己决定，不依赖任务队列的投递时序。
+	World->GetTimerManager().SetTimer(SavePollTimerHandle,
+		FTimerDelegate::CreateUObject(this, &AVoxelPlanetActor::PollSaveJob),
+		0.05f, /*bLoop=*/true);
+}
+
+void AVoxelPlanetActor::PollSaveJob()
+{
+	if (!SaveJob.IsValid() || !SaveJob.IsReady())
+	{
+		return;
+	}
+
+	FinishSaveJob();
+
+	if (bSavePending)
+	{
+		RequestSaveEdits();
+	}
+}
+
+void AVoxelPlanetActor::FinishSaveJob()
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(SavePollTimerHandle);
+	}
+
+	if (!SaveJob.IsValid())
+	{
+		return;
+	}
+
+	// 后台任务只读体素数据，游戏线程在这里等它不会死锁。
+	SaveJob.Wait();
+	const TSharedPtr<FVoxelCompressedWorldSave> Compressed = SaveJob.Get();
+	SaveJob.Reset();
+
+	if (!Compressed || !SaveObject)
+	{
+		// 任务没产出（世界中途失效）：把脏标志还回去，EndPlay 还能再试。
+		bHasUnsavedEdits = true;
+		return;
+	}
+
+	const double FinishStartSeconds = FPlatformTime::Seconds();
+
+	SaveObject->Save = MoveTemp(*Compressed);
 	// Depth 不参与压缩，必须从 Save 补上；否则下次加载时世界尺寸对不上。
 	SaveObject->CopyDepthFromSave();
 	SaveObject->MarkPackageDirty();
 
 #if WITH_EDITOR
 	// MarkPackageDirty 只改内存里的脏标志：PIE 结束时那份资产副本直接丢弃，
-	// 用户看到的就是「编辑没存」。每次防抖保存都顺手落盘，编辑才真正活过重启。
+	// 用户看到的就是「编辑没存」。
 	SaveSaveObjectToDisk();
 #endif
+
+	const double FinishMs = (FPlatformTime::Seconds() - FinishStartSeconds) * 1000.0;
+	if (FinishMs >= 20.0)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Dig] 整星存档 %s：后台已完成，游戏线程收尾 %.0f ms"), *GetName(), FinishMs);
+	}
+}
+
+void AVoxelPlanetActor::SaveEditsToSaveObject()
+{
+	if (!bHasUnsavedEdits)
+	{
+		return;
+	}
+
+	if (!SaveObject)
+	{
+		if (!bLoggedMissingSaveObject)
+		{
+			bLoggedMissingSaveObject = true;
+			UE_LOG(LogTemp, Warning,
+				TEXT("AVoxelPlanetActor %s 没有 SaveObject，编辑只存在于本次运行的内存里。"),
+				*GetName());
+		}
+		return;
+	}
+
+	if (!IsCreated())
+	{
+		return;
+	}
+
+	const double SaveStartSeconds = FPlatformTime::Seconds();
+
+	FVoxelUncompressedWorldSave UncompressedSave;
+	UVoxelDataTools::GetSave(this, UncompressedSave);
+	const double GetSaveMs = (FPlatformTime::Seconds() - SaveStartSeconds) * 1000.0;
+
+	UVoxelSaveUtilities::CompressVoxelSave(UncompressedSave, SaveObject->Save);
+	const double CompressMs = (FPlatformTime::Seconds() - SaveStartSeconds) * 1000.0 - GetSaveMs;
+
+	// Depth 不参与压缩，必须从 Save 补上；否则下次加载时世界尺寸对不上。
+	SaveObject->CopyDepthFromSave();
+	SaveObject->MarkPackageDirty();
+
+#if WITH_EDITOR
+	SaveSaveObjectToDisk();
+#endif
+
+	const double TotalMs = (FPlatformTime::Seconds() - SaveStartSeconds) * 1000.0;
+	if (TotalMs >= 20.0)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Dig] 整星存档（同步）%s：GetSave %.0f ms，压缩 %.0f ms，总 %.0f ms"),
+			*GetName(), GetSaveMs, CompressMs, TotalMs);
+	}
 
 	// 到这里才算真的写进了 SaveObject，脏标志才能清。
 	bHasUnsavedEdits = false;
@@ -691,10 +1148,12 @@ void AVoxelPlanetActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	if (UWorld* World = GetWorld())
 	{
-		World->GetTimerManager().ClearTimer(SaveTimerHandle);
+		World->GetTimerManager().ClearTimer(SavePollTimerHandle);
 	}
 
-	// 防抖窗口内退出 PIE 也不能丢最后一次编辑。
+	// 后台任务在跑：先等它跑完并收尾，再同步兜底「任务启动之后」的新编辑。
+	// 两步都要 —— 只做后者会和后台任务并发读同一份体素数据，只做前者会丢最后一笔。
+	FinishSaveJob();
 	SaveEditsToSaveObject();
 
 	Super::EndPlay(EndPlayReason);
@@ -823,25 +1282,29 @@ bool AVoxelPlanetActor::RaycastSurfaceCm(
 	}
 
 	// 解析结果是「生成器的理想地表」，实际数据可能被挖低了整整一笔刷，也可能因为
-	// 量化差一格。从解析命中点出发沿射线找空/实翻转。窗口取 128 体素，与星图笔刷
-	// 的尺寸上限一致：一笔刷能挖多深，就能从多深的地面重新瞄回来。更深的竖井需要
-	// 从坑沿往下打第二次 —— 这是刻度，不是 bug。
-	constexpr int32 SurfaceRayWindowVoxels = 128;
+	// 量化差一格。从解析命中点出发沿射线找空/实翻转。
+	//
+	// 深度**不设人为上限**：终点是行星自己的几何边界 —— 把解析点所在球面的半径
+	// 放大 1.25 倍（与包围球同一份余量）求射线与它的两个交点，往里走到远根、往外
+	// 走到近根（且不越过射线原点）。挖多深都能重新瞄回来，只受球体体积约束。
+	// 推导在 PlanetSurfaceRay::ComputeMarchStepRange，可无头测试。
+	const PlanetSurfaceRay::FMarchStepRange MarchRange =
+		PlanetSurfaceRay::ComputeMarchStepRange(
+			RelativeOrigin, Direction, AnalyticDistanceCm,
+			static_cast<double>(GetSurfaceRadiusCm()) * 1.25,
+			/*VoxelSizeCm=*/static_cast<double>(VoxelSize));
 
 	// 解析点换算成体素坐标，之后的行进全在体素空间（单位 = 体素）。
 	// 本函数假定 Actor 缩放 S = 1（见 GetScaledRadiusVoxels 里的不一致说明）：
-	// S ≠ 1 时体素空间里的实际表面半径是 Radius · S，而解析这一步用的是 Radius，
-	// 偏差 (S − 1) · Radius 体素；超过窗口就打不中，星图会静默失效。
+	// S ≠ 1 时体素空间里的实际表面半径是 Radius · S，解析点会偏离真实地表
+	// (S − 1) · Radius 体素；扫描从解析点出发、两个方向都找，仍能找到翻转点，
+	// 但命中位置会跟着偏。
 	const FVoxelVector HitLocalVoxels = GlobalToLocalFloat(
 		RayOriginWorld + Direction * AnalyticDistanceCm);
 	const FVector HitLocal(HitLocalVoxels.X, HitLocalVoxels.Y, HitLocalVoxels.Z);
 	const FVector LocalDir = GetActorTransform()
 		.InverseTransformVectorNoScale(Direction).GetSafeNormal();
 
-	// 锁只盖住行进窗口（±Window），不盖整条射线：星图的射线长 50 AU，按射线原点
-	// 与终点算锁会锁住整颗行星的大半个八叉树。
-	const FVector MarchPlus = HitLocal + LocalDir * SurfaceRayWindowVoxels;
-	const FVector MarchMinus = HitLocal - LocalDir * SurfaceRayWindowVoxels;
 	const auto FloorVoxel = [](const double Value)
 	{
 		return static_cast<int32>(FMath::FloorToDouble(Value));
@@ -850,49 +1313,89 @@ bool AVoxelPlanetActor::RaycastSurfaceCm(
 	{
 		return static_cast<int32>(FMath::CeilToDouble(Value));
 	};
+	const auto VoxelOf = [](const FVector& Point)
+	{
+		return FIntVector(
+			static_cast<int32>(FMath::FloorToInt(Point.X)),
+			static_cast<int32>(FMath::FloorToInt(Point.Y)),
+			static_cast<int32>(FMath::FloorToInt(Point.Z)));
+	};
 
-	const FIntVector ScanMin(
-		FloorVoxel(FMath::Min3(HitLocal.X, MarchPlus.X, MarchMinus.X)) - 2,
-		FloorVoxel(FMath::Min3(HitLocal.Y, MarchPlus.Y, MarchMinus.Y)) - 2,
-		FloorVoxel(FMath::Min3(HitLocal.Z, MarchPlus.Z, MarchMinus.Z)) - 2);
-	const FIntVector ScanMax(
-		CeilVoxel(FMath::Max3(HitLocal.X, MarchPlus.X, MarchMinus.X)) + 2,
-		CeilVoxel(FMath::Max3(HitLocal.Y, MarchPlus.Y, MarchMinus.Y)) + 2,
-		CeilVoxel(FMath::Max3(HitLocal.Z, MarchPlus.Z, MarchMinus.Z)) + 2);
-
-	// FVoxelIntBox 的 Max 是开区间，所以 +1。
-	const FVoxelIntBox ScanBounds(ScanMin, ScanMax + FIntVector(1, 1, 1));
-
-	const FVoxelReadScopeLock Lock(GetData(), ScanBounds, TEXT("PlanetSurfaceRaycast"));
-
-	const auto SampleEmpty = [this, &HitLocal, &LocalDir](const int32 Step) -> bool
+	// 调用方必须已持有读锁。取锁范围按「一段」算，见下面的分段循环。
+	const auto SampleEmpty = [this, &HitLocal, &LocalDir, &VoxelOf](const int32 Step) -> bool
 	{
 		const FVector Sample = HitLocal + LocalDir * Step;
-		const FIntVector Voxel(
-			static_cast<int32>(FMath::FloorToInt(Sample.X)),
-			static_cast<int32>(FMath::FloorToInt(Sample.Y)),
-			static_cast<int32>(FMath::FloorToInt(Sample.Z)));
-		return GetData().GetValue(Voxel, /*LOD=*/0).IsEmpty();
+		return GetData().GetValue(VoxelOf(Sample), /*LOD=*/0).IsEmpty();
 	};
+
+	// 起点单独取一次锁：它不在任何一段扫描盒里。
+	// 锁只盖住行进区段、不盖整条射线：星图的射线长 50 AU，按射线原点与终点算锁
+	// 会锁住整颗行星的大半个八叉树。
+	const bool bStartsEmpty = [&]() -> bool
+	{
+		const FIntVector StartVoxel = VoxelOf(HitLocal);
+		const FVoxelIntBox StartBounds(
+			StartVoxel - FIntVector(1, 1, 1), StartVoxel + FIntVector(2, 2, 2));
+		const FVoxelReadScopeLock Lock(
+			GetData(), StartBounds, TEXT("PlanetSurfaceRaycast"));
+		return SampleEmpty(0);
+	}();
 
 	// 从解析点往里走是「空 → 实」（正常俯视），往外走是「实 → 空」（估计高了一格）。
 	// 按起点空/实**选一个**方向走：起点空就往里找第一块实心，起点实就往外找第一格空气。
-	// 失败面因此只剩「翻转点在窗口之外」这一种。
-	const bool bStartsEmpty = SampleEmpty(0);
 	const int32 StepSign = bStartsEmpty ? 1 : -1;
+	const int32 MaxSteps =
+		bStartsEmpty ? MarchRange.InwardMaxSteps : MarchRange.BackwardMaxSteps;
 
 	int32 BoundaryStep = 0;
-	for (int32 Step = 1; Step <= SurfaceRayWindowVoxels; ++Step)
+
+	// 分段取锁：每段 128 体素，段数由几何终点决定 —— 128 是**锁粒度**，不是深度上限。
+	// 一次取锁盖住整条弦的话，挖到行星中心时会锁住几乎整棵八叉树，体素线程全被卡住。
+	constexpr int32 SegmentVoxels = 128;
+	for (int32 SegmentStart = 1;
+		SegmentStart <= MaxSteps && BoundaryStep == 0;
+		SegmentStart += SegmentVoxels)
 	{
-		if (SampleEmpty(StepSign * Step) != bStartsEmpty)
+		const int32 SegmentEnd =
+			FMath::Min(SegmentStart + SegmentVoxels - 1, MaxSteps);
+
+		// 盒子要盖住 (SegmentStart − 1) 到 SegmentEnd 之间的所有采样点（Step 0 在上面
+		// 单独取过锁，这里多包一格，相邻段之间不留缝），+2 是取整余量。
+		const FVector SegmentA = HitLocal
+			+ LocalDir * (static_cast<double>(StepSign) * (SegmentStart - 1));
+		const FVector SegmentB = HitLocal
+			+ LocalDir * (static_cast<double>(StepSign) * SegmentEnd);
+		const FIntVector ScanMin(
+			FloorVoxel(FMath::Min(SegmentA.X, SegmentB.X)) - 2,
+			FloorVoxel(FMath::Min(SegmentA.Y, SegmentB.Y)) - 2,
+			FloorVoxel(FMath::Min(SegmentA.Z, SegmentB.Z)) - 2);
+		const FIntVector ScanMax(
+			CeilVoxel(FMath::Max(SegmentA.X, SegmentB.X)) + 2,
+			CeilVoxel(FMath::Max(SegmentA.Y, SegmentB.Y)) + 2,
+			CeilVoxel(FMath::Max(SegmentA.Z, SegmentB.Z)) + 2);
+
+		// FVoxelIntBox 的 Max 是开区间，所以 +1。
+		const FVoxelIntBox ScanBounds(ScanMin, ScanMax + FIntVector(1, 1, 1));
+		const FVoxelReadScopeLock Lock(
+			GetData(), ScanBounds, TEXT("PlanetSurfaceRaycast"));
+
+		for (int32 Step = SegmentStart; Step <= SegmentEnd; ++Step)
 		{
-			BoundaryStep = Step;
-			break;
+			if (SampleEmpty(StepSign * Step) != bStartsEmpty)
+			{
+				BoundaryStep = Step;
+				break;
+			}
 		}
 	}
 
 	if (BoundaryStep == 0)
 	{
+		// 走到几何终点都没翻转：整条弦上全空（球被挖空）或全实。
+		// 用 Verbose：笔刷预览每帧都会走这条路，Warning 会把日志刷满。
+		UE_LOG(LogTemp, Verbose,
+			TEXT("%s：射线在包围球内走了 %d 步（解析点处%s）仍未找到空/实翻转。"),
+			*GetName(), MaxSteps, bStartsEmpty ? TEXT("为空") : TEXT("为实"));
 		return false;
 	}
 

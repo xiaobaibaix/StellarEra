@@ -53,8 +53,8 @@ public:
 	 * 密度 ρ(h) = exp(−h / 标高)，标高 = 表面半径 × RayleighScaleHeightRatio；
 	 * 壳顶以上（h ≥ 表面半径 × AtmosphereHeightRatio）恒为 0。
 	 *
-	 * 与 bAtmosphereEnabled 无关：那个开关只管渲染，本值管物理。只有本值为 0
-	 * 才意味着这颗行星没有大气阻力。
+	 * 本值是**物理侧**的细调；bAtmosphereEnabled 是总开关：总开关关掉时本值根本不
+	 * 参与计算。本值为 0 只表示「这颗行星有大气、但没有阻力」。
 	 */
 	UPROPERTY(EditAnywhere, Category = "StellarEra|Atmosphere", meta = (ClampMin = "0.0"))
 	float DragAccelerationAtKmPerSecond = 10.0f;
@@ -63,8 +63,20 @@ public:
 	UPROPERTY(EditAnywhere, Category = "StellarEra|Atmosphere")
 	FLinearColor SunIntensity = FLinearColor::White;
 
-	/** 关掉即不渲染壳，用于 stat unit 对比。 */
-	UPROPERTY(EditAnywhere, Category = "StellarEra|Atmosphere")
+	/**
+	 * 大气总开关：关掉 = 这颗行星没有大气。
+	 *
+	 * 同时关掉两侧：
+	 *   - 渲染：壳立即不可见（TickComponent 的边沿处理，重新勾上会重算）；
+	 *   - 物理：飞船读到的密度比恒为 0，因此没有大气阻力，HUD 显示「真空」。
+	 *
+	 * 只是不想看壳、想对比 stat unit 时用 DragAccelerationAtKmPerSecond 不行 ——
+	 * 那是物理侧的细调，管不到渲染。
+	 *
+	 * BlueprintReadWrite：运行中可切；可见性由 TickComponent 每帧兜底，蓝图改完
+	 * 不需要额外调用任何函数。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "StellarEra|Atmosphere")
 	bool bAtmosphereEnabled = true;
 
 	/** 运行时改半径后调用，重算缩放与材质参数。 */

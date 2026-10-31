@@ -60,6 +60,22 @@ AStarMapCameraPawn::AStarMapCameraPawn()
 	VoxelInvokerLOD5->bUseForEvents = false;
 	VoxelInvokerLOD5->bUseForPriorities = false;
 
+	// 1 公里外的过渡环：±10 公里的盒子，叶块 1.02 公里（行星 3 的体素是 50 cm）。
+	// 行星的 MaxLOD 把全星压到 LOD 7（2.05 公里）之后，这里是 512 米与 2.05 公里
+	// 之间唯一的台阶。范围刻意推到地平线之外：20 公里半径的星，1 公里高度的
+	// 地平线约 sqrt(2·20·1) = 6.4 公里，2.5 公里高度约 10.3 公里 —— 环内全是
+	// LOD 6，那条台阶就落到看不见的地方，不会横在画面中间。
+	// 块数：盒 ±10 km 与球面相交 ≈ π(10² − 1²) = 311 km²，除以叶块面积 ≈ 296 块。
+	VoxelInvokerLOD6 = CreateDefaultSubobject<UAlwaysLocalVoxelInvokerComponent>(TEXT("VoxelInvokerLOD6"));
+	VoxelInvokerLOD6->SetupAttachment(Camera);
+	VoxelInvokerLOD6->bUseForLOD = true;
+	VoxelInvokerLOD6->LODToSet = 6;
+	VoxelInvokerLOD6->LODRange = 1000000.f;
+	VoxelInvokerLOD6->bUseForCollisions = false;
+	VoxelInvokerLOD6->bUseForNavmesh = false;
+	VoxelInvokerLOD6->bUseForEvents = false;
+	VoxelInvokerLOD6->bUseForPriorities = false;
+
 	// --- 行星编辑：与角色共用组件，参数按星图尺度调大 ---
 	//
 	// 尺寸 8..1280 体素：1 体素 = 100 cm（前两颗行星），1280 = 直径 1.28 km 的坑。
@@ -123,6 +139,7 @@ void AStarMapCameraPawn::ApplyViewpointInvokerState()
 	VoxelViewpointInvokers::SetEnabled(VoxelInvoker, bIsViewpoint);
 	VoxelViewpointInvokers::SetEnabled(VoxelInvokerLOD3, bIsViewpoint);
 	VoxelViewpointInvokers::SetEnabled(VoxelInvokerLOD5, bIsViewpoint);
+	VoxelViewpointInvokers::SetEnabled(VoxelInvokerLOD6, bIsViewpoint);
 }
 
 UPlanetEditComponent* AStarMapCameraPawn::GetPlanetEditComponent() const
@@ -199,11 +216,59 @@ void AStarMapCameraPawn::FocusOn(AActor* Body, double DistanceCm)
 
 void AStarMapCameraPawn::OrbitLook(float DeltaYaw, float DeltaPitch)
 {
+	// 越贴着焦点表面越慢、拉得越远越快 —— 倍率见 OrbitLookScale。
+	// 没有焦点时不缩放：那时相机本来就冻结，转朝向只为下一次选中做准备。
+	double Scale = 1.0;
+	if (AActor* Selected = ResolveSelectedBody())
+	{
+		Scale = OrbitLookScale(
+			OrbitDistanceCm, ResolveFocusSurfaceRadiusCm(Selected),
+			MinOrbitLookScale, MaxOrbitLookScale);
+	}
+
 	// 只动朝向不动距离 —— 下一帧 CalcCamera 按新朝向重算位置，看起来就是「绕着焦点转」。
-	OrbitRotation.Yaw += DeltaYaw;
+	OrbitRotation.Yaw += DeltaYaw * Scale;
 	// 夹到 ±89°：到 90° 时视线与 up 平行，Rotation 的 roll 会翻掉，画面会打转。
-	OrbitRotation.Pitch = FMath::Clamp(OrbitRotation.Pitch + DeltaPitch, -89.0, 89.0);
+	OrbitRotation.Pitch = FMath::Clamp(OrbitRotation.Pitch + DeltaPitch * Scale, -89.0, 89.0);
 	OrbitRotation.Roll = 0.0;
+}
+
+double AStarMapCameraPawn::OrbitLookScale(
+	const double DistanceCm,
+	const double FocusSurfaceRadiusCm,
+	const double MinScale,
+	const double MaxScale)
+{
+	// 还没选中过焦点：OrbitDistanceCm 是哨兵 0，不缩放（也躲开除零）。
+	if (DistanceCm <= 0.0)
+	{
+		return 1.0;
+	}
+
+	// 没有可信的表面几何（飞船/角色没有碰撞体）：同样不缩放。
+	if (FocusSurfaceRadiusCm <= 0.0)
+	{
+		return 1.0;
+	}
+
+	// 「倍率 1」的参考高度 = 焦点表面半径；小于 5 米的焦点按 5 米算，否则
+	// 贴着飞船看一眼就是几十倍灵敏度。5 米与 MinFocusDistanceCm 的默认值同源，
+	// 这里写成常量是为了让本函数保持纯函数（能无头测）。
+	constexpr double MinReferenceAltitudeCm = 5.0e2;
+	const double ReferenceAltitudeCm =
+		FMath::Max(FocusSurfaceRadiusCm, MinReferenceAltitudeCm);
+
+	// 高度 / 参考高度：贴着表面 → 0（夹到下限），整颗行星入画（2–3 个半径高）
+	// → 1–2，再拉远就继续线性增长，直到封顶。
+	const double AltitudeCm =
+		FMath::Max(DistanceCm - FocusSurfaceRadiusCm, 0.0);
+	const double RawScale = AltitudeCm / ReferenceAltitudeCm;
+
+	// 上限非负；下限再被上限压住 —— 参数写反（Min > Max）时返回上限，
+	// 而不是让 FMath::Clamp 拿到反向区间（那是未定义行为）。
+	const double Upper = FMath::Max(MaxScale, 0.0);
+	const double Lower = FMath::Clamp(MinScale, 0.0, Upper);
+	return FMath::Clamp(RawScale, Lower, Upper);
 }
 
 void AStarMapCameraPawn::AddZoom(float Value)

@@ -5,15 +5,21 @@
 
 #include "CoreMinimal.h"
 #include "VoxelWorld.h"
+#include "Async/Future.h"
 #include "Engine/TimerHandle.h"
+#include "VoxelData/VoxelSave.h"
+// FObjectPreSaveContext / FObjectPostSaveRootContext：PreSave / PostSaveRoot 覆写的形参。
+#include "UObject/ObjectSaveContext.h"
 #include "VoxelPlanetActor.generated.h"
 
 class UMaterialInterface;
+class UMaterialInstanceDynamic;
 class UPlanetSurfaceGridComponent;
 class UVoxelPlanetGenerator;
 class UVoxelPlanetTerrainModule;
 class UVoxelSimpleInvokerComponent;
 class UPlanetGeologyPreset;
+class UTextureCube;
 class FPlanetGeologyField;
 
 /**
@@ -49,6 +55,8 @@ public:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void PostLoad() override;
+	virtual void PreSave(FObjectPreSaveContext ObjectSaveContext) override;
+	virtual void PostSaveRoot(FObjectPostSaveRootContext ObjectSaveContext) override;
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
@@ -71,17 +79,31 @@ public:
 	void SetEditGridVisible(bool bVisible);
 
 	/**
-	 * 体素被编辑后调用：通知网格重建（防抖），并按 SaveDebounceSeconds 触发保存。
-	 * SaveDebounceSeconds = 0 时不在运行中保存，只在 EndPlay 兜一次。
+	 * 体素被编辑后调用：通知表面网格重建，并记为「有未保存编辑」。
+	 *
+	 * **不在这里存档**（2026-10-28 改）。旧行为是每次编辑都重置一个 2 秒防抖
+	 * 定时器，停手 2 秒就整星重存一次 —— 日志实测 CompressVoxelSave 0.29–1.92 s，
+	 * 且随累计编辑量线性增长，全在游戏线程上。现在改成退出编辑模式
+	 * （RequestSaveEdits）与 EndPlay 才存。
 	 */
 	void NotifyVoxelEdited();
 
 	/**
-	 * 把当前体素数据写进 SaveObject（压缩后）。没有 SaveObject 时只记一条
-	 * Warning（每颗行星一次），不崩溃、也不阻止继续编辑。
+	 * 请求把未保存的编辑写进 SaveObject。**GetSave 与压缩在后台线程完成。**
 	 *
-	 * 由 NotifyVoxelEdited 的 SaveDebounceSeconds 防抖调用（0 = 只在 EndPlay 保存）；
-	 * EndPlay 会再调一次，但只在仍有未保存编辑且有 SaveObject 时才真正写入。
+	 * 回游戏线程只做三件事：把压好的存档赋给 SaveObject、标脏、落盘。
+	 * 存档期间又来了编辑就置 pending，等这次任务回来后立刻再存一次 ——
+	 * 同一时刻永远只有一份任务在读体素数据。
+	 *
+	 * 由 UPlanetEditComponent 在退出编辑模式时调用。
+	 */
+	void RequestSaveEdits();
+
+	/**
+	 * **同步**存档：GetSave + 压缩 + 落盘全在调用线程，调用方会被阻塞。
+	 *
+	 * 只给 EndPlay 用（退出 PIE 必须把最后几笔真正写进磁盘；后台任务的
+	 * 异步落盘不保证在进程退出前完成）。平时用 RequestSaveEdits。
 	 */
 	void SaveEditsToSaveObject();
 
@@ -137,6 +159,34 @@ public:
 	/** 球体表面颜色，以顶点色传给材质。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Surface")
 	FLinearColor SurfaceColor = FLinearColor(0.18f, 0.42f, 0.16f);
+
+	//////////////////////////////////////////////////////////////////////////
+	// biome cubemap（颜色与网格密度解耦）
+
+	/**
+	 * biome cubemap 每面分辨率，0 = 关闭（只剩顶点色）。
+	 *
+	 * 顶点色只能存在于网格采样点上：LOD 6/7 的采样间距是 32/64 米，而配色是按
+	 * 海拔硬分带的 —— 一块粗 LOD 的整片区域会在「水」与「沙」之间整块翻面，
+	 * 于是 LOD 边界上出现一条颜色突变的直线（见 PlanetBiomeCubemap.h）。
+	 * 把配色按方向烘到 cubemap 上，材质逐像素查表，颜色就与网格密度无关了。
+	 *
+	 * 只对**噪声地形**（UVoxelPlanetNoiseTerrain）生效：配色是它的成员。
+	 * 256 在半径 1 公里的星上约 4~8 米一个纹素；烘焙是一次性成本，
+	 * 只在重建行星时发生，移动 Actor 不会重烘。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Color", meta = (ClampMin = "0", ClampMax = "2048"))
+	int32 BiomeCubemapResolution = 256;
+
+	/**
+	 * 材质里顶点色与 cubemap 色的混合权重（材质参数 `BiomeCubeBlend`）。
+	 *
+	 * 1 = 完全查表（粗 LOD 平滑，近处也只剩 cubemap 的分辨率）；
+	 * 0 = 完全顶点色（回到旧行为，接缝在）。**默认 1**：接缝是当前要治的问题，
+	 * 而顶点色在粗 LOD 上本来就是错的。想保留近处细节可以调到 0.7 左右。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Color", meta = (ClampMin = "0", ClampMax = "1"))
+	float BiomeCubemapBlend = 1.f;
 
 	//////////////////////////////////////////////////////////////////////////
 	// 地形
@@ -229,6 +279,29 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet")
 	TObjectPtr<UVoxelSimpleInvokerComponent> LODInvoker;
 
+	/** 运行期烘焙的 biome cubemap（瞬态：每次重建重烘，不落盘）。 */
+	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "Planet|Color")
+	TObjectPtr<UTextureCube> BiomeCubemap;
+
+	/**
+	 * 装了 BiomeCubemap 的材质实例。**运行期 VoxelMaterial 指向的就是它**。
+	 *
+	 * 它必须当独立字段持有：渲染器只在自己的动态设置里存一个弱指针，
+	 * 没有强引用的话这张 MID 会在下一次 GC 被收走。
+	 */
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> BiomeMaterial;
+
+	/**
+	 * 用户原本设的 VoxelMaterial（MID 的父材质）。从 VoxelMaterial 捕获。
+	 *
+	 * 存它是为了两件事：重建时不必回头去猜用户想用的是哪个材质，
+	 * 以及保存前把 VoxelMaterial 换回它 —— 瞬态对象不进包，留着 MID
+	 * 会被写成一个空引用。
+	 */
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInterface> BaseVoxelMaterial;
+
 	/**
 	 * 行星存档资产的路径：`/Game/Saves/PlanetVoxel/<地图名>/<Actor 标签>`。
 	 *
@@ -240,13 +313,26 @@ public:
 	 */
 	static FString MakePlanetSaveObjectAssetPath(const FString& MapName, const FString& ActorLabel);
 
+	/**
+	 * 把 MID 一路剥到能当父材质的那个（Material / MaterialInstanceConstant）。
+	 *
+	 * 存在的唯一理由：`UMaterialInstance::SetParentInternal` 只接受
+	 * `UMaterial` 和 `UMaterialInstanceConstant`，传 MID 过去会被**静默拒绝**，
+	 * 新 MID 的 `Parent` 留在 nullptr。而 PIE 复制关卡时，`VoxelMaterial`
+	 * （非 Transient）会被拷成上一轮 MID 的副本，`BaseVoxelMaterial`
+	 * （Transient）却被清空 —— 于是「用户设的材质」读出来就是那个 MID。
+	 * 不剥的话：新 MID 父为空 → 插件建 chunk 材质时 `ParentInstance->Parent`
+	 * 为 null → 回退默认材质 → `VoxelRenderUtilities.cpp:518` 的 ensure，
+	 * 整颗星退回灰色。
+	 *
+	 * 传 nullptr 或非 MID 时原样返回；剥到空也返回 nullptr，由调用方决定兜底。
+	 * 纯函数，便于无头测试。
+	 */
+	static UMaterialInterface* StripMaterialInstanceDynamic(UMaterialInterface* Candidate);
+
 	/** 编辑模式下的表面网格基线。构造时自动创建。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet|Edit")
 	TObjectPtr<UPlanetSurfaceGridComponent> EditGrid;
-
-	/** 编辑后多久写一次 SaveObject（秒，默认 2；0 = 只在 EndPlay 保存）。 */
-	UPROPERTY(EditAnywhere, Category = "Planet|Edit", meta = (ClampMin = "0.0"))
-	float SaveDebounceSeconds = 2.f;
 
 private:
 	/**
@@ -276,14 +362,53 @@ private:
 	/** 对**我们自己的**、会影响生成器或世界尺寸的设置做 FNV-1a 哈希。 */
 	uint64 ComputeParamsHash() const;
 
+	/**
+	 * 烘焙 biome cubemap 并把材质实例装进 VoxelMaterial。
+	 *
+	 * @param bForceBake true = 无条件重烘（重建行星时用：地形参数变了，色也跟着变）；
+	 *                   false = 只在没有贴图或分辨率变了时重烘（调混合权重这类编辑用）。
+	 * @return VoxelMaterial 这次**被换掉**了吗。调用方据此决定要不要通知渲染器
+	 *         立刻换材质（ApplyNewMaterials）；世界还没建时由 CreateWorld 自己读。
+	 */
+	bool InstallBiomeMaterial(bool bForceBake);
+
+	/** 上次烘焙用的分辨率。-1 = 从没烘过。 */
+	int32 BakedCubemapResolution = -1;
+
+	/** PreSave 把 VoxelMaterial 换回 BaseVoxelMaterial 了，PostSaveRoot 负责换回来。 */
+	bool bRestoreVoxelMaterialAfterSave = false;
+
+	/** 烘焙失败的警告只刷一次。 */
+	bool bLoggedBiomeBakeFailure = false;
+
 	/** 上次 RebuildPlanet 构建世界所用的哈希。哈希不变则跳过重建。 */
 	uint64 LastParamsHash = 0;
 
-	/** 防抖保存的定时器。 */
-	FTimerHandle SaveTimerHandle;
+	/**
+	 * 后台存档任务；无效 = 没有在跑。
+	 *
+	 * 存成 TFuture 是为了 EndPlay 能先等它跑完再做同步兜底 —— 否则退出时
+	 * 会有一份「读到一半」的任务和一次同步 GetSave 同时压在体素数据上。
+	 *
+	 * 结果是 TSharedPtr 而不是 TUniquePtr：TFuture::Get() 返回的是 const 引用
+	 * （Async/Future.h:226），独占指针取不出来，共享指针可以拷一份。
+	 */
+	TFuture<TSharedPtr<FVoxelCompressedWorldSave>> SaveJob;
+
+	/** 轮询后台任务是否完成（0.05 s 一跳）。完成后自清。 */
+	FTimerHandle SavePollTimerHandle;
+
+	/** 存档进行中又来了编辑：这次任务回来后立刻再存一次。 */
+	bool bSavePending = false;
 
 	/** 上次保存之后是否又有编辑。只有 NotifyVoxelEdited 会置位。 */
 	bool bHasUnsavedEdits = false;
+
+	/** 后台任务结束后在游戏线程收尾：赋值 SaveObject、标脏、落盘。 */
+	void FinishSaveJob();
+
+	/** 定时器回调：任务就绪就收尾，并处理存档期间攒下的新编辑。 */
+	void PollSaveJob();
 
 	/** 缺 SaveObject 的警告只刷一次，别让每次编辑都往日志里灌。 */
 	bool bLoggedMissingSaveObject = false;
@@ -302,10 +427,15 @@ private:
 	void EnsureSaveObject();
 
 	/**
-	 * 把 SaveObject 所在的资产包写到磁盘。
+	 * 把 SaveObject 所在的资产包写到磁盘。**同步**：写完才返回。
 	 *
 	 * 编辑器里的 PIE 只把编辑写进内存中的资产副本，不调用这个函数的话退出
 	 * 编辑器后编辑就没了（用户报的「第二次运行什么也没有」的另一半原因）。
+	 *
+	 * 不用 SAVE_Async：那个标志只把**文件写入**挪到写入器线程，序列化仍在调用
+	 * 线程上，省下的不是主要那块；而异步写不保证在 PIE 进程退出前完成，代价是
+	 * 「最后一次编辑可能丢」。存档现在一次编辑会话只有一笔（退出编辑模式 /
+	 * 退出 PIE），同步写的停顿落在离散动作上，看不出来。
 	 *
 	 * @return 真的写盘为 true；SaveObject 为空、包是瞬态的（PIE 临时副本）、
 	 *         或 SavePackage 失败时为 false。

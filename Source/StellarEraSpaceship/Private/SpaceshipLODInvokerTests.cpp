@@ -4,7 +4,7 @@
 //   1. 行星调用器把整颗星压在 LOD 8（叶块 8.2 公里）；
 //   2. 飞船只有 LOD 1 细气泡（80 米），与 LOD 8 之间落差 7 级；
 //   3. 插件在旧块被替代后还要淡出 2 × ChunksDitheringDuration。
-// 这里锁住第 2 段：细气泡 + 两个中间环，且环只做 LOD、不碰碰撞。
+// 这里锁住第 2 段：细气泡 + 三个中间环，且环只做 LOD、不碰碰撞。
 //
 // 断言的是构造函数产出的 CDO 配置，不是「能编译」。
 // 运行期生成的是 BP_SpaceshipPawn_C，所以直接加载蓝图再查组件。
@@ -44,10 +44,12 @@ bool FStellarEraSpaceshipLODInvokerTest::RunTest(const FString& Parameters)
 	const UVoxelInvokerWithPredictionComponent* Fine = FindInvoker(TEXT("VoxelInvoker"));
 	const UVoxelInvokerWithPredictionComponent* Ring3 = FindInvoker(TEXT("VoxelInvokerLOD3"));
 	const UVoxelInvokerWithPredictionComponent* Ring5 = FindInvoker(TEXT("VoxelInvokerLOD5"));
+	const UVoxelInvokerWithPredictionComponent* Ring6 = FindInvoker(TEXT("VoxelInvokerLOD6"));
 
 	if (!TestNotNull(TEXT("细气泡 VoxelInvoker"), Fine) ||
 		!TestNotNull(TEXT("中间环 VoxelInvokerLOD3"), Ring3) ||
-		!TestNotNull(TEXT("中间环 VoxelInvokerLOD5"), Ring5))
+		!TestNotNull(TEXT("中间环 VoxelInvokerLOD5"), Ring5) ||
+		!TestNotNull(TEXT("过渡环 VoxelInvokerLOD6"), Ring6))
 	{
 		return false;
 	}
@@ -62,6 +64,8 @@ bool FStellarEraSpaceshipLODInvokerTest::RunTest(const FString& Parameters)
 		Cast<UAlwaysLocalVoxelInvokerWithPredictionComponent>(Ring3) != nullptr);
 	TestTrue(TEXT("LOD5 环是 AlwaysLocal 类"),
 		Cast<UAlwaysLocalVoxelInvokerWithPredictionComponent>(Ring5) != nullptr);
+	TestTrue(TEXT("LOD6 环是 AlwaysLocal 类"),
+		Cast<UAlwaysLocalVoxelInvokerWithPredictionComponent>(Ring6) != nullptr);
 
 	// 细气泡：LOD 1 @ 80 米、碰撞 30 米。PredictionTime 不能再大 ——
 	// 门控上限 0.6 km/s = 6e4 cm/s，× 0.03 s = 18 米，仍小于两个范围。
@@ -91,6 +95,16 @@ bool FStellarEraSpaceshipLODInvokerTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("LOD5 环启用预测"), Ring5->bEnablePrediction);
 	TestEqual(TEXT("LOD5 环 PredictionTime（秒）"), Ring5->PredictionTime, 0.2f, 1e-4f);
 
+	// 过渡环：叶块 1.02 公里（行星 3 体素 50 cm），补 LOD5 与行星 MaxLOD 之间那一档。
+	TestEqual(TEXT("LOD6 环 LODToSet"), Ring6->LODToSet, 6);
+	TestEqual(TEXT("LOD6 环 LODRange（cm）"), Ring6->LODRange, 1000000.f);
+	TestFalse(TEXT("LOD6 环不负责碰撞"), Ring6->bUseForCollisions);
+	TestFalse(TEXT("LOD6 环不负责导航"), Ring6->bUseForNavmesh);
+	TestFalse(TEXT("LOD6 环不接事件"), Ring6->bUseForEvents);
+	TestFalse(TEXT("LOD6 环不参与优先级"), Ring6->bUseForPriorities);
+	TestTrue(TEXT("LOD6 环启用预测"), Ring6->bEnablePrediction);
+	TestEqual(TEXT("LOD6 环 PredictionTime（秒）"), Ring6->PredictionTime, 0.2f, 1e-4f);
+
 	// 高速门控：默认 0.6 / 0.2 km/s + 0.5 秒冷却。门控只关细气泡的碰撞
 	// （bUseForCollisions），LOD 三档始终开着 —— 关掉 LOD 会让星球变糊。
 	// 这三个属性在 protected 区（只给蓝图调），测试用反射读 CDO。
@@ -118,6 +132,8 @@ bool FStellarEraSpaceshipLODInvokerTest::RunTest(const FString& Parameters)
 		SuspendSpeedCmPerSecond * Ring3->PredictionTime <= Ring3->LODRange);
 	TestTrue(TEXT("LOD5 环预测偏移 ≤ LODRange"),
 		SuspendSpeedCmPerSecond * Ring5->PredictionTime <= Ring5->LODRange);
+	TestTrue(TEXT("LOD6 环预测偏移 ≤ LODRange"),
+		SuspendSpeedCmPerSecond * Ring6->PredictionTime <= Ring6->LODRange);
 
 	return true;
 }

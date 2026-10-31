@@ -200,6 +200,23 @@ ASpaceshipPawn::ASpaceshipPawn()
 	VoxelInvokerLOD5->bEnablePrediction = true;
 	VoxelInvokerLOD5->PredictionTime = 0.2f;
 
+	// 1 公里外的过渡环，与星图相机同一档：叶块 1.02 公里（行星 3 体素 50 cm）。
+	// 行星的 MaxLOD 把全星压到 LOD 7（2.05 公里）之后，LOD5（512 米）到它就只差
+	// 这一档。范围推到地平线之外（20 公里半径的星，1 公里高度地平线 6.4 公里），
+	// 台阶落到看不见的地方，不会横在画面中间。
+	// 预测约束：3.6e5 厘米/秒 × 0.2 s = 72000 ≤ 1000000（7%），留得出余量。
+	VoxelInvokerLOD6 = CreateDefaultSubobject<UAlwaysLocalVoxelInvokerWithPredictionComponent>(TEXT("VoxelInvokerLOD6"));
+	VoxelInvokerLOD6->SetupAttachment(Hull);
+	VoxelInvokerLOD6->bUseForLOD = true;
+	VoxelInvokerLOD6->LODToSet = 6;
+	VoxelInvokerLOD6->LODRange = 1000000.f;
+	VoxelInvokerLOD6->bUseForCollisions = false;
+	VoxelInvokerLOD6->bUseForNavmesh = false;
+	VoxelInvokerLOD6->bUseForEvents = false;
+	VoxelInvokerLOD6->bUseForPriorities = false;
+	VoxelInvokerLOD6->bEnablePrediction = true;
+	VoxelInvokerLOD6->PredictionTime = 0.2f;
+
 	// 没有移动组件：位移完全归 N 体求解器（见类注释）。曾经的 UFloatingPawnMovement
 	// 会每帧 MoveUpdatedComponent(Velocity * dt)，留着它就和求解器的写回抢着改位置
 	// —— 而且「不喂它输入」也挡不住，它照样按残留速度搬人。
@@ -389,6 +406,7 @@ void ASpaceshipPawn::ApplyViewpointInvokerState()
 	VoxelViewpointInvokers::SetEnabled(VoxelInvoker, bIsViewpoint);
 	VoxelViewpointInvokers::SetEnabled(VoxelInvokerLOD3, bIsViewpoint);
 	VoxelViewpointInvokers::SetEnabled(VoxelInvokerLOD5, bIsViewpoint);
+	VoxelViewpointInvokers::SetEnabled(VoxelInvokerLOD6, bIsViewpoint);
 }
 
 void ASpaceshipPawn::Tick(float DeltaSeconds)
@@ -956,8 +974,16 @@ float ASpaceshipPawn::ComputeSpeedLimitTaper(double SpeedCmPerSecond, double Max
 
 float ASpaceshipPawn::ComputeAtmosphereDensityRatio(
 	double AltitudeCm, double SurfaceRadiusCm,
-	double ScaleHeightRatio, double AtmosphereHeightRatio)
+	double ScaleHeightRatio, double AtmosphereHeightRatio,
+	bool bAtmosphereEnabled)
 {
+	// 总开关关掉 = 这颗行星没有大气：密度恒为 0，阻力与 HUD 的「大气」提示
+	// 都随之消失。放在参数校验之前——开关状态与几何参数无关。
+	if (!bAtmosphereEnabled)
+	{
+		return 0.f;
+	}
+
 	// 参数非法 = 这颗行星没有可用的大气模型：宁可不加阻力，也不要除零或
 	// exp 溢出把飞船弹飞。
 	if (SurfaceRadiusCm <= 0.0 || ScaleHeightRatio <= 0.0 || AtmosphereHeightRatio <= 0.0)
@@ -1024,7 +1050,8 @@ float ASpaceshipPawn::GetAtmosphereDensityRatio() const
 
 	return ComputeAtmosphereDensityRatio(AltitudeCm, SurfaceRadiusCm,
 		double(Atmosphere->RayleighScaleHeightRatio),
-		double(Atmosphere->AtmosphereHeightRatio));
+		double(Atmosphere->AtmosphereHeightRatio),
+		Atmosphere->bAtmosphereEnabled);
 }
 
 FVector ASpaceshipPawn::GetAtmosphereDragAccelerationWorldCmPerS2() const

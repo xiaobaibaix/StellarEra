@@ -120,6 +120,19 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet")
 	TObjectPtr<UVoxelSimpleInvokerComponent> VoxelInvoker;
 
+	/**
+	 * 200 米之外的过渡环，只做 LOD。
+	 *
+	 * 没有它们的话，角色身边 200 米以内是 LOD 0，再外面就是行星自带 Invoker 的
+	 * OrbitLOD（这颗星 4 公里一块），中间一档都没有 —— 两档分辨率的表面会互相
+	 * 穿插，看起来就是「大片三角面横穿地形」。
+	 *
+	 * **不要开碰撞**：碰撞那条细分路径不读 LODToSet，锁死 Height 0，开在公里级的
+	 * 盒子上会直接把块数顶爆。
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet")
+	TArray<TObjectPtr<UVoxelSimpleInvokerComponent>> FarVoxelInvokers;
+
 	/** 行星编辑模式的状态与执行。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet")
 	TObjectPtr<UPlanetEditComponent> PlanetEdit;

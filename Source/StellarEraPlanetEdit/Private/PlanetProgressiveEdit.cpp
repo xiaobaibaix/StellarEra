@@ -14,6 +14,131 @@ namespace
 	const FName ProgressiveEditLockName(TEXT("PlanetProgressiveEdit"));
 }
 
+void FPlanetProgressiveEdit::ResetState()
+{
+	Ops.Reset();
+	Chunks.Reset();
+	NextChunkIndex = 0;
+	FullBounds = FPlanetEditVoxelBox();
+	AppliedBounds = FPlanetEditVoxelBox();
+	LastChunkBounds = FPlanetEditVoxelBox();
+	bChangedAnything.store(false, std::memory_order_relaxed);
+}
+
+FPlanetEditOp FPlanetProgressiveEdit::MakeOp(const FPlanetEditRequest& Request)
+{
+	FPlanetEditOp Op;
+	Op.Shape = Request.Shape;
+	Op.CenterVoxels = Request.CenterVoxels;
+	Op.RadiusVoxels = Request.RadiusVoxels;
+
+	if (Request.Shape == EPlanetBrushShape::Sphere)
+	{
+		PlanetProgressiveKernel::GetSphereThresholds(
+			Request.RadiusVoxels, Op.SquaredRadiusPlus2, Op.SquaredRadiusMinus2);
+		Op.Bounds = PlanetEditBrush::MakeSphereEditVoxelBox(
+			Request.CenterVoxels, Request.RadiusVoxels);
+	}
+	else
+	{
+		// 与 PlanetBrushApplicator 同一套：先按四舍五入的体素中心取两端都含的盒，
+		// 再换成右端开。方块没有半径的概念，上面留的就是 0。
+		Op.SquaredRadiusPlus2 = 0.f;
+		Op.SquaredRadiusMinus2 = 0.f;
+		const FPlanetEditBox Box = PlanetEditBrush::MakeBox(
+			Request.CenterVoxels, Request.SizeVoxels,
+			Request.MinSizeVoxels, Request.MaxSizeVoxels);
+		Op.Bounds = PlanetEditBrush::MakeVoxelBox(Box);
+	}
+
+	return Op;
+}
+
+bool FPlanetProgressiveEdit::MakeRequest(
+	AVoxelPlanetActor* const InPlanet,
+	const FVector& CenterWorld,
+	const EPlanetBrushShape InShape,
+	const int32 InSizeVoxels,
+	const int32 InMinSizeVoxels,
+	const int32 InMaxSizeVoxels,
+	const bool bInPlace,
+	const int32 ChunkSizeVoxels,
+	const bool bInMultiThreaded,
+	FPlanetEditRequest& OutRequest)
+{
+	if (!IsValid(InPlanet) || !InPlanet->IsCreated())
+	{
+		return false;
+	}
+
+	// 世界 → 体素：与 UVoxelSphereTools 内部同一个函数（GetRealPosition 就是
+	// VoxelWorld->GlobalToLocalFloat），不自己除 VoxelSize —— 那会漏掉缩放。
+	const FVoxelVector RealPosition =
+		FVoxelToolHelpers::GetRealPosition(InPlanet, CenterWorld, /*bConvertToVoxelSpace=*/true);
+
+	OutRequest = FPlanetEditRequest();
+	OutRequest.Shape = InShape;
+	OutRequest.CenterVoxels = FVector(RealPosition.X, RealPosition.Y, RealPosition.Z);
+	OutRequest.SizeVoxels = InSizeVoxels;
+	OutRequest.MinSizeVoxels = InMinSizeVoxels;
+	OutRequest.MaxSizeVoxels = InMaxSizeVoxels;
+	OutRequest.bPlace = bInPlace;
+	OutRequest.bMultiThreaded = bInMultiThreaded;
+	OutRequest.ChunkSizeVoxels = ChunkSizeVoxels;
+
+	if (InShape == EPlanetBrushShape::Sphere)
+	{
+		// 半径和包围盒都按插件那一套算：半径先夹到区间的半边长（厘米），
+		// 再除 VoxelSize 换到体素。
+		const float VoxelSize = FMath::Max(InPlanet->VoxelSize, 1.f);
+		const float RadiusCm = PlanetEditBrush::GetHalfExtentCm(
+			InSizeVoxels, VoxelSize, InMinSizeVoxels, InMaxSizeVoxels);
+		OutRequest.RadiusVoxels = FVoxelToolHelpers::GetRealDistance(
+			InPlanet, RadiusCm, /*bConvertToVoxelSpace=*/true);
+	}
+	else
+	{
+		OutRequest.RadiusVoxels = 0.f;
+	}
+
+	return true;
+}
+
+bool FPlanetProgressiveEdit::SetupFromRequest(const FPlanetEditRequest& Request)
+{
+	ResetState();
+	Shape = Request.Shape;
+	bPlace = Request.bPlace;
+	bMultiThreaded = Request.bMultiThreaded;
+	SizeVoxels = Request.SizeVoxels;
+
+	const FPlanetEditOp Op = MakeOp(Request);
+	if (!PlanetEditBrush::IsValidVoxelBox(Op.Bounds))
+	{
+		return false;
+	}
+
+	TArray<FPlanetEditVoxelBox> Boxes;
+	PlanetEditBrush::SplitVoxelBoxIntoChunks(Op.Bounds, Request.ChunkSizeVoxels, Boxes);
+	if (Boxes.Num() == 0)
+	{
+		return false;
+	}
+
+	Ops.Add(Op);
+	FullBounds = Op.Bounds;
+
+	Chunks.Reserve(Boxes.Num());
+	for (const FPlanetEditVoxelBox& Box : Boxes)
+	{
+		FPlanetEditChunk& Chunk = Chunks.AddDefaulted_GetRef();
+		Chunk.Bounds = Box;
+		Chunk.NumOps = Ops.Num();  // 此刻只有一个 op
+	}
+
+	return true;
+}
+
 bool FPlanetProgressiveEdit::Setup(
 	AVoxelPlanetActor* const InPlanet,
 	const FVector& CenterWorld,
@@ -26,62 +151,16 @@ bool FPlanetProgressiveEdit::Setup(
 	const bool bInMultiThreaded)
 {
 	Planet.Reset();
-	Chunks.Reset();
-	NextChunkIndex = 0;
-	AppliedBounds = FPlanetEditVoxelBox();
-	LastChunkBounds = FPlanetEditVoxelBox();
-	bChangedAnything.store(false, std::memory_order_relaxed);
 
-	if (!IsValid(InPlanet) || !InPlanet->IsCreated())
+	FPlanetEditRequest Request;
+	if (!MakeRequest(InPlanet, CenterWorld, InShape, InSizeVoxels, InMinSizeVoxels,
+			InMaxSizeVoxels, bInPlace, ChunkSizeVoxels, bInMultiThreaded, Request))
 	{
+		ResetState();
 		return false;
 	}
 
-	Shape = InShape;
-	bPlace = bInPlace;
-	bMultiThreaded = bInMultiThreaded;
-	SizeVoxels = InSizeVoxels;
-
-	// 世界 → 体素：与 UVoxelSphereTools 内部同一个函数（GetRealPosition 就是
-	// VoxelWorld->GlobalToLocalFloat），不自己除 VoxelSize —— 那会漏掉缩放。
-	const FVoxelVector RealPosition =
-		FVoxelToolHelpers::GetRealPosition(InPlanet, CenterWorld, /*bConvertToVoxelSpace=*/true);
-	CenterVoxels = FVector(RealPosition.X, RealPosition.Y, RealPosition.Z);
-
-	if (Shape == EPlanetBrushShape::Sphere)
-	{
-		// 半径和包围盒都按插件那一套算：半径先夹到区间的半边长（厘米），
-		// 再除 VoxelSize 换到体素。
-		const float VoxelSize = FMath::Max(InPlanet->VoxelSize, 1.f);
-		const float RadiusCm = PlanetEditBrush::GetHalfExtentCm(
-			InSizeVoxels, VoxelSize, InMinSizeVoxels, InMaxSizeVoxels);
-		RadiusVoxels = FVoxelToolHelpers::GetRealDistance(
-			InPlanet, RadiusCm, /*bConvertToVoxelSpace=*/true);
-
-		FullBounds = PlanetEditBrush::MakeSphereEditVoxelBox(CenterVoxels, RadiusVoxels);
-		PlanetProgressiveKernel::GetSphereThresholds(
-			RadiusVoxels, SquaredRadiusPlus2, SquaredRadiusMinus2);
-	}
-	else
-	{
-		// 与 PlanetBrushApplicator 同一套：先按四舍五入的体素中心取两端都含的盒，
-		// 再换成右端开。方块没有半径的概念，这里只留 0 免得误用。
-		RadiusVoxels = 0.f;
-		SquaredRadiusPlus2 = 0.f;
-		SquaredRadiusMinus2 = 0.f;
-
-		const FPlanetEditBox Box = PlanetEditBrush::MakeBox(
-			CenterVoxels, InSizeVoxels, InMinSizeVoxels, InMaxSizeVoxels);
-		FullBounds = PlanetEditBrush::MakeVoxelBox(Box);
-	}
-
-	if (!PlanetEditBrush::IsValidVoxelBox(FullBounds))
-	{
-		return false;
-	}
-
-	PlanetEditBrush::SplitVoxelBoxIntoChunks(FullBounds, ChunkSizeVoxels, Chunks);
-	if (Chunks.Num() == 0)
+	if (!SetupFromRequest(Request))
 	{
 		return false;
 	}
@@ -121,7 +200,7 @@ bool FPlanetProgressiveEdit::ApplyAll()
 	return DidChangeAnything();
 }
 
-void FPlanetProgressiveEdit::ApplyChunk(const FPlanetEditVoxelBox& Chunk)
+void FPlanetProgressiveEdit::ApplyChunk(const FPlanetEditChunk& Chunk)
 {
 	AVoxelPlanetActor* const Target = Planet.Get();
 	if (!IsValid(Target))
@@ -130,66 +209,39 @@ void FPlanetProgressiveEdit::ApplyChunk(const FPlanetEditVoxelBox& Chunk)
 	}
 
 	FVoxelData& WorldData = Target->GetData();
-	const FVoxelIntBox ChunkBounds(Chunk.Min, Chunk.MaxExclusive);
+	const FVoxelIntBox ChunkBounds(Chunk.Bounds.Min, Chunk.Bounds.MaxExclusive);
+
+	// 块只认自己创建时的前缀。夹一下只是防御：NumOps 由 TryMerge 在游戏线程写，
+	// 不会超过 Ops.Num()。
+	const int32 NumOps = FMath::Clamp(Chunk.NumOps, 0, Ops.Num());
 
 	// 写锁只围住数据写入，渲染刷新在锁外 —— 与插件工具完全一致
 	//（VoxelGeneratedTools.h 的 GENERATED_TOOL_CALL）。
 	{
 		FVoxelWriteScopeLock Lock(WorldData, ChunkBounds, ProgressiveEditLockName);
 
-		// 谓词只读格子自己的坐标与当前值，不依赖邻格，所以「分块写」与
-		//「一次写完」逐格同结果（块不重叠且并集等于整盒，单测钉住）。
 		std::atomic<bool>& Changed = bChangedAnything;
 		const bool bAdd = bPlace;
+		// 捕获裸指针 + 数量：lambda 跑在任务图线程上，不能碰可能被重分配的容器。
+		// op 只在游戏线程的 TryMerge 里增长，与 ApplyChunk 不重叠。
+		const FPlanetEditOp* const OpData = Ops.GetData();
 
-		if (Shape == EPlanetBrushShape::Sphere)
-		{
-			const FVector Center = CenterVoxels;
-			const float Radius = RadiusVoxels;
-			const float Plus2 = SquaredRadiusPlus2;
-			const float Minus2 = SquaredRadiusMinus2;
+		WorldData.ParallelSet<FVoxelValue>(ChunkBounds,
+			[OpData, NumOps, bAdd, &Changed](int32 X, int32 Y, int32 Z, FVoxelValue& Value)
+			{
+				const FVoxelValue NewValue = PlanetProgressiveKernel::EvaluateOps(
+					OpData, NumOps, X, Y, Z, Value, bAdd);
 
-			WorldData.ParallelSet<FVoxelValue>(ChunkBounds,
-				[Center, Radius, Plus2, Minus2, bAdd, &Changed](
-					int32 X, int32 Y, int32 Z, FVoxelValue& Value)
+				if (NewValue != Value)
 				{
-					const float SquaredDistance =
-						PlanetProgressiveKernel::SquaredDistanceTo(Center, X, Y, Z);
-					const FVoxelValue NewValue = PlanetProgressiveKernel::EvaluateSphereValue(
-						Radius, Plus2, Minus2, SquaredDistance, Value, bAdd);
-
-					if (NewValue != Value)
-					{
-						Value = NewValue;
-						// relaxed 就够：这里只要「最终可见」，不参与任何同步。
-						Changed.store(true, std::memory_order_relaxed);
-					}
-				},
-				/*bForceSingleThread=*/!bMultiThreaded);
-		}
-		else
-		{
-			// 贴边判定用整笔编辑的盒子，不是本块的盒子（见内核头文件）。
-			const FIntVector BoxMin = FullBounds.Min;
-			const FIntVector BoxMaxExclusive = FullBounds.MaxExclusive;
-
-			WorldData.ParallelSet<FVoxelValue>(ChunkBounds,
-				[BoxMin, BoxMaxExclusive, bAdd, &Changed](
-					int32 X, int32 Y, int32 Z, FVoxelValue& Value)
-				{
-					const FVoxelValue NewValue = PlanetProgressiveKernel::EvaluateBoxValue(
-						FIntVector(X, Y, Z), BoxMin, BoxMaxExclusive, Value, bAdd);
-
-					if (NewValue != Value)
-					{
-						Value = NewValue;
-						Changed.store(true, std::memory_order_relaxed);
-					}
-				},
-				/*bForceSingleThread=*/!bMultiThreaded);
-		}
+					Value = NewValue;
+					// relaxed 就够：这里只要「最终可见」，不参与任何同步。
+					Changed.store(true, std::memory_order_relaxed);
+				}
+			},
+			/*bForceSingleThread=*/!bMultiThreaded);
 	}
 
-	LastChunkBounds = Chunk;
-	AppliedBounds = PlanetEditBrush::UnionVoxelBox(AppliedBounds, Chunk);
+	LastChunkBounds = Chunk.Bounds;
+	AppliedBounds = PlanetEditBrush::UnionVoxelBox(AppliedBounds, Chunk.Bounds);
 }

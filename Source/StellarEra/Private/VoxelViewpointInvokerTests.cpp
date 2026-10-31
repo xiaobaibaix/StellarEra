@@ -107,7 +107,8 @@ bool FStellarEraInvokerViewpointShipTest::RunTest(const FString& Parameters)
 	}
 
 	const TArray<UVoxelInvokerComponentBase*> Invokers = CollectInvokers(Ship);
-	if (!TestEqual(TEXT("飞船的调用器个数"), Invokers.Num(), 3))
+	// 细气泡 + LOD3 + LOD5 + LOD6 过渡环。
+	if (!TestEqual(TEXT("飞船的调用器个数"), Invokers.Num(), 4))
 	{
 		return false;
 	}
@@ -171,10 +172,24 @@ bool FStellarEraInvokerViewpointCharacterTest::RunTest(const FString& Parameters
 		return false;
 	}
 
+	// 1 个贴身环（LOD 0 @ 200 米 + 碰撞）+ 3 个过渡环（LOD 2/4/6）。
+	// 过渡环是后加的，但它们必须与贴身环同进同退 —— 下面每一条 AllEnabled /
+	// AllDisabled 都是对**全部 4 个**求值，漏掉任何一个都会在这里挂掉。
 	const TArray<UVoxelInvokerComponentBase*> Invokers = CollectInvokers(Character);
-	if (!TestEqual(TEXT("角色的调用器个数"), Invokers.Num(), 1))
+	if (!TestEqual(TEXT("角色的调用器个数"), Invokers.Num(), 4))
 	{
 		return false;
+	}
+
+	// 过渡环只能做 LOD：碰撞那条细分路径不读 LODToSet、锁死 Height 0，
+	// 开在公里级盒子上会把块数直接顶爆。这条断言是那道约束的守门人。
+	for (const UVoxelInvokerComponentBase* Invoker : Invokers)
+	{
+		const UVoxelSimpleInvokerComponent* Simple = Cast<UVoxelSimpleInvokerComponent>(Invoker);
+		if (Simple && Simple->LODToSet > 0)
+		{
+			TestFalse(TEXT("过渡环不参与碰撞"), Simple->bUseForCollisions);
+		}
 	}
 
 	// 不挂接 + 非视点 → 关
@@ -227,16 +242,16 @@ bool FStellarEraInvokerViewpointStarMapTest::RunTest(const FString& Parameters)
 	}
 
 	const TArray<UVoxelInvokerComponentBase*> Invokers = CollectInvokers(Camera);
-	if (!TestEqual(TEXT("星图相机的调用器个数"), Invokers.Num(), 3))
+	if (!TestEqual(TEXT("星图相机的调用器个数"), Invokers.Num(), 4))
 	{
 		return false;
 	}
 
 	Camera->SetViewpointInvokersActive(false);
-	TestTrue(TEXT("非视点 → 三档一起关闭"), AllDisabled(Invokers));
+	TestTrue(TEXT("非视点 → 四档一起关闭"), AllDisabled(Invokers));
 
 	Camera->SetViewpointInvokersActive(true);
-	TestTrue(TEXT("视点 → 三档一起打开"), AllEnabled(Invokers));
+	TestTrue(TEXT("视点 → 四档一起打开"), AllEnabled(Invokers));
 
 	return true;
 }

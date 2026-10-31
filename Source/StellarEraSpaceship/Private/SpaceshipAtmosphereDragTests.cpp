@@ -48,6 +48,15 @@ bool FStellarEraAtmosphereDensityTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("壳外 = 0"),
 		FMath::IsNearlyEqual(Density(ShellHeightCm + 1.0), 0.f));
 
+	// 大气总开关：关掉后海平面也不能有密度，否则飞船进大气仍会被减速。
+	TestTrue(TEXT("总开关关闭 = 密度 0"),
+		FMath::IsNearlyEqual(ASpaceshipPawn::ComputeAtmosphereDensityRatio(
+			0.0, SurfaceRadiusCm, ScaleHeightRatio, ShellHeightRatio, false), 0.f));
+	// 默认参数仍是启用，既有调用点语义不变。
+	TestTrue(TEXT("默认参数 = 启用"),
+		FMath::IsNearlyEqual(ASpaceshipPawn::ComputeAtmosphereDensityRatio(
+			0.0, SurfaceRadiusCm, ScaleHeightRatio, ShellHeightRatio), 1.f, 1.0e-5f));
+
 	// 参数非法时宁可不加阻力，也不能除零 / exp 溢出。
 	TestTrue(TEXT("表面半径非法 = 0"),
 		FMath::IsNearlyEqual(ASpaceshipPawn::ComputeAtmosphereDensityRatio(
