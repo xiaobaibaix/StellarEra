@@ -75,3 +75,33 @@ float PlanetProgressiveKernel::SquaredDistanceTo(
 		FVector(X - CenterVoxels.X, Y - CenterVoxels.Y, Z - CenterVoxels.Z).SizeSquared();
 	return SquaredDistance;
 }
+
+FVoxelValue PlanetProgressiveKernel::EvaluateOps(
+	const FPlanetEditOp* const Ops, const int32 NumOps,
+	const int32 X, const int32 Y, const int32 Z,
+	FVoxelValue CurrentValue, const bool bPlace)
+{
+	if (Ops == nullptr)
+	{
+		return CurrentValue;
+	}
+
+	for (int32 Index = 0; Index < NumOps; ++Index)
+	{
+		const FPlanetEditOp& Op = Ops[Index];
+		if (Op.Shape == EPlanetBrushShape::Sphere)
+		{
+			CurrentValue = EvaluateSphereValue(
+				Op.RadiusVoxels, Op.SquaredRadiusPlus2, Op.SquaredRadiusMinus2,
+				SquaredDistanceTo(Op.CenterVoxels, X, Y, Z), CurrentValue, bPlace);
+		}
+		else
+		{
+			CurrentValue = EvaluateBoxValue(
+				FIntVector(X, Y, Z), Op.Bounds.Min, Op.Bounds.MaxExclusive,
+				CurrentValue, bPlace);
+		}
+	}
+
+	return CurrentValue;
+}

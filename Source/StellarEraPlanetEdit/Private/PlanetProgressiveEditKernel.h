@@ -13,6 +13,7 @@
 #include "CoreMinimal.h"
 #include "VoxelIntBox.h"
 #include "VoxelValue.h"
+#include "PlanetProgressiveEdit.h"
 
 namespace PlanetProgressiveKernel
 {
@@ -52,6 +53,22 @@ namespace PlanetProgressiveKernel
 		const FIntVector& Voxel,
 		const FIntVector& BoxMin,
 		const FIntVector& BoxMaxExclusive,
+		FVoxelValue CurrentValue,
+		bool bPlace);
+
+	/**
+	 * 对一格按顺序应用 Ops[0 .. NumOps-1]，返回最终值。
+	 *
+	 * 顺序就是语义：方块笔刷的贴边判定读「当前值」，所以必须与依次执行
+	 * NumOps 次独立编辑逐格完全一致。
+	 *
+	 * 传裸指针 + 数量而不是 TArray：调用方在 ParallelSet 的 lambda 里用，
+	 * 那里不能碰可能被重分配的容器。
+	 */
+	FVoxelValue EvaluateOps(
+		const FPlanetEditOp* Ops,
+		int32 NumOps,
+		int32 X, int32 Y, int32 Z,
 		FVoxelValue CurrentValue,
 		bool bPlace);
 

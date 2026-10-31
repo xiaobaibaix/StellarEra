@@ -9,6 +9,7 @@
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "PlanetEditBrush.h"
+#include "PlanetProgressiveEdit.h"
 #include "PlanetProgressiveEditKernel.h"
 #include "VoxelIntBox.h"
 #include "VoxelValue.h"
@@ -520,6 +521,140 @@ bool FStellarEraProgressiveKernelTest::RunTest(const FString& Parameters)
 				Radius, SquaredRadiusPlus2, SquaredRadiusMinus2, FMath::Square(Radius + 3),
 				Untouched, false) == Untouched);
 	}
+
+	return true;
+}
+
+// 单 op 的 EvaluateOps 必须与直接调 EvaluateSphereValue / EvaluateBoxValue 逐格同值。
+//
+// 这条钉的是重构的第一步：把「逐格求值」从 ApplyChunk 里抽出来时不改任何一格的结果。
+// 位置用一个非整数的球心，好让 ±2 边界落在格子中间，边界两侧都被走到。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraProgressiveOpsKernelTest,
+	"StellarEra.Planet.Editor.Kernel.OpsMatchSingle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraProgressiveOpsKernelTest::RunTest(const FString& Parameters)
+{
+	const FVoxelValue Seeds[] = {
+		FVoxelValue::Empty(), FVoxelValue::Full(),
+		FVoxelValue{ 0.3f }, FVoxelValue{ -0.7f } };
+
+	// --- 球 ---
+	const float Radius = 6.f;
+	float Plus2 = 0.f;
+	float Minus2 = 0.f;
+	PlanetProgressiveKernel::GetSphereThresholds(Radius, Plus2, Minus2);
+
+	FPlanetEditOp SphereOp;
+	SphereOp.Shape = EPlanetBrushShape::Sphere;
+	SphereOp.CenterVoxels = FVector(1.5, -2.25, 3.75);
+	SphereOp.RadiusVoxels = Radius;
+	SphereOp.SquaredRadiusPlus2 = Plus2;
+	SphereOp.SquaredRadiusMinus2 = Minus2;
+	SphereOp.Bounds = PlanetEditBrush::MakeSphereEditVoxelBox(SphereOp.CenterVoxels, Radius);
+
+	int32 SphereMismatch = 0;
+	for (int32 X = SphereOp.Bounds.Min.X; X < SphereOp.Bounds.MaxExclusive.X; ++X)
+	{
+		for (int32 Y = SphereOp.Bounds.Min.Y; Y < SphereOp.Bounds.MaxExclusive.Y; ++Y)
+		{
+			for (int32 Z = SphereOp.Bounds.Min.Z; Z < SphereOp.Bounds.MaxExclusive.Z; ++Z)
+			{
+				const float SquaredDistance = PlanetProgressiveKernel::SquaredDistanceTo(
+					SphereOp.CenterVoxels, X, Y, Z);
+
+				for (int32 SeedIndex = 0; SeedIndex < UE_ARRAY_COUNT(Seeds); ++SeedIndex)
+				{
+					for (int32 PlaceIndex = 0; PlaceIndex < 2; ++PlaceIndex)
+					{
+						const bool bPlace = PlaceIndex != 0;
+						const FVoxelValue Direct = PlanetProgressiveKernel::EvaluateSphereValue(
+							Radius, Plus2, Minus2, SquaredDistance, Seeds[SeedIndex], bPlace);
+						const FVoxelValue ThroughOp = PlanetProgressiveKernel::EvaluateOps(
+							&SphereOp, 1, X, Y, Z, Seeds[SeedIndex], bPlace);
+
+						if (Direct != ThroughOp)
+						{
+							++SphereMismatch;
+						}
+					}
+				}
+			}
+		}
+	}
+	TestEqual(TEXT("单 op 的球求值与 EvaluateSphereValue 逐格同值"), SphereMismatch, 0);
+
+	// --- 方块：贴边判定读的是 Op.Bounds，单 op 时就是整笔编辑的盒子 ---
+	FPlanetEditOp BoxOp;
+	BoxOp.Shape = EPlanetBrushShape::Cube;
+	BoxOp.CenterVoxels = FVector(2.0, 2.0, 2.0);
+	BoxOp.Bounds = PlanetEditBrush::MakeVoxelBox(
+		PlanetEditBrush::MakeBox(BoxOp.CenterVoxels, 6, 1, 64));
+
+	int32 BoxMismatch = 0;
+	for (int32 X = BoxOp.Bounds.Min.X; X < BoxOp.Bounds.MaxExclusive.X; ++X)
+	{
+		for (int32 Y = BoxOp.Bounds.Min.Y; Y < BoxOp.Bounds.MaxExclusive.Y; ++Y)
+		{
+			for (int32 Z = BoxOp.Bounds.Min.Z; Z < BoxOp.Bounds.MaxExclusive.Z; ++Z)
+			{
+				for (int32 SeedIndex = 0; SeedIndex < UE_ARRAY_COUNT(Seeds); ++SeedIndex)
+				{
+					for (int32 PlaceIndex = 0; PlaceIndex < 2; ++PlaceIndex)
+					{
+						const bool bPlace = PlaceIndex != 0;
+						const FVoxelValue Direct = PlanetProgressiveKernel::EvaluateBoxValue(
+							FIntVector(X, Y, Z), BoxOp.Bounds.Min, BoxOp.Bounds.MaxExclusive,
+							Seeds[SeedIndex], bPlace);
+						const FVoxelValue ThroughOp = PlanetProgressiveKernel::EvaluateOps(
+							&BoxOp, 1, X, Y, Z, Seeds[SeedIndex], bPlace);
+
+						if (Direct != ThroughOp)
+						{
+							++BoxMismatch;
+						}
+					}
+				}
+			}
+		}
+	}
+	TestEqual(TEXT("单 op 的方块求值与 EvaluateBoxValue 逐格同值"), BoxMismatch, 0);
+
+	// --- 两个 op：必须等于「先应用 op0、再应用 op1」 ---
+	FPlanetEditOp TwoOps[2] = { SphereOp, SphereOp };
+	TwoOps[1].CenterVoxels = FVector(4.0, 0.0, 0.0);
+	TwoOps[1].Bounds = PlanetEditBrush::MakeSphereEditVoxelBox(TwoOps[1].CenterVoxels, Radius);
+
+	int32 OrderMismatch = 0;
+	for (int32 X = TwoOps[0].Bounds.Min.X; X < TwoOps[0].Bounds.MaxExclusive.X; ++X)
+	{
+		for (int32 Y = TwoOps[0].Bounds.Min.Y; Y < TwoOps[0].Bounds.MaxExclusive.Y; ++Y)
+		{
+			for (int32 Z = TwoOps[0].Bounds.Min.Z; Z < TwoOps[0].Bounds.MaxExclusive.Z; ++Z)
+			{
+				for (int32 PlaceIndex = 0; PlaceIndex < 2; ++PlaceIndex)
+				{
+					const bool bPlace = PlaceIndex != 0;
+					FVoxelValue Expected = PlanetProgressiveKernel::EvaluateSphereValue(
+						Radius, Plus2, Minus2,
+						PlanetProgressiveKernel::SquaredDistanceTo(TwoOps[0].CenterVoxels, X, Y, Z),
+						FVoxelValue::Full(), bPlace);
+					Expected = PlanetProgressiveKernel::EvaluateSphereValue(
+						Radius, Plus2, Minus2,
+						PlanetProgressiveKernel::SquaredDistanceTo(TwoOps[1].CenterVoxels, X, Y, Z),
+						Expected, bPlace);
+
+					const FVoxelValue ThroughOps = PlanetProgressiveKernel::EvaluateOps(
+						TwoOps, 2, X, Y, Z, FVoxelValue::Full(), bPlace);
+					if (Expected != ThroughOps)
+					{
+						++OrderMismatch;
+					}
+				}
+			}
+		}
+	}
+	TestEqual(TEXT("两个 op 必须按顺序依次生效"), OrderMismatch, 0);
 
 	return true;
 }

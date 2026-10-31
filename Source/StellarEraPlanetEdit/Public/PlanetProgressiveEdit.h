@@ -10,6 +10,31 @@
 class AVoxelPlanetActor;
 
 /**
+ * 一次落笔的完整参数。
+ *
+ * **op 只追加、不修改**：一个执行块只认自己创建时的那个前缀（见
+ * FPlanetEditChunk::NumOps），靠的就是这条不变式。
+ */
+struct FPlanetEditOp
+{
+	EPlanetBrushShape Shape = EPlanetBrushShape::Sphere;
+	/** 体素空间（double）。球是球心；方块是体素中心。 */
+	FVector CenterVoxels = FVector::ZeroVector;
+	float RadiusVoxels = 0.f;
+	float SquaredRadiusPlus2 = 0.f;
+	float SquaredRadiusMinus2 = 0.f;
+	/** 本 op 自己的包围盒（右端开）。方块的贴边判定用的就是它。 */
+	FPlanetEditVoxelBox Bounds;
+};
+
+/** 一个执行块：只应用 Ops[0 .. NumOps-1]。 */
+struct FPlanetEditChunk
+{
+	FPlanetEditVoxelBox Bounds;
+	int32 NumOps = 0;
+};
+
+/**
  * 一笔渐进式编辑。
  *
  * 存在理由：体素工具的代价是包围盒 Size³，一次 1280 体素的挖掘要扫 2×10⁹ 格，
