@@ -307,6 +307,8 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 
 		TMap<FIntVector, double> SurfaceRadiusCache;
 		int32 NumQueries = 0;
+		// 超上限告警的闸门：按 Ship 每次调用一次，而不是每个方向一次。
+		bool bLoggedOverCap = false;
 
 		TArray<double> SurfaceRadii;
 		SurfaceRadii.Reserve(State.ContactProbes.Num());
@@ -336,9 +338,10 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 			double SurfaceRadiusCm = 0.0;
 			if (NumQueries >= MaxContactSurfaceQueriesPerFrame)
 			{
-				// 超上限：这一格退回解析半径。只在第一次触发时吭一声。
-				if (NumQueries == MaxContactSurfaceQueriesPerFrame)
+				// 超上限：这一格退回解析半径。每个 Ship 每次调用只吭一声。
+				if (!bLoggedOverCap)
 				{
+					bLoggedOverCap = true;
 					UE_LOG(LogTemp, Warning,
 						TEXT("[Cosmos] 单帧逐探针地表查询达到上限 %d，其余方向退回解析半径。"),
 						MaxContactSurfaceQueriesPerFrame);
