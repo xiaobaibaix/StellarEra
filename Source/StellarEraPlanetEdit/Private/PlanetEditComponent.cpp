@@ -282,8 +282,9 @@ void UPlanetEditComponent::TickProgressiveEdits()
 			OnEditFinished(*Edit);
 			// 删掉后数组变短：滑进游标那一格的笔此刻就在游标原来的下标上。
 			// 下一次 GetNextFairIndex 要么越过它、要么回绕 / 夹回 1，本帧具体
-			// 轮到谁取决于这次算术；但不会有笔被永久跳过 —— 游标从不回到 0，
-			// 任何一笔最多一圈就会被重新取到。
+			// 轮到谁取决于这次算术。游标每圈从 1 扫到 N-1、从不取 0，所以某一笔
+			// 只会因为前面的笔恰好做完、自己往前挪了一格而被推迟；队列只变短，
+			// 推迟次数有上限，不会有笔永远轮不到。
 			EditQueue.RemoveAt(NextFairEditIndex);
 		}
 	}
