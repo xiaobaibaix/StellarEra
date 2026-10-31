@@ -2001,3 +2001,42 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>" -- \
 `ChunkSizeVoxels`）在 Task 2 定义、Task 3/4 使用；`SetupFromRequest` / `TryMerge` /
 `TryMergeWorld` / `GetOps` / `GetChunks` / `GetOpCount` / `GetNextChunkIndex` /
 `GetFairCandidateCount` / `GetNextFairIndex` 的签名在各任务间一致。
+
+## 实施记录
+
+2026-10-31 实施完成。提交链：`c0ab5a5`（基线）→ `b4953b1`（Task 1）→ `81ba872` + `f611538`（Task 3）
+→ `0c62591`（Task 4）→ `3a04c08` + `8fb6a57` + `131a5f7` + `9aa3b99` + `829918a`（Task 5）
+→ `ac60bcf` + `472e3f7`（Task 6）。
+
+- **构建**：`Result: Succeeded`（UBT 直调 dotnet，工作目录在项目外）；最后一次构建在 `472e3f7`。
+- **全量回归**：`163 tests, 162 Success, 1 Fail, 0 Not Run`，唯一失败是既有的
+  `StellarEra.Planet.Geology.EarthPresetValues`（本计划未触碰地质模块）。
+  日志：`Saved/Logs/automation-full-merge.log`，跑于 `ac60bcf`。
+- **新增测试**：8 条，全部 Success：
+  `Kernel.OpsMatchSingle`、`Job.SetupFromRequest`、`Merge.Rejects`、
+  `Merge.DedupesIdenticalOps`、`Merge.PreservesProgress`、
+  `Merge.ResultEqualsSequential`、`Schedule.FairCursor`、`Brush.VoxelBoxesIntersect`。
+- **PIE 手工验证**：**未验证**，原因与待办清单见下。
+- **与 spec 的偏差**：
+  1. 去重判据从「球心距离 < 0.5 体素」改成「包围盒完全相同」（理由见 Task 3 开头）。
+  2. 额外加了 `#if WITH_DEV_AUTOMATION_TESTS` 的 `SetNextChunkIndexForTest` 测试缝：
+     否则 `Merge.PreservesProgress` 在 `NextChunkIndex == 0` 下分不清「插在已做前缀之后」
+     与「追加到末尾」，等于没钉住这条不变量。
+  3. 只有一笔活跃时队首吃整份预算（`EditQueue.Num() > 1 ? BudgetMs * Share : BudgetMs`）。
+     无条件按 0.7 拆分会把单笔挖掘从 4 ms 砍到 2.8 ms —— 用户最常用的动作不该为轮转买单。
+
+### 未做：PIE 手工验证
+
+本计划的两项用户可见效果 ——「不同位置的几笔同时长」与「同一片区域连点不爆队列」——
+都无法在自动化里覆盖：`UPlanetEditComponent::TickProgressiveEdits` 需要真实体素世界
+（`AVoxelPlanetActor::IsCreated()`），现有测试没有这种夹具。实施时编辑器未运行、
+编辑器 MCP 端点不通，而这类「画面里同时出现三个坑」的判断本来就需要人眼。
+**按计划要求记为「未验证」，不记为通过。**
+
+待办（编辑器在前台时一次做完，约 5 分钟）：
+
+1. 打开 `UniverseMap`，PIE，进编辑模式，笔刷调到 **≥ 200 体素**（保证走大笔刷队列路径）。
+2. 在行星表面**快速点 3 下不同位置**：期望三个坑**同时**在长，而不是第一个长完才开始第二个。
+3. 在同一片区域**连点 10 下**：期望画面里只有一个坑在长（合并生效），且 `stat unit` 的
+   Game 线程不随点击次数线性变长。
+4. 把 `MaxMergedOps` 临时改成 1：再连点，期望不再合并（每次新开一笔）。

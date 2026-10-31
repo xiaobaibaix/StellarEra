@@ -2,7 +2,7 @@
 
 - **日期**：2026-10-31
 - **项目**：StellarEra（Unreal Engine 5.8）
-- **状态**：设计已确认，待实现
+- **状态**：已实现（见 plans/2026-10-31-planet-edit-merge-round-robin.md）
 - **前置**：`2026-10-29-progressive-dig-design.md`（分块跨帧挖掘、编辑队列）
 
 ---
