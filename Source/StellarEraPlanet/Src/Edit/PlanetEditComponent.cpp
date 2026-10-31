@@ -215,7 +215,9 @@ void UPlanetEditComponent::TickProgressiveEdits()
 
 	// --- 阶段一：队首优先 ---
 	// 预算检查放在**推进过一块之后**：份额再小，这一帧也要往前走一块，
-	// 否则队列永远推不动。
+	// 否则队列永远推不动。收尾那块（把一笔做完的块）之后同样检查 —— 否则
+	// 轮转下多笔同时接近完成时，一帧会连环推完好几笔、突破预算。现在的性质是：
+	// 一帧最多做「收尾那一块 + 份额内装得下的部分」，不会是无界的收尾链。
 	while (EditQueue.Num() > 0)
 	{
 		const TSharedPtr<FPlanetProgressiveEdit>& Edit = EditQueue[0];
@@ -237,6 +239,10 @@ void UPlanetEditComponent::TickProgressiveEdits()
 		{
 			OnEditFinished(*Edit);
 			EditQueue.RemoveAt(0);
+			if (ElapsedMs() >= HeadBudgetMs)
+			{
+				break;
+			}
 			continue;
 		}
 
@@ -282,9 +288,8 @@ void UPlanetEditComponent::TickProgressiveEdits()
 			OnEditFinished(*Edit);
 			// 删掉后数组变短：滑进游标那一格的笔此刻就在游标原来的下标上。
 			// 下一次 GetNextFairIndex 要么越过它、要么回绕 / 夹回 1，本帧具体
-			// 轮到谁取决于这次算术。游标每圈从 1 扫到 N-1、从不取 0，所以某一笔
-			// 只会因为前面的笔恰好做完、自己往前挪了一格而被推迟；队列只变短，
-			// 推迟次数有上限，不会有笔永远轮不到。
+			// 轮到谁取决于这次算术。游标始终在 1..N-1 之间循环、从不取 0，逐次
+			// 扫遍这些下标，所以不会有笔永远轮不到。
 			EditQueue.RemoveAt(NextFairEditIndex);
 		}
 	}
@@ -473,6 +478,28 @@ bool UPlanetEditComponent::ApplyBrushAtScreenPosition(
 		}
 
 		return true;
+	}
+
+	// 先试着并进已有的笔。合进来的落笔只切它自己的包围盒，块接在已做前缀之后，
+	// 下一块就轮上（FPlanetProgressiveEdit::TryMerge）；重叠的格子仍会被两边的
+	// 块各写一次，所以除了包围盒完全相同的重复点击，省下的不是扫描量，而是
+	// 队列条目：被吸收的点击不占槽位，也不会在队列满时挤掉别的笔 —— 这个循环
+	// 不能动队列。从队尾往前找，最新的一笔优先接收；所有候选都合不进去，才
+	// 往下走「新开一笔」。
+	for (int32 Index = EditQueue.Num() - 1; Index >= 0; --Index)
+	{
+		const TSharedPtr<FPlanetProgressiveEdit>& Edit = EditQueue[Index];
+		if (!Edit.IsValid())
+		{
+			continue;
+		}
+
+		if (Edit->TryMergeWorld(Target.Planet, Center, BrushShape, BrushSizeVoxels,
+				MinBrushSizeVoxels, MaxBrushSizeVoxels, bPlace,
+				ProgressiveEditChunkSizeVoxels, bMultiThreadedEdits, MaxMergedOps))
+		{
+			return true;
+		}
 	}
 
 	// 大笔刷：切成块排队，由 TickProgressiveEdits 每帧推进几块。

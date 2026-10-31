@@ -48,6 +48,7 @@ namespace PlanetProgressiveKernel
 	 * **贴边按整笔编辑的包围盒判**，不是按当前块的包围盒 —— 块只是执行单位，
 	 * 语义的唯一来源是整笔编辑的盒子。按块判会把每个块的边界都刷成表面，
 	 * 挖出来是一堆方块印而不是一个大坑。
+	 * 调用方必须保证 Voxel 落在 [BoxMin, BoxMaxExclusive) 内：函数本身不判断盒外格子。
 	 */
 	FVoxelValue EvaluateBoxValue(
 		const FIntVector& Voxel,

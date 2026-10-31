@@ -769,6 +769,47 @@ namespace
 		return Request;
 	}
 
+	/**
+	 * 方块版的同一套请求：10 体素边长、4 体素的块（与球那套同网格、同块长）。
+	 *
+	 * 10 让每轴切出 3 块（共 27 块），第二笔沿 +X 挪 2 体素时，新块里有一整片
+	 * 格子落在第一笔的包围盒之外 —— 正是「合并后旧 op 越界写格子」的覆盖区。
+	 */
+	FPlanetEditRequest MakeMergeTestCubeRequest(const FVector& Center, const bool bPlace = false)
+	{
+		FPlanetEditRequest Request;
+		Request.Shape = EPlanetBrushShape::Cube;
+		Request.CenterVoxels = Center;
+		Request.RadiusVoxels = 0.f;
+		Request.SizeVoxels = 10;
+		Request.MinSizeVoxels = 1;
+		Request.MaxSizeVoxels = 64;
+		Request.bPlace = bPlace;
+		Request.bMultiThreaded = false;
+		Request.ChunkSizeVoxels = 4;
+		return Request;
+	}
+
+	/**
+	 * 合并等价测试的合成初值：空 / 实 / 表面 三种铺满量程。
+	 *
+	 * 哈希用 uint32 累加：`X * 73856093` 在 int32 上会溢出，是有符号溢出 UB。
+	 * 无符号乘法按模 2³² 回绕，结果确定，跨平台一致。
+	 */
+	FVoxelValue MakeMergeSeed(const int32 X, const int32 Y, const int32 Z)
+	{
+		const uint32 Hash =
+			static_cast<uint32>(X) * 73856093u
+			^ static_cast<uint32>(Y) * 19349663u
+			^ static_cast<uint32>(Z) * 83492791u;
+		switch (Hash % 3)
+		{
+		case 0:  return FVoxelValue::Empty();
+		case 1:  return FVoxelValue::Full();
+		default: return FVoxelValue{ 0.25f };
+		}
+	}
+
 	void TestBoxesEqual(
 		FAutomationTestBase& Test, const TCHAR* What,
 		const FPlanetEditVoxelBox& Actual, const FPlanetEditVoxelBox& Expected)
@@ -988,18 +1029,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraProgressiveMergeEquivalenceTest,
 
 bool FStellarEraProgressiveMergeEquivalenceTest::RunTest(const FString& Parameters)
 {
-	// 三种初值铺满：向空与向实两个方向的边界都会被走到。
-	auto MakeSeed = [](const int32 X, const int32 Y, const int32 Z) -> FVoxelValue
-	{
-		const uint32 Hash = static_cast<uint32>((X * 73856093) ^ (Y * 19349663) ^ (Z * 83492791));
-		switch (Hash % 3)
-		{
-		case 0:  return FVoxelValue::Empty();
-		case 1:  return FVoxelValue::Full();
-		default: return FVoxelValue{ 0.25f };
-		}
-	};
-
+	// 三种初值铺满：向空与向实两个方向的边界都会被走到（MakeMergeSeed）。
 	for (int32 PlaceIndex = 0; PlaceIndex < 2; ++PlaceIndex)
 	{
 		const bool bPlace = PlaceIndex != 0;
@@ -1041,7 +1071,7 @@ bool FStellarEraProgressiveMergeEquivalenceTest::RunTest(const FString& Paramete
 			{
 				for (int32 Z = Min.Z; Z < Union.MaxExclusive.Z; ++Z)
 				{
-					Initial[IndexOf(X, Y, Z)] = MakeSeed(X, Y, Z);
+					Initial[IndexOf(X, Y, Z)] = MakeMergeSeed(X, Y, Z);
 				}
 			}
 		}
@@ -1096,6 +1126,183 @@ bool FStellarEraProgressiveMergeEquivalenceTest::RunTest(const FString& Paramete
 			bPlace ? TEXT("填：合并结果与依次独立执行逐格全等")
 			       : TEXT("挖：合并结果与依次独立执行逐格全等"),
 			Mismatch, 0);
+	}
+
+	return true;
+}
+
+// 方块版判据：合并后按运行期块序执行 == 依次独立执行，逐格全等。
+//
+// 球之所以对合并免疫，是 EvaluateSphereValue 对 (R+2)² 之外的格子返回原值；
+// 方块没有这层天然保护 —— EvaluateBoxValue 没有盒内判定，盒外格子会被当成
+// 「内部」写成 Full/Empty（贴边平面延伸面上则按「外壳」写 0）。合并后新块的块
+// 会落在旧 op 的盒外，旧 op 若照评估就会在那些格子上多改一圈。这条测试把两个
+// 「相交但不等、且第二个伸出第一个」的方块并起来，逐格与「先 op0 再 op1」比对；
+// 第二个方块分别沿 +X、+Y、−X 偏移，X 轴两端与 Y 轴都会被踩到。
+//
+// 合成网格与 Merge.ResultEqualsSequential 同一套：谓词用的是运行期那一份
+// EvaluateOps，不是另写一份。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraProgressiveMergeCubeEquivalenceTest,
+	"StellarEra.Planet.Editor.Merge.CubeResultEqualsSequential",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraProgressiveMergeCubeEquivalenceTest::RunTest(const FString& Parameters)
+{
+	// 六种组合 = 挖/填 × 三组偏移（+X、+Y、−X）。只守一根轴的守卫删掉就有人变红。
+	static const FVector Offsets[] = {
+		FVector(2.0, 0.0, 0.0),   // +X
+		FVector(0.0, 2.0, 0.0),   // +Y
+		FVector(-2.0, 0.0, 0.0)   // −X
+	};
+	static const TCHAR* const OffsetNames[] = { TEXT("+X"), TEXT("+Y"), TEXT("-X") };
+	constexpr int32 NumOffsets = UE_ARRAY_COUNT(Offsets);
+
+	for (int32 CaseIndex = 0; CaseIndex < 2 * NumOffsets; ++CaseIndex)
+	{
+		const bool bPlace = CaseIndex >= NumOffsets;
+		const int32 OffsetIndex = CaseIndex % NumOffsets;
+		const FString Label = FString::Printf(
+			TEXT("%s/%s"), bPlace ? TEXT("方块填") : TEXT("方块挖"), OffsetNames[OffsetIndex]);
+
+		// 两个相交但不相等的方块（边长 10）：第二个按上面的偏移伸出第一个的包围盒。
+		// 合并后新块（NumOps = 2）里有一整片格子落在 op0 的盒外。
+		const FPlanetEditRequest First = MakeMergeTestCubeRequest(FVector::ZeroVector, bPlace);
+		const FPlanetEditRequest Second = MakeMergeTestCubeRequest(Offsets[OffsetIndex], bPlace);
+
+		TSharedPtr<FPlanetProgressiveEdit> Job = MakeShared<FPlanetProgressiveEdit>();
+		if (!TestTrue(Label + TEXT("：装配成功"), Job->SetupFromRequest(First)))
+		{
+			return false;
+		}
+		if (!TestTrue(Label + TEXT("：合并成功"), Job->TryMerge(Second, 8)))
+		{
+			return false;
+		}
+		TestEqual(Label + TEXT("：合并后有两个 op"), Job->GetOpCount(), 2);
+
+		const TArray<FPlanetEditOp>& Ops = Job->GetOps();
+		const FPlanetEditVoxelBox Union =
+			PlanetEditBrush::UnionVoxelBox(Ops[0].Bounds, Ops[1].Bounds);
+
+		// 夹具前提：第二个盒子必须真的伸出第一个，否则覆盖不到「盒外格子」。
+		TestTrue(Label + TEXT("：第二个盒子必须伸出第一个盒子之外（否则测不到缺陷）"),
+			Union.Min.X < Ops[0].Bounds.Min.X || Union.Min.Y < Ops[0].Bounds.Min.Y
+			|| Union.Min.Z < Ops[0].Bounds.Min.Z
+			|| Union.MaxExclusive.X > Ops[0].Bounds.MaxExclusive.X
+			|| Union.MaxExclusive.Y > Ops[0].Bounds.MaxExclusive.Y
+			|| Union.MaxExclusive.Z > Ops[0].Bounds.MaxExclusive.Z);
+
+		const FIntVector Min = Union.Min;
+		const FIntVector Size(
+			Union.MaxExclusive.X - Min.X,
+			Union.MaxExclusive.Y - Min.Y,
+			Union.MaxExclusive.Z - Min.Z);
+
+		auto IndexOf = [&Min, &Size](const int32 X, const int32 Y, const int32 Z)
+		{
+			return (X - Min.X) + Size.X * ((Y - Min.Y) + Size.Y * (Z - Min.Z));
+		};
+
+		TArray<FVoxelValue> Initial;
+		Initial.SetNum(Size.X * Size.Y * Size.Z);
+		for (int32 X = Min.X; X < Union.MaxExclusive.X; ++X)
+		{
+			for (int32 Y = Min.Y; Y < Union.MaxExclusive.Y; ++Y)
+			{
+				for (int32 Z = Min.Z; Z < Union.MaxExclusive.Z; ++Z)
+				{
+					Initial[IndexOf(X, Y, Z)] = MakeMergeSeed(X, Y, Z);
+				}
+			}
+		}
+
+		// 路径 1：依次独立执行两笔。每笔只在自己的包围盒内评估 —— 这就是钉住的语义。
+		TArray<FVoxelValue> Sequential = Initial;
+		for (const FPlanetEditOp& Op : Ops)
+		{
+			for (int32 X = Op.Bounds.Min.X; X < Op.Bounds.MaxExclusive.X; ++X)
+			{
+				for (int32 Y = Op.Bounds.Min.Y; Y < Op.Bounds.MaxExclusive.Y; ++Y)
+				{
+					for (int32 Z = Op.Bounds.Min.Z; Z < Op.Bounds.MaxExclusive.Z; ++Z)
+					{
+						const int32 Index = IndexOf(X, Y, Z);
+						Sequential[Index] = PlanetProgressiveKernel::EvaluateOps(
+							&Op, 1, X, Y, Z, Sequential[Index], bPlace);
+					}
+				}
+			}
+		}
+
+		// 路径 2：合并后的块，按运行期顺序（从 NextChunkIndex 起）逐块应用。
+		TArray<FVoxelValue> Merged = Initial;
+		int32 CellsOutsideOp0WithBothOps = 0;
+		for (int32 ChunkIndex = Job->GetNextChunkIndex();
+			ChunkIndex < Job->GetChunks().Num(); ++ChunkIndex)
+		{
+			const FPlanetEditChunk& Chunk = Job->GetChunks()[ChunkIndex];
+			for (int32 X = Chunk.Bounds.Min.X; X < Chunk.Bounds.MaxExclusive.X; ++X)
+			{
+				for (int32 Y = Chunk.Bounds.Min.Y; Y < Chunk.Bounds.MaxExclusive.Y; ++Y)
+				{
+					for (int32 Z = Chunk.Bounds.Min.Z; Z < Chunk.Bounds.MaxExclusive.Z; ++Z)
+					{
+						// 这一格是否在多 op 块里、且落在 op0 的盒外：缺陷只在这里显现。
+						if (Chunk.NumOps > 1
+							&& (X < Ops[0].Bounds.Min.X || X >= Ops[0].Bounds.MaxExclusive.X
+								|| Y < Ops[0].Bounds.Min.Y || Y >= Ops[0].Bounds.MaxExclusive.Y
+								|| Z < Ops[0].Bounds.Min.Z || Z >= Ops[0].Bounds.MaxExclusive.Z))
+						{
+							++CellsOutsideOp0WithBothOps;
+						}
+
+						const int32 Index = IndexOf(X, Y, Z);
+						Merged[Index] = PlanetProgressiveKernel::EvaluateOps(
+							Ops.GetData(), Chunk.NumOps, X, Y, Z, Merged[Index], bPlace);
+					}
+				}
+			}
+		}
+
+		TestTrue(Label + TEXT("：新块必须覆盖 op0 盒外的格子（否则这条测试是空转）"),
+			CellsOutsideOp0WithBothOps > 0);
+
+		// 两条路径都必须真的改到东西：否则「两边都没动」也能通过比对。
+		int32 Changed = 0;
+		int32 Mismatch = 0;
+		FString FirstMismatch;
+		for (int32 X = Min.X; X < Union.MaxExclusive.X; ++X)
+		{
+			for (int32 Y = Min.Y; Y < Union.MaxExclusive.Y; ++Y)
+			{
+				for (int32 Z = Min.Z; Z < Union.MaxExclusive.Z; ++Z)
+				{
+					const int32 Index = IndexOf(X, Y, Z);
+					if (Merged[Index] != Initial[Index])
+					{
+						++Changed;
+					}
+					if (Sequential[Index] != Merged[Index])
+					{
+						if (Mismatch == 0)
+						{
+							FirstMismatch = FString::Printf(
+								TEXT("首处 (%d,%d,%d)：依次独立 %s(%d)，合并 %s(%d)"),
+								X, Y, Z,
+								*Sequential[Index].ToString(), int32(Sequential[Index].GetStorage()),
+								*Merged[Index].ToString(), int32(Merged[Index].GetStorage()));
+						}
+						++Mismatch;
+					}
+				}
+			}
+		}
+
+		TestTrue(FString::Printf(TEXT("%s：合并必须真的改到体素（改了 %d 格）"), *Label, Changed),
+			Changed > 0);
+		TestEqual(FString::Printf(
+			TEXT("%s：合并结果与依次独立执行逐格全等（差异格数 %d，%s）"),
+			*Label, Mismatch, *FirstMismatch), Mismatch, 0);
 	}
 
 	return true;
