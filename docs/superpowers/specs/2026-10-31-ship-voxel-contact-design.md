@@ -271,7 +271,7 @@ for (int32 ProbeIndex = 0; ProbeIndex < ProbeBody.ContactProbes.Num(); ++ProbeIn
   "F:/workspace/ue/StellarEra/StellarEra.uproject" \
   -ExecCmds="Automation RunTests StellarEra" \
   -TestExit="Automation Test Queue Empty" \
-  -unattended -nopause -nullrhi -nosplash -stdout -abslog="<临时日志>"
+  -unattended -nopause -nullrhi -nosplash -stdout -abslog="%TEMP%/stellar_tests.log"
 ```
 
 ---
