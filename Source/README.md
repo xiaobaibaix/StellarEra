@@ -187,3 +187,5 @@ python Tools/check_architecture.py --tree
 ```
 
 新加的模块如果不在上面的表里，说明它还没归档 —— 补一行进来。
+
+分层依据、依赖矩阵、目录判据、通讯机制的完整说明在 **`docs/ARCHITECTURE.md`**。

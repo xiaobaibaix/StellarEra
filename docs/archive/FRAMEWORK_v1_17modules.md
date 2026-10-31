@@ -1,5 +1,15 @@
 # StellarEra 框架改造：文件树 · 接口 · 通讯
 
+> ⚠️ **本文已作废，仅作历史记录保留。**
+>
+> 它提的是 **17 模块方案**：新增 `StellarEraFramework`、`StellarEraTests`、
+> `StellarEraEconomy`、`StellarEraFactory`、`StellarEraGameplay` 等模块。
+> 该方案在 2026-10-31 当天被反转为 **11 → 7 合并**，理由见 `docs/TREE_AFTER.md`。
+>
+> **当前架构以 `docs/ARCHITECTURE.md` 为准。**
+> 本文提到的 `StellarEraFramework` / `StellarEraMessageBus` / `HUDState` /
+> `PlanetSurfaceQuery` 在代码里**都不存在**，不要照着实现。
+
 > 配套 `ARCHITECTURE.md`（分层原则）。这份只讲**怎么落地**：目录怎么摆、接口长什么样、谁跟谁怎么说话。
 
 ---

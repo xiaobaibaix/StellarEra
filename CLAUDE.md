@@ -2,6 +2,9 @@
 
 体素行星 + N 体引力 + 球面行走 + 飞船的太空模拟项目。
 
+> **架构权威文档：`docs/ARCHITECTURE.md`**（分层、依赖矩阵、目录规则、通讯机制、红线）。
+> 本文只列 AI 助手最容易踩的几条，细节一律以那份为准。
+
 ## 技术栈
 - Unreal Engine **5.8.3**（`EngineAssociation: "5.8"`），Windows / Win64
 - C++ 为主；蓝图只承载资产配置（`Content/Code/BP_*`）
