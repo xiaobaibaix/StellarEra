@@ -310,11 +310,19 @@ private:
 	void RefreshPlanetContactRadii();
 
 	/**
-	 * 把飞船的接触探针（Actor 本地厘米）转成求解器坐标写进天体状态。
+	 * 把飞船的接触探针（Actor 本地厘米）转成求解器坐标写进天体状态，并为每个探针
+	 * 记下该方向上的**真实体素地表半径**。
 	 *
 	 * 探针来自 Hull 的 Simple Collision 凸包，取代 300 cm 的球体接触。
 	 * 没有探针（网格没导碰撞）时退回 300 cm 球 —— Radius 回到旧值。
-	 * 与 RefreshPlanetContactRadii 一样，必须在推进之前调用。
+	 *
+	 * 逐探针半径（写进 FCosmosBodyState::ContactProbeSurfaceRadii）：粗筛出最近的
+	 * 体素行星，按「地表 1 体素」量化方向、每帧一份缓存去重，每艘船每次调用最多
+	 * MaxContactSurfaceQueriesPerFrame 次查询；超出或查询结果非有限/非正时退回解析
+	 * 半径。求解器在每个子步都用这份快照解算 —— 体素查询绝不能放进求解器。
+	 *
+	 * 与 RefreshPlanetContactRadii 一样，必须在推进之前调用：本帧的地形快照
+	 * 只在推进前写一次。
 	 */
 	void RefreshShipContactProbes();
 

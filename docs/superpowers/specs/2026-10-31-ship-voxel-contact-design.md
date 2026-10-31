@@ -164,17 +164,19 @@ for (int32 ProbeIndex = 0; ProbeIndex < ProbeBody.ContactProbes.Num(); ++ProbeIn
 
 1. 现有代码：读 `Ship->GetContactProbesLocalCm()`，用船的变换转到 AU，
    `State.SetContactProbes(...)`（顺带清空逐探针半径与索引）。
-2. **粗筛选星**：遍历求解器里 `Radius > 0` 且 `OwnerActor` 是 `AVoxelPlanetActor`
-   的天体，取离船心最近的一个；距离 ≥ `1.25 · BaseRadius + ContactProbeRadius`
-   时整支跳过。
+2. **粗筛选星**：遍历求解器里 `OwnerActor` 是 `AVoxelPlanetActor` 的天体，取离船心
+   最近的一个；距离 ≥ `1.25 · BaseRadius + ContactProbeRadius` 时整支跳过。
+   （不额外判 `Radius > 0`：求解器的 `ResolveContacts` 本来就对 `Radius <= 0` 的球
+   跳过探针接触，这里再判一遍是重复。）
 3. **逐探针**：
    - `Dir = normalize(ProbeAU + 船心AU − 星心AU)`
    - **方向缓存键** = `Round(Dir · BaseRadiusVoxels)`（`BaseRadiusVoxels =
      GetSurfaceRadiusCm() / VoxelSize`）。一格 ≈ 地表 1 体素，船体投影到地表通常
      只有个位数格，所以一帧真正 march 的次数是**个位数**，不是探针数。
    - 未命中缓存 → `Planet->GetVoxelSurfaceRadiusCmAtDirection(Dir)`，写进缓存。
-   - 一帧查询次数上限 `MaxSurfaceQueriesPerFrame = 32`：超了剩下的探针用解析半径，
-     首次触发打一次 `Warning`，之后 `Verbose`。
+   - 每次 `RefreshShipContactProbes` 调用（即每艘船每帧）查询次数上限
+     `MaxContactSurfaceQueriesPerFrame = 32`：超了剩下的方向用解析半径，该次调用
+     只打一条 `Warning`（多船时是 32 × N 次，当前只有一艘船）。
 4. 写入 `State.ContactProbeSurfaceRadii`（除以 `CentimetersPerAu`）与
    `State.ContactSurfaceSphereIndex = 星球下标`。
 
@@ -287,6 +289,15 @@ for (int32 ProbeIndex = 0; ProbeIndex < ProbeBody.ContactProbes.Num(); ++ProbeIn
    预测本来就是外推，不需要更准。
 4. **行星之间的接触不变**，仍用 `RefreshPlanetContactRadii` 的解析球半径。
 5. **挖穿（全空）退回解析半径**，飞船会悬在坑口而不是穿过星心。
+6. **不支持悬垂与隧道**。「一个方向 = 一个半径」只能表达「该方向上第一层地表」：
+   顶上完好、下方挖空的洞穴里，种子在顶面附近，向内找到的第一个实心是**洞穴顶**，
+   位于洞里的探针因此被判穿透、被沿径向外推 —— 飞船会被顶穿洞顶，进不去。
+   要支持得改成「沿方向的多段区间」，成本随段数上升。改动前（整颗星一颗解析球）
+   飞船同样进不了洞，所以这不是回归。
+7. **假定 Actor 缩放 S = 1**。新函数与 `RaycastSurfaceCm` 同口径，而
+   `GetScaledRadiusVoxels` 记录过本工程 S ≠ 1 时网格半径按 S²、`GetSurfaceRadiusCm`
+   按 S 的既有不一致。当前关卡 S = 1；若要把 gizmo 等比缩放当正式功能，先统一
+   那一层，而不是只改地表查询。
 
 ---
 
