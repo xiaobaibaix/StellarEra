@@ -249,6 +249,124 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 
 		State.SetContactProbes(MoveTemp(Probes));
 		State.Radius = 0.0;
+
+		// ── 逐探针的真实地表半径 ────────────────────────────────────────────
+		// 求解器每个子步都会重算接触（一帧最多 MaxStepsPerFrame = 200 步），
+		// 所以体素查询只能在这里做一次、查完缓存 —— 不能放进 ResolveProbeContact。
+		//
+		// SetContactProbes 已经把这两项清空；没有行星在范围内时就让它们保持空。
+
+		// 粗筛：船心到最近行星的距离要落在包围球（1.25 × 基准半径，与
+		// RaycastSurfaceCm 同一份余量）加最远探针之内，否则探针碰不到体素地表。
+		int32 NearestPlanetIndex = INDEX_NONE;
+		double NearestPlanetDistance = 0.0;
+
+		for (int32 Other = 0; Other < Simulator.GetNumBodies(); ++Other)
+		{
+			if (Other == Component->SimulatorIndex)
+			{
+				continue;
+			}
+
+			const AVoxelPlanetActor* Candidate =
+				Cast<AVoxelPlanetActor>(Simulator.GetBody(Other).OwnerActor.Get());
+			if (!Candidate)
+			{
+				continue;
+			}
+
+			const double Distance =
+				(State.Position - Simulator.GetBody(Other).Position).Size();
+			const double GateCm = double(Candidate->GetSurfaceRadiusCm()) * 1.25
+				+ State.ContactProbeRadius * CentimetersPerAu;
+			if (Distance * CentimetersPerAu >= GateCm)
+			{
+				continue;
+			}
+
+			if (NearestPlanetIndex == INDEX_NONE || Distance < NearestPlanetDistance)
+			{
+				NearestPlanetIndex = Other;
+				NearestPlanetDistance = Distance;
+			}
+		}
+
+		if (NearestPlanetIndex == INDEX_NONE)
+		{
+			continue;
+		}
+
+		const AVoxelPlanetActor* Planet =
+			Cast<AVoxelPlanetActor>(Simulator.GetBody(NearestPlanetIndex).OwnerActor.Get());
+		const FVector3d PlanetPosition = Simulator.GetBody(NearestPlanetIndex).Position;
+
+		// 方向量化的尺度：一格 ≈ 地表 1 体素。船体投影到地表通常只有个位数格，
+		// 所以一帧真正 march 的次数是个位数，不是探针数。
+		const double BaseRadiusVoxels =
+			double(Planet->GetSurfaceRadiusCm()) / FMath::Max(double(Planet->VoxelSize), 1.0);
+
+		TMap<FIntVector, double> SurfaceRadiusCache;
+		int32 NumQueries = 0;
+
+		TArray<double> SurfaceRadii;
+		SurfaceRadii.Reserve(State.ContactProbes.Num());
+
+		for (const FVector3d& Probe : State.ContactProbes)
+		{
+			const FVector UnitDirection =
+				FVector(State.Position + Probe - PlanetPosition).GetSafeNormal();
+			if (UnitDirection.IsNearlyZero())
+			{
+				// 探针正好落在星心：方向无定义，交给解析半径兜底。
+				SurfaceRadii.Add(double(Planet->GetSurfaceRadiusCm()) / CentimetersPerAu);
+				continue;
+			}
+
+			const FIntVector Key(
+				FMath::RoundToInt(UnitDirection.X * BaseRadiusVoxels),
+				FMath::RoundToInt(UnitDirection.Y * BaseRadiusVoxels),
+				FMath::RoundToInt(UnitDirection.Z * BaseRadiusVoxels));
+
+			if (const double* Cached = SurfaceRadiusCache.Find(Key))
+			{
+				SurfaceRadii.Add(*Cached);
+				continue;
+			}
+
+			double SurfaceRadiusCm = 0.0;
+			if (NumQueries >= MaxContactSurfaceQueriesPerFrame)
+			{
+				// 超上限：这一格退回解析半径。只在第一次触发时吭一声。
+				if (NumQueries == MaxContactSurfaceQueriesPerFrame)
+				{
+					UE_LOG(LogTemp, Warning,
+						TEXT("[Cosmos] 单帧逐探针地表查询达到上限 %d，其余方向退回解析半径。"),
+						MaxContactSurfaceQueriesPerFrame);
+				}
+				SurfaceRadiusCm = double(Planet->GetSurfaceRadiusCmAtDirection(UnitDirection));
+			}
+			else
+			{
+				++NumQueries;
+				SurfaceRadiusCm =
+					double(Planet->GetVoxelSurfaceRadiusCmAtDirection(UnitDirection));
+			}
+
+			// 体素查询出错（非有限 / 非正）时退回解析半径：NaN 会让求解器的穿透量变成
+			// NaN，那个探针就静默不接触了 —— 退化到改动前的行为，而不是静默失效。
+			if (!FMath::IsFinite(SurfaceRadiusCm) || SurfaceRadiusCm <= 0.0)
+			{
+				SurfaceRadiusCm = double(Planet->GetSurfaceRadiusCmAtDirection(UnitDirection));
+			}
+
+			// 缓存与逐探针数组都存 AU —— 求解器单位。
+			const double SurfaceRadiusAu = SurfaceRadiusCm / CentimetersPerAu;
+			SurfaceRadiusCache.Add(Key, SurfaceRadiusAu);
+			SurfaceRadii.Add(SurfaceRadiusAu);
+		}
+
+		State.ContactProbeSurfaceRadii = MoveTemp(SurfaceRadii);
+		State.ContactSurfaceSphereIndex = NearestPlanetIndex;
 	}
 }
 
