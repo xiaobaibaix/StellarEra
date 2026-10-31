@@ -97,6 +97,17 @@ FVoxelValue PlanetProgressiveKernel::EvaluateOps(
 		}
 		else
 		{
+			// 方块 op 只评估自己包围盒内的格子。合并后新块会落在旧 op 的盒外，
+			// 而 EvaluateBoxValue 对盒外格子返回 Full/Empty（插件原实现只在
+			// Bounds 内迭代，盒外格子在它的语义里根本不该被碰）。
+			const FPlanetEditVoxelBox& Bounds = Op.Bounds;
+			if (X < Bounds.Min.X || X >= Bounds.MaxExclusive.X
+				|| Y < Bounds.Min.Y || Y >= Bounds.MaxExclusive.Y
+				|| Z < Bounds.Min.Z || Z >= Bounds.MaxExclusive.Z)
+			{
+				continue;
+			}
+
 			CurrentValue = EvaluateBoxValue(
 				FIntVector(X, Y, Z), Op.Bounds.Min, Op.Bounds.MaxExclusive,
 				CurrentValue, bPlace);

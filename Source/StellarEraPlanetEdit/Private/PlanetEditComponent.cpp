@@ -215,7 +215,9 @@ void UPlanetEditComponent::TickProgressiveEdits()
 
 	// --- 阶段一：队首优先 ---
 	// 预算检查放在**推进过一块之后**：份额再小，这一帧也要往前走一块，
-	// 否则队列永远推不动。
+	// 否则队列永远推不动。收尾那块（把一笔做完的块）之后同样检查 —— 否则
+	// 轮转下多笔同时接近完成时，一帧会连环推完好几笔、突破预算。现在的性质是：
+	// 一帧最多做「收尾那一块 + 份额内装得下的部分」，不会是无界的收尾链。
 	while (EditQueue.Num() > 0)
 	{
 		const TSharedPtr<FPlanetProgressiveEdit>& Edit = EditQueue[0];
@@ -237,6 +239,10 @@ void UPlanetEditComponent::TickProgressiveEdits()
 		{
 			OnEditFinished(*Edit);
 			EditQueue.RemoveAt(0);
+			if (ElapsedMs() >= HeadBudgetMs)
+			{
+				break;
+			}
 			continue;
 		}
 

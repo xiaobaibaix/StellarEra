@@ -106,6 +106,9 @@ bool FPlanetProgressiveEdit::MakeRequest(
 
 bool FPlanetProgressiveEdit::SetupFromRequest(const FPlanetEditRequest& Request)
 {
+	// ResetState 只清几何，不动 Planet。这里必须自己清：公开入口可能被复用到
+	// 新的行星上，留着旧行星就会把新几何写到旧星上。
+	Planet.Reset();
 	ResetState();
 	Shape = Request.Shape;
 	bPlace = Request.bPlace;
