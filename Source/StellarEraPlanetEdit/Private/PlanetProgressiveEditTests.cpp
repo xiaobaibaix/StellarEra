@@ -970,4 +970,135 @@ bool FStellarEraProgressiveMergeProgressTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// 合并的正确性判据：**逐格全等**，不是「看起来差不多」。
+//
+// 路径 1：两次独立编辑依次执行（现在的行为）。
+// 路径 2：合并成一笔后按运行期真实顺序执行 —— 从 GetNextChunkIndex 起逐块，
+//        块内逐格按该块的 NumOps 过 op。
+//
+// 合并发生在一次都没推过的时候，所以新块被插到 0 号位置，先于老块执行。
+// 顺序反过来也必须同值，这正是「挖取 max / 填取 min 幂等且可交换」要钉的点。
+//
+// 合成网格而不是真实体素世界：AVoxelPlanetActor 需要一个带 Voxel LOD 管理器的
+// UWorld 才 IsCreated()，无头测试里建不起来。网格承担的是「同一格的保存/读回」，
+// 逐格谓词用的仍是运行期那一份 EvaluateOps。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraProgressiveMergeEquivalenceTest,
+	"StellarEra.Planet.Editor.Merge.ResultEqualsSequential",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraProgressiveMergeEquivalenceTest::RunTest(const FString& Parameters)
+{
+	// 三种初值铺满：向空与向实两个方向的边界都会被走到。
+	auto MakeSeed = [](const int32 X, const int32 Y, const int32 Z) -> FVoxelValue
+	{
+		const uint32 Hash = static_cast<uint32>((X * 73856093) ^ (Y * 19349663) ^ (Z * 83492791));
+		switch (Hash % 3)
+		{
+		case 0:  return FVoxelValue::Empty();
+		case 1:  return FVoxelValue::Full();
+		default: return FVoxelValue{ 0.25f };
+		}
+	};
+
+	for (int32 PlaceIndex = 0; PlaceIndex < 2; ++PlaceIndex)
+	{
+		const bool bPlace = PlaceIndex != 0;
+
+		const FPlanetEditRequest First = MakeMergeTestRequest(FVector::ZeroVector, bPlace);
+		const FPlanetEditRequest Second = MakeMergeTestRequest(FVector(6.0, 0.0, 0.0), bPlace);
+
+		TSharedPtr<FPlanetProgressiveEdit> Job = MakeShared<FPlanetProgressiveEdit>();
+		if (!TestTrue(TEXT("装配成功"), Job->SetupFromRequest(First)))
+		{
+			return false;
+		}
+		if (!TestTrue(TEXT("合并成功"), Job->TryMerge(Second, 8)))
+		{
+			return false;
+		}
+		TestEqual(TEXT("合并后有两个 op"), Job->GetOpCount(), 2);
+
+		const TArray<FPlanetEditOp>& Ops = Job->GetOps();
+		const FPlanetEditVoxelBox Union =
+			PlanetEditBrush::UnionVoxelBox(Ops[0].Bounds, Ops[1].Bounds);
+
+		const FIntVector Min = Union.Min;
+		const FIntVector Size(
+			Union.MaxExclusive.X - Min.X,
+			Union.MaxExclusive.Y - Min.Y,
+			Union.MaxExclusive.Z - Min.Z);
+
+		auto IndexOf = [&Min, &Size](const int32 X, const int32 Y, const int32 Z)
+		{
+			return (X - Min.X) + Size.X * ((Y - Min.Y) + Size.Y * (Z - Min.Z));
+		};
+
+		TArray<FVoxelValue> Initial;
+		Initial.SetNum(Size.X * Size.Y * Size.Z);
+		for (int32 X = Min.X; X < Union.MaxExclusive.X; ++X)
+		{
+			for (int32 Y = Min.Y; Y < Union.MaxExclusive.Y; ++Y)
+			{
+				for (int32 Z = Min.Z; Z < Union.MaxExclusive.Z; ++Z)
+				{
+					Initial[IndexOf(X, Y, Z)] = MakeSeed(X, Y, Z);
+				}
+			}
+		}
+
+		// 路径 1：依次执行两次独立编辑（每笔只有自己那一个 op）。
+		TArray<FVoxelValue> Sequential = Initial;
+		for (const FPlanetEditOp& Op : Ops)
+		{
+			for (int32 X = Op.Bounds.Min.X; X < Op.Bounds.MaxExclusive.X; ++X)
+			{
+				for (int32 Y = Op.Bounds.Min.Y; Y < Op.Bounds.MaxExclusive.Y; ++Y)
+				{
+					for (int32 Z = Op.Bounds.Min.Z; Z < Op.Bounds.MaxExclusive.Z; ++Z)
+					{
+						const int32 Index = IndexOf(X, Y, Z);
+						Sequential[Index] = PlanetProgressiveKernel::EvaluateOps(
+							&Op, 1, X, Y, Z, Sequential[Index], bPlace);
+					}
+				}
+			}
+		}
+
+		// 路径 2：合并后的块，按运行期顺序（从 NextChunkIndex 起）逐块应用。
+		TArray<FVoxelValue> MergedValues = Initial;
+		for (int32 ChunkIndex = Job->GetNextChunkIndex();
+			ChunkIndex < Job->GetChunks().Num(); ++ChunkIndex)
+		{
+			const FPlanetEditChunk& Chunk = Job->GetChunks()[ChunkIndex];
+			for (int32 X = Chunk.Bounds.Min.X; X < Chunk.Bounds.MaxExclusive.X; ++X)
+			{
+				for (int32 Y = Chunk.Bounds.Min.Y; Y < Chunk.Bounds.MaxExclusive.Y; ++Y)
+				{
+					for (int32 Z = Chunk.Bounds.Min.Z; Z < Chunk.Bounds.MaxExclusive.Z; ++Z)
+					{
+						const int32 Index = IndexOf(X, Y, Z);
+						MergedValues[Index] = PlanetProgressiveKernel::EvaluateOps(
+							Ops.GetData(), Chunk.NumOps, X, Y, Z, MergedValues[Index], bPlace);
+					}
+				}
+			}
+		}
+
+		int32 Mismatch = 0;
+		for (int32 Index = 0; Index < Sequential.Num(); ++Index)
+		{
+			if (Sequential[Index] != MergedValues[Index])
+			{
+				++Mismatch;
+			}
+		}
+		TestEqual(
+			bPlace ? TEXT("填：合并结果与依次独立执行逐格全等")
+			       : TEXT("挖：合并结果与依次独立执行逐格全等"),
+			Mismatch, 0);
+	}
+
+	return true;
+}
+
 #endif
