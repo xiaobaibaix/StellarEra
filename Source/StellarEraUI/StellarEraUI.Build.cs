@@ -1,8 +1,10 @@
 ﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
+using System.IO;
 using UnrealBuildTool;
 
 // 界面层：HUD、星图面板、矿物图例、编辑按钮布局、星图相机。
+// .h 与 .cpp 同目录并列在 Src/ 下，测试在 Src/Tests。
 //
 // 这是唯一允许同时依赖多个功能模块的模块。反向依赖一律禁止：
 // 功能模块不得 include 本模块的头。
@@ -30,11 +32,22 @@ public class StellarEraUI : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
+		// Src/ 与所有子目录进搜索路径，说明见 StellarEraPlanet.Build.cs。
+		// 模块入口 StellarEraUI.h/.cpp 与 Build.cs 并列在模块根，不放进 Src/。
+		PublicIncludePaths.Add(ModuleDirectory);
+
+		string SrcDir = Path.Combine(ModuleDirectory, "Src");
+		PublicIncludePaths.Add(SrcDir);
+		foreach (string SubDir in Directory.GetDirectories(SrcDir, "*", SearchOption.AllDirectories))
+		{
+			PublicIncludePaths.Add(SubDir);
+		}
+
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
 			"Core", "CoreUObject", "Engine",
 			// StarMapCameraPawn.h 是本模块的公开头，且实现 IVoxelViewpointInvokers
-			// —— 该接口在 StellarEraCore/Public/Interfaces，下游 include 相机头
+			// —— 该接口在 StellarEraCore/Src/Interfaces，下游 include 相机头
 			// 时必须能找到它。
 			"StellarEraCore",
 		});

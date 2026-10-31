@@ -37,8 +37,8 @@ PRESENTATION_BASENAMES = (
     "UStaticMeshComponent", "USkeletalMeshComponent",
 )
 
-# 这些模块应当只含数据与纯计算，Public 里出现 Actor 即视为分层倒挂
-PURE_LOGIC_MODULES = {"StellarEraCore", "StellarEraGeology", "StellarEraTerrain"}
+# 这些模块应当只含数据与纯计算，头文件里出现 Actor 即视为分层倒挂
+PURE_LOGIC_MODULES = {"StellarEraCore", "StellarEraGeology"}
 
 
 def read(path):
@@ -216,9 +216,11 @@ def main():
         if kind == "header" and lines > LIMITS["header_lines"]:
             report["oversize_headers"].append((rel, lines))
 
-        # 测试文件应当独立成 Tests 模块
+        # 测试文件必须住在 <module>/Src/Tests/ 下（或模块名含 Tests）
         if "Tests" in base and "Tests" not in module:
-            report["test_in_business"].append(rel)
+            parts = path.replace("\\", "/").split("/")
+            if "Tests" not in parts[:-1]:
+                report["test_in_business"].append(rel)
 
         # 跨模块 include 广度：按被 include 头文件的归属模块统计
         if kind == "source":
@@ -230,9 +232,8 @@ def main():
             if len(hits) >= LIMITS["include_modules"]:
                 report["wide_coupling"].append((rel, sorted(hits)))
 
-        # 底层模块的 Public 头暴露表现层基类（表现层模块暴露 Actor 属正常）
-        if (kind == "header" and module in PURE_LOGIC_MODULES
-                and "/Public/" in path.replace("\\", "/")):
+        # 底层模块的头暴露表现层基类（表现层模块暴露 Actor 属正常）
+        if kind == "header" and module in PURE_LOGIC_MODULES:
             if any(f": public {b}" in text for b in PRESENTATION_BASENAMES):
                 report["layer_leaks"].append((rel, module))
 
@@ -270,11 +271,11 @@ def main():
             report["oversize_files"], lambda x: f"{x[1]:>5} 行  {x[0]}")
     section(f"超大头文件（>{LIMITS['header_lines']} 行）",
             report["oversize_headers"], lambda x: f"{x[1]:>5} 行  {x[0]}")
-    section("测试混杂在业务模块", report["test_in_business"], lambda x: x)
+    section("测试文件不在 Src/Tests 下", report["test_in_business"], lambda x: x)
     section(f"跨模块 include ≥{LIMITS['include_modules']} 个",
             report["wide_coupling"],
             lambda x: f"{len(x[1])} 个模块  {x[0]}")
-    section("Public 头暴露表现层基类（分层倒挂）",
+    section("纯逻辑模块的头暴露表现层基类（分层倒挂）",
             report["layer_leaks"], lambda x: f"{x[1]:<22}{x[0]}")
 
     issues = (len(report["cycles"]) + len(report["layer_leaks"])

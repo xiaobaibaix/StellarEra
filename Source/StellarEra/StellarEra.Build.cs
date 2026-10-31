@@ -1,8 +1,10 @@
 ﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
+using System.IO;
 using UnrealBuildTool;
 
 // 装配层：游戏框架（GameMode / PlayerController）。HUD 与星图在 StellarEraUI。
+// .h 与 .cpp 同目录并列在 Src/ 下，跨模块集成测试在 Src/Tests。
 //
 // 本模块**保留原名 StellarEra**，因此它仍是 primary game module ——
 // StellarEra.cpp 里的 IMPLEMENT_PRIMARY_GAME_MODULE 不动。
@@ -32,6 +34,17 @@ public class StellarEra : ModuleRules
 	public StellarEra(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
+
+		// Src/ 与所有子目录进搜索路径，说明见 StellarEraPlanet.Build.cs。
+		// 模块入口 StellarEra.h/.cpp 与 Build.cs 并列在模块根，不放进 Src/。
+		PublicIncludePaths.Add(ModuleDirectory);
+
+		string SrcDir = Path.Combine(ModuleDirectory, "Src");
+		PublicIncludePaths.Add(SrcDir);
+		foreach (string SubDir in Directory.GetDirectories(SrcDir, "*", SearchOption.AllDirectories))
+		{
+			PublicIncludePaths.Add(SubDir);
+		}
 
 		PublicDependencyModuleNames.AddRange(new string[]
 		{

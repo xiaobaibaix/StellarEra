@@ -10,14 +10,14 @@ using UnrealBuildTool;
 // 编辑内核直接写它，地形生成直接写它，矿物与大气按它取采样点。拆成四个模块时
 // 每一次跨模块调用都得把内部实现提成 Public，反而比合在一起更难约束。
 //
-// 按目录分组，不按模块分组：
-//   Public/Terrain      生成器、地形模块、射线、表面网格、生物群系、调用器
-//   Public/Atmosphere   大气组件与参数
-//   Public/Minerals     矿物表面、观察组件、观察 Actor、材质
-//   Public/Edit         编辑组件、笔刷、涂抹、渐进编辑、网格几何
-//   Private/Tests       本模块的全部自动化测试（*Tests.cpp 只能出现在这里）
+// 目录按功能分组，.h 与 .cpp 同目录并列：
+//   Src/Terrain      生成器、地形模块、射线、表面网格、生物群系、调用器
+//   Src/Atmosphere   大气组件与参数
+//   Src/Minerals     矿物表面、观察组件、观察 Actor、材质
+//   Src/Edit         编辑组件、笔刷、涂抹、渐进编辑、网格几何
+//   Src/Tests        本模块的全部自动化测试（*Tests.cpp 只能出现在这里）
 //
-// Voxel 必须是 **Public** 依赖：本模块多个公开头直接 include 插件头
+// Voxel 必须是 **Public** 依赖：本模块多个头直接 include 插件头
 // （VoxelPlanetActor.h、VoxelPlanetGenerator.h、VoxelPlanetNoiseTerrain.h、
 // VoxelPlanetSphereTerrain.h、VoxelPlanetTerrainModule.h、
 // AlwaysLocalVoxelInvokerComponent.h）并继承插件类型
@@ -29,30 +29,32 @@ public class StellarEraPlanet : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		// UBT **不会**递归把 Public/ 的子目录加入搜索路径 —— 只加 Public/ 本身。
-		// 所以下面四行必须显式写出来，否则 `#include "VoxelPlanetGenerator.h"`
-		// 这类裸文件名 include 会直接 C1083。PublicIncludePaths 会向下游传递，
-		// Pawns / Cosmos / UI / 主模块因此也能按裸名 include 这些头。
-		PublicIncludePaths.AddRange(new string[]
-		{
-			Path.Combine(ModuleDirectory, "Public", "Terrain"),
-			Path.Combine(ModuleDirectory, "Public", "Atmosphere"),
-			Path.Combine(ModuleDirectory, "Public", "Minerals"),
-			Path.Combine(ModuleDirectory, "Public", "Edit"),
-		});
+		// Src/ 与它的每个子目录都要进搜索路径。
+		// UBT 只认 Public/ Private/ Classes/ Internal 这四个名字，且默认不递归
+		// （BuildSettings V7 关闭了 bLegacyPublicIncludePaths）。这里自己展开，
+		// 新增功能子目录不需要改本文件。
+		// 用 PublicIncludePaths：下游（Pawns / Cosmos / UI / 主模块）都是按裸名
+		// include 这些头的，路径必须向下传递。
+		// 模块入口 StellarEraPlanet.h/.cpp 与 Build.cs 并列在模块根，不放进 Src/。
+		// 根目录不是 UBT 的默认搜索路径，显式加上，入口 cpp 才能按裸名 include 自己的头。
+		PublicIncludePaths.Add(ModuleDirectory);
 
-		// 纯实现头（PlanetProgressiveEditKernel.h）不进 Public，只在本模块内可见。
-		PrivateIncludePaths.Add(Path.Combine(ModuleDirectory, "Private", "Edit"));
+		string SrcDir = Path.Combine(ModuleDirectory, "Src");
+		PublicIncludePaths.Add(SrcDir);
+		foreach (string SubDir in Directory.GetDirectories(SrcDir, "*", SearchOption.AllDirectories))
+		{
+			PublicIncludePaths.Add(SubDir);
+		}
 
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
 			"Core", "CoreUObject", "Engine", "Voxel",
 
-			// 地质场：本模块的公开头并不 include PlanetGeologyTypes.h，只**前置声明**
+			// 地质场：本模块的头并不 include PlanetGeologyTypes.h，只**前置声明**
 			// FPlanetGeologyField 并用 TSharedPtr<const FPlanetGeologyField> 持有。
 			"StellarEraGeology",
 
-			// IVoxelViewpointInvokers 在 Core/Public/Interfaces —— 实现它的是
+			// IVoxelViewpointInvokers 在 Core/Src/Interfaces —— 实现它的是
 			// Pawns 里的三个 Pawn，而本模块的 AlwaysLocalVoxelInvokerComponent
 			// 提供配套的工具函数。
 			"StellarEraCore",

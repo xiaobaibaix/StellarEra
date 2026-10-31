@@ -12,17 +12,25 @@ using UnrealBuildTool;
 // EngineMinimal.h:26 带进 GameFramework/Actor.h。
 // 把 Engine 拿掉会退到 SharedPCH.Core.h，上述两处立刻报未定义类型。
 //
-// Public/Interfaces 是本模块唯一需要显式声明 include 路径的子目录
-// （UBT 只加 Public/ 本身，不递归）。IVoxelViewpointInvokers 放在那里：
-// 实现方是 Pawns 的三个 Pawn，使用方是主模块的控制器，两边都不该为
-// 这一个头互相依赖，所以放在所有人共同的下游。
+// .h 与 .cpp 同目录并列在 Src/ 下。
+//
+// Src/Interfaces 里是 IVoxelViewpointInvokers：实现方是 Pawns 的两个 Pawn，
+// 使用方是主模块的控制器，两边都不该为这一个头互相依赖，所以放在共同下游。
 public class StellarEraCore : ModuleRules
 {
 	public StellarEraCore(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		PublicIncludePaths.Add(Path.Combine(ModuleDirectory, "Public", "Interfaces"));
+		// 模块入口 StellarEraCore.h/.cpp 与 Build.cs 并列在模块根，不放进 Src/。
+		PublicIncludePaths.Add(ModuleDirectory);
+
+		string SrcDir = Path.Combine(ModuleDirectory, "Src");
+		PublicIncludePaths.Add(SrcDir);
+		foreach (string SubDir in Directory.GetDirectories(SrcDir, "*", SearchOption.AllDirectories))
+		{
+			PublicIncludePaths.Add(SubDir);
+		}
 
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine" });
 	}

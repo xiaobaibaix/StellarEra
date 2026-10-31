@@ -21,10 +21,10 @@ StellarEraCore    ─→ 无项目依赖
 ```
 Source/
 ├── StellarEra/            主游戏模块（primary game module）：GameMode / PlayerController
-├── StellarEraCore/        N 体求解器、Cosmos 单位类型、通用接口（Public/Interfaces/）
+├── StellarEraCore/        N 体求解器、Cosmos 单位类型、通用接口（Src/Interfaces/）
 ├── StellarEraGeology/     元素表、行星地质场、噪声采样、UDataAsset 预设
-├── StellarEraPlanet/      世界：Terrain/ Atmosphere/ Minerals/ Edit/ 四个子目录
-├── StellarEraPawns/       受控实体：Character/ Spaceship/ 两个子目录
+├── StellarEraPlanet/      世界：Src/{Terrain,Atmosphere,Minerals,Edit}/
+├── StellarEraPawns/       受控实体：Src/{Character,Spaceship}/
 ├── StellarEraCosmos/      N 体编排（子系统 / 轨道组件 / 轨迹组件）
 └── StellarEraUI/          HUD、星图相机、星图面板、矿物图例、编辑按钮布局
 Plugins/
@@ -36,12 +36,29 @@ Content/
 └── Code/               BP_SpaceshipPawn / BP_PlanetCharacter / BP_VoxelPlanet / DA_Terrain_*
 ```
 
-模块内部按子目录分功能，**不靠拆模块来分**。两条硬规则：
+模块内部按子目录分功能，**不靠拆模块来分**。每个模块结构统一，头文件与源文件**同目录并列**：
 
-1. **`*Tests.cpp` 只能放 `Private/Tests/`。** 测试放哪个模块，看它 include 了谁 ——
-   必须是所引头文件的下游。跨模块的集成测试放装配层（`StellarEra/Private/Tests/`）。
-2. **Build.cs 必须显式声明子目录的 `PublicIncludePaths`。** UBT **不会**递归把
-   `Public/` 的子目录加入搜索路径，只加 `Public/` 本身；漏写就是 C1083。
+```
+StellarEraXxx/
+├── StellarEraXxx.Build.cs
+├── StellarEraXxx.h        模块入口，与 Build.cs 并排
+├── StellarEraXxx.cpp
+└── Src/
+    ├── Foo.h  Foo.cpp     业务代码
+    ├── <功能子目录>/       同样 .h/.cpp 并列
+    └── Tests/             自动化测试
+```
+
+三条硬规则：
+
+1. **`*Tests.cpp` 只能放 `Src/Tests/`。** 测试放哪个模块，看它 include 了谁 ——
+   必须是所引头文件的下游。跨模块的集成测试放装配层（`StellarEra/Src/Tests/`）。
+2. **Build.cs 用循环把 `Src/` 及全部子目录加进 `PublicIncludePaths`。** 每个 Build.cs
+   都有这段，新模块照着抄。UBT 只认 `Public/` `Private/` `Classes/` `Internal` 四个名字
+   且默认不递归（BuildSettings V7 关掉了 `bLegacyPublicIncludePaths`），必须自己展开；
+   写成循环的好处是**新增功能子目录不用改 Build.cs**。
+3. **模块入口的 `StellarEraXxx.h/.cpp` 不进 `Src/`**，它们与 `Build.cs` 并排，
+   `Src/` 里只有业务代码。
 
 2026-10 做过一次 11 → 7 的模块合并（Terrain/Atmosphere/Minerals/PlanetEdit → Planet，
 Character/Spaceship → Pawns），历史类路径由 `Config/DefaultEngine.ini` 的
@@ -55,7 +72,7 @@ Character/Spaceship → Pawns），历史类路径由 `Config/DefaultEngine.ini`
 自定义代码不进第三方插件目录，一律写进上面七个模块并改对应 `Build.cs`。
 
 **`StellarEraUI` 不依赖 `StellarEra`**（Game 依赖 UI，反向就成环）。星图 UI 需要控制器数据时走
-`IStarMapUIInputs`（`Source/StellarEraUI/Public/StarMapUIInputs.h`），由 `AStellarEraPlayerController` 实现。
+`IStarMapUIInputs`（`Source/StellarEraUI/Src/StarMapUIInputs.h`），由 `AStellarEraPlayerController` 实现。
 
 ## 技能与 Agent 路由（强制）
 

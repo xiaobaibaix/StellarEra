@@ -5,6 +5,10 @@
 >
 > **状态：已完成**，分支 `refactor/module-merge`，worktree `F:/workspace/ue/StellarEra-refactor`。
 > 实施结果与本文有两处偏差，已就地修正并标注（§3 Pawns 与 §5.5）。
+>
+> **⚠️ 目录布局后来又改过一次**：各模块不再分 `Public/` 与 `Private/`，
+> 统一为「入口两件套与 `Build.cs` 并排 + 业务代码全在 `Src/` 内、`.h` 与 `.cpp` 同目录」。
+> **以 `Source/README.md` 为准**，本文 §3 里的 `Public/` `Private/` 树是那一版的历史记录。
 
 ---
 

@@ -1,8 +1,10 @@
 ﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
+using System.IO;
 using UnrealBuildTool;
 
 // 万有引力层：N 体编排（组件 + 世界子系统）与轨迹可视化。
+// .h 与 .cpp 同目录并列在 Src/ 下，测试在 Src/Tests。
 //
 // Core 是 **Public**：CosmosSimulationSubsystem.h 按值持有 FNBodySimulator。
 // Planet / Pawns 是 **Private**：本模块的公开头不 include 它们的头，
@@ -19,6 +21,17 @@ public class StellarEraCosmos : ModuleRules
 	public StellarEraCosmos(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
+
+		// Src/ 与所有子目录进搜索路径，See StellarEraPlanet.Build.cs 的说明。
+		// 模块入口 StellarEraCosmos.h/.cpp 与 Build.cs 并列在模块根，不放进 Src/。
+		PublicIncludePaths.Add(ModuleDirectory);
+
+		string SrcDir = Path.Combine(ModuleDirectory, "Src");
+		PublicIncludePaths.Add(SrcDir);
+		foreach (string SubDir in Directory.GetDirectories(SrcDir, "*", SearchOption.AllDirectories))
+		{
+			PublicIncludePaths.Add(SubDir);
+		}
 
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
