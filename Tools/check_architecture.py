@@ -37,8 +37,13 @@ PRESENTATION_BASENAMES = (
     "UStaticMeshComponent", "USkeletalMeshComponent",
 )
 
-# 这些模块应当只含数据与纯计算，头文件里出现 Actor 即视为分层倒挂
-PURE_LOGIC_MODULES = {"StellarEraCore", "StellarEraGeology"}
+# 这些模块应当只含数据与纯计算，头文件里出现 Actor 即视为分层倒挂。
+#
+# 现在是空集：唯一的成员 StellarEraCore 已于 2026-10-31 拆掉
+# （N 体求解器并入 StellarEraCosmos，接口落到 StellarEraPlanet）。
+# 这条检查保留着 —— 以后再出现「纯数据层」性质的模块，把名字加进来即可。
+# 最底层现在是 StellarEraPlanet，它本来就有 Actor，不该受这条约束。
+PURE_LOGIC_MODULES = set()
 
 
 def read(path):

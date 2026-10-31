@@ -1,13 +1,13 @@
 // 体素调用器的幂等开关 —— IVoxelViewpointInvokers 的配套工具。
 //
 // 从原 StellarEraTerrain/Public/VoxelViewpointInvokers.h 拆出来的一半：
-// 接口本身（只声明 SetViewpointInvokersActive，不碰任何 Voxel 类型）搬到了
-// Core/Public/Interfaces/VoxelViewpointInvokers.h，那里是三个 Pawn 与控制器
-// 都能看见的位置；而这里的 SetEnabled 要用 UVoxelInvokerComponentBase，
-// 只有依赖 Voxel 插件的模块才放得下，于是留在本模块。
+// 接口本身（只声明 SetViewpointInvokersActive，不碰任何 Voxel 类型）在同目录的
+// VoxelViewpointInvokers.h；而这里的 SetEnabled 要用 UVoxelInvokerComponentBase，
+// 只有依赖 Voxel 插件的模块才放得下，于是始终留在 Planet。
 //
-// 文件名与接口头不同（多一个 Utils），是为了避免两个模块出现同名头导致
-// include 解析到错误的那一份。
+// 实现文件叫 VoxelViewpointInvokerUtils.cpp（与本文配对），不叫
+// VoxelViewpointInvokers.cpp —— 那个名字已经被接口头占用了，同名会让
+// 「.h 与 .cpp 是一对」的直觉失效。
 
 #pragma once
 

@@ -19,7 +19,7 @@ struct FPlanetGeologyRegion
 };
 
 /** 运行期基类：不可变、不持有 UObject 引用，可跨线程共享。 */
-class STELLARERAGEOLOGY_API FPlanetGeologyDistributionRuntime
+class STELLARERAPLANET_API FPlanetGeologyDistributionRuntime
 {
 public:
 	virtual ~FPlanetGeologyDistributionRuntime() = default;
@@ -43,7 +43,7 @@ public:
 };
 
 /** 每个生成器独立一套噪声；构造后只读。 */
-struct STELLARERAGEOLOGY_API FPlanetGeologyDistributionNoise
+struct STELLARERAPLANET_API FPlanetGeologyDistributionNoise
 {
 	void Init(int32 InSeed, float InFeatureRadius, float InShapeDetail, int32 InOctaves,
 		float InLacunarity, float InGain, float InVeinThreshold);
@@ -75,14 +75,14 @@ private:
  * 迁移保真测试依赖这一点 —— 所以**调用方必须先抽半径抖动**（旧 PlacePods 的第一步），
  * 少抽一次就整体错位。
  */
-STELLARERAGEOLOGY_API FVector SamplePlanetGeologyPlacement(FRandomStream& Rng,
+STELLARERAPLANET_API FVector SamplePlanetGeologyPlacement(FRandomStream& Rng,
 	float DepthBias, float DepthCenter, float DepthSpread);
 
 /** 归一化点 → 格坐标（负坐标用 floor，不能用截断）。 */
-STELLARERAGEOLOGY_API FIntVector PlanetGeologyToCell(const FVector& Point, double CellSize);
+STELLARERAPLANET_API FIntVector PlanetGeologyToCell(const FVector& Point, double CellSize);
 
 /** 把包围盒覆盖的格子写入索引；InOutReferenceCount 累加引用数。 */
-STELLARERAGEOLOGY_API void PlanetGeologyIndexBounds(const FBox& Bounds, double CellSize,
+STELLARERAPLANET_API void PlanetGeologyIndexBounds(const FBox& Bounds, double CellSize,
 	TMap<FIntVector, TArray<int32>>& Index, int32 PrimitiveIndex, int32& InOutReferenceCount);
 
 struct FPlanetGeologyDistributionBuildContext
@@ -98,7 +98,7 @@ struct FPlanetGeologyDistributionBuildContext
  * PostEditChangeProperty，所以基类主动找外层并广播（见 .cpp）。
  */
 UCLASS(Abstract, EditInlineNew, DefaultToInstanced, BlueprintType)
-class STELLARERAGEOLOGY_API UPlanetGeologyDistribution : public UObject
+class STELLARERAPLANET_API UPlanetGeologyDistribution : public UObject
 {
 	GENERATED_BODY()
 

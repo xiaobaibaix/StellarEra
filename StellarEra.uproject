@@ -10,16 +10,6 @@
 			"LoadingPhase": "Default"
 		},
 		{
-			"Name": "StellarEraCore",
-			"Type": "Runtime",
-			"LoadingPhase": "Default"
-		},
-		{
-			"Name": "StellarEraGeology",
-			"Type": "Runtime",
-			"LoadingPhase": "Default"
-		},
-		{
 			"Name": "StellarEraPlanet",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"

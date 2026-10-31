@@ -7,10 +7,12 @@
 //
 // 行星自己的 UVoxelSimpleInvokerComponent 不实现本接口，因此永远不受影响。
 //
-// 位置说明：接口住在 Core（L0）。实现它的是 StellarEraPawns 里的三个 Pawn，
-// 使用它的是 StellarEra 主模块的控制器，两方都不该为这一个头互相依赖，
-// 所以放在所有人共同的下游。配套的 VoxelViewpointInvokers::SetEnabled 需要
-// Voxel 插件类型，留在 StellarEraPlanet/Public/Terrain/VoxelViewpointInvokerUtils.h。
+// 位置说明：接口住在 StellarEraPlanet/Src/Invokers/ —— 也就是体素 LOD 的接线层，
+// 和它配套的 AlwaysLocalVoxelInvokerComponent 摆在一起。实现它的是 Pawns 的
+// 三个 Pawn 与 UI 的星图相机，它们都已 Public 依赖 Planet；使用它的是主模块的
+// 控制器。原先它单独待在 StellarEraCore（L0），2026-10 拆掉 Core 后收归此处。
+// 配套的 VoxelViewpointInvokers::SetEnabled 需要 Voxel 插件类型，
+// 在同目录的 VoxelViewpointInvokerUtils.h。
 
 #pragma once
 
@@ -34,7 +36,7 @@ class UVoxelViewpointInvokers : public UInterface
  *   3. 实现必须记住最后一次的值，并在 BeginPlay 里按它重新应用 ——
  *      组件在 OnRegister 中自动启用（VoxelInvokerComponent.cpp:83），早于 Possess。
  */
-class STELLARERACORE_API IVoxelViewpointInvokers
+class STELLARERAPLANET_API IVoxelViewpointInvokers
 {
 	GENERATED_BODY()
 

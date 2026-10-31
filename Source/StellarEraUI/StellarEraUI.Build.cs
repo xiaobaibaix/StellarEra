@@ -46,18 +46,22 @@ public class StellarEraUI : ModuleRules
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
 			"Core", "CoreUObject", "Engine",
+
 			// StarMapCameraPawn.h 是本模块的公开头，且实现 IVoxelViewpointInvokers
-			// —— 该接口在 StellarEraCore/Src/Interfaces，下游 include 相机头
-			// 时必须能找到它。
-			"StellarEraCore",
+			// —— 该接口随体素接线层住在 StellarEraPlanet/Src/Invokers/，
+			// 下游 include 相机头时必须能找到它，所以 Planet 是 **Public** 依赖。
+			// （原 StellarEraCore 住着这个接口，它拆掉后本项从 Private 升为 Public。）
+			// 本模块对 Planet 的其余使用（行星 Actor、编辑组件与笔刷、矿物与地质场）
+			// 本来全在 .cpp 里，升级只多传递几个 include 路径，不引入环。
+			"StellarEraPlanet",
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			"StellarEraPlanet",   // 行星 Actor / 表面网格 / 编辑组件与笔刷 / 矿物观察体组件
 			"StellarEraPawns",    // 角色 / 飞船（星图相机仍在 UI，见上）
-			"StellarEraCosmos",   // 选中天体、轨迹、星图状态
-			"StellarEraGeology",  // 地质场 / 元素类型（StarMapUISystem.cpp 直接用）
+			"StellarEraCosmos",   // 选中天体、轨迹、星图状态、CosmosTypes 的枚举
+			// 地质场与元素类型（StarMapUISystem.cpp 直接用）随矿物并入 Planet，
+			// 不再单独依赖 StellarEraGeology。
 			"Voxel",              // 相机头里的 UPROPERTY 需要 UVoxelSimpleInvokerComponent 的 UClass
 		});
 	}

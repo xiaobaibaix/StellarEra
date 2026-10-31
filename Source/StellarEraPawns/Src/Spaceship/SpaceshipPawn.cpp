@@ -31,8 +31,9 @@ namespace
 	/**
 	 * 1 千米 = 1e5 厘米。
 	 *
-	 * 本模块不声明 StellarEraCore 依赖（设计选择：飞船层不引入 Cosmos 单位体系）。
-	 * 注意不是防环 —— StellarEraCore 没有项目依赖，加进来也不会成环。
+	 * 写成本地常数而不是调单位的换算函数，是设计选择：飞船层不引入
+	 * Cosmos 的单位体系（原 StellarEraCore，2026-10 已并入 Cosmos）。
+	 * 本模块只 Public 依赖 Planet，没有 Cosmos 依赖。
 	 */
 	constexpr float CentimetersPerKilometer = 1.0e5f;
 }
@@ -1102,7 +1103,7 @@ FVector ASpaceshipPawn::GetThrustAccelerationWorldCmPerS2(float DeltaSeconds) co
 
 	// Shift 乘在**大小**上而不是方向分量上：这样斜着按 W+Space+Shift 时，
 	// 总量仍然只有单按一个的 1 倍（而不是 1.41 倍）。
-	// km/s² → 厘米/秒²。1e5 是本地常数：本模块不能依赖 StellarEraCore。
+	// km/s² → 厘米/秒²。1e5 是本地常数：本模块不依赖 Cosmos 的单位换算。
 	const float Magnitude = ThrustAccelerationKmPerS2 * CentimetersPerKilometer
 		* (bBoosting ? BoostMultiplier : 1.f);
 

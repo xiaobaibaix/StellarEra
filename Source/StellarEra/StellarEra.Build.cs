@@ -12,12 +12,17 @@ using UnrealBuildTool;
 // /Script/ 路径不变，DefaultEngine.ini 与 UniverseMap.umap 里指向它们的引用
 // 无需任何改动。
 //
-// 依赖方向（严格分层，无环）：
-//     StellarEra ─→ StellarEraUI ─→ StellarEraCosmos ─→ StellarEraPawns ─→ StellarEraPlanet
-//          │            │                                    │                  │
-//          └────────────┴────────────────────────────────────┴─────→ StellarEraCore
-//                                                                        ↑
-//                                                              StellarEraGeology
+// 依赖方向（严格分层，无环）。五层，层号即最大依赖深度：
+//
+//   L5 StellarEra         ─Public→ UI          ─Private→ Planet / Pawns / Cosmos
+//   L4 StellarEraUI       ─Public→ Planet      ─Private→ Pawns / Cosmos
+//   L3 StellarEraCosmos   ─Private→ Planet / Pawns
+//   L2 StellarEraPawns    ─Public→ Planet
+//   L1 StellarEraPlanet   无项目依赖（只依赖引擎与 Voxel 插件）
+//
+// 两个 Public 依赖都是被 IVoxelViewpointInvokers 逼出来的：UI 的星图相机与
+// Pawns 的两个 Pawn 都在**公开头**里继承它，而它住在 Planet/Src/Invokers/。
+// 其余跨模块引用一律走 Private（完整类型只在 .cpp 里用）。
 //
 // StellarEraUI 是 **Public**：公开头 StellarEraPlayerController.h include 了
 // StarMapUIInputs.h —— AStellarEraPlayerController 公开继承 IStarMapUIInputs，
@@ -56,16 +61,17 @@ public class StellarEra : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			// 行星：Actor / 表面网格 / 编辑组件 / 笔刷 / 矿物观察体 / 大气。
+			// 行星：Actor / 表面网格 / 编辑组件 / 笔刷 / 矿物观察体 / 大气，
+			// 以及 IVoxelViewpointInvokers（控制器在 OnPossess 里逐个调用，
+			// 该接口住在 Planet/Src/Invokers/）。
 			// 全部只在 .cpp 与测试里 include，公开头不出现。
 			"StellarEraPlanet",
 
 			// 受控实体：角色 / 飞船 / 星图相机。换视点时控制器逐个 possess。
 			"StellarEraPawns",
 
-			"StellarEraCore",
-
-			// N 体编排（子系统 / 轨道组件 / 轨迹组件）；只在 .cpp 与测试里 include。
+			// N 体积分与编排（求解器 / 子系统 / 轨道组件 / 轨迹组件）；
+			// 只在 .cpp 与测试里 include。原 StellarEraCore 已并入本模块。
 			"StellarEraCosmos",
 
 			// 视点门控的测试（VoxelViewpointInvokerTests.cpp）直接摸插件的

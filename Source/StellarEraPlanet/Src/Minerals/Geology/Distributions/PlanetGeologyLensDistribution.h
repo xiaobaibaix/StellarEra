@@ -15,7 +15,7 @@
  * 不是单片的长宽比。
  */
 UCLASS(DisplayName = "片层（透镜）", EditInlineNew)
-class STELLARERAGEOLOGY_API UPlanetGeologyLensDistribution : public UPlanetGeologyDistribution
+class STELLARERAPLANET_API UPlanetGeologyLensDistribution : public UPlanetGeologyDistribution
 {
 	GENERATED_BODY()
 

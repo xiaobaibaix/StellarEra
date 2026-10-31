@@ -5,7 +5,7 @@ UE 要求所有模块平铺在 `Source/` 下，**物理上没有层次**。
 
 依赖只能向下：上层可以 include 下层，下层不许 include 上层。
 
-**7 个模块，6 个层号。** 一个模块内部按子目录分功能，不靠拆模块来分。
+**5 个模块，5 个层号。** 一个模块内部按子目录分功能，不靠拆模块来分。
 
 ---
 
@@ -39,49 +39,42 @@ StellarEraPlanet/
 
 ## 按层看
 
-### L0 底座 —— 零项目依赖
-
-| 模块 | 行数 | 一句话 | 什么时候动它 |
-|---|---:|---|---|
-| `StellarEraCore` | 2694 | N 体求解器、物理单位、通用接口 | 改积分算法、加天体类型、加跨模块接口 |
-| `StellarEraGeology` | 3193 | 元素表、地质场、矿物分布、`UDataAsset` 预设 | 加矿种、改分布形状 |
-
-`StellarEraCore/Src/Interfaces/VoxelViewpointInvokers.h` 里是 `IVoxelViewpointInvokers`。
-它住在这里而不是某个实现模块，是因为实现方（Pawns 的两个 Pawn）和使用方（控制器）
-不该为这一个头互相依赖。
-
-```
-StellarEraGeology/Src/
-├── PlanetGeologyTypes.h       元素 / 矿物类型
-├── PlanetGeologyField.h/.cpp  地质场：从位置与噪声取元素浓度
-├── PlanetGeologyPreset.h/.cpp 行星级预设 UDataAsset
-├── Distributions/             分布基类 + 囊状 / 片层 / 脉状 / 浸染四个变体
-└── Tests/
-```
-
 ### L1 世界 —— 一颗行星的全部
 
 | 模块 | 行数 | 一句话 | 什么时候动它 |
 |---|---:|---|---|
-| `StellarEraPlanet` | 14982 | 地形生成、大气、矿物、编辑 —— 四合一 | 见下面的子目录表 |
+| `StellarEraPlanet` | 19076 | 地形生成、大气、矿物（含地质场与矿脉形态）、编辑、体素接线 | 见下面的子目录表 |
 
 ```
 StellarEraPlanet/Src/
 ├── VoxelPlanetActor.h/.cpp    星球本体（对外门面，所以放在 Src 根）
 ├── Terrain/                   地形长什么样：模块基类、噪声、纯球、适配器、生物群系配色
+├── Invokers/                  体素 LOD 调用器接线 + IVoxelViewpointInvokers（角色 / 飞船 / 相机共用）
 ├── Surface/                   星球这个球本身：解析射线、编辑经纬网格
-├── Invokers/                  体素 LOD 调用器接线（角色 / 飞船 / 相机共用）
 ├── Atmosphere/                大气组件与参数
-├── Minerals/                  矿物表面、观察组件、观察 Actor、材质
+├── Minerals/                  矿物域：Geology（含 Distributions）/ Surface / View
 ├── Edit/                      编辑组件、笔刷、涂抹、渐进编辑、网格几何
-└── Tests/                     12 个测试
+└── Tests/                     13 个测试
 ```
+
+矿物域的四层，从数据到交互：
+
+```
+Minerals/
+├── Geology/                 元素表、地质场、UDataAsset 预设  有什么、有多少
+│   └── Distributions/       基类 + 囊状/脉状/片层/浸染四变体  什么形状
+├── Surface/                 矿物表面几何、材质构建          怎么显示
+└── View/                    观测 Actor 与组件               怎么看、怎么选
+```
+
+改矿怎么分布 → `Minerals/Geology/PlanetGeologyField.cpp`；
+改矿有多大、什么形状 → `Minerals/Geology/Distributions/` 里对应的变体。
 
 `Terrain/` 里的东西只被 Planet 内部用；`Invokers/` 里的被 `StellarEraPawns` 与
 `StellarEraUI` 跨模块引用 —— 它们不属于「地形」，是 Voxel 插件 LOD 的接线层，
 当初只是恰好放在 Terrain 文件夹里。
 
-四个子目录共享同一份体素密度场，这是它们合在一个模块里的理由。
+五个目录共享同一份体素密度场，这是它们合在一个模块里的理由。
 编辑内核直接写它、地形生成直接写它、矿物与大气按它取采样点 ——
 拆成四个模块时，每次跨模块调用都得把内部实现提成 Public。
 
@@ -89,7 +82,7 @@ StellarEraPlanet/Src/
 
 | 模块 | 行数 | 一句话 | 什么时候动它 |
 |---|---:|---|---|
-| `StellarEraPawns` | 4477 | 角色、飞船 —— 二合一 | 见下面的子目录表 |
+| `StellarEraPawns` | 4461 | 角色、飞船 —— 二合一 | 见下面的子目录表 |
 
 ```
 StellarEraPawns/Src/
@@ -109,7 +102,22 @@ StellarEraPawns/Src/
 
 | 模块 | 行数 | 一句话 | 什么时候动它 |
 |---|---:|---|---|
-| `StellarEraCosmos` | 3705 | 唯一 N 体驱动、轨道参数、预测轨迹 | 改模拟步长、改预测窗口 |
+| `StellarEraCosmos` | 6339 | N 体求解器、天体类型与单位、轨道参数、预测轨迹 | 改积分算法、改模拟步长、改预测窗口 |
+
+```
+StellarEraCosmos/Src/
+├── NBody/                         纯计算层，不碰 UObject
+│   ├── NBodySimulator.h/.cpp      积分器、能量基线、碰撞语义
+│   └── CosmosTypes.h              单位系统、天体类型、积分器枚举（UENUM）
+├── CosmosSimulationSubsystem.h/.cpp  唯一驱动：每帧推进、下发状态
+├── CosmosOrbitComponent.h/.cpp    天体在被驱动方一侧的轨道参数
+├── CosmosTrajectoryComponent.h/.cpp  预测轨迹的可视化
+└── Tests/
+```
+
+`NBodySimulator` 与 `CosmosTypes` 原在 `StellarEraCore`。那个模块总共 2687 行，
+其中 2411 行就是这一个求解器 —— 为它单独维持一个模块（Build.cs、入口、Target 登记）
+不划算，而它唯一的使用方就是本模块，于是并了进来。
 
 ### L4 界面
 
@@ -135,15 +143,18 @@ UI 声明自己需要什么，Game 去实现，于是 UI 不需要 include 控�
 | 改地形起伏 | `StellarEraPlanet/Src/Terrain/VoxelPlanetNoiseTerrain.cpp` |
 | 改星球移动/缩放 | `StellarEraPlanet/Src/VoxelPlanetActor.cpp` |
 | 改大气颜色/高度 | `StellarEraPlanet/Src/Atmosphere/PlanetAtmosphereMaterialBuilder.cpp` |
-| 改矿物透视颜色 | `StellarEraPlanet/Src/Minerals/PlanetMineralMaterialBuilder.cpp` |
+| 改矿物透视颜色 | `StellarEraPlanet/Src/Minerals/Surface/PlanetMineralMaterialBuilder.cpp` |
 | 改挖掘笔刷范围 | `StellarEraPlanet/Src/Edit/PlanetEditBrush.cpp` |
 | 改渐进编辑的速度 | `StellarEraPlanet/Src/Edit/PlanetProgressiveEdit.cpp` |
-| 改星球上矿物怎么分布 | `StellarEraGeology/Src/PlanetGeologyField.cpp` |
+| 改星球上矿物怎么分布 | `StellarEraPlanet/Src/Minerals/Geology/PlanetGeologyField.cpp` |
+| 改矿脉形状/大小/深度 | `StellarEraPlanet/Src/Minerals/Geology/Distributions/` 里对应变体 |
+| 加一种新的矿脉形态 | 继承 `UPlanetGeologyDistribution`，实现 `BuildRuntime` |
 | 改角色球面行走手感 | `StellarEraPawns/Src/Character/PlanetCharacterMovementComponent.cpp` |
 | 改飞船推力/阻尼 | `StellarEraPawns/Src/Spaceship/SpaceshipPawn.cpp` |
 | 改星图相机速度/缩放 | `StellarEraUI/Src/StarMapCameraPawn.cpp` |
-| 改 N 体积分稳定性 | `StellarEraCore/Src/NBodySimulator.cpp` |
+| 改 N 体积分稳定性 | `StellarEraCosmos/Src/NBodySimulator.cpp` |
 | 改模拟步长/时间流速 | `StellarEraCosmos/Src/CosmosSimulationSubsystem.h` 的 Config 段 |
+| 加一种天体类型/单位制 | `StellarEraCosmos/Src/CosmosTypes.h` |
 | 改 HUD 显示内容 | `StellarEraUI/Src/StellarEraHUD.cpp` |
 | 改星图交互 | `StellarEraUI/Src/StarMapUISystem.cpp` |
 | 改按键绑定 | `StellarEra/Src/StellarEraPlayerController.cpp` 的 `SetupInputComponent` |
@@ -157,8 +168,9 @@ UI 声明自己需要什么，Game 去实现，于是 UI 不需要 include 控�
    跨模块的集成测试放装配层（`StellarEra/Src/Tests/`）。
 2. **新增功能就加一个子目录，`.h` 与 `.cpp` 一起放进去。** 不要往 `Src/` 根堆文件，
    那一层只留模块门面（`VoxelPlanetActor.h` 这类被外部当入口用的）。
-3. **接口放 `StellarEraCore/Src/Interfaces/`**，除非它像 `IStarMapUIInputs` 那样
-   明确属于某个使用方（那时由使用方定义，上层实现）。
+3. **接口放到「已经被所有实现方与使用方依赖的最低层」**。`IVoxelViewpointInvokers`
+   在 `Planet/Src/Invokers/`（Pawns 与 UI 都已 Public 依赖 Planet）；
+   `IStarMapUIInputs` 明确属于 UI 的输入需求，就由 UI 定义、上层实现。
 
 ### 什么时候该建子目录
 

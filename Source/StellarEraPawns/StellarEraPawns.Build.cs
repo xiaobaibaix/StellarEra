@@ -46,9 +46,10 @@ public class StellarEraPawns : ModuleRules
 			// 所以插件头必须对下游可见 —— Voxel 是 Public 依赖。
 			"Voxel",
 
-			"StellarEraCore",
-
 			// 角色贴地、飞船大气阻力，都直接调行星模块的接口。
+			// IVoxelViewpointInvokers 也在本模块的公开头里用（两个 Pawn 继承它），
+			// 该接口随体素接线层住在 Planet/Src/Invokers/ —— 所以是 Public 依赖，
+			// 下游 include 本模块的 Pawn 头时能找到它。（原 StellarEraCore 已拆除。）
 			"StellarEraPlanet",
 		});
 	}

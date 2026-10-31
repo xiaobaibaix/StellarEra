@@ -59,7 +59,7 @@ struct FPlanetGeologySample
 
 /** 行星级的外观参数。改 USTRUCT 是为了能在 UDataAsset 里编辑。 */
 USTRUCT(BlueprintType)
-struct STELLARERAGEOLOGY_API FPlanetGeologyAppearance
+struct STELLARERAPLANET_API FPlanetGeologyAppearance
 {
 	GENERATED_BODY()
 

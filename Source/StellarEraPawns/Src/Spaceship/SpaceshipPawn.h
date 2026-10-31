@@ -592,7 +592,7 @@ protected:
 	 * 就是它）。世界速度与物理速度不是一回事，见
 	 * UCosmosOrbitComponent::InitialVelocityKmPerSecond 的注释。
 	 *
-	 * 换算是本模块内的一行（× 1e5），因为 StellarEraSpaceship 不能依赖 StellarEraCore。
+	 * 换算是本模块内的一行（× 1e5），因为本模块不依赖 Cosmos 的单位体系。
 	 */
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Thrust",
 		meta = (DisplayName = "推力加速度（km/s²，世界）"))

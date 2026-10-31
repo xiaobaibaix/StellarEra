@@ -8,20 +8,29 @@
 
 ## 一、一页速查
 
-7 个模块，6 层，135 个文件，37117 行，30 个自动化测试。
+5 个模块，5 层，131 个文件，37369 行，30 个自动化测试。
 
 | 层 | 模块 | 文件 | 行数 | 测试 | 一句话 | 依赖（Public / Private） |
 |---:|---|---:|---:|---:|---|---|
-| L0 | `StellarEraCore` | 7 | 2687 | 1 | 单位系统、N 体求解器、跨模块接口 | 无项目依赖 |
-| L0 | `StellarEraGeology` | 18 | 3175 | 1 | 元素表、地质场、矿物分布、预设 | 无项目依赖 |
-| L1 | `StellarEraPlanet` | 59 | 15611 | 12 | 一颗行星的全部：地形 / 大气 / 矿物 / 编辑 | Public: Geology, Core |
-| L2 | `StellarEraPawns` | 17 | 4460 | 7 | 玩家能 possess 的：角色、飞船 | Public: Core, Planet |
-| L3 | `StellarEraCosmos` | 10 | 3695 | 2 | N 体编排与轨迹 | Public: Core / Private: Planet, Pawns |
-| L4 | `StellarEraUI` | 16 | 4340 | 5 | HUD、星图、图例、星图相机 | Public: Core / Private: 其余功能模块 |
+| L1 | `StellarEraPlanet` | 76 | 19076 | 13 | 一颗行星的全部：地形 / 大气 / 矿物（含地质场）/ 编辑 / 体素接线 | Public: Voxel / Private: AssetRegistry, GeometryCore, GeometryFramework |
+| L2 | `StellarEraPawns` | 17 | 4461 | 7 | 玩家能 possess 的：角色、飞船 | Public: Planet, Voxel |
+| L3 | `StellarEraCosmos` | 14 | 6339 | 3 | N 体积分与编排、天体类型、轨迹 | Private: Planet, Pawns |
+| L4 | `StellarEraUI` | 16 | 4344 | 5 | HUD、星图、图例、星图相机 | Public: Planet / Private: Pawns, Cosmos, Voxel |
 | L5 | `StellarEra` | 8 | 3149 | 2 | GameMode、PlayerController（primary game module） | Public: UI / Private: 其余 |
+
+**没有 L0 了。** 只剩引擎与 `Voxel` 插件，项目自研代码分五层。
 
 `StellarEra` 保留原名，所以 `IMPLEMENT_PRIMARY_GAME_MODULE` 不动，
 `/Script/StellarEra.*` 路径不变，`DefaultEngine.ini` 与 `UniverseMap.umap` 里的引用无需改。
+
+> **2026-10-31 两次合并**：
+> ① 原 `StellarEraGeology`（18 文件 3175 行）整个并入 `Planet/Src/Minerals/` ——
+>    它不是地形辅助，而是矿物域的数据层，被 Terrain（矿囊参与密度场）与
+>    Minerals（着色与开采）同时消费。模块 7 → 6。
+> ② 原 `StellarEraCore`（7 文件 2687 行）拆掉 —— 其中 2411 行是 N 体求解器，
+>    剩一个枚举头和一个接口头。求解器并入它唯一的使用方 `Cosmos`，
+>    `CosmosTypes.h` 跟着走，`IVoxelViewpointInvokers` 落到
+>    `Planet/Src/Invokers/`（体素接线层）。模块 6 → 5。
 
 ---
 
@@ -36,29 +45,18 @@ graph TD
     C["StellarEraCosmos<br/>L3 天体"]
     P["StellarEraPawns<br/>L2 受控实体"]
     PL["StellarEraPlanet<br/>L1 世界"]
-    G["StellarEraGeology<br/>L0 地质"]
-    CO["StellarEraCore<br/>L0 底座"]
 
     E -->|Public| UI
     E -.->|Private| PL
     E -.->|Private| P
     E -.->|Private| C
-    E -.->|Private| CO
-    UI -->|Public| CO
+    UI -->|Public| PL
     UI -.->|Private| C
     UI -.->|Private| P
-    UI -.->|Private| PL
-    UI -.->|Private| G
-    C -->|Public| CO
     C -.->|Private| P
     C -.->|Private| PL
     P -->|Public| PL
-    P -->|Public| CO
-    PL -->|Public| G
-    PL -->|Public| CO
 
-    style CO fill:#e8f0fe,stroke:#4285f4
-    style G fill:#e8f0fe,stroke:#4285f4
     style PL fill:#e6f4ea,stroke:#34a853
     style P fill:#fff4e5,stroke:#f9ab00
     style C fill:#fce8e6,stroke:#ea4335
@@ -68,12 +66,17 @@ graph TD
 
 实线是公开依赖，虚线是私有依赖（下游看不到被依赖模块的头）。
 
-**单向，无环。** 两条曾经试图制造环的路，都留着明确的注释说明为什么没搬：
+三条 Public 边（`StellarEra → UI`、`UI → Planet`、`Pawns → Planet`）全部是被
+`IVoxelViewpointInvokers` 逼出来的 —— 星图相机与两个 Pawn 都在**公开头**里继承它。
+其余跨模块引用一律 Private。
+
+**单向，无环。** 三条曾经试图制造环的路，都留着明确的注释说明为什么没搬：
 
 | 想搬的东西 | 会形成的环 | 现在的处理 |
 |---|---|---|
 | `AStarMapCameraPawn` → Pawns | `Pawns → Cosmos → Pawns`（Cosmos 有 4 处 `Cast<ASpaceshipPawn>`） | 相机留在 UI。等 `ICosmosBody` 抽出来再搬 |
 | UI 直接用 `CosmosSimulationSubsystem` | 已经是合法方向（UI 在上层），无需搬 | UI 私有依赖 Cosmos |
+| `IVoxelViewpointInvokers` 放 Cosmos | `Pawns → Cosmos`，而 Cosmos 私有依赖 Pawns | 放 Planet/Src/Invokers/，UI 与 Pawns 都已 Public 依赖 Planet |
 
 ### Public 还是 Private —— 判据只有一条
 
@@ -141,8 +144,34 @@ foreach (string SubDir in Directory.GetDirectories(SrcDir, "*", SearchOption.All
 其中 4 个被 Pawns 与 UI 跨模块 include —— 它们是 Voxel 插件 LOD 的接线层，
 不是地形，于是分出了 `Invokers/`。
 
-当前各目录规模：`Terrain` 10、`Edit` 12、`Distributions`(Geology) 10、`Minerals` 8、
-`Atmosphere` 5、`Invokers` 4、`Surface` 4、`UI/Src` 9、`Character` 6、`Cosmos/Src` 6。
+当前各目录规模：`Terrain` 10、`Edit` 12、`Atmosphere` 5、`Invokers` 5、`Surface` 4、
+`Cosmos/Src` 6（+ `NBody` 3）、`UI/Src` 9、`Character` 6、`StellarEra/Src` 4。
+`Minerals/` 拆成三个子目录，其中 `Geology/` 再分出 `Distributions/`：
+`Geology` 5（+ `Distributions` 10）、`Surface` 4、`View` 4。
+
+`Cosmos/Src/NBody/` 是个例外：只有 3 个文件（`NBodySimulator.h/.cpp` + `CosmosTypes.h`），
+够不上「每族 ≥4 个」的门槛，但它是一个 1300 行的独立计算单元，且与编排层没有代码交集 ——
+判据的第二条「有没有第二类职责」在这里成立，所以还是分了出来。
+
+### 矿物域的层次（`Planet/Src/Minerals/`）
+
+`StellarEraGeology` 并入后，矿物是一个完整目录，内部按「数据 → 形态 → 表面 → 视图」分：
+
+```
+Minerals/
+├── Geology/                 元素表、地质场、UDataAsset 预设  数据：有什么、多少
+│   └── Distributions/       基类 + 囊状/脉状/片层/浸染四变体  形态：什么形状
+├── Surface/                 矿物表面几何、材质构建          外观：怎么显示
+└── View/                    观测 Actor 与组件               交互：怎么看、怎么选
+```
+
+`Distributions/` 放在 `Geology/` 里面而不是与它平级：分布是地质数据的**形态参数**，
+`PlanetGeologyField` 建运行时索引时直接消费它们，两者是一份数据的两面。
+这是全项目唯一的三级嵌套（`Src/Minerals/Geology/Distributions/`）。
+
+它不单独成模块的原因：`PlanetGeologyField` 必须 include `PlanetGeologyDistribution`，
+独立成模块会让 Geology 反过来依赖 Planet，与 Planet 已有的依赖构成**模块环**，
+UBT 直接报 circular dependency。数据与形态在同一模块内，环就消失了。
 
 ### 搬目录为什么可以零代码改动
 
@@ -187,7 +216,7 @@ UCosmosSimulationSubsystem* Simulation =
 
 | 委托 | 位置 | 用途 |
 |---|---|---|
-| `FOnPlanetGeologyPresetChanged` | `StellarEraGeology/Src/PlanetGeologyPreset.h` | 预设资产被改 |
+| `FOnPlanetGeologyPresetChanged` | `StellarEraPlanet/Src/Minerals/Geology/PlanetGeologyPreset.h` | 预设资产被改 |
 | `FOnPlanetGeologyAssetChanged` | `StellarEraPlanet/Src/VoxelPlanetActor.h` | 行星引用的地质资产被换 |
 
 都是编辑器里改资产时的刷新信号，不是运行时游戏逻辑的消息。
@@ -196,11 +225,15 @@ UCosmosSimulationSubsystem* Simulation =
 
 | 接口 | 位置 | 为什么放这 |
 |---|---|---|
-| `IVoxelViewpointInvokers` | `StellarEraCore/Src/Interfaces/` | 实现方是 Pawns 的两个 Pawn，使用方是 Controller 与 UI。放任何一边都会让另一边被迫依赖 |
+| `IVoxelViewpointInvokers` | `StellarEraPlanet/Src/Invokers/` | 实现方是 Pawns 的两个 Pawn 与 UI 的星图相机，使用方是 Controller。三方都已依赖 Planet，放这里不需要任何新依赖 |
 | `IStarMapUIInputs` | `StellarEraUI/Src/` | 明确属于 UI 的使用方契约，由 Controller（L5）实现 |
 
-第二个是**有意的例外**：接口不一定都住 Core。判据是「这个契约属于谁」——如果是
-某个使用方的输入需求，就跟着使用方走。
+两个接口的去处遵循同一条判据：**契约跟着「已经被所有人依赖的那一层」走**。
+`IVoxelViewpointInvokers` 的四方都依赖 Planet（体素接线层在那里），所以住 Planet；
+`IStarMapUIInputs` 是 UI 的输入需求，所以住 UI。
+
+原先 `IVoxelViewpointInvokers` 住在 `StellarEraCore/Src/Interfaces/` —— 那是「谁都不依赖」
+时的正确答案。Core 拆掉后 Planet 成了那个位置。
 
 ### 明确禁止
 
@@ -217,10 +250,10 @@ UCosmosSimulationSubsystem* Simulation =
 
 | 东西 | 放哪 | 例 |
 |---|---|---|
-| 跨模块接口 | `StellarEraCore/Src/Interfaces/` | `IVoxelViewpointInvokers` |
-| 跨模块 POD / 单位类型 | `StellarEraCore/Src/` | `CosmosTypes.h` |
+| 跨模块接口 | 已被所有实现方/使用方依赖的最低层 | `IVoxelViewpointInvokers` → `Planet/Src/Invokers/` |
+| 天体与单位类型 | `StellarEraCosmos/Src/` | `CosmosTypes.h` |
 | 使用方专属契约 | 使用方模块根 | `StellarEraUI/Src/StarMapUIInputs.h` |
-| UE 资产预设 | 定义它的数据模块 | `UPlanetGeologyPreset` 在 Geology |
+| UE 资产预设 | 定义它的数据模块 | `UPlanetGeologyPreset` 在 `Minerals/Geology/` |
 | 内部头（有实现细节） | 与实现同目录 | `PlanetProgressiveEditKernel.h` |
 
 ---
@@ -245,7 +278,7 @@ UCosmosSimulationSubsystem* Simulation =
 ```
 新代码要加在哪？
 │
-├─ 是「元素/矿物分布规则」？            → StellarEraGeology（纯数据 + 算法，无 Actor）
+├─ 是「元素/矿物分布规则」？            → Planet/Src/Minerals/Geology/（形态放 Distributions/）
 ├─ 是「行星上的东西」（地形/大气/矿物/编辑/表面）？
 │                                       → StellarEraPlanet/Src/<功能面>/
 ├─ 是「玩家能控制的东西」？              → StellarEraPawns/Src/<Character|Spaceship>/
@@ -253,8 +286,8 @@ UCosmosSimulationSubsystem* Simulation =
 ├─ 是「显示 / 交互」？                   → StellarEraUI
 ├─ 是「游戏框架 / 输入绑定 / 模式切换」？  → StellarEra（装配层）
 └─ 是「跨模块契约」？
-   ├─ 接口                             → StellarEraCore/Src/Interfaces/
-   └─ 共用 POD                          → StellarEraCore/Src/
+   ├─ 接口                             → 已被三方依赖的最低层（现为 Planet/Src/Invokers/）
+   └─ 天体 / 单位 POD                    → StellarEraCosmos/Src/
 ```
 
 新模块**不要轻易加**。单人项目里模块化的收益（并行开发、二进制复用、流式加载）
@@ -269,8 +302,8 @@ UCosmosSimulationSubsystem* Simulation =
    必须是所引头文件的下游。跨模块集成测试放 `StellarEra/Src/Tests/`。
 2. **不许往 `Src/` 根堆文件**。那一层只留模块门面（如 `VoxelPlanetActor.h`）。
 3. **不许出现依赖环**。想搬某个类而产生环时，先抽接口，不要硬搬。
-4. **`Config/DefaultEngine.ini` 的 `[CoreRedirects]` 不要删**。36 条历史类路径靠它兜底，
-   删了蓝图父类和 `.umap` 里的引用会断。
+4. **`Config/DefaultEngine.ini` 的 `[CoreRedirects]` 不要删**。51 条历史类路径靠它兜底
+   （41 Class / 6 Enum / 2 Property / 2 Struct），删了蓝图父类和 `.umap` 里的引用会断。
 5. **`Plugins/VoxelFree` 与 `Plugins/VibeUE` 是第三方，不要改。**
 
 ---
@@ -308,6 +341,9 @@ python Tools/check_architecture.py --tree
 | 同日 | 取消 `Public/Private` 分层，改为 `Src/` 内头源同目录 | 同上 |
 | 同日 | 并入主线在此期间开发的 8 个行星编辑提交（git 重命名检测全自动映射） | 提交 `3c016bd` |
 | 同日 | 过载目录细分：`Terrain` 18 → 10/4/4，Geology 拆 `Distributions/` | 提交 `967135a` |
+| 同日 | 主线切到 `master` 并首次推送远程（361 提交 + 180MB LFS） | `aaf0bfc` |
+| 同日 | **7 → 6 合并**：整个 `StellarEraGeology` 并入 `Planet/Src/Minerals/`，矿物成为完整目录 | 本文三之「矿物域的四层」 |
+| 同日 | **6 → 5 拆分**：`StellarEraCore` 拆掉。N 体求解器 + `CosmosTypes` 并入 Cosmos（唯一使用方），`IVoxelViewpointInvokers` 进 `Planet/Src/Invokers/`。项目自研代码不再有 L0 | 本文一、二 |
 
 被推翻的方案保留在 `docs/archive/`（17 模块方案），**已标注作废，不要参照实现**。
 
@@ -319,6 +355,6 @@ python Tools/check_architecture.py --tree
 |---|---|
 | `Source/README.md` | 按层导读 + 「改 X 看哪个文件」索引（最常翻） |
 | `CLAUDE.md` | 给 AI 助手看的模块结构与硬规则 |
-| `docs/TREE_AFTER.md` | 11 → 7 合并的完整推演与当前文件树 |
+| `docs/TREE_AFTER.md` | 11 → 7 合并的完整推演与当时文件树（**布局已过时**，仅存思路） |
 | `docs/BUILD_NOTES.md` | 本机构建坑（pdb 写入失败、UBA） |
 | `docs/archive/` | 作废方案，仅存档 |

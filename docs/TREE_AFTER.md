@@ -9,6 +9,10 @@
 > **⚠️ 目录布局后来又改过一次**：各模块不再分 `Public/` 与 `Private/`，
 > 统一为「入口两件套与 `Build.cs` 并排 + 业务代码全在 `Src/` 内、`.h` 与 `.cpp` 同目录」。
 > **以 `Source/README.md` 为准**，本文 §3 里的 `Public/` `Private/` 树是那一版的历史记录。
+>
+> **⚠️ 模块数后来又降到 6**：`StellarEraGeology` 整体并入
+> `StellarEraPlanet/Src/Minerals/`。本文里「7 模块」与 Geology 独立成模块的描述均已过时，
+> 当前结构见 `docs/ARCHITECTURE.md`。
 
 ---
 

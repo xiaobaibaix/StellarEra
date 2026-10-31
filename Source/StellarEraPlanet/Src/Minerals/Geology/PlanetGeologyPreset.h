@@ -24,7 +24,7 @@ DECLARE_MULTICAST_DELEGATE_OneParam(FOnPlanetGeologyPresetChanged, UPlanetGeolog
  * 改完重建行星即可看到。距离一律是归一化空间的半径比例，换行星大小不改变相对尺寸。
  */
 USTRUCT(BlueprintType)
-struct STELLARERAGEOLOGY_API FPlanetGeologyElementParams
+struct STELLARERAPLANET_API FPlanetGeologyElementParams
 {
 	GENERATED_BODY()
 
@@ -129,7 +129,7 @@ struct STELLARERAGEOLOGY_API FPlanetGeologyElementParams
  * 元素数组的顺序 = 采样顺序 = 图例顺序 = 矿体组件下标，四者共用。
  */
 UCLASS(BlueprintType)
-class STELLARERAGEOLOGY_API UPlanetGeologyPreset : public UDataAsset
+class STELLARERAPLANET_API UPlanetGeologyPreset : public UDataAsset
 {
 	GENERATED_BODY()
 

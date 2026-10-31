@@ -1,13 +1,20 @@
-﻿// N 体引力求解器 —— 纯数学，不依赖任何 Actor。
+﻿// N 体引力求解器 —— 纯数学核心，不碰任何 UObject 逻辑。
 //
-// 之所以要与引擎彻底解耦，是为了能脱离 UE 写测试：
-// 设几个初始条件，跑一百万步，看总能量漂移多少。
+// 积分、能量、碰撞全部只作用在 FCosmosBodyState 数组上，与引擎无关；
+// 唯一的外来物是每个天体的 TWeakObjectPtr<AActor> 标记（用来把求解结果
+// 反查回 Actor），它只被比较、不被解引用，求解本身并不依赖它。
+// 这样仍然可以脱离 UE 写测试：设几个初始条件，跑一百万步，看总能量漂移多少。
 // 这是验证积分器写对没有的唯一可靠方法。
+//
+// 位置：原 StellarEraCore 模块，2026-10 拆掉 Core 后并入 Cosmos ——
+// 它唯一的使用方 CosmosSimulationSubsystem 就在这里。
 
 #pragma once
 
 #include "CoreMinimal.h"
 #include "CosmosTypes.h"
+
+class AActor;
 
 /**
  * 单个天体的完整状态。
@@ -173,7 +180,7 @@ struct FCosmosClosedOrbitPrediction
  * Velocity Verlet 保持相空间体积，误差有界不累积，
  * 轨道可以稳定运行数百万年。代价仅是每步多算一次加速度。
  */
-class STELLARERACORE_API FNBodySimulator
+class STELLARERACOSMOS_API FNBodySimulator
 {
 public:
 	FNBodySimulator();

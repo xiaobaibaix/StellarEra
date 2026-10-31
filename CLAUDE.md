@@ -10,25 +10,23 @@
 - C++ 为主；蓝图只承载资产配置（`Content/Code/BP_*`）
 - 编辑器用 VS Code。仓库没有 `.sln` / `.vcxproj` 是正常的，别把 IDE 生成物入库
 
-## 模块结构（7 个模块，依赖严格分层，无环）
+## 模块结构（5 个模块，依赖严格分层，无环）
 ```
 StellarEra        ─→ StellarEraUI（Public）, StellarEraCosmos, StellarEraPawns,
-                     StellarEraPlanet, StellarEraCore
-StellarEraUI      ─→ StellarEraCosmos, StellarEraPlanet, StellarEraGeology, StellarEraCore
-StellarEraCosmos  ─→ StellarEraCore（Public）, StellarEraPawns, StellarEraPlanet
-StellarEraPawns   ─→ StellarEraCore, StellarEraPlanet
-StellarEraPlanet  ─→ StellarEraCore, StellarEraGeology（Public）, Voxel（Public）
-StellarEraGeology ─→ 无项目依赖（Voxel 是 Public）
-StellarEraCore    ─→ 无项目依赖
+                     StellarEraPlanet
+StellarEraUI      ─→ StellarEraPlanet（Public）, StellarEraCosmos, StellarEraPawns
+StellarEraCosmos  ─→ StellarEraPawns, StellarEraPlanet
+StellarEraPawns   ─→ StellarEraPlanet（Public）, Voxel（Public）
+StellarEraPlanet  ─→ Voxel（Public），无其它项目依赖
 ```
 ```
 Source/
 ├── StellarEra/            主游戏模块（primary game module）：GameMode / PlayerController
-├── StellarEraCore/        N 体求解器、Cosmos 单位类型、通用接口（Src/Interfaces/）
-├── StellarEraGeology/     元素表、行星地质场、噪声采样、UDataAsset 预设（Src/Distributions/ 放分布变体）
 ├── StellarEraPlanet/      世界：Src/{Terrain,Surface,Invokers,Atmosphere,Minerals,Edit}/
+│                          Minerals 内：Geology（再含 Distributions）/ Surface / View
+│                          Invokers 里还有 IVoxelViewpointInvokers（三个 Pawn 与控制器共用）
 ├── StellarEraPawns/       受控实体：Src/{Character,Spaceship}/
-├── StellarEraCosmos/      N 体编排（子系统 / 轨道组件 / 轨迹组件）
+├── StellarEraCosmos/      N 体求解器 + 单位类型（CosmosTypes）+ 编排（子系统 / 轨道组件 / 轨迹组件）
 └── StellarEraUI/          HUD、星图相机、星图面板、矿物图例、编辑按钮布局
 Plugins/
 ├── VoxelFree/          第三方体素插件，勿改
@@ -38,6 +36,14 @@ Content/
 ├── Geology/Planets/    DA_Geology_<名字>（行星矿物预设；JSON 已退役）
 └── Code/               BP_SpaceshipPawn / BP_PlanetCharacter / BP_VoxelPlanet / DA_Terrain_*
 ```
+
+> 两个模块已在 2026-10-31 消失，别按旧文档去找：
+> - `StellarEraGeology` → 并入 `Planet/Src/Minerals/`。它是矿物域的数据层，被 Terrain 与
+>   Minerals 同时消费；独立成模块会让 `PlanetGeologyField`（要 include Distribution）
+>   反过来依赖 Planet，构成模块环。
+> - `StellarEraCore` → 拆掉。N 体求解器（占该模块 90% 的行数）并入唯一使用方 `Cosmos`，
+>   `CosmosTypes.h` 跟着走，`IVoxelViewpointInvokers` 落到 `Planet/Src/Invokers/`。
+>   项目自研代码现在**没有 L0**，最底层就是 Planet。
 
 模块内部按子目录分功能，**不靠拆模块来分**。每个模块结构统一，头文件与源文件**同目录并列**：
 
@@ -71,15 +77,25 @@ Character/Spaceship → Pawns），历史类路径由 `Config/DefaultEngine.ini`
 `Terrain`（地形形状）/ `Surface`（球面几何）/ `Invokers`（体素 LOD 接线，被 Pawns 与 UI
 跨模块引用）；`Geology/Src` 的分布基类与 4 个变体移入 `Distributions/`。
 
-两级目录（`Src/功能面/文件`）就是上限 —— `Edit/` 12 个、`Minerals/` 8 个、`UI/Src` 9 个
-都保持平铺。判据写在 `Source/README.md` 的「什么时候该建子目录」。
+接着把整个 `StellarEraGeology` 模块并入 `Planet/Src/Minerals/`（7 → 6 模块），
+矿物域成为 `Minerals/{Geology/{,Distributions},Surface,View}/`。
+
+最后把 `StellarEraCore` 也拆了（6 → 5 模块）：它总共 2687 行，其中 2411 行是
+`FNBodySimulator`，剩下 `CosmosTypes.h` 与 `IVoxelViewpointInvokers`。
+求解器与类型并入唯一使用方 `StellarEraCosmos`（放在 `Src/NBody/`），
+接口落到 `Planet/Src/Invokers/`（Pawns 与 UI 都已 Public 依赖 Planet）。
+**项目自研代码现在没有 L0，最底层就是 `StellarEraPlanet`。**
+
+最多三级（`Src/功能域/子目录/文件`）—— 全项目只有 `Minerals/Geology/Distributions/`
+这一处三级；`Edit/` 12 个、`UI/Src` 9 个仍在阈值内，保持平铺。
+判据写在 `Source/README.md` 的「什么时候该建子目录」。
 
 `AStarMapCameraPawn` 仍在 `StellarEraUI` 而不是 `StellarEraPawns`：它调用
 `UCosmosSimulationSubsystem`，而 `StellarEraCosmos` 又 `Cast<ASpaceshipPawn>`
 依赖 Pawns，两边放一起会成环。等 `Cosmos → Pawns` 这笔债（抽 `ICosmosBody` 接口）
 还清之后，相机才能搬进 Pawns。
 
-自定义代码不进第三方插件目录，一律写进上面七个模块并改对应 `Build.cs`。
+自定义代码不进第三方插件目录，一律写进上面五个模块并改对应 `Build.cs`。
 
 **`StellarEraUI` 不依赖 `StellarEra`**（Game 依赖 UI，反向就成环）。星图 UI 需要控制器数据时走
 `IStarMapUIInputs`（`Source/StellarEraUI/Src/StarMapUIInputs.h`），由 `AStellarEraPlayerController` 实现。
@@ -112,14 +128,14 @@ Character/Spaceship → Pawns），历史类路径由 `Config/DefaultEngine.ini`
 ## 关键类
 | 类 | 模块 | 职责 |
 |---|---|---|
-| `FNBodySimulator` | Core | O(N²) 引力，Velocity Verlet；AU / AU每年 / M☉，双精度 |
+| `FNBodySimulator` | Cosmos | O(N²) 引力，Velocity Verlet；AU / AU每年 / M☉，双精度 |
 | `UCosmosSimulationSubsystem` | Cosmos | 唯一 N 体驱动：注册、推进、写回、诊断、轨迹预测 |
 | `UCosmosOrbitComponent` | Cosmos | 天体参数（质量、初速） |
 | `UCosmosTrajectoryComponent` | Cosmos | 预测轨迹、拖尾、速度/引力箭头 |
 | `AStellarEraGameMode` | StellarEra | 出生点、飞船生成与登船 |
 | `AStellarEraPlayerController` | StellarEra | 运行时构造输入资产、上下船、星图模式 |
 | `AStarMapCameraPawn` | UI | 星图相机；不 Tick，位置在 `CalcCamera` 现算 |
-| `UPlanetGeologyDistribution` | Geology | 分布生成器基类；子类=囊状/片层/脉状/浸染，元素内取 max |
+| `UPlanetGeologyDistribution` | Planet/Minerals | 分布生成器基类；子类=囊状/片层/脉状/浸染，元素内取 max |
 | `AVoxelPlanetActor` | Terrain | 体素行星根 Actor；gizmo 移动 / 等比缩放即改行星 |
 | `UVoxelPlanetGenerator` | Terrain | 行星与共享地形模块 `UVoxelPlanetTerrainModule` 的适配器 |
 | `APlanetCharacter` / `UPlanetCharacterMovementComponent` | Character | 球面行走；重力方向喂给 CMC |
@@ -150,7 +166,7 @@ VibeUE 自带的 `Plugins/VibeUE/BuildAndLaunchGame.ps1` 最终也是调 `Build.
   -TestExit="Automation Test Queue Empty" \
   -unattended -nopause -nullrhi -nosplash -stdout -abslog="<临时日志>"
 ```
-- 测试名前缀为 `StellarEra.`：`StellarEra.Core.*`（N 体）、`StellarEra.Planet.AtmosphereParams.*`、`StellarEra.StarMap.*`。
+- 测试名前缀为 `StellarEra.`：`StellarEra.Cosmos.*`（N 体与轨道）、`StellarEra.Planet.AtmosphereParams.*`、`StellarEra.StarMap.*`。
 - 这条跑的是 **editor world，不会执行 BeginPlay**；要验 BeginPlay 用 `-game -nullrhi + 地图`，并且它不会自退。
 
 ## 编辑器 MCP
@@ -168,7 +184,7 @@ N 体数据分四层，**编辑器里只填人类单位**：
 | 设计层（手填） | 地球质量 M⊕ | km/s（物理速度） | AU / 年 | `UCosmosOrbitComponent`、`ASpaceshipPawn` |
 | 求解器层 | M☉ | AU/年 | AU / 年 | `FNBodySimulator`、`FCosmosBodyState` |
 | 世界层 | — | 厘米/秒 | 厘米 / 秒 | Actor 位置、碰撞、体素、HUD 换算 |
-| 换算层 | — | — | — | 只允许 `CosmosUnits::`（`CosmosTypes.h`）；`StellarEraSpaceship` 不依赖 Core（设计选择，不是防环——Core 没有项目依赖），本地保留 `1e5` 一项（`CentimetersPerKilometer`） |
+| 换算层 | — | — | — | 只允许 `CosmosUnits::`（`CosmosTypes.h`）；Pawns 不依赖 Cosmos（设计选择），飞船本地保留 `1e5` 一项（`CentimetersPerKilometer`） |
 
 - `MassEarth` 单位 M⊕；`InitialVelocityKmPerSecond` 单位 km/s；`ThrustAccelerationKmPerS2` 单位 km/s²。
 - **物理速度 ≠ 世界速度**：1 AU/年 = 4.74047 km/s = 3330 厘米/秒（默认标定）。

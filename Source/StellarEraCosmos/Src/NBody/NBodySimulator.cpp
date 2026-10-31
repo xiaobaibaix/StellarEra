@@ -2,6 +2,11 @@
 
 #include "NBodySimulator.h"
 
+// AActor 的完整定义：头文件里 TWeakObjectPtr<AActor> 的成员函数实例化需要它。
+// 以前靠模块依赖 Engine 时 UBT 选的 SharedPCH.Engine.h 顺带带进来，那是巧合，
+// 现在显式引入，换 PCH 策略也不会突然编不过。
+#include "GameFramework/Actor.h"
+
 // double 版三角函数（Sin / Cos / Atan2 / Sqrt）由 CoreMinimal.h 经
 // HAL/PlatformMath.h → GenericPlatformMath.h 提供，FMath 已有 double 重载，
 // 传 double 不会被截断成 float，因此这里不需要任何额外的数学头文件。

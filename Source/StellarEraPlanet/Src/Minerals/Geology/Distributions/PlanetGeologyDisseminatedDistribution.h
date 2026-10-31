@@ -14,7 +14,7 @@
  * 所以想更密先加 GrainRadius，再加数量。
  */
 UCLASS(DisplayName = "浸染（散布）", EditInlineNew)
-class STELLARERAGEOLOGY_API UPlanetGeologyDisseminatedDistribution
+class STELLARERAPLANET_API UPlanetGeologyDisseminatedDistribution
 	: public UPlanetGeologyDistribution
 {
 	GENERATED_BODY()

@@ -13,7 +13,8 @@ using UnrealBuildTool;
 // 目录按功能分组，.h 与 .cpp 同目录并列：
 //   Src/Terrain      生成器、地形模块、射线、表面网格、生物群系、调用器
 //   Src/Atmosphere   大气组件与参数
-//   Src/Minerals     矿物表面、观察组件、观察 Actor、材质
+//   Src/Minerals     矿物域四层：Geology（元素表/地质场/预设）、
+//                    Distributions（矿脉形态）、Surface（表面与材质）、View（观测）
 //   Src/Edit         编辑组件、笔刷、涂抹、渐进编辑、网格几何
 //   Src/Tests        本模块的全部自动化测试（*Tests.cpp 只能出现在这里）
 //
@@ -50,14 +51,10 @@ public class StellarEraPlanet : ModuleRules
 		{
 			"Core", "CoreUObject", "Engine", "Voxel",
 
-			// 地质场：本模块的头并不 include PlanetGeologyTypes.h，只**前置声明**
-			// FPlanetGeologyField 并用 TSharedPtr<const FPlanetGeologyField> 持有。
-			"StellarEraGeology",
-
-			// IVoxelViewpointInvokers 在 Core/Src/Interfaces —— 实现它的是
-			// Pawns 里的三个 Pawn，而本模块的 AlwaysLocalVoxelInvokerComponent
-			// 提供配套的工具函数。
-			"StellarEraCore",
+			// IVoxelViewpointInvokers 就在本模块的 Src/Invokers/ —— 实现它的是
+			// Pawns 的三个 Pawn 与 UI 的星图相机，它们都已 Public 依赖本模块，
+			// 而本模块的 AlwaysLocalVoxelInvokerComponent 提供配套的工具函数。
+			// （原 StellarEraCore 在 2026-10 拆掉，接口随体素接线层落到这里。）
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]

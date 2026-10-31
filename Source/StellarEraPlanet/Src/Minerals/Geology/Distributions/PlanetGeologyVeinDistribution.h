@@ -15,7 +15,7 @@
  * 一条长脉拉大（spec §3.2）。
  */
 UCLASS(DisplayName = "脉状（穿切）", EditInlineNew)
-class STELLARERAGEOLOGY_API UPlanetGeologyVeinDistribution : public UPlanetGeologyDistribution
+class STELLARERAPLANET_API UPlanetGeologyVeinDistribution : public UPlanetGeologyDistribution
 {
 	GENERATED_BODY()
 

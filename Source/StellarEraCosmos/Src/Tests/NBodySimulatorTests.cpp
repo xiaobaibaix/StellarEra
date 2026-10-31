@@ -6,9 +6,9 @@
 // 全是纯数学 —— 不依赖世界、不依赖编辑器，这是本项目唯一能自动验证的地方。
 //
 // 跑法：用 UnrealEditor-Cmd 跑自动化测试 StellarEra.Core（六个用例：
-// StellarEra.Core.NBodyPrediction、StellarEra.Core.ClosedOrbitPrediction、
-// StellarEra.Core.NBodyContact、StellarEra.Core.NBodyExternalForce、
-// StellarEra.Core.NBodyTestParticle、StellarEra.Core.Units）。
+// StellarEra.Cosmos.NBodyPrediction、StellarEra.Cosmos.ClosedOrbitPrediction、
+// StellarEra.Cosmos.NBodyContact、StellarEra.Cosmos.NBodyExternalForce、
+// StellarEra.Cosmos.NBodyTestParticle、StellarEra.Cosmos.Units）。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -48,7 +48,7 @@ namespace
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraNBodyPredictionTest,
-	"StellarEra.Core.NBodyPrediction",
+	"StellarEra.Cosmos.NBodyPrediction",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FStellarEraNBodyPredictionTest::RunTest(const FString& Parameters)
@@ -203,7 +203,7 @@ bool FStellarEraNBodyPredictionTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraNBodyContactTest,
-	"StellarEra.Core.NBodyContact",
+	"StellarEra.Cosmos.NBodyContact",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FStellarEraNBodyContactTest::RunTest(const FString& Parameters)
@@ -408,7 +408,7 @@ bool FStellarEraNBodyContactTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraNBodyExternalForceTest,
-	"StellarEra.Core.NBodyExternalForce",
+	"StellarEra.Cosmos.NBodyExternalForce",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FStellarEraNBodyExternalForceTest::RunTest(const FString& Parameters)
@@ -589,7 +589,7 @@ bool FStellarEraNBodyExternalForceTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraNBodyTestParticleTest,
-	"StellarEra.Core.NBodyTestParticle",
+	"StellarEra.Cosmos.NBodyTestParticle",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FStellarEraNBodyTestParticleTest::RunTest(const FString& Parameters)
@@ -717,7 +717,7 @@ bool FStellarEraNBodyTestParticleTest::RunTest(const FString& Parameters)
 // 容差取到能分辨最后几位有效数字，但不会被浮点噪声误伤。
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraUnitsTest,
-	"StellarEra.Core.Units",
+	"StellarEra.Cosmos.Units",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FStellarEraUnitsTest::RunTest(const FString& Parameters)
@@ -790,7 +790,7 @@ bool FStellarEraUnitsTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraNBodyProbeContactTest,
-	"StellarEra.Core.NBodyProbeContact",
+	"StellarEra.Cosmos.NBodyProbeContact",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FStellarEraNBodyProbeContactTest::RunTest(const FString& Parameters)
@@ -893,7 +893,7 @@ bool FStellarEraNBodyProbeContactTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraNBodyPredictionContactTest,
-	"StellarEra.Core.NBodyPredictionContact",
+	"StellarEra.Cosmos.NBodyPredictionContact",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FStellarEraNBodyPredictionContactTest::RunTest(const FString& Parameters)
@@ -947,7 +947,7 @@ bool FStellarEraNBodyPredictionContactTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraClosedOrbitPredictionTest,
-	"StellarEra.Core.ClosedOrbitPrediction",
+	"StellarEra.Cosmos.ClosedOrbitPrediction",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FStellarEraClosedOrbitPredictionTest::RunTest(const FString& Parameters)

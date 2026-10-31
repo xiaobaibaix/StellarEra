@@ -14,7 +14,7 @@
  * 名字一改就又多一个漂移点。
  */
 UCLASS(DisplayName = "囊状（球团）", EditInlineNew)
-class STELLARERAGEOLOGY_API UPlanetGeologySpherePodsDistribution
+class STELLARERAPLANET_API UPlanetGeologySpherePodsDistribution
 	: public UPlanetGeologyDistribution
 {
 	GENERATED_BODY()
