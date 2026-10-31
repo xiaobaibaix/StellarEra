@@ -182,6 +182,25 @@ public:
 	float PreviewLineThicknessPixels = 2.0f;
 
 	/**
+	 * 预览线沿**视线方向**朝相机推的深度，单位是预览半径的比例。
+	 *
+	 * 这是给深度测试用的偏置，不是把球挪位置：沿着「相机 → 该点」这条射线推，
+	 * 投影位置一个像素都不动，只有深度变近 —— 等价于 DrawTranslucentLine 的
+	 * DepthBias，而 ULineBatchComponent 这条路径没有暴露那个参数
+	 * （FBatchedLine 里根本没有这个字段，见 LineBatchComponent.h）。
+	 *
+	 * 为什么需要：挖模式的球心落在命中点上，赤道那条纬线（θ = π/2）正好躺在
+	 * 命中点的切平面里，与地形共面。地形有起伏、体素面又是台阶，这条线每隔几段
+	 * 就钻回地里再钻出来，深度测试逐像素一刀刀切过去，看起来就是「经纬线断成
+	 * 一截一截」。推几个百分点之后，贴地那一圈稳定压在地形前面；真正埋在地下
+	 * 的那半（半径量级深）照样被挡掉。
+	 *
+	 * 0 = 不推，行为退回「纯深度测试」。
+	 */
+	UPROPERTY(EditAnywhere, Category = "PlanetEdit", meta = (ClampMin = "0.0", ClampMax = "0.2"))
+	float PreviewDepthBiasFraction = 0.02f;
+
+	/**
 	 * 渐进编辑的块边长（体素）。128³ ≈ 2.1e6 格，16 线程下约 3 ms。
 	 *
 	 * 比它小的笔刷（包围盒每轴 ≤ 块边长）仍走一步做完的同步路径：切出来只有

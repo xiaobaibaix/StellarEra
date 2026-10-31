@@ -514,10 +514,13 @@ void UPlanetEditComponent::UpdateBrushPreview()
 		MinBrushSizeVoxels, MaxBrushSizeVoxels);
 
 	TArray<FPlanetEditSegment> Segments;
+	// 预览的尺度（球 = 半径；方块 = 半边长），深度偏置按它取比例。
+	float PreviewExtentCm = 0.f;
 	if (BrushShape == EPlanetBrushShape::Sphere)
 	{
 		const float Radius = PlanetEditBrush::GetHalfExtentCm(
 			BrushSizeVoxels, VoxelSize, MinBrushSizeVoxels, MaxBrushSizeVoxels);
+		PreviewExtentCm = Radius;
 		// 极轴用命中点的地表法线：中间那条纬线就是贴地的赤道，相机怎么转都是个
 		// 规整的球，不会退化成两条斜穿的直线。
 		PlanetEditBrush::BuildSpherePreviewSegments(
@@ -527,6 +530,8 @@ void UPlanetEditComponent::UpdateBrushPreview()
 	{
 		// 与挖 / 放走完全相同的 MakeBox → MakeVoxelBox，预览框才与真实格子一致
 		//（区间取本组件的，星图是 8..128）。
+		PreviewExtentCm = PlanetEditBrush::GetHalfExtentCm(
+			BrushSizeVoxels, VoxelSize, MinBrushSizeVoxels, MaxBrushSizeVoxels);
 		const FVoxelVector LocalCenter = Planet->GlobalToLocalFloat(Center);
 		const FPlanetEditBox Box = PlanetEditBrush::MakeBox(
 			FVector(LocalCenter.X, LocalCenter.Y, LocalCenter.Z), BrushSizeVoxels,
@@ -560,18 +565,52 @@ void UPlanetEditComponent::UpdateBrushPreview()
 	// 退回旧的 1.5 世界厘米。
 	constexpr float FallbackThicknessCm = 1.5f;
 	float LineThicknessCm = FallbackThicknessCm;
+	FVector CameraLocation = FVector::ZeroVector;
+	float DepthBiasCm = 0.f;
 	if (const APlayerCameraManager* CameraManager = PlayerController->PlayerCameraManager)
 	{
+		CameraLocation = CameraManager->GetCameraLocation();
+
 		int32 ViewportWidthPx = 0;
 		int32 ViewportHeightPx = 0;
 		PlayerController->GetViewportSize(ViewportWidthPx, ViewportHeightPx);
 		LineThicknessCm = PlanetEditBrush::PreviewLineThicknessWorld(
-			static_cast<float>(FVector::Dist(CameraManager->GetCameraLocation(), Center)),
+			static_cast<float>(FVector::Dist(CameraLocation, Center)),
 			CameraManager->GetFOVAngle(),
 			static_cast<float>(ViewportWidthPx),
 			PreviewLineThicknessPixels,
 			FallbackThicknessCm);
+
+		if (PreviewDepthBiasFraction > 0.f)
+		{
+			// 至少一条线宽：比线本身还薄的偏移看不出效果（星图的线宽按屏幕像素换算，
+			// 贴近看时反而比「半径的一个百分点」大）。
+			DepthBiasCm = FMath::Max(PreviewExtentCm * PreviewDepthBiasFraction, LineThicknessCm);
+		}
 	}
+
+	// 沿「相机 → 点」这条射线把点拉近 DepthBiasCm。
+	//
+	// 投影位置一个像素都不动（同一个视线上），变的只有深度，所以它是货真价实的
+	// 深度偏置，而不是把球挪半格。贴地的赤道纬线与地形共面，不推的话深度测试会
+	// 沿地形起伏把它切成一截一截；推过之后它稳定压在贴地那一层前面，而埋在地下
+	// 半径量级深的那半仍然过不了深度测试。
+	const auto PushTowardCamera = [CameraLocation, DepthBiasCm](const FVector& Point) -> FVector
+	{
+		if (DepthBiasCm <= 0.f)
+		{
+			return Point;
+		}
+		const FVector ToCamera = CameraLocation - Point;
+		const double Distance = ToCamera.Size();
+		if (Distance <= UE_DOUBLE_KINDA_SMALL_NUMBER)
+		{
+			return Point;
+		}
+		// 相机几乎贴着点时按比例收（最多推到四分之一距离），不会把点推穿相机。
+		const double Push = FMath::Min(static_cast<double>(DepthBiasCm), Distance * 0.25);
+		return Point + ToCamera * (Push / Distance);
+	};
 
 	TArray<FBatchedLine> Lines;
 	Lines.Reserve(Segments.Num());
@@ -579,14 +618,11 @@ void UPlanetEditComponent::UpdateBrushPreview()
 	{
 		// LifeTime < 0：不自动过期；本组件每帧 Flush + 重画，鼠标一动线框就跟着走。
 		//
-		// 深度组用 Foreground 而不是 World：挖模式下球心就落在命中点上，有一半球埋在地表
-		// 以下，World 组要过深度测试，埋掉的那半球与地形重叠的部分根本画不出来 ——
-		// 用户看到的只有切平面以上的半个球（赤道成了「完整的大圆」，经线全断在它上面）。
-		// 笔刷预览要表达的是「这次会改到哪个体积」，看不见地下那半就等于谎报范围。
-		// 渲染侧对 Foreground 会先用 CF_Always 无深度测试画一遍（BasePassRendering.cpp
-		// 的 RenderEditorPrimitivesForDPG），所以整颗球都能透出来。
-		Lines.Emplace(Segment.Start, Segment.End, PreviewColor, -1.f, LineThicknessCm,
-			static_cast<uint8>(SDPG_Foreground));
+		// 深度组用 World：埋在地下的那半段本来就该被地形挡掉。断线由上面的
+		// 视线方向深度偏置负责修 —— 换成 Foreground 能让整颗球透出来，但那是
+		// 让地下那半压在地表上，等于谎报「挖的是个完整的球」。
+		Lines.Emplace(PushTowardCamera(Segment.Start), PushTowardCamera(Segment.End),
+			PreviewColor, -1.f, LineThicknessCm, static_cast<uint8>(SDPG_World));
 	}
 
 	PreviewLineBatch->Flush();
