@@ -330,8 +330,16 @@ public:
 	 */
 	static UMaterialInterface* StripMaterialInstanceDynamic(UMaterialInterface* Candidate);
 
-	/** 编辑模式下的表面网格基线。构造时自动创建。 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet|Edit")
+	/**
+	 * 编辑模式下的表面网格基线。构造时自动创建。
+	 *
+	 * `DisplayName` 是给组件树的：SSCSEditor 对原生组件按
+	 * `{变量显示名} ({对象名})` 拼标题（SSCSEditor.cpp 的 `GetDisplayString`），
+	 * 而变量显示名默认走 `NameToDisplayString`，会把 `EditGrid` 拆成「Edit Grid」。
+	 * 这里显式给回原名，组件树里就不会多出那个空格。
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet|Edit",
+		meta = (DisplayName = "EditGrid"))
 	TObjectPtr<UPlanetSurfaceGridComponent> EditGrid;
 
 private:
