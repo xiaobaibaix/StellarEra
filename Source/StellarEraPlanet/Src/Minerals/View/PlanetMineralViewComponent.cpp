@@ -6,9 +6,156 @@
 #include "PlanetGeologyField.h"
 #include "PlanetGeologyPreset.h"
 #include "PlanetMineralViewActor.h"
+#include "PlanetMineralVoxelSampling.h"
+#include "PlanetMineralVolume.h"
+#include "VoxelComponents/VoxelInvokerComponent.h"
+#include "VoxelMineralFieldActor.h"
 #include "VoxelPlanetActor.h"
+#include "VoxelViewpointInvokerUtils.h"
 
 #include "Engine/World.h"
+
+namespace
+{
+	/**
+	 * 把地质场翻成每个元素一份的采样参数。
+	 *
+	 * 两个回调都捕获**共享指针**而不是裸指针：地质场对象可能被 ReloadGeology
+	 * 换掉，裸指针会悬空；持有共享指针同时保证旧对象不会在生成器还在用的时候
+	 * 被释放。
+	 */
+	TArray<FPlanetMineralVoxelParams> MakeVoxelParams(
+		AVoxelPlanetActor* Planet,
+		const TSharedPtr<const FPlanetGeologyField>& Geology,
+		const TArray<FPlanetGeologyElement>& Elements,
+		float SurfaceRadiusCm)
+	{
+		TArray<FPlanetMineralVoxelParams> Out;
+		Out.SetNum(Elements.Num());
+
+		// 共享指针只取一次：这些回调跑在插件工作线程上，按体素回弱指针上解析
+		// 行星 Actor 是每格一笔无谓开销。TVoxelSharedPtr 本身线程安全、可拷贝，
+		// 也让 FVoxelData（连同里面的生成器实例）活过行星 Actor 的更早一次销毁。
+		const TVoxelSharedPtr<FVoxelData> PlanetData = Planet->GetDataSharedPtr();
+
+		const double RadiusVoxels = double(SurfaceRadiusCm) / double(Planet->VoxelSize);
+		const FPlanetGeologyAppearance& Appearance = Geology->GetAppearance();
+
+		for (int32 Index = 0; Index < Elements.Num(); ++Index)
+		{
+			FPlanetMineralVoxelParams& Params = Out[Index];
+			Params.RadiusVoxels = RadiusVoxels;
+			Params.IsoValue = Appearance.ColorThreshold;
+			Params.FadeRange = Appearance.FadeRange;
+
+			TArray<FPlanetGeologyRegion> Regions;
+			Geology->EnumerateRegions(Index, Regions);
+			Params.RegionBoxes.Reserve(Regions.Num());
+			for (const FPlanetGeologyRegion& Region : Regions)
+			{
+				Params.RegionBoxes.Add(Region.Bounds);
+			}
+
+			const TSharedPtr<const FPlanetGeologyField> FieldForElement = Geology;
+			Params.SampleElementNorm =
+				[FieldForElement, Index](const FVector& NormalizedPoint) -> float
+			{
+				return FieldForElement->SampleElementNormAtNormalized(Index, NormalizedPoint);
+			};
+
+			Params.IsSolidAtPlanetVoxel = [PlanetData](const FIntVector& VoxelIndex) -> bool
+			{
+				if (!PlanetData.IsValid())
+				{
+					// 世界还没建好：视作实心。宁可多画，不要整颗星没矿。
+					return true;
+				}
+				return !PlanetData->GetValue(VoxelIndex, /*LOD=*/0).IsEmpty();
+			};
+		}
+		return Out;
+	}
+
+	/**
+	 * 逐元素统计矿量。走解析场：与相机、LOD、体素世界全部无关。
+	 *
+	 * 采样在**归一化空间**：区域 AABB 先乘 RadiusVoxels 变成体素单位，步长同理。
+	 * 重叠的区域盒交给 CountMergedBoxSamples 去重 —— 矿脉相邻段的 AABB 必然重叠，
+	 * 逐盒各扫一遍会把重叠区数两遍，报出的矿量系统性偏高。
+	 *
+	 * 代价是 O((并集 AABB 边长 / 步长)³)：调用方**必须传粗步长**（米级），
+	 * 按单个体素去采样会把一次图例刷新变成几亿次求值。步长这里不夹 ——
+	 * 夹了会让报出的数悄悄变。
+	 */
+	float ComputeElementVolumeCm3(
+		const FPlanetGeologyField& Geology,
+		const AVoxelPlanetActor& Planet,
+		int32 ElementIndex,
+		float StepCm,
+		float SurfaceRadiusCm)
+	{
+		if (StepCm <= 0.f || SurfaceRadiusCm <= 0.f || Planet.VoxelSize <= 0.f)
+		{
+			return 0.f;
+		}
+
+		TArray<FPlanetGeologyRegion> Regions;
+		Geology.EnumerateRegions(ElementIndex, Regions);
+		if (Regions.IsEmpty())
+		{
+			return 0.f;
+		}
+
+		const float Threshold = Geology.GetAppearance().ColorThreshold;
+		const double RadiusVoxels = double(SurfaceRadiusCm) / double(Planet.VoxelSize);
+		const double StepVoxels = double(StepCm) / double(Planet.VoxelSize);
+
+		TArray<FPlanetMineralRegionBox> Boxes;
+		Boxes.Reserve(Regions.Num());
+		for (const FPlanetGeologyRegion& Region : Regions)
+		{
+			if (!Region.Bounds.IsValid)
+			{
+				continue;
+			}
+			FPlanetMineralRegionBox& Box = Boxes.AddDefaulted_GetRef();
+			Box.Min = FVector3d(Region.Bounds.Min) * RadiusVoxels;
+			Box.Max = FVector3d(Region.Bounds.Max) * RadiusVoxels;
+		}
+
+		const bool bPlanetCreated = Planet.IsCreated();
+		const int64 SolidSamples = CountMergedBoxSamples(Boxes, StepVoxels,
+			[&Geology, &Planet, ElementIndex, Threshold, RadiusVoxels, bPlanetCreated]
+			(const FVector3d& Point) -> bool
+			{
+				const FVector Normalized(
+					Point.X / RadiusVoxels, Point.Y / RadiusVoxels, Point.Z / RadiusVoxels);
+
+				if (Geology.SampleElementNormAtNormalized(ElementIndex, Normalized) <= Threshold)
+				{
+					return false;
+				}
+
+				if (bPlanetCreated)
+				{
+					const FIntVector Index(
+						FMath::RoundToInt(Point.X),
+						FMath::RoundToInt(Point.Y),
+						FMath::RoundToInt(Point.Z));
+					if (Planet.GetData().GetValue(Index, /*LOD=*/0).IsEmpty())
+					{
+						return false;
+					}
+				}
+
+				return true;
+			});
+
+		const double VoxelSizeCm = double(Planet.VoxelSize);
+		return float(double(SolidSamples) * StepVoxels * StepVoxels * StepVoxels
+			* VoxelSizeCm * VoxelSizeCm * VoxelSizeCm);
+	}
+} // namespace
 
 UPlanetMineralViewComponent::UPlanetMineralViewComponent()
 {
@@ -174,59 +321,66 @@ bool UPlanetMineralViewComponent::Activate(AVoxelPlanetActor* InPlanet)
 	Key.Scale = InPlanet->GetActorScale3D();
 	Key.CellsPerFeature = CellsPerFeature;
 
-	const bool bReused = bHasCachedSurface && CachedSurfaceGeology == Geology
-		&& CachedKey == Key;
-	if (!bReused)
-	{
-		PlanetMineralSurface::Build(*Geology, Params, CachedSurface);
-		CachedKey = Key;
-		CachedSurfaceGeology = Geology;
-		bHasCachedSurface = true;
-	}
-
+	// 采样元素表与两条渲染路径无关：图例、数字键、矿体下标都用它。
 	const TArray<FPlanetGeologyElement> SampledElements =
 		Geology->GetSampledElementDefinitions();
 
-	int32 TotalTriangles = 0;
-	for (const FPlanetMineralMesh& Mesh : CachedSurface.MeshesByElement)
+	// marching cubes 的几何与诊断只在走那条路时才做。体素路径用不到这份结果，
+	// 留着它等于每次 Activate 都白付 ~1.4 s / 3.76 M 三角形（地球），还会把
+	// 「体素路径到底多贵」的测量搅浑。
+	if (!bUseVoxelWorlds)
 	{
-		TotalTriangles += Mesh.Triangles.Num() / 3;
+		const bool bReused = bHasCachedSurface && CachedSurfaceGeology == Geology
+			&& CachedKey == Key;
+		if (!bReused)
+		{
+			PlanetMineralSurface::Build(*Geology, Params, CachedSurface);
+			CachedKey = Key;
+			CachedSurfaceGeology = Geology;
+			bHasCachedSurface = true;
+		}
+
+		int32 TotalTriangles = 0;
+		for (const FPlanetMineralMesh& Mesh : CachedSurface.MeshesByElement)
+		{
+			TotalTriangles += Mesh.Triangles.Num() / 3;
+		}
+
+		// 每元素「占据格数 / 面数」：诊断「全都没生成」与「某个元素为 0」是两回事，
+		// 光看总数分不出来。顺序 = Elements（运行期采样顺序），下标与组件一致。
+		TArray<FString> PerElementParts;
+		for (int32 Index = 0; Index < CachedSurface.MeshesByElement.Num(); ++Index)
+		{
+			const FString Label =
+				SampledElements.IsValidIndex(Index) && !SampledElements[Index].DisplayName.IsEmpty()
+				? SampledElements[Index].DisplayName
+				: FString::Printf(TEXT("#%d"), Index);
+			PerElementParts.Add(FString::Printf(TEXT("元素%s:%d角点/%d面"), *Label,
+				CachedSurface.MeshesByElement[Index].OccupiedCells,
+				CachedSurface.MeshesByElement[Index].Triangles.Num() / 3));
+		}
+
+		UE_LOG(LogTemp, Display,
+			TEXT("[矿物] %s：每特征 %d 格（%d 个求值角点），%d 个三角形，构建 %.1f ms%s"),
+			*InPlanet->GetName(), CellsPerFeature, CachedSurface.GridPoints, TotalTriangles,
+			CachedSurface.BuildSeconds * 1000.0,
+			bReused ? TEXT("（复用缓存，耗时为首建）") : TEXT(""));
+		UE_LOG(LogTemp, Display, TEXT("[矿物] %s：每元素矿体 %s"),
+			*InPlanet->GetName(),
+			PerElementParts.IsEmpty() ? TEXT("(无元素)") : *FString::Join(PerElementParts, TEXT(" ")));
+
+		// 并行效率一行看全：JobSeconds/BuildSeconds 就是这次实际用到的核数（求值 + 抽面
+		// 的累计墙钟 ÷ 总墙钟）。接近 1 = 有个大任务把并行度卡死了；撞上限的任务数非 0 =
+		// 这批几何被降采样了，光降 CellsPerFeature 也救不回它们。
+		const double EffectiveCores = CachedSurface.BuildSeconds > 0.0
+			? CachedSurface.JobSeconds / CachedSurface.BuildSeconds
+			: 0.0;
+		UE_LOG(LogTemp, Display,
+			TEXT("[矿物] %s：%d 个(元素,簇)任务（%d 个撞角点上限），求值 %.1f ms / 抽面 %.1f ms，约 %.1f 核并行"),
+			*InPlanet->GetName(), CachedSurface.PairCount, CachedSurface.CappedPairs,
+			CachedSurface.SampleSeconds * 1000.0, CachedSurface.MarchSeconds * 1000.0,
+			EffectiveCores);
 	}
-
-	// 每元素「占据格数 / 面数」：诊断「全都没生成」与「某个元素为 0」是两回事，
-	// 光看总数分不出来。顺序 = Elements（运行期采样顺序），下标与组件一致。
-	TArray<FString> PerElementParts;
-	for (int32 Index = 0; Index < CachedSurface.MeshesByElement.Num(); ++Index)
-	{
-		const FString Label =
-			SampledElements.IsValidIndex(Index) && !SampledElements[Index].DisplayName.IsEmpty()
-			? SampledElements[Index].DisplayName
-			: FString::Printf(TEXT("#%d"), Index);
-		PerElementParts.Add(FString::Printf(TEXT("元素%s:%d角点/%d面"), *Label,
-			CachedSurface.MeshesByElement[Index].OccupiedCells,
-			CachedSurface.MeshesByElement[Index].Triangles.Num() / 3));
-	}
-
-	UE_LOG(LogTemp, Display,
-		TEXT("[矿物] %s：每特征 %d 格（%d 个求值角点），%d 个三角形，构建 %.1f ms%s"),
-		*InPlanet->GetName(), CellsPerFeature, CachedSurface.GridPoints, TotalTriangles,
-		CachedSurface.BuildSeconds * 1000.0,
-		bReused ? TEXT("（复用缓存，耗时为首建）") : TEXT(""));
-	UE_LOG(LogTemp, Display, TEXT("[矿物] %s：每元素矿体 %s"),
-		*InPlanet->GetName(),
-		PerElementParts.IsEmpty() ? TEXT("(无元素)") : *FString::Join(PerElementParts, TEXT(" ")));
-
-	// 并行效率一行看全：JobSeconds/BuildSeconds 就是这次实际用到的核数（求值 + 抽面
-	// 的累计墙钟 ÷ 总墙钟）。接近 1 = 有个大任务把并行度卡死了；撞上限的任务数非 0 =
-	// 这批几何被降采样了，光降 CellsPerFeature 也救不回它们。
-	const double EffectiveCores = CachedSurface.BuildSeconds > 0.0
-		? CachedSurface.JobSeconds / CachedSurface.BuildSeconds
-		: 0.0;
-	UE_LOG(LogTemp, Display,
-		TEXT("[矿物] %s：%d 个(元素,簇)任务（%d 个撞角点上限），求值 %.1f ms / 抽面 %.1f ms，约 %.1f 核并行"),
-		*InPlanet->GetName(), CachedSurface.PairCount, CachedSurface.CappedPairs,
-		CachedSurface.SampleSeconds * 1000.0, CachedSurface.MarchSeconds * 1000.0,
-		EffectiveCores);
 
 	FActorSpawnParameters SpawnParams;
 	if (bInEditorWorld)
@@ -238,20 +392,85 @@ bool UPlanetMineralViewComponent::Activate(AVoxelPlanetActor* InPlanet)
 	SpawnParams.Owner = GetOwner();
 	SpawnParams.SpawnCollisionHandlingOverride =
 		ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-	ViewActor = World->SpawnActor<APlanetMineralViewActor>(
+	APlanetMineralViewActor* SpawnedView = World->SpawnActor<APlanetMineralViewActor>(
 		APlanetMineralViewActor::StaticClass(),
 		InPlanet->GetActorLocation(), FRotator::ZeroRotator, SpawnParams);
 
-	if (!ViewActor
-		|| !ViewActor->Build(CachedSurface.MeshesByElement, InPlanet->SurfaceColor,
-			SurfaceRadiusCm, SampledElements))
+	if (!SpawnedView)
+	{
+		UE_LOG(LogTemp, Error, TEXT("[矿物] 观察体 spawn 失败：%s"), *InPlanet->GetName());
+		return false;
+	}
+
+	bool bBuilt = false;
+	if (bUseVoxelWorlds)
+	{
+		// 守卫必须在关调用器之前：早退时还没动过任何状态，失败路径不需要恢复。
+		//
+		// 为什么现在就要判：下面的 GetData() 是 `return *Data`（VoxelWorld.h:615），
+		// 而 Data 只在 CreateWorldInternal 里才有。编辑器世界里 Toggle() 会在
+		// CreateInEditor 早退时留下「有地质场、Data 为空」的状态，而
+		// EnterMineralPreviewInEditor 是 CallInEditor 按钮 —— 点一下就会踩到。
+		if (!InPlanet->IsCreated())
+		{
+			UE_LOG(LogTemp, Error,
+				TEXT("[矿物] 行星体素世界尚未创建，无法进入体素视图：%s"),
+				*InPlanet->GetName());
+			SpawnedView->Destroy();
+			return false;
+		}
+
+		// 体素路径要求行星自己停下来：视图期间没有挖掘、也不需要行星继续生成块。
+		// 停掉它同时让下面那把长读锁的等待有界 —— 只在飞的少量块会与它竞争。
+		bDisabledPlanetInvoker = false;
+		if (UVoxelSimpleInvokerComponent* PlanetInvoker =
+			InPlanet->FindComponentByClass<UVoxelSimpleInvokerComponent>())
+		{
+			if (PlanetInvoker->IsInvokerEnabled())
+			{
+				VoxelViewpointInvokers::SetEnabled(PlanetInvoker, false);
+				// SetEnabled 对未注册的组件是空操作，所以要读回确认真的关掉了：
+				// 没关成就不该在 Deactivate 里替别人打开。
+				bDisabledPlanetInvoker = !PlanetInvoker->IsInvokerEnabled();
+			}
+		}
+
+		// 读锁必须在建世之前拿：生成器一 CreateWorld 就开始在自己的工作线程上
+		// 读行星数据。
+		//
+		// 锁整颗星的**世界包围盒**（GetBoundsFromDepth 给的是 [-Size, Size)，体素
+		// 世界以原点为中心），不是 [0, Size) 的正八分区：FVoxelDataOctreeBase::Get
+		// 里的 ensureThreadSafe(IsLockedForRead) 只看实际走到的那个八叉树，
+		// 半个世界没锁等于半个世界没保护。
+		PlanetDataLock = MakeUnique<FVoxelReadScopeLock>(
+			InPlanet->GetData(),
+			InPlanet->GetWorldBounds(),
+			TEXT("PlanetMineralVoxelView"));
+
+		const TArray<FPlanetMineralVoxelParams> ParamsByElement =
+			MakeVoxelParams(InPlanet, Geology, SampledElements, SurfaceRadiusCm);
+
+		bBuilt = SpawnedView->BuildVoxelWorlds(
+			ParamsByElement, *InPlanet, InPlanet->SurfaceColor,
+			SurfaceRadiusCm, SampledElements);
+	}
+	else
+	{
+		bBuilt = SpawnedView->Build(CachedSurface.MeshesByElement, InPlanet->SurfaceColor,
+			SurfaceRadiusCm, SampledElements);
+	}
+
+	ViewActor = SpawnedView;
+	if (!bBuilt)
 	{
 		UE_LOG(LogTemp, Error, TEXT("[矿物] 观察体创建失败：%s"), *InPlanet->GetName());
-		if (ViewActor)
-		{
-			ViewActor->Destroy();
-			ViewActor = nullptr;
-		}
+		ViewActor->Destroy();
+		ViewActor = nullptr;
+		PlanetDataLock.Reset();
+
+		// 先放锁再恢复调用器：反过来的话行星一恢复就开始写数据，而我们还持着
+		// 读锁 —— 那才是真的死锁。失败路径上 Planet 按设计还没赋值，用 InPlanet。
+		RestorePlanetInvoker(InPlanet);
 		return false;
 	}
 
@@ -318,9 +537,14 @@ void UPlanetMineralViewComponent::Deactivate()
 
 	if (APlanetMineralViewActor* View = ViewActor)
 	{
+		View->ReleaseAllFields();
 		View->Destroy();
 	}
 	ViewActor = nullptr;
+
+	// 先放锁再恢复行星调用器：反过来的话行星一恢复就开始写数据，而我们还持着
+	// 读锁 —— 那才是真的死锁。
+	PlanetDataLock.Reset();
 
 #if WITH_EDITOR
 	if (PresetChangedHandle.IsValid())
@@ -340,6 +564,10 @@ void UPlanetMineralViewComponent::Deactivate()
 
 	if (AVoxelPlanetActor* RestorePlanet = Planet.Get())
 	{
+		// 与 bEditorPreview 无关：Activate 无条件关掉调用器，这里就得无条件恢复。
+		// bIsInvokerEnabled 不是 UPROPERTY，切它不弄脏关卡。
+		RestorePlanetInvoker(RestorePlanet);
+
 		if (bEditorPreview)
 		{
 #if WITH_EDITOR
@@ -373,6 +601,28 @@ void UPlanetMineralViewComponent::Deactivate()
 	Elements.Reset();
 }
 
+void UPlanetMineralViewComponent::RestorePlanetInvoker(AVoxelPlanetActor* PlanetActor)
+{
+	if (!bDisabledPlanetInvoker)
+	{
+		// 不是我们关的（或根本没关成）：进入时它本来就是关的，退出时别把它打开
+		// —— 那不是我们改的状态。
+		return;
+	}
+	bDisabledPlanetInvoker = false;
+
+	if (!PlanetActor)
+	{
+		return;
+	}
+	if (UVoxelSimpleInvokerComponent* PlanetInvoker =
+		PlanetActor->FindComponentByClass<UVoxelSimpleInvokerComponent>())
+	{
+		// SetEnabled 幂等：状态已经对时什么都不做，不会刷 Message Log。
+		VoxelViewpointInvokers::SetEnabled(PlanetInvoker, true);
+	}
+}
+
 void UPlanetMineralViewComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	Deactivate();
@@ -392,11 +642,12 @@ void UPlanetMineralViewComponent::TickComponent(
 	}
 
 	// 只跟位置：N 体只平移，行星不转向也不缩放；跟着转会把矿体拧歪。
+	// 体素路径还要把每个矿物体素世界一起搬 —— 它们不 attach 到观察体上。
 	if (const AVoxelPlanetActor* PlanetActor = Planet.Get())
 	{
 		if (ViewActor)
 		{
-			ViewActor->SetActorLocation(PlanetActor->GetActorLocation());
+			ViewActor->SyncToPlanetLocation(PlanetActor->GetActorLocation());
 		}
 	}
 }
@@ -490,3 +741,45 @@ void UPlanetMineralViewComponent::OnPreviewPresetChanged(UPlanetGeologyPreset* P
 	MarkPreviewStale();
 }
 #endif
+
+float UPlanetMineralViewComponent::GetElementVolumeCm3(
+	int32 ElementIndex, float StepCm) const
+{
+	const AVoxelPlanetActor* PlanetPtr = Planet.Get();
+	const TSharedPtr<const FPlanetGeologyField>& GeologyPtr = CachedGeology;
+	if (!PlanetPtr || !GeologyPtr.IsValid() || !Elements.IsValidIndex(ElementIndex))
+	{
+		return 0.f;
+	}
+
+	// 体素路径下 Activate 已经持有一把覆盖整个视图期的读锁，这里不能再拿：
+	// 同线程重复加读锁会 checkf（VoxelSharedMutex.h:106-111）。
+	// MC 路径下没人拿锁，而行星的块生成线程还在写同一棵八叉树 —— 就地补一把。
+	TUniquePtr<FVoxelReadScopeLock> LocalLock;
+	if (!PlanetDataLock && PlanetPtr->IsCreated())
+	{
+		LocalLock = MakeUnique<FVoxelReadScopeLock>(
+			PlanetPtr->GetData(), PlanetPtr->GetWorldBounds(),
+			TEXT("PlanetMineralStats"));
+	}
+
+	return ComputeElementVolumeCm3(
+		*GeologyPtr, *PlanetPtr, ElementIndex, StepCm, PlanetPtr->GetSurfaceRadiusCm());
+}
+
+TArray<float> UPlanetMineralViewComponent::GetAllElementVolumesCm3(float StepCm) const
+{
+	TArray<float> Out;
+	Out.SetNum(Elements.Num());
+	for (int32 Index = 0; Index < Elements.Num(); ++Index)
+	{
+		Out[Index] = GetElementVolumeCm3(Index, StepCm);
+	}
+	return Out;
+}
+
+bool UPlanetMineralViewComponent::SetElementColor(
+	int32 ElementIndex, const FLinearColor& Color)
+{
+	return ViewActor ? ViewActor->SetElementColor(ElementIndex, Color) : false;
+}

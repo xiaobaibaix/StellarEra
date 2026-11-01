@@ -7,6 +7,7 @@
 #include "Components/SceneComponent.h"
 #include "PlanetGeologyTypes.h"
 #include "PlanetMineralSurface.h"
+#include "VoxelData/VoxelDataLock.h"
 #include "PlanetMineralViewComponent.generated.h"
 
 class APlanetMineralViewActor;
@@ -115,6 +116,35 @@ public:
 	void ToggleElement(int32 Index);
 	void SetAllElementsVisible(bool bNewVisible);
 
+	/**
+	 * 过渡期开关：true 走体素世界，false 走 marching cubes。
+	 *
+	 * 只在两条路径并存的那一轮有用，用于 A/B 对照矿体位置。Task 7 删除 MC
+	 * 路径时本开关一并删除 —— 不许留在主干。
+	 */
+	UPROPERTY(EditAnywhere, Category = "Planet|MineralView")
+	bool bUseVoxelWorlds = true;
+
+	/** 改某个元素的颜色。体素路径即时生效；没有视图时返回 false。 */
+	bool SetElementColor(int32 ElementIndex, const FLinearColor& Color);
+
+	/**
+	 * 某个元素的矿量（立方厘米）。
+	 *
+	 * **走解析场，不走体素世界**：体素世界里的体素数量随 LOD 变（远处块边长
+	 * 64 米、近处 1 米），数出来的值不是稳定量。这里按固定步长对区域 AABB 采样，
+	 * 结果与相机位置无关。
+	 *
+	 * 代价是 O((区域边长 / 步长)³)：调用方**必须传粗步长**（米级），别按单个体素
+	 * 的尺寸来调。这里不替你夹步长 —— 夹了会让报出的数悄悄变。
+	 *
+	 * @param StepCm 采样步长（厘米）。≤ 0 或没有地质场时返回 0。
+	 */
+	float GetElementVolumeCm3(int32 ElementIndex, float StepCm) const;
+
+	/** 所有元素的矿量，下标 = 运行期元素下标。 */
+	TArray<float> GetAllElementVolumesCm3(float StepCm) const;
+
 	AVoxelPlanetActor* GetViewPlanet() const { return Planet.Get(); }
 	TSharedPtr<const FPlanetGeologyField> GetGeologyField() const { return CachedGeology; }
 
@@ -176,6 +206,34 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<APlanetMineralViewActor> ViewActor;
+
+	/**
+	 * 视图期间持有的行星体素数据读锁。
+	 *
+	 * 为什么整段视图期间只锁一次而不是逐体素加锁：生成器在插件工作线程上按体素
+	 * 调用密度查询，逐体素加锁的开销会吃掉全部收益。视图期间不做挖掘、且
+	 * Activate 已经停掉了行星自己的 LOD 调用器，所以只会与激活瞬间仍在飞的
+	 * 少量块生成任务竞争 —— 那把读锁的等待有界。
+	 */
+	TUniquePtr<FVoxelReadScopeLock> PlanetDataLock;
+
+	/**
+	 * 行星的 LOD 调用器是**本组件**关掉的。
+	 *
+	 * 只恢复**自己关掉的**那一次：进入时调用器本来就是关的话，SetEnabled(false)
+	 * 是空操作，退出时无条件打开就等于替别人改了状态。
+	 * `bIsInvokerEnabled` 不是 UPROPERTY，切它不会弄脏关卡，编辑器预览里照样可以
+	 * 恢复 —— 所以 Deactivate 的恢复**不**按 bEditorPreview 分叉。
+	 */
+	bool bDisabledPlanetInvoker = false;
+
+	/**
+	 * 恢复 Activate 关掉的行星 LOD 调用器。幂等：没关过时是空操作。
+	 *
+	 * 显式传行星而不是读成员：构建失败那条路径上 Planet 还没赋值，而调用器已经
+	 * 被关了 —— 漏掉那一次恢复，行星的 LOD 会一直停着，且日志里没有任何线索。
+	 */
+	void RestorePlanetInvoker(AVoxelPlanetActor* PlanetActor);
 
 	bool bSavedAtmosphereEnabled = true;
 	bool bSavedAtmosphereVisible = true;
