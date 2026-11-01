@@ -71,7 +71,7 @@
 
   开工时只需确认 `git status --short -- Source/` 是空的；不是空就说明又叠了新工作，先弄明白再动手。
 
-- [ ] **确认目标关卡里的行星参数**（`Content/Maps/UniverseMap`，带体素行星的那颗）：记录 `Radius`、`VoxelSize`、`Terrain` 指向的 `DA_Terrain_*` 以及其中的 `SeaLevel` / `Amplitude`。Task 9 的验收要用它。用编辑器 MCP（`execute_python_code`）：
+- [ ] **确认目标关卡里的行星参数**（`Content/Code/Maps/UniverseMap.umap`，带体素行星的那颗）：记录 `Radius`、`VoxelSize`、`Terrain` 指向的 `DA_Terrain_*` 以及其中的 `SeaLevel` / `Amplitude`。Task 9 的验收要用它。用编辑器 MCP（`execute_python_code`）：
 
   ```python
   import unreal
@@ -3835,7 +3835,8 @@ git -C F:/workspace/ue/StellarEra commit -m "feat(水体): 水材质 M_PlanetWat
 
 **Interfaces:**
 - Consumes: `PlanetWaterSurfaceBuilder::*`、`FPlanetHydrologyField`、`FPlanetWaterConfig`、
-  `UVoxelPlanetGenerator::GetHydrology/GetWaterConfig`
+  `UVoxelPlanetGenerator::GetHydrology`、`UVoxelPlanetTerrainModule::GetWaterConfig`
+  （水配置在**地形模块**上，生成器只转发水文场：写作 `PlanetGenerator->Terrain->GetWaterConfig(Config)`）
 - Produces: `void UPlanetWaterComponent::RebuildWater(const FPlanetHydrologyField* Field, const FPlanetWaterConfig& Config, double VoxelSize, double PlanetRadiusVoxels)`、
   `int32 UPlanetWaterComponent::GetWaterMeshCount() const`
 
