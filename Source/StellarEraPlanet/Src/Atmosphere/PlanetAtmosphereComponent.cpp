@@ -53,7 +53,10 @@ UPlanetAtmosphereComponent::UPlanetAtmosphereComponent()
 	// 别用"之前画 / 之后画"来描述 —— 那说的是绘制先后，与"前后"正好相反，已经写反过一次。
 	// 直接赋属性：UPrimitiveComponent 上**没有** SetTranslucencySortPriority 这个函数，
 	// 只有公开成员 TranslucencySortPriority（PrimitiveComponent.h:892），写成 setter 编译不过。
-	TranslucencySortPriority = -1;
+	// -10 而不是 -1：材质现在 bDisableDepthTest = true，深度测试不再替我们排序，
+	// 绘制顺序完全由这里决定。壳是球内天空的"底"，必须排在水面、矿物等半透明之前
+	// （即 priority 更低）。-1 与常见的 0 太接近，容易被别的半透明抢在前面。
+	TranslucencySortPriority = -10;
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereMesh(
 		TEXT("/Engine/BasicShapes/Sphere.Sphere"));

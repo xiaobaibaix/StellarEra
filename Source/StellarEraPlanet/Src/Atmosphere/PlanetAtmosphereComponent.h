@@ -10,11 +10,15 @@ class ADirectionalLight;
  * 行星大气壳。
  *
  * 一个套在行星外的半透明球，像素着色器里做单次散射 ray march。
- * 球面法线朝外，所以：
- *   - 相机在球外（太空）→ 看到正面 → 壳渲染，这就是"大气辉光"
- *   - 相机在球内（行星表面）→ 看到背面 → 被背面剔除 → 壳不渲染
- * 球内的天空交给引擎原生 SkyAtmosphere（由 UCosmosSimulationSubsystem 重定位），
- * 两者天然不打架，不需要手工切可见性。
+ * 材质是**双面**的，内外都渲染，由同一个 ray march 服务：
+ *   - 相机在球外（太空）→ 画正面 → 这就是"大气辉光"
+ *   - 相机在球内（行星表面）→ 画背面 → 这就是天空
+ * 射线的进/出交点本来就按相机位置算，相机在壳内时入射点退化为 0，
+ * 所以穿壳边界天然连续，不需要手工切可见性。
+ *
+ * 材质 bDisableDepthTest = true，遮挡不靠深度测试，靠 HLSL 里用场景深度
+ * 截断积分 —— 顺带把远处地形压暗混色，得到空中透视。
+ * 关卡里没有 ASkyAtmosphere，球内天空完全由本组件负责。
  *
  * C++ 构造函数不再创建它；行星 BP 需要把它挂到行星 Actor 的根组件上。
  *
@@ -31,7 +35,7 @@ class STELLARERAPLANET_API UPlanetAtmosphereComponent : public UStaticMeshCompon
 public:
 	UPlanetAtmosphereComponent();
 
-	/** 壳厚度 / 行星表面半径。**必须**与引擎大气用的值一致，否则穿过壳边界会跳变。 */
+	/** 壳厚度 / 行星表面半径。决定辉光与天空的"厚度"，与瑞利/米氏标高一起决定地平线颜色。 */
 	UPROPERTY(EditAnywhere, Category = "StellarEra|Atmosphere", meta = (ClampMin = "0.0"))
 	float AtmosphereHeightRatio = 0.05f;
 
