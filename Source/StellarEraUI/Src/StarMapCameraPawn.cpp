@@ -291,20 +291,14 @@ void AStarMapCameraPawn::OrbitLook(float DeltaYaw, float DeltaPitch)
 
 void AStarMapCameraPawn::AimLook(float DeltaYaw, float DeltaPitch)
 {
-	// 灵敏度与绕行共用一套：贴地看得细时慢、拉远扫星系时快。这里不乘距离的
-	// 任何其它因素 —— 转头不改变相机位置，画面移动量本来就只取决于角度。
-	double Scale = 1.0;
-	if (AActor* Selected = ResolveSelectedBody())
-	{
-		Scale = OrbitLookScale(
-			OrbitDistanceCm, ResolveFocusSurfaceRadiusCm(Selected),
-			MinOrbitLookScale, MaxOrbitLookScale);
-	}
-
+	// 不按距离缩放：转头不挪相机，同样的鼠标位移在任何距离上转过的角度都一样。
+	// 绕行那套「贴地慢、远处快」（OrbitLookScale）是为了让屏幕上的位移量恒定，
+	// 而转头本身就是纯角度操作，套上去只会让贴地时几乎转不动。
+	//
 	// 只累加、不在这里夹取：真的夹在这里，拖到边界后再往回拖也要先把「多拖的
 	// 那一段」抵消掉才动，手感像卡住。夹取在 CalcCamera 合成时做（ClampAimOffset）。
-	AimOffset.Yaw += DeltaYaw * Scale;
-	AimOffset.Pitch = FMath::Clamp(AimOffset.Pitch + DeltaPitch * Scale, -89.0, 89.0);
+	AimOffset.Yaw += DeltaYaw;
+	AimOffset.Pitch = FMath::Clamp(AimOffset.Pitch + DeltaPitch, -89.0, 89.0);
 	AimOffset.Roll = 0.0;
 }
 

@@ -152,7 +152,11 @@ public:
 	 *
 	 * 偏移量不在这里夹取：越拖越大是正常的，真正生效前由 ClampAimOffset 压回
 	 * MaxAimOffsetDeg 的圆锥内。这样往回拖时手感是连续的（而不是一到边界就卡住、
-	 * 再拖也不动）。灵敏度倍率与 OrbitLook 共用一套（OrbitLookScale）。
+	 * 再拖也不动）。
+	 *
+	 * 灵敏度**不乘** OrbitLookScale：绕行要按距离缩放才能让屏幕上的位移量恒定，
+	 * 而转头是纯角度操作 —— 套上「贴地慢」会让近处几乎转不动。任何距离上，
+	 * 同样的鼠标位移转过的角度都相同。
 	 */
 	void AimLook(float DeltaYaw, float DeltaPitch);
 
