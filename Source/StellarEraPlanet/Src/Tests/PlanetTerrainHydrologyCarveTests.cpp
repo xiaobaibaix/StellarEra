@@ -80,6 +80,42 @@ bool FStellarEraTerrainHydrologyCarveTest::RunTest(const FString& Parameters)
 		Terrain->GetSurfaceRadiusVoxels(Context, Direction), NoWater),
 		FMath::Abs(Terrain->GetSurfaceRadiusVoxels(Context, Direction) - NoWater) < 1e-3f);
 
+	// --- 密度场本身也下切 ---
+	//
+	// HydrologyCarveRange 只检查「区间覆盖取值」：把 GetValueImpl 里的
+	// + CarveDepth 删掉、区间里的 + MaxCarveDepth 留着，区间只会更宽，
+	// 那条用例照样通过。这里直接比较同一个采样点在有/无水文场时的密度，
+	// 钉住下切项确实进入了密度，而不只是被区间包络吸收掉。
+	//
+	// 采样距离取 Radius，落在两条早退边界之间（带内走精确计算）。
+	constexpr double ProbeDistance = CarveTestRadius;
+	constexpr double ProbeDensityScale = 5.0;   // 与 VoxelPlanetNoiseTerrain.cpp 的 DensityScale 一致
+	const FVoxelItemStack& EmptyItems = FVoxelItemStack::Empty;
+	const FPlanetNoiseParams ProbeParams = FPlanetNoiseParams();
+
+	FVoxelPlanetTerrainContext DryContext;
+	DryContext.Radius = float(CarveTestRadius);
+	DryContext.Hydrology = nullptr;
+	const FVoxelPlanetNoiseTerrainInstance DryInstance(DryContext, ProbeParams);
+
+	FVoxelPlanetTerrainContext CarvedContext;
+	CarvedContext.Radius = float(CarveTestRadius);
+	CarvedContext.Hydrology = MakeUniformField(/*Carve=*/3.f, /*River=*/0.f);
+	const FVoxelPlanetNoiseTerrainInstance CarvedInstance(CarvedContext, ProbeParams);
+
+	const FVector ProbePoint = Direction * ProbeDistance;
+	const double DryValue = double(DryInstance.GetValueImpl(
+		v_flt(ProbePoint.X), v_flt(ProbePoint.Y), v_flt(ProbePoint.Z), 0, EmptyItems));
+	const double CarvedValue = double(CarvedInstance.GetValueImpl(
+		v_flt(ProbePoint.X), v_flt(ProbePoint.Y), v_flt(ProbePoint.Z), 0, EmptyItems));
+
+	// Value = (Distance − Surface) / DensityScale ⇒ Surface = Distance − Value × DensityScale。
+	// 两条路径的 Distance 相同，所以地表半径的差就是 Value 差乘回 DensityScale。
+	const double SurfaceDrop = (CarvedValue - DryValue) * ProbeDensityScale;
+	TestTrue(FString::Printf(TEXT("同一采样点处密度场报出的地表半径必须正好低 3 体素（实测 %.4f）"),
+		SurfaceDrop),
+		FMath::Abs(SurfaceDrop - 3.0) < 0.01);
+
 	return true;
 }
 

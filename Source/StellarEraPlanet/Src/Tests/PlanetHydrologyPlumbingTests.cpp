@@ -1,14 +1,15 @@
 ﻿// 水文接线的回归测试：没有水的行星不该烘焙，也不该凭空长出水面。
 //
 // 两个方向都在这里：Plumbing 钉「空」的一侧（纯球模块早退、不烘焙），
-// Cache 钉「有水」的一侧 —— 用地形替身真正走进烘焙分支，验证缓存键
-// （模块指针 + 半径 + 水体配置）在命中、失效、参数变化三种情况下的行为。
+// Cache 钉「有水」的一侧 —— 用真实噪声地形模块（分辨率降到 16）真正走进
+// 烘焙分支，验证缓存键（模块指针 + 半径 + 水体配置）在命中、失效、参数变化
+// 三种情况下的行为。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "PlanetHydrologyField.h"
-#include "PlanetHydrologyTestTerrain.h"
 #include "VoxelPlanetGenerator.h"
+#include "VoxelPlanetNoiseTerrain.h"
 #include "VoxelPlanetSphereTerrain.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -64,20 +65,22 @@ bool FStellarEraHydrologyPlumbingTest::RunTest(const FString& Parameters)
 //
 // 这条用例是 Plumbing 的补集。Plumbing 用空模块，RefreshHydrology 在
 // GetWaterConfig 的早退处就返回了，缓存键一个都没读过 —— 那里的所有断言在
-// 空缓存上都恒真。这里换一个真会返回 true 的地形替身，字段才被真正读写。
+// 空缓存上都恒真。这里换一个真会返回 true 的地形模块（真实噪声地形，
+// 分辨率降到 16），字段才被真正读写。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraHydrologyCacheTest,
 	"StellarEra.Planet.Hydrology.Cache",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FStellarEraHydrologyCacheTest::RunTest(const FString& Parameters)
 {
-	UPlanetHydrologyTestTerrain* Terrain = NewObject<UPlanetHydrologyTestTerrain>();
-	if (!TestNotNull(TEXT("地形替身必须能实例化"), Terrain))
+	UVoxelPlanetNoiseTerrain* Terrain = NewObject<UVoxelPlanetNoiseTerrain>();
+	if (!TestNotNull(TEXT("噪声地形模块必须能实例化"), Terrain))
 	{
 		return false;
 	}
 	// 16 格/面：烘焙仍是完整流水线，但只有 6×18² ≈ 1944 格，毫秒级。
-	Terrain->Resolution = 16;
+	// ClampMin 32 只是编辑器面板的提示，运行时不受它限制；Bake 只要求 ≥ 4。
+	Terrain->HydrologyResolution = 16;
 	Terrain->bEnableWater = true;
 
 	UVoxelPlanetGenerator* Generator = NewObject<UVoxelPlanetGenerator>();

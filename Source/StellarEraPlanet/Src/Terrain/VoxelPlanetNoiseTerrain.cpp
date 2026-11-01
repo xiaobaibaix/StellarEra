@@ -138,9 +138,12 @@ float UVoxelPlanetNoiseTerrain::GetSurfaceRadiusVoxels(const FVoxelPlanetTerrain
 	double GeometryDelta = 0.0;
 	if (Context.Geology.IsValid())
 	{
-		// 真实地表满足 R_s = Base + delta(R - R_s)。用不动点迭代一次，
+		// 真实地表满足 R_s = Base − Carve + delta(R − R_s)。用不动点迭代一次，
 		// 把 delta 自身的 1~2 体素偏移也收进来。
-		const double Depth0 = double(Context.Radius) - BaseSurface;
+		//
+		// 深度必须以**下切后**的地表为基准：矿脉与河道重叠时，漏掉 CarveDepth
+		// 会让脚下与眼睛看到的地面差最多 MaxCarveDepth 个体素。
+		const double Depth0 = double(Context.Radius) - (BaseSurface - CarveDepth);
 		GeometryDelta = double(Context.Geology->SampleGeometryDelta(Direction, Depth0));
 		GeometryDelta = double(Context.Geology->SampleGeometryDelta(
 			Direction, Depth0 - GeometryDelta));
@@ -343,7 +346,11 @@ FLinearColor ComputePlanetSurfaceColor(
 		if (RiverStrength > 0.f)
 		{
 			// 0.35 是「看得出是河」与「不像铺了柏油」之间的折中。
-			Color = MixColor(Color, Color * 0.35f, RiverStrength);
+			// 只压暗 RGB，A 保持 1：顶点色与 cubemap 都会把 A 一起存下来，
+			// 让河床顺带变成半透明会把「湿岩」画成一个能看穿的坑。
+			FLinearColor RiverbedColor = Color * 0.35f;
+			RiverbedColor.A = 1.f;
+			Color = MixColor(Color, RiverbedColor, RiverStrength);
 		}
 	}
 
