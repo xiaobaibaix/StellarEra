@@ -199,13 +199,17 @@ bool FStellarEraInvokerViewpointCharacterTest::RunTest(const FString& Parameters
 	Character->SetViewpointInvokersActive(false);
 	TestTrue(TEXT("地面且非视点 → 关闭"), AllDisabled(Invokers));
 
-	// 登船（与 BoardShip 同序：先挂后设）+ 拿到视点 → 仍关
+	// 登船（与 BoardShip 同序：先挂后设）+ 拿到视点 → 仍关。
+	// 判据是 bBoarded，不是附着关系 —— 角色平时就挂在行星下，只 Attach
+	// 不等于登船（c539b78 起谓语改成显式 bBoarded，这条一直没跟上）。
 	Character->AttachToActor(Ship, FAttachmentTransformRules::KeepWorldTransform);
+	Character->SetBoarded(true);
 	Character->SetViewpointInvokersActive(true);
 	TestTrue(TEXT("登船中即使拿到视点也保持关闭"), AllDisabled(Invokers));
 
 	// 离船（与 LeaveShip 同序：先摘后设）+ 仍是视点 → 开
 	Character->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	Character->SetBoarded(false);
 	Character->SetViewpointInvokersActive(true);
 	TestTrue(TEXT("离船且是视点 → 打开"), AllEnabled(Invokers));
 

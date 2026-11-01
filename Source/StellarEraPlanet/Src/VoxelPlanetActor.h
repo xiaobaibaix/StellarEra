@@ -353,6 +353,19 @@ public:
 	 */
 	static UMaterialInterface* StripMaterialInstanceDynamic(UMaterialInterface* Candidate);
 
+	/**
+	 * 建 biome MID。
+	 *
+	 * **Outer 必须是瞬态包，不能是行星 Actor。** 编辑器态插件把
+	 * bCreateMaterialInstances 硬编成 false（IVoxelRenderer.cpp:48），于是它把
+	 * 传进来的 `VoxelMaterial` 原样登记进全局 FVoxelMaterialInterfaceManager 的
+	 * MaterialInfo —— 那是 GC root，世界销毁也不会松手。MID 的 Outer 一旦指向
+	 * 行星 Actor，可达链就是 MID → Actor → Level → World → Package，旧关卡永远
+	 * 收不掉；切图时 UEditorEngine 会以 "World Memory Leaks" 直接 Fatal。
+	 * 用瞬态包当 Outer 就能把这条链断在世界外面。
+	 */
+	static UMaterialInstanceDynamic* CreateBiomeMaterialMID(UMaterialInterface* Parent);
+
 private:
 	/**
 	 * 编辑模式下的表面网格基线。

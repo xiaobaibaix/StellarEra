@@ -42,7 +42,11 @@
 // 只剩个位，喂给噪声就是一片死平；物体空间的坐标只有半径量级，精度够。
 // ===========================================================================
 
-namespace
+// 用具名命名空间而不是匿名命名空间：UBT 默认开 unity build，会把本模块多个
+// .cpp 合成一个 TU。匿名的 AddScalarParam / AddVectorParam / AddCustomInput 与
+// Atmosphere/PlanetAtmosphereMaterialBuilder.cpp 里的同名函数撞名（C2084）。
+// 名字前缀保证在任何 unity 分组下都不冲突。
+namespace StellarEraSunMaterialBuilder
 {
 
 const TCHAR* const SunMaterialDir = TEXT("/Game/Code/Star/Materials");
@@ -530,6 +534,6 @@ FAutoConsoleCommand GBuildSunMaterialCommand(
 	TEXT("重建 /Game/Code/Star/Materials/M_Sun 与三个恒星预设（M2V / G2V / B3V）。改完 HLSL 或参数后跑一次。"),
 	FConsoleCommandDelegate::CreateStatic(&BuildAllSunAssets));
 
-} // namespace
+} // namespace StellarEraSunMaterialBuilder
 
 #endif // WITH_EDITOR
