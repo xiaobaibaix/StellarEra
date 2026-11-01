@@ -1,5 +1,6 @@
 ﻿#include "CoreMinimal.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialExpressionCustom.h"
 #include "Materials/MaterialParameters.h"
 #include "Misc/AutomationTest.h"
 
@@ -67,6 +68,41 @@ bool FStellarEraAtmosphereMaterialStructureTest::RunTest(const FString& Paramete
 	{
 		TestTrue(FString::Printf(TEXT("向量参数 %s"), Name), HasParameter(VectorInfos, FName(Name)));
 	}
+
+	return true;
+}
+
+// HLSL 里出现这两个名字，说明生成器真的加上了面剔除与深度截断，
+// 而不只是把材质开关改了。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraAtmosphereMaterialHlslTest,
+	"StellarEra.Planet.AtmosphereMaterial.Hlsl",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FStellarEraAtmosphereMaterialHlslTest::RunTest(const FString& Parameters)
+{
+	UMaterial* Material = LoadAtmosphereMaterial();
+	if (!TestNotNull(TEXT("材质资产"), Material))
+	{
+		return false;
+	}
+
+	UMaterialExpressionCustom* Custom = nullptr;
+	for (UMaterialExpression* Expr : Material->GetExpressionCollection().Expressions)
+	{
+		UMaterialExpressionCustom* Candidate = Cast<UMaterialExpressionCustom>(Expr);
+		if (Candidate && Candidate->Description == TEXT("PlanetAtmosphereSingleScatter"))
+		{
+			Custom = Candidate;
+			break;
+		}
+	}
+
+	if (!TestNotNull(TEXT("Custom 节点 PlanetAtmosphereSingleScatter"), Custom))
+	{
+		return false;
+	}
+
+	TestTrue(TEXT("HLSL 含面剔除"), Custom->Code.Contains(TEXT("TwoSidedSign")));
+	TestTrue(TEXT("HLSL 含场景深度截断"), Custom->Code.Contains(TEXT("SceneDepthCm")));
 
 	return true;
 }

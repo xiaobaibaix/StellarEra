@@ -3,11 +3,14 @@
 #if WITH_EDITOR
 
 #include "HAL/IConsoleManager.h"
+#include "MaterialSceneTextureId.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialExpressionCameraPositionWS.h"
 #include "Materials/MaterialExpressionComponentMask.h"
 #include "Materials/MaterialExpressionCustom.h"
 #include "Materials/MaterialExpressionScalarParameter.h"
+#include "Materials/MaterialExpressionSceneTexture.h"
+#include "Materials/MaterialExpressionTwoSidedSign.h"
 #include "Materials/MaterialExpressionVectorParameter.h"
 #include "Materials/MaterialExpressionWorldPosition.h"
 #include "Misc/PackageName.h"
@@ -37,6 +40,16 @@ const TCHAR* const AtmosphereHLSL = TEXT(R"(
 float3 ro = CameraPos;
 float3 rd = normalize(WorldPos - CameraPos);
 
+// 双面材质下，同一屏幕位置的正反面各出一个片元。不剔掉多余的一面，
+// 大气会被混合两遍（颜色约翻倍、透射率平方），ray march 也白跑一遍。
+// 符号约定：正面 +1、背面 -1（MaterialTemplate.ush 的 GetFloatFacingSign，D3D 分支）。
+// 相机在壳内就要背面，在壳外就要正面。
+float sideWanted = (length(ro - PlanetCenter) < ShellRadius) ? -1.0 : 1.0;
+if (TwoSidedSign * sideWanted < 0.0)
+{
+    return float4(0.0, 0.0, 0.0, 0.0);
+}
+
 // 与外球（壳）求交
 float3 oc = ro - PlanetCenter;
 float bOuter = dot(oc, rd);
@@ -64,6 +77,21 @@ if (discInner >= 0.0)
     {
         tExit = min(tExit, tGround);
     }
+}
+if (tExit <= tEnter)
+{
+    return float4(0.0, 0.0, 0.0, 0.0);
+}
+
+// 关掉深度测试后，比壳更近的物体（飞船、水面）也会被这片片元覆盖。
+// SceneDepthCm 是视空间 Z（沿相机前向的距离），除以射线与相机前向的夹角余弦
+// 才是射线上的距离 —— 引擎自己也是这么换算的（MaterialTemplate.ush 里
+// PixelDepthOffset 那段就是 dot(CameraPixelForwardVector, ResolvedView.ViewForward)）。
+// 兜底：天空像素的深度是远平面，tScene 会大于 tExit，此时不截断。
+float tScene = SceneDepthCm.r / max(dot(rd, ResolvedView.ViewForward), 0.01);
+if (tScene > 0.0 && tScene < tExit)
+{
+    tExit = tScene;
 }
 if (tExit <= tEnter)
 {
@@ -206,6 +234,24 @@ bool BuildPlanetAtmosphereMaterial(FString& OutError)
 	UMaterialExpressionVectorParameter* SunIntensity = AddAtmoVectorParam(Material, TEXT("SunIntensity"),
 		FLinearColor(1.0f, 1.0f, 1.0f, 1.0f), -800, 500);
 
+	// 双面材质要靠它区分正反面（正面 +1 / 背面 -1）。
+	UMaterialExpressionTwoSidedSign* TwoSidedSignNode =
+		NewObject<UMaterialExpressionTwoSidedSign>(Material);
+	TwoSidedSignNode->Material = Material;
+	TwoSidedSignNode->MaterialExpressionEditorX = -800;
+	TwoSidedSignNode->MaterialExpressionEditorY = 600;
+	Material->GetExpressionCollection().AddExpression(TwoSidedSignNode);
+
+	// 场景深度：视空间 Z，世界单位 cm。
+	UMaterialExpressionSceneTexture* SceneDepthNode =
+		NewObject<UMaterialExpressionSceneTexture>(Material);
+	SceneDepthNode->Material = Material;
+	SceneDepthNode->SceneTextureId = PPI_SceneDepth;
+	SceneDepthNode->bFiltered = false;
+	SceneDepthNode->MaterialExpressionEditorX = -800;
+	SceneDepthNode->MaterialExpressionEditorY = 700;
+	Material->GetExpressionCollection().AddExpression(SceneDepthNode);
+
 	// --- Custom 节点 ---
 	UMaterialExpressionCustom* Custom = NewObject<UMaterialExpressionCustom>(Material);
 	Custom->Material = Material;
@@ -228,6 +274,8 @@ bool BuildPlanetAtmosphereMaterial(FString& OutError)
 	AddAtmoCustomInput(Custom, TEXT("RayleighBeta"), RayleighBeta);
 	AddAtmoCustomInput(Custom, TEXT("MieBeta"), MieBeta);
 	AddAtmoCustomInput(Custom, TEXT("SunIntensity"), SunIntensity);
+	AddAtmoCustomInput(Custom, TEXT("TwoSidedSign"), TwoSidedSignNode);
+	AddAtmoCustomInput(Custom, TEXT("SceneDepthCm"), SceneDepthNode);
 
 	Custom->RebuildOutputs();
 
