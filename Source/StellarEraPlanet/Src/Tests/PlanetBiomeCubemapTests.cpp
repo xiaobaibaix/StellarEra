@@ -136,7 +136,7 @@ bool FStellarEraBiomeCubeBakeMatchesColorTest::RunTest(const FString& Parameters
 
 	TArray<FColor> Colors;
 	PlanetBiomeCubemap::BakeFaceColors(
-		Params, /*Geology=*/nullptr, Radius, /*Face=*/0, Resolution, Colors);
+		Params, /*Geology=*/nullptr, /*Hydrology=*/nullptr, Radius, /*Face=*/0, Resolution, Colors);
 
 	TestEqual(TEXT("像素数 = 分辨率²"), Colors.Num(), Resolution * Resolution);
 	if (Colors.Num() != Resolution * Resolution)
@@ -168,7 +168,7 @@ bool FStellarEraBiomeCubeBakeMatchesColorTest::RunTest(const FString& Parameters
 			const double SurfaceRadius =
 				Radius + double(Params.Amplitude) * double(ComputeRawPlanetOffset(Params, Direction));
 			const FColor Expected = ComputePlanetSurfaceColor(
-				Params, nullptr, Radius, Direction, SurfaceRadius).ToFColor(true);
+				Params, nullptr, nullptr, Radius, Direction, SurfaceRadius).ToFColor(true);
 
 			if (Colors[Y * Resolution + X].ToPackedARGB() != Expected.ToPackedARGB())
 			{
@@ -198,7 +198,7 @@ bool FStellarEraBiomeCubeZeroResolutionTest::RunTest(const FString& Parameters)
 
 	TArray<FColor> Colors;
 	Colors.Add(FColor::Red);
-	PlanetBiomeCubemap::BakeFaceColors(Params, nullptr, 100.0, 0, 0, Colors);
+	PlanetBiomeCubemap::BakeFaceColors(Params, nullptr, nullptr, 100.0, 0, 0, Colors);
 
 	TestEqual(TEXT("分辨率 0 → 空数组"), Colors.Num(), 0);
 	return true;

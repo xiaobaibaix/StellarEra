@@ -849,6 +849,7 @@ bool AVoxelPlanetActor::InstallBiomeMaterial(bool bForceBake)
 		UTextureCube* Cube = PlanetBiomeCubemap::BakeTexture(
 			NoiseTerrain->MakeParams(),
 			PlanetGenerator->GetGeology().Get(),
+			PlanetGenerator->GetHydrology().Get(),
 			double(GetScaledRadiusVoxels()),
 			BiomeCubemapResolution);
 

@@ -5,6 +5,9 @@
 
 #include "CoreMinimal.h"
 #include "VoxelPlanetTerrainModule.h"
+// FPlanetHydrologyField：GetWaterConfig 的配置与实例成员都指向它。
+// （FPlanetWaterConfig 本身由 VoxelPlanetTerrainModule.h 带入。）
+#include "PlanetHydrologyField.h"
 // 实例的宿主类型。理由见 VoxelPlanetSphereTerrain.h 里同名实例的说明 ——
 // 两份实例的模板参数是同一个理由，不是巧合。
 #include "VoxelPlanetGenerator.h"
@@ -68,6 +71,7 @@ class FPlanetGeologyField;
  * 取色（材质查表），两条路必须逐字走同一段代码 —— 否则近处的顶点色和远处的
  * 查表色会在 LOD 边界上对不上，接缝从「采样密度差」变成「两套配色」。
  *
+ * @param Hydrology 这颗星的水文场；空 = 没有水。河床按它的 RiverStrength 压暗。
  * @param UnitDir  相对球心的单位方向
  * @param Distance 采样点到球心的距离（体素）。只用于地质采样深度；
  *                 烘焙时传该方向的基准地表半径。
@@ -75,6 +79,7 @@ class FPlanetGeologyField;
 FLinearColor ComputePlanetSurfaceColor(
 	const FPlanetNoiseParams& Params,
 	const FPlanetGeologyField* Geology,
+	const FPlanetHydrologyField* Hydrology,
 	double Radius,
 	const FVector& UnitDir,
 	double Distance);
@@ -96,6 +101,8 @@ public:
 	//~ Begin UVoxelPlanetTerrainModule Interface
 	virtual TVoxelSharedRef<FVoxelGeneratorInstance> GetInstance(const FVoxelPlanetTerrainContext& Context) override;
 	virtual float GetSurfaceRadiusVoxels(const FVoxelPlanetTerrainContext& Context, const FVector& UnitDir) const override;
+	virtual float GetRawOffset(const FVector& UnitDir) const override;
+	virtual bool GetWaterConfig(FPlanetWaterConfig& OutConfig) const override;
 	//~ End UVoxelPlanetTerrainModule Interface
 
 	/** 把当前属性打包成参数快照。实例与查询共用它，保证两边算法一致。 */
@@ -155,6 +162,38 @@ public:
 	/** 水色随深度过渡的下潜范围（归一化）。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain|Ocean", meta = (ClampMin = "0.001"))
 	float WaterDepthRange = 0.25f;
+
+	//////////////////////////////////////////////////////////////////////////
+	// 水体
+
+	/** 关掉 = 回到「一颗没水的星」：不烘焙、不出水面、地形也没有河床。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain|Water")
+	bool bEnableWater = true;
+
+	/**
+	 * 水文栅格每面的分辨率。256 快预览、512 默认、1024 最终画面。
+	 *
+	 * 它同时决定水面几何的精度上限：湖泊的角半径与河流的折线都来自这张栅格，
+	 * 调低它水边会变得方块状。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain|Water", meta = (ClampMin = "32", ClampMax = "2048"))
+	int32 HydrologyResolution = 512;
+
+	/** 汇流量超过它才算河（格数）。越小河越多、越细。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain|Water", meta = (ClampMin = "2"))
+	float MinRiverFlow = 24.f;
+
+	/**
+	 * 河道最大下切深度（体素）。
+	 *
+	 * 它同时是密度不确定带的加宽量：调大 1，插件就少跳过一圈区块。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain|Water", meta = (ClampMin = "1", ClampMax = "32"))
+	float MaxCarveDepth = 4.f;
+
+	/** 河宽的全局缩放。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain|Water", meta = (ClampMin = "0.1"))
+	float RiverWidthScale = 1.f;
 
 	//////////////////////////////////////////////////////////////////////////
 	// 配色
@@ -217,12 +256,16 @@ private:
 	/** 与 Context.Geology 同一份只读场；为空 = 没有矿。 */
 	const TSharedPtr<const FPlanetGeologyField> Geology;
 
+	/** 与 Context.Hydrology 同一份只读场；为空 = 没有水（也就没有河床下切）。 */
+	const TSharedPtr<const FPlanetHydrologyField> Hydrology;
+
 	/**
 	 * 地表可能落在的径向区间，构造时按区间查询用的同一套包络算好。
 	 *
-	 * 下界 = Radius + Amplitude × (−1)；上界 = Radius + Amplitude × 1 +
+	 * 下界 = Radius + Amplitude × (−1) − 最大下切量；上界 = Radius + Amplitude × 1 +
 	 * 最大几何外凸量。**SeaLevel 已经不参与距离包络** —— 它不再削平地形，
-	 * 位移的上下界就是 ComputeRawPlanetOffset 归一化给出的 ±1。
+	 * 位移的上下界就是 ComputeRawPlanetOffset 归一化给出的 ±1；河床会再往下挖，
+	 * 所以下界还要减去水文场的 MaxCarveDepth。
 	 * GetValueImpl 靠这两个数做**内外早退**：比下界还深的点必然是实体，
 	 * 比上界还高的点必然是空气，两者都不必算噪声和地质场。
 	 *

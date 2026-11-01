@@ -70,6 +70,7 @@ namespace PlanetBiomeCubemap
 	STELLARERAPLANET_API void BakeFaceColors(
 		const FPlanetNoiseParams& Params,
 		const FPlanetGeologyField* Geology,
+		const FPlanetHydrologyField* Hydrology,
 		double Radius,
 		int32 Face,
 		int32 Resolution,
@@ -84,6 +85,7 @@ namespace PlanetBiomeCubemap
 	STELLARERAPLANET_API UTextureCube* BakeTexture(
 		const FPlanetNoiseParams& Params,
 		const FPlanetGeologyField* Geology,
+		const FPlanetHydrologyField* Hydrology,
 		double Radius,
 		int32 Resolution);
 }

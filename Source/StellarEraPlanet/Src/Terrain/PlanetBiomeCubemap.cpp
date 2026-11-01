@@ -4,6 +4,7 @@
 #include "PlanetBiomeCubemap.h"
 
 #include "PlanetGeologyField.h"
+#include "PlanetHydrologyField.h"
 #include "Engine/TextureCube.h"
 #include "TextureResource.h"
 
@@ -86,6 +87,7 @@ void PlanetBiomeCubemap::DirectionToFaceUV(
 void PlanetBiomeCubemap::BakeFaceColors(
 	const FPlanetNoiseParams& Params,
 	const FPlanetGeologyField* Geology,
+	const FPlanetHydrologyField* Hydrology,
 	double Radius,
 	int32 Face,
 	int32 Resolution,
@@ -109,10 +111,13 @@ void PlanetBiomeCubemap::BakeFaceColors(
 			const FVector Dir = FaceUVToDirection(Face, U, V);
 
 			// 颜色函数的深度参数只喂给地质采样。这里取该方向的**真实地表半径**
-			// （基准面 + 几何外凸），与生成器在地表采样点上算出的深度同阶 ——
-			// 传 0 或传 Radius 都会让矿脉色整体偏一层。
+			// （基准面 − 下切 + 几何外凸），与生成器在地表采样点上算出的深度同阶
+			// —— 传 0 或传 Radius 都会让矿脉色整体偏一层。
+			const float RawOffset = ComputeRawPlanetOffset(Params, Dir);
+			// 与生成器采样地表时用的是同一式：基准半径 − 下切。地质色的深度因此不会偏。
+			const double CarveDepth = Hydrology ? double(Hydrology->Sample(Dir).CarveDepth) : 0.0;
 			const double BaseSurface =
-				Radius + double(Params.Amplitude) * double(ComputeRawPlanetOffset(Params, Dir));
+				Radius + double(Params.Amplitude) * double(RawOffset) - CarveDepth;
 			double SurfaceRadius = BaseSurface;
 			if (Geology)
 			{
@@ -121,7 +126,7 @@ void PlanetBiomeCubemap::BakeFaceColors(
 			}
 
 			const FLinearColor Color = ComputePlanetSurfaceColor(
-				Params, Geology, Radius, Dir, SurfaceRadius);
+				Params, Geology, Hydrology, Radius, Dir, SurfaceRadius);
 
 			// 存 sRGB 编码值，贴图侧 SRGB=true 再解回来，两端落在同一个线性色上：
 			// 顶点色走插件的 FVoxelUtilities::FloatToUINT8（线性量化，shader 直接
@@ -135,6 +140,7 @@ void PlanetBiomeCubemap::BakeFaceColors(
 UTextureCube* PlanetBiomeCubemap::BakeTexture(
 	const FPlanetNoiseParams& Params,
 	const FPlanetGeologyField* Geology,
+	const FPlanetHydrologyField* Hydrology,
 	double Radius,
 	int32 Resolution)
 {
@@ -176,7 +182,7 @@ UTextureCube* PlanetBiomeCubemap::BakeTexture(
 	TArray<FColor> FaceColors;
 	for (int32 Face = 0; Face < NumFaces; ++Face)
 	{
-		BakeFaceColors(Params, Geology, Radius, Face, Resolution, FaceColors);
+		BakeFaceColors(Params, Geology, Hydrology, Radius, Face, Resolution, FaceColors);
 
 		// 六个面在 BulkData 里按面序首尾相接（CreateTransient 的分配就是这个布局）。
 		FMemory::Memcpy(Dest + int64(Face) * FaceBytes, FaceColors.GetData(), FaceBytes);
