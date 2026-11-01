@@ -112,7 +112,7 @@ void PlanetBiomeCubemap::BakeFaceColors(
 			// （基准面 + 几何外凸），与生成器在地表采样点上算出的深度同阶 ——
 			// 传 0 或传 Radius 都会让矿脉色整体偏一层。
 			const double BaseSurface =
-				Radius + double(Params.Amplitude) * double(ComputePlanetOffset(Params, Dir));
+				Radius + double(Params.Amplitude) * double(ComputeRawPlanetOffset(Params, Dir));
 			double SurfaceRadius = BaseSurface;
 			if (Geology)
 			{

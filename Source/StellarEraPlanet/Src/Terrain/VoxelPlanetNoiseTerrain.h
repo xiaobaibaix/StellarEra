@@ -19,8 +19,8 @@
  * 否则角色会站到与眼睛看到的不同的地面上。共用结构 + 共用自由函数是唯一能保证
  * 这一点的写法。
  *
- * 它同时是**区间正确性的来源**：ComputePlanetOffset 的输出必然落在
- * [SeaLevel, 1]，而这个包络完全由本结构里的字段决定，见实例的 GetValueRangeImpl。
+ * 它同时是**区间正确性的来源**：ComputeRawPlanetOffset 的输出必然落在
+ * [-1, 1]，而这个包络完全由本结构里的字段决定，见实例的 GetValueRangeImpl。
  */
 struct FPlanetNoiseParams
 {
@@ -51,8 +51,13 @@ struct FPlanetNoiseParams
 	float PolarStart = 0.72f;
 };
 
-/** 归一化位移，输出必然落在 [SeaLevel, 1]。模块与实例共用的唯一实现。 */
-float ComputePlanetOffset(const FPlanetNoiseParams& Params, const FVector& UnitDir);
+/**
+ * 归一化位移，输出必然落在 [-1, 1]。模块与实例共用的唯一实现。
+ *
+ * **海平面不参与形状**：低于海平面的地形照常起伏，是海底而不是一块平地。
+ * 海平面只在两处出现：水文烘焙的种子判据（哪里是海洋），与水面几何的高度。
+ */
+float ComputeRawPlanetOffset(const FPlanetNoiseParams& Params, const FVector& UnitDir);
 
 class FPlanetGeologyField;
 
@@ -75,7 +80,7 @@ FLinearColor ComputePlanetSurfaceColor(
 	double Distance);
 
 /**
- * 噪声地形：球面被一个三维噪声场推高推低，低于海平面的部分被削平成海。
+ * 噪声地形：球面被一个三维噪声场推高推低，海平面以下照常起伏（是海底，不是平面）。
  *
  * 噪声采在**单位方向**上，不是 UV 上 —— 球面因此天然无缝，等距圆柱投影那套
  * 极点奇点问题在这里不存在，也不需要处理经线接缝。
@@ -141,8 +146,8 @@ public:
 	/**
 	 * 海平面（归一化，0 = 基准球面）。
 	 *
-	 * 低于它的地形在密度场里被**削平** —— 海是一片实心的平面，角色走在水面上。
-	 * 真·可下潜的水体（游泳、透明、单独的水面网格）是另一件事，不在这里。
+	 * **它不参与地形形状**：密度场不再在这里削平，海平面以下照常起伏。
+	 * 它只决定配色分带（水色/沙色的分界）与将来的水面高度。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain|Ocean", meta = (ClampMin = "-1", ClampMax = "1"))
 	float SeaLevel = -0.35f;
@@ -215,10 +220,11 @@ private:
 	/**
 	 * 地表可能落在的径向区间，构造时按区间查询用的同一套包络算好。
 	 *
-	 * 下界 = Radius + Amplitude × SeaLevel（位移的下界就是 SeaLevel，见
-	 * ComputePlanetOffset 末尾的 Max）；上界 = Radius + Amplitude × 1 +
-	 * 最大几何外凸量。GetValueImpl 靠这两个数做**内外早退**：比下界还深的
-	 * 点必然是实体，比上界还高的点必然是空气，两者都不必算噪声和地质场。
+	 * 下界 = Radius + Amplitude × (−1)；上界 = Radius + Amplitude × 1 +
+	 * 最大几何外凸量。**SeaLevel 已经不参与距离包络** —— 它不再削平地形，
+	 * 位移的上下界就是 ComputeRawPlanetOffset 归一化给出的 ±1。
+	 * GetValueImpl 靠这两个数做**内外早退**：比下界还深的点必然是实体，
+	 * 比上界还高的点必然是空气，两者都不必算噪声和地质场。
 	 *
 	 * 缓存而不是每次现算：这两个数要在每次采样时用，而 GetValueImpl 是
 	 * 被调用次数最多的函数（一次 1280 体素的挖掘 ≈ 2×10⁹ 次）。

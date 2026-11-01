@@ -88,9 +88,9 @@ bool FStellarEraTerrainEarlyOutTest::RunTest(const FString& Parameters)
 			Label, Lowest, Highest, double(Range.Min), double(Range.Max)), bAllCovered);
 	};
 
-	// --- 实体早退：低于最低可能地表（Radius + Amplitude × SeaLevel）5 体素以下 ---
-	// 默认 Amplitude 8、SeaLevel -0.35，最低地表在 Radius - 2.8，所以 -100 处
-	// 必然走早退。真值此时必然 ≤ -1，存进 FVoxelValue 就是 Full()。
+	// --- 实体早退：低于最低可能地表（Radius + Amplitude × (−1)）5 体素以下 ---
+	// 默认 Amplitude 8，最低地表在 Radius - 8，所以 -100 处必然走早退。
+	// 真值此时必然 ≤ -1，存进 FVoxelValue 就是 Full()。
 	const FVector DeepInside = SurfacePoint - UnitDir * 100.0;
 	const double InsideValue = ValueAt(DeepInside);
 	TestTrue(FString::Printf(TEXT("深处必须是实体（实测 %.3f）"), InsideValue), InsideValue < 0.0);
@@ -132,11 +132,11 @@ bool FStellarEraTerrainEarlyOutTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("从实体穿到空气之后不能再变回实体（早退符号一致性）"), bFlipIsUnique);
 
 	// --- 早退带必须真的窄 ---
-	// 只有 [Radius, Radius + Amplitude + 2 × DensityScale] 这条带需要算噪声与
-	// 地质场，其余全部早退。把这两个数钉住，免得以后调大 Amplitude 把优化吃掉。
-	// 默认 Amplitude 8、SeaLevel -0.35、无地质 → 带底 = Radius - 2.8，带顶 = Radius + 8。
+	// 只有 [Radius - Amplitude - 2 × DensityScale, Radius + Amplitude + 2 × DensityScale]
+	// 这条带需要算噪声与地质场，其余全部早退。
+	// 默认 Amplitude 8、无地质 → 带底 = Radius - 8，带顶 = Radius + 8。
 	const FPlanetNoiseParams Defaults;
-	const double BandBottom = double(Radius) + double(Defaults.Amplitude) * double(Defaults.SeaLevel);
+	const double BandBottom = double(Radius) - double(Defaults.Amplitude);
 	const double BandTop = double(Radius) + double(Defaults.Amplitude);
 	TestTrue(FString::Printf(TEXT("带宽 %.1f 体素必须不超过 32"), BandTop - BandBottom),
 		BandTop - BandBottom <= 32.0);

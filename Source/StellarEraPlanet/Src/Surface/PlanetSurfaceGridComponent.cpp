@@ -138,7 +138,7 @@ void UPlanetSurfaceGridComponent::RebuildCache()
 	PlanetEditGrid::BuildLines(GridStepDegrees, Lines);
 
 	// GetSurfaceRadiusCmAtDirection 的解析半径已经应用了与密度场相同的
-	// ComputePlanetOffset，所以它离真实地表只差约一个体素 —— 这里向外留的余量
+	// ComputeRawPlanetOffset，所以它离真实地表只差约一个体素 —— 这里向外留的余量
 	// 不是给噪声的，是给**编辑**的：笔刷能把地形抬高，采样必须覆盖抬升后的表面。
 	// 再加上 FindRadiusVoxels 向外 / 向内各探 SearchSteps 步，锁必须覆盖「所有
 	// 方向解析半径的最大值 + 编辑与搜索余量」，否则采样点会落在锁外，读到未

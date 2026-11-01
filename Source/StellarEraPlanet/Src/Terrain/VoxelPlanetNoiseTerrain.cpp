@@ -13,6 +13,11 @@ namespace
 	// （那会让网格化器出问题）。区间查询必须用同一个球心。
 	constexpr double PlanetCenterEpsilon = 0.001;
 
+	// ComputeRawPlanetOffset 的解析输出包络。写成常量而不是在两处手抄 ±1：
+	// 这个值错了，地表会静默出洞（估小）或整颗星卡死（估大）。
+	constexpr double MinNormalizedOffset = -1.0;
+	constexpr double MaxNormalizedOffset = 1.0;
+
 	// 与纯球模块一致：密度除以的常数。两边必须相同，否则换地形时着色法线的
 	// 梯度会变、光照观感会跳。
 	constexpr double DensityScale = 5.0;
@@ -37,7 +42,7 @@ namespace
 	}
 }
 
-float ComputePlanetOffset(const FPlanetNoiseParams& Params, const FVector& UnitDir)
+float ComputeRawPlanetOffset(const FPlanetNoiseParams& Params, const FVector& UnitDir)
 {
 	// 采在单位方向上而不是 UV 上：球面因此天然无缝，也没有极点奇点。
 	const FVector SamplePos = UnitDir * Params.Frequency + Params.SeedOffset;
@@ -58,13 +63,12 @@ float ComputePlanetOffset(const FPlanetNoiseParams& Params, const FVector& UnitD
 	// 除以权重和，把结果夹回 [-1, 1]。
 	//
 	// 这一步是**区间正确性的全部依据**：每层 Perlin 的输出都在 [-1, 1]，权重和
-	// 恰为 AmplitudeSum，所以归一化后的值必然在范围内。实例的 GetValueRangeImpl
-	// 直接把 1 当作位移上界用，不再复核 —— 改这里必须同步改那里。
-	const float Noise = (AmplitudeSum > 0.f) ? Sum / AmplitudeSum : 0.f;
-
-	// 海平面：低于它的地形被削平。Max 同时把位移的下界抬到 SeaLevel，
-	// 区间那边同样直接用这个值。
-	return FMath::Max(Noise, Params.SeaLevel);
+	// 恰为 AmplitudeSum，所以归一化后的值必然在范围内。实例的区间查询直接把
+	// ±1 当作位移包络用，不再复核 —— 改这里必须同步改那里。
+	//
+	// 旧版本末尾还有一道 FMath::Max(Noise, SeaLevel)（海平面削平）。删掉它是
+	// 水体功能的前提：海平面以下必须是真实起伏的海底，否则水面之下一片平。
+	return (AmplitudeSum > 0.f) ? Sum / AmplitudeSum : 0.f;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -117,11 +121,11 @@ float UVoxelPlanetNoiseTerrain::GetSurfaceRadiusVoxels(const FVoxelPlanetTerrain
 		return Context.Radius;
 	}
 
-	// 与密度场调用同一个 ComputePlanetOffset 和同一个 SampleGeometryDelta。
+	// 与密度场调用同一个 ComputeRawPlanetOffset 和同一个 SampleGeometryDelta。
 	// 角色脚下的地面和眼睛看到的地面必须是同一个面。
 	const FPlanetNoiseParams Params = MakeParams();
 	const double BaseSurface =
-		double(Context.Radius) + double(Params.Amplitude) * double(ComputePlanetOffset(Params, Direction));
+		double(Context.Radius) + double(Params.Amplitude) * double(ComputeRawPlanetOffset(Params, Direction));
 
 	double GeometryDelta = 0.0;
 	if (Context.Geology.IsValid())
@@ -146,11 +150,9 @@ FVoxelPlanetNoiseTerrainInstance::FVoxelPlanetNoiseTerrainInstance(const FVoxelP
 	, Center(Context.Center)
 	, Params(InParams)
 	, Geology(Context.Geology)
-	// 与 GetValueRangeImpl 完全相同的包络，只是在这里一次算好。SeaLevel 再夹
-	// 一次到 ≤ 1：两者都是区间正确性的前提（下界不能高于上界）。
-	, MinSurfaceRadius(double(Radius)
-		+ double(Params.Amplitude) * FMath::Min(double(Params.SeaLevel), 1.0))
-	, MaxSurfaceRadius(double(Radius) + double(Params.Amplitude)
+	// 与 GetValueRangeImpl 完全相同的包络，只是在这里一次算好。
+	, MinSurfaceRadius(double(Radius) + double(Params.Amplitude) * MinNormalizedOffset)
+	, MaxSurfaceRadius(double(Radius) + double(Params.Amplitude) * MaxNormalizedOffset
 		+ (Context.Geology.IsValid() ? double(Context.Geology->GetMaxGeometryDelta()) : 0.0))
 {
 }
@@ -206,7 +208,7 @@ v_flt FVoxelPlanetNoiseTerrainInstance::GetValueImpl(v_flt X, v_flt Y, v_flt Z, 
 
 	const FVector UnitDir = GetUnitDirection(Relative);
 	const double BaseSurface =
-		double(Radius) + double(Params.Amplitude) * double(ComputePlanetOffset(Params, UnitDir));
+		double(Radius) + double(Params.Amplitude) * double(ComputeRawPlanetOffset(Params, UnitDir));
 
 	// 深度以基准球面为 0、向内为正。几何增量只往外推，不挖坑。
 	const double GeometryDelta = Geology.IsValid()
@@ -231,7 +233,7 @@ FLinearColor ComputePlanetSurfaceColor(
 	const FVector& UnitDir,
 	double Distance)
 {
-	const float Offset = ComputePlanetOffset(Params, UnitDir);
+	const float Offset = ComputeRawPlanetOffset(Params, UnitDir);
 
 	FLinearColor Color;
 
@@ -344,14 +346,12 @@ TVoxelRange<v_flt> FVoxelPlanetNoiseTerrainInstance::GetValueRangeImpl(const FVo
 	const double FarZ = FarthestDelta(Bounds.Min.Z, Bounds.Max.Z, CZ);
 	const double MaxDistance = FMath::Sqrt(FarX * FarX + FarY * FarY + FarZ * FarZ);
 
-	// 位移的确定包络。它由 ComputePlanetOffset 的两条性质直接给出，不是估的：
-	//   上界 1 —— 归一化除以了权重和，而每层 Perlin 都在 [-1, 1]。
-	//   下界 SeaLevel —— 末尾那道 Max 就是它。
+	// 位移的确定包络，由 ComputeRawPlanetOffset 的归一化直接给出（见上）。
 	//
 	// 这个区间是保守的（真实 fbm 极少同时触到两端），但保守是**安全**的方向：
 	// 估高了只是多算一些区块，估低了地表会出洞。想要更紧就调小 Amplitude。
-	const double MaxOffset = 1.0;
-	const double MinOffset = FMath::Min(double(Params.SeaLevel), MaxOffset);
+	const double MaxOffset = MaxNormalizedOffset;
+	const double MinOffset = MinNormalizedOffset;
 
 	// 最小密度 ← 最近的距离 + 最大的地表半径；最大密度 ← 最远的距离 + 最小的。
 	//
