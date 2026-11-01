@@ -150,4 +150,61 @@ bool FStellarEraHydrologyFieldSampleTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraHydrologyInvalidFieldTest,
+	"StellarEra.Planet.Hydrology.InvalidField",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraHydrologyInvalidFieldTest::RunTest(const FString& Parameters)
+{
+	constexpr int32 Resolution = 8;
+	const int32 Count = PlanetHydrologyGrid::CellCount(Resolution);
+
+	// --- 三个栅格齐长时必须是有效场（防止上一条校验写成过严） ---
+	{
+		TArray<float> Water;
+		TArray<float> Carve;
+		TArray<float> Strength;
+		Water.Init(1200.f, Count);
+		Carve.Init(1.f, Count);
+		Strength.Init(1.f, Count);
+		const TSharedRef<FPlanetHydrologyField> Valid = FPlanetHydrologyField::Create(
+			Resolution, 1000.f, 4.f,
+			MoveTemp(Water), MoveTemp(Carve), MoveTemp(Strength),
+			TArray<FPlanetLakeBasin>(), TArray<FPlanetRiverPolyline>());
+		TestTrue(TEXT("三栅格齐长的场必须有效"), Valid->IsValid());
+	}
+
+	// --- 任一副栅格短一格：IsValid 必须为 false，Sample 必须返回全零 ---
+	// 只把副栅格截短：WaterLevel 长度仍然正确。旧实现只校验 WaterLevel，会判有效，
+	// 然后 Sample 用同一组下标去读短数组 —— Development 下命中 TArray 范围检查，
+	// Shipping 下越界。契约（PlanetHydrologyField.h：「场无效时返回全零」）要求这里返回零。
+	for (int32 ShortGrid = 0; ShortGrid < 2; ++ShortGrid)
+	{
+		TArray<float> Water;
+		TArray<float> Carve;
+		TArray<float> Strength;
+		Water.Init(1200.f, Count);
+		Carve.Init(1.f, Count);
+		Strength.Init(1.f, Count);
+		(ShortGrid == 0 ? Carve : Strength).SetNum(Count - 1);
+
+		const TSharedRef<FPlanetHydrologyField> Invalid = FPlanetHydrologyField::Create(
+			Resolution, 1000.f, 4.f,
+			MoveTemp(Water), MoveTemp(Carve), MoveTemp(Strength),
+			TArray<FPlanetLakeBasin>(), TArray<FPlanetRiverPolyline>());
+
+		TestFalse(
+			FString::Printf(TEXT("%s 短一格时 IsValid 必须为 false"),
+				ShortGrid == 0 ? TEXT("CarveDepth") : TEXT("RiverStrength")),
+			Invalid->IsValid());
+
+		const FPlanetHydrologyField::FSample Sample = Invalid->Sample(FVector::UpVector);
+		TestEqual(TEXT("无效场的采样水位必须为 0"), Sample.WaterLevelRadius, 0.f);
+		TestEqual(TEXT("无效场的采样下切必须为 0"), Sample.CarveDepth, 0.f);
+		TestEqual(TEXT("无效场的采样河流强度必须为 0"), Sample.RiverStrength, 0.f);
+	}
+
+	return true;
+}
+
 #endif

@@ -29,7 +29,14 @@ TSharedRef<FPlanetHydrologyField> FPlanetHydrologyField::Create(
 
 bool FPlanetHydrologyField::IsValid() const
 {
-	return Resolution > 0 && WaterLevel.Num() == PlanetHydrologyGrid::CellCount(Resolution);
+	// 三个栅格由 Sample 用同一组下标读取，任何一个长度不符都必须判无效 ——
+	// 否则 Sample 会越过该数组的末尾（Development 下命中 TArray 的范围检查，
+	// Shipping 下是未定义行为），而不是按契约返回全零。
+	const int32 ExpectedCells = PlanetHydrologyGrid::CellCount(Resolution);
+	return Resolution > 0
+		&& WaterLevel.Num() == ExpectedCells
+		&& CarveDepth.Num() == ExpectedCells
+		&& RiverStrength.Num() == ExpectedCells;
 }
 
 FPlanetHydrologyField::FSample FPlanetHydrologyField::Sample(const FVector& UnitDir) const
