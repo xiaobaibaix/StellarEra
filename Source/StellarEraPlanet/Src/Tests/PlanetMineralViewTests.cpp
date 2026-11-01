@@ -359,4 +359,35 @@ bool FPlanetMineralViewPresetEditStaleTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralViewStatisticsTest,
+	"StellarEra.Planet.MineralView.Statistics",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetMineralViewStatisticsTest::RunTest(const FString& Parameters)
+{
+	// 统计的对外契约：没有地质场时必须安全失败（返回 0 / 空表），不能崩。
+	//
+	// 用 NewObject 而不是 SpawnActor 出组件：SpawnActor 会跑 OnConstruction，
+	// 那里会建整个行星体素世界，无头进程里能耗上几分钟。
+	AVoxelPlanetActor* Planet = NewObject<AVoxelPlanetActor>(GetTransientPackage());
+	UPlanetMineralViewComponent* View = Planet
+		? NewObject<UPlanetMineralViewComponent>(Planet)
+		: nullptr;
+	if (!TestNotNull(TEXT("组件"), View))
+	{
+		return false;
+	}
+
+	TestEqual(TEXT("没有地质场时体积为 0"),
+		View->GetElementVolumeCm3(0, 100.f), 0.f, 1e-6f);
+	TestEqual(TEXT("没有地质场时整表为空"),
+		View->GetAllElementVolumesCm3(100.f).Num(), 0);
+
+	// 非法的步长同样安全失败。
+	TestEqual(TEXT("步长 <= 0 时体积为 0"),
+		View->GetElementVolumeCm3(0, 0.f), 0.f, 1e-6f);
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
