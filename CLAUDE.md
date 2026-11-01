@@ -137,7 +137,9 @@ Character/Spaceship → Pawns），历史类路径由 `Config/DefaultEngine.ini`
 - **N 体只有一个驱动**：`UCosmosSimulationSubsystem`（TickableWorldSubsystem）每帧推进求解器、把位置/速度写回 Actor、再搬运骑乘者。天体不要各自 Tick。
 - `UCosmosOrbitComponent` **只存参数**（`MassEarth`、`InitialVelocityKmPerSecond`）；天体初态位置就是关卡里 Actor 的摆放位置。
 - `ASpaceshipPawn` **不自己位移**：只暴露推力加速度与阻尼，位移由子系统送进求解器。
-- `UPlanetCharacterMovementComponent` 关掉 CMC 自带的“底座移动我”，骑乘搬运统一交给 `CarryRiders`。
+- `UPlanetCharacterMovementComponent` 关掉 CMC 自带的“底座移动我”。角色**挂在行星下**（`SetRidePlanet` → `AttachToActor`），
+  行星平移由附着层级带着走；`CarryRiders` 只是兜底，负责没有附着父级的 Pawn。
+  登船判据用 `IsBoarded()`，**不要**用 `GetAttachParentActor() != nullptr`（骑乘时父级就是行星）。
 - 大气：球外看 `UPlanetAtmosphereComponent` 的壳；球内天空由子系统逐帧重定位引擎 `SkyAtmosphere`。
 - `UCosmosTrajectoryComponent` 运行期只读求解器；编辑器态走离线重建，不启动模拟。
 

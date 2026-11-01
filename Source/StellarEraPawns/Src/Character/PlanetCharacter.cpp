@@ -96,6 +96,16 @@ APlanetCharacter::APlanetCharacter(const FObjectInitializer& ObjectInitializer)
 
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 88.f);
 
+	// 角色平时挂在行星下（见 SetRidePlanet）。行星的大小是靠 Actor 缩放做的
+	// （AVoxelPlanetActor::GetScaledRadiusVoxels 读 GetActorScale3D()），子物体
+	// 默认继承父级缩放 —— 一旦有人缩放星球，胶囊、网格、相机臂、四圈调用器的
+	// 厘米量会跟着一起打折。让根组件忽略父级缩放，世界缩放恒为 1。
+	//
+	// 本关卡三颗星球 S = 1，所以这条今天看不出效果；它是为了不让「缩放行星」
+	// 这个既有工作流在将来踩雷。位置与旋转仍然跟随父级，只有缩放是绝对的。
+	GetCapsuleComponent()->SetAbsolute(/*bAbsoluteLocation=*/false,
+		/*bAbsoluteRotation=*/false, /*bAbsoluteScale=*/true);
+
 	// 朝向交给 CMC：PhysicsRotation 会把目标旋转换算到重力空间、在那里清零
 	// 俯仰与横滚再换回世界空间，因此角色天然垂直于球面。自己再插值一次只会
 	// 和它打架。这里把控制器的旋转影响全部关掉，让引擎独占朝向。
@@ -365,9 +375,11 @@ void APlanetCharacter::BeginPlay()
 	// 任何人告诉过我们是不是视点。这里按当前已知状态重新应用一次。
 	// 必须在下面「找不到行星」的早退之前 —— 早退之后就没有第二次机会，
 	// 角色会在没被 Possess 的情况下一直开着调用器。
-	ApplyViewpointInvokerState(GetAttachParentActor() != nullptr);
+	ApplyViewpointInvokerState(bBoarded);
 
-	PlanetActor = FindNearestPlanet();
+	// 走 SetRidePlanet 而不是直接赋值：它会同时把角色挂到这颗行星下，此后
+	// 行星平移多少、角色就跟着平移多少，不再依赖 CarryRiders 每帧推位移。
+	SetRidePlanet(FindNearestPlanet());
 
 	if (UPlanetEditComponent* Edit = GetPlanetEditComponent())
 	{
@@ -423,10 +435,10 @@ void APlanetCharacter::Tick(float DeltaSeconds)
 	// 找到（PlanetActor 为空），这里才有机会在后续帧找回来。
 	//
 	// 登船期间不重评：角色此刻挂在飞船下跟着飞船跨星球移动，重评会把角色从
-	// 船里瞬移到新星的地表上。本项目只有一处 AttachToActor（登船，见
-	// StellarEraPlayerController.cpp），所以附着关系就是「在船上」。
-	const bool bBoarded = GetAttachParentActor() != nullptr;
-
+	// 船里瞬移到新星的地表上。
+	//
+	// 判据是 bBoarded，**不是** GetAttachParentActor()：角色平时就挂在行星下，
+	// 用父级判断会把「在地表走路」误当成「在船上」，重评从此再也不会发生。
 	if (!bBoarded && PlanetReevaluateInterval > 0.f)
 	{
 		PlanetReevaluateTimer -= DeltaSeconds;
@@ -569,17 +581,47 @@ void APlanetCharacter::SnapToPlanetSurface()
 	LastSurfaceUp = FVector::ZeroVector;
 }
 
+void APlanetCharacter::SetRidePlanet(AVoxelPlanetActor* NewPlanet)
+{
+	// 登船期间父级归飞船，不抢；只更新「脚下是哪颗星」。
+	// 登船时保留旧值本来就是这个类的既有行为（见 Tick 里的重评守卫）。
+	if (bBoarded)
+	{
+		PlanetActor = NewPlanet;
+		return;
+	}
+
+	AActor* CurrentParent = GetAttachParentActor();
+	if (CurrentParent != NewPlanet)
+	{
+		// KeepWorldTransform：换父级这一瞬间角色不能跳位，否则玩家会看到闪一下。
+		if (CurrentParent)
+		{
+			DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+		}
+		if (NewPlanet)
+		{
+			AttachToActor(NewPlanet, FAttachmentTransformRules::KeepWorldTransform);
+		}
+	}
+	PlanetActor = NewPlanet;
+}
+
 void APlanetCharacter::ReevaluatePlanet()
 {
 	AVoxelPlanetActor* Nearest = FindNearestPlanet();
-	if (Nearest == PlanetActor)
+	const bool bPlanetChanged = (Nearest != PlanetActor);
+
+	// 无条件调：星球没换时它也会把丢失的附着补回来（下船之后就是这种状态）。
+	SetRidePlanet(Nearest);
+
+	if (!bPlanetChanged)
 	{
 		return;
 	}
 
 	// 换星：旧星已经不在脚下了（或者本来就没找到）。把「已落地」清掉 ——
 	// 新星的地表还没流送出来，得让 Tick 末尾的兜底逻辑重新把角色按到球面上。
-	PlanetActor = Nearest;
 	bHasLanded = false;
 
 	if (PlanetActor)
@@ -643,8 +685,10 @@ void APlanetCharacter::SetSprinting(bool bSprinting)
 	GetCharacterMovement()->MaxWalkSpeed = bSprinting ? SprintSpeed : WalkSpeed;
 }
 
-void APlanetCharacter::SetBoarded(bool bBoarded)
+void APlanetCharacter::SetBoarded(bool bInBoarded)
 {
+	bBoarded = bInBoarded;
+
 	SetActorHiddenInGame(bBoarded);
 	SetActorEnableCollision(!bBoarded);
 
@@ -665,19 +709,24 @@ void APlanetCharacter::SetBoarded(bool bBoarded)
 		// 离船时可能已经在另一颗星球旁边了（开船过来、下船）。把计时器清零，
 		// 让下一帧立刻重找最近的行星，而不是拿着旧星的重力方向等半秒。
 		PlanetReevaluateTimer = 0.f;
+
+		// 摘掉飞船之后角色是「无父级」状态，位移重新交给行星附着关系。这里先
+		// 挂回「上一次已知的那颗星」，紧接着的 ReevaluatePlanet 会把它纠正成
+		// 真正最近的一颗。
+		SetRidePlanet(PlanetActor);
 	}
 }
 
 void APlanetCharacter::SetViewpointInvokersActive(const bool bActive)
 {
 	bIsViewpoint = bActive;
-	ApplyViewpointInvokerState(GetAttachParentActor() != nullptr);
+	ApplyViewpointInvokerState(bBoarded);
 }
 
-void APlanetCharacter::ApplyViewpointInvokerState(const bool bBoarded)
+void APlanetCharacter::ApplyViewpointInvokerState(const bool bBoardedIn)
 {
 	// 「参与」= 是当前视点 ∧ 没在船上。
-	const bool bActive = bIsViewpoint && !bBoarded;
+	const bool bActive = bIsViewpoint && !bBoardedIn;
 	VoxelViewpointInvokers::SetEnabled(VoxelInvoker, bActive);
 
 	// 过渡环与主 Invoker 同进同退：留下任何一个都会在星图里继续生效，

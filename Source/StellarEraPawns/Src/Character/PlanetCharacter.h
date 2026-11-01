@@ -60,7 +60,26 @@ public:
 	 * 登船 / 离船。登船时隐藏并关掉碰撞——附着的 Actor 仍然参与碰撞，
 	 * 不关的话角色的胶囊会卡在飞船的碰撞体里。
 	 */
-	void SetBoarded(bool bBoarded);
+	void SetBoarded(bool bInBoarded);
+
+	/**
+	 * 是否在船上。
+	 *
+	 * **不要**再用 `GetAttachParentActor() != nullptr` 判断登船：角色平时就挂在
+	 * 行星下（见 SetRidePlanet），那条式子在走路时也恒为真。
+	 */
+	bool IsBoarded() const { return bBoarded; }
+
+	/**
+	 * 指定角色骑在哪颗行星上。这是**唯一**写本 Actor 附着关系的地方。
+	 *
+	 * 非登船状态下把角色 AttachToActor 到行星，此后行星平移多少、角色就跟着
+	 * 平移多少 —— 由引擎的附着层级负责，不再依赖
+	 * UCosmosSimulationSubsystem::CarryRiders 每帧推位移。
+	 *
+	 * 登船期间父级归飞船，本函数只更新「脚下是哪颗星」。
+	 */
+	void SetRidePlanet(AVoxelPlanetActor* NewPlanet);
 
 	/** 把角色摆到球面正上方，胶囊底贴住表面，并把朝向摆正。 */
 	void SnapToPlanetSurface();
@@ -224,14 +243,22 @@ private:
 	 * 非当前视点的角色重新打开，而登船期间角色跟着飞船高速平移，
 	 * LODToSet = 0 的 200 米盒子每帧都要重网格化。
 	 *
-	 * @param bBoarded 调用方当时知道的登船状态。SetBoarded 传它自己的入参，
-	 *                 其余两处（视点切换 / BeginPlay）现查 GetAttachParentActor()。
-	 *                 不存成员：登船状态的唯一口径是挂接关系，存一份会漂移。
+	 * @param bBoardedIn 调用方当时知道的登船状态。三处调用点（SetBoarded /
+	 *                   视点切换 / BeginPlay）都读成员 bBoarded。
 	 */
-	void ApplyViewpointInvokerState(bool bBoarded);
+	void ApplyViewpointInvokerState(bool bBoardedIn);
 
 	/** 本 Pawn 是否当前视点。初值 false —— OnRegister 会自动启用，BeginPlay 要按它关掉。 */
 	bool bIsViewpoint = false;
+
+	/**
+	 * 登船状态。**SetBoarded 是唯一写入口**。
+	 *
+	 * 以前这个状态是从附着关系现推的（GetAttachParentActor() != nullptr），
+	 * 因为当时只有登船会设附着父级。角色改为平时挂在行星下之后那条等价关系
+	 * 不成立了 —— 走路时父级就是行星 —— 所以必须存成显式的成员。
+	 */
+	bool bBoarded = false;
 
 	/**
 	 * 把 CharacterMesh / MeshRelativeLocation / MeshRelativeRotation / MeshScale
