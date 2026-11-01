@@ -15,14 +15,18 @@ AVoxelMineralFieldActor::AVoxelMineralFieldActor()
 	// 会排一个「下一帧 CreateWorld」的定时器，会和我们自己那次撞成建两次。
 	bCreateWorldAutomatically = false;
 
-	// 线程池是**时序前置条件**，不是「这里一定有」：本世界自己不建池，只复用
-	// IVoxelPool::GetPoolForWorld 找到的那个。
+	// 线程池是**时序前置条件**，不是「这里一定有」：游戏世界里本世界自己不建池，
+	// 只复用 IVoxelPool::GetPoolForWorld 找到的那个。
 	//
 	// 行星在 OnConstruction 里建世，并且用 IsWorldVoxelPoolCreated /
 	// CreateWorldVoxelThreadPool 保证池先存在（VoxelPlanetActor.cpp:749-761）。
 	// 矿物世界由 CreateForElement 显式建世，因此**调用点必须排在行星建世之后**。
 	// 池不存在时插件不会失败：它打一条 "global pool isn't created!" 警告，就地建
 	// 一个 2 线程池（VoxelWorld.cpp:846-854）—— 功能照常，性能悄悄掉下来。
+	// 以上只描述游戏世界：CreatePool 对 Preview 一开始就
+	// return CreateOwnPool(NumberOfThreadsForPreview, true)（VoxelWorld.cpp:814-817），
+	// 既不查全局池也不读本开关 —— 编辑器预览下每个矿物世界各建各的池，顺序也无所谓。
+	//
 	// Task 4/5 接线时要守住「先行星、后矿物」这个顺序。
 	//
 	// 基类默认 true 会让每个矿物世界各自抢着建池。
@@ -30,7 +34,7 @@ AVoxelMineralFieldActor::AVoxelMineralFieldActor()
 
 	// 矿物体素世界不参与玩法碰撞与导航。
 	//
-	// 这只对**游戏世界**（PlayType == Game）成立：基类 UpdateDynamicRendererSettings
+	// 这只对**游戏世界**（PlayType == Game）成立：基类 UpdateDynamicLODSettings
 	// 对任何非 Game 的 PlayType 强制打开碰撞 —— bEnableCollisions /
 	// bComputeVisibleChunksCollisions / VisibleChunksCollisionsMaxLOD 三项一起被覆盖
 	//（VoxelWorld.cpp:1197-1199）。我们的编辑器分支走 Toggle() → CreateInEditor →
