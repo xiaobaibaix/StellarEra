@@ -228,6 +228,6 @@ StellarEra.BuildAtmosphereMaterial
 - **材质生成**：编辑器里执行 `StellarEra.BuildAtmosphereMaterial`。
 - **自动化**：
   - 现有 `StellarEra.Planet.AtmosphereParams.*` 不变。
-  - 新增一条：加载 `/Game/Code/Planet/Materials/M_PlanetAtmosphere`，断言 `TwoSided == true`、`bDisableDepthTest == true`，且 7 个参数名齐全。防"改了 HLSL 忘了重生成资产"。
+  - 新增一条：加载 `/Game/Code/Planet/Materials/M_PlanetAtmosphere`，断言 `TwoSided == true`、`bDisableDepthTest == true`，且 **9 个参数名**齐全（4 个标量 + 5 个向量）。防"改了 HLSL 忘了重生成资产"。
 - **运行验证**：编辑器 → `UniverseMap` → PIE，人工过第 9 节。注意 `NewMap` 没有体素行星，验证不了这条路径。
 - **回归**：不得破坏球外观感、飞船大气阻力（`SpaceshipAtmosphereDragTests`）、`AVoxelPlanetActor` 的既有行为。
