@@ -357,6 +357,16 @@ protected:
 	double StarMapPlanetFocusRadiusScale = 3.0;
 
 	/**
+	 * 退出星图时视点混合的时长（秒）。0 = 立刻切回（旧行为）。
+	 *
+	 * 用引擎的 APlayerController::SetViewTargetWithBlend：起点是仍被 Possess 的
+	 * 星图相机、终点是返回 Pawn 的相机，引擎逐帧插两条 FMinimalViewInfo ——
+	 * 位置、朝向、FOV 一起过渡，飞船在动也跟着走。混合结束才真正 Possess。
+	 */
+	UPROPERTY(EditAnywhere, Category = "StarMap", meta = (ClampMin = "0.0"))
+	float StarMapExitBlendSeconds = 0.5f;
+
+	/**
 	 * 生成星图相机用的类：优先蓝图子类 BP_StarMapCameraPawn。
 	 *
 	 * 笔刷区间 / 默认尺寸 / 连续挖间隔都在它的 PlanetEdit 组件细节面板里，
@@ -379,6 +389,17 @@ protected:
 
 	/** 进入星图前 Possess 的 Pawn。退出时换回去。弱引用 —— 它可能已经没了。 */
 	TWeakObjectPtr<APawn> PreviousPawn;
+
+	/**
+	 * 退出星图的收尾：Possess 回 ReturnPawn，再把星图相机搬回球心。
+	 *
+	 * 由退出分支的定时器在视点混合结束后调用（见 StarMapExitBlendSeconds）；
+	 * 混合时长为 0 或没有返回 Pawn 时直接调用。
+	 */
+	void FinishStarMapExit(APawn* ReturnPawn);
+
+	/** 等待视点混合结束的定时器。还活着时再按 M 会被忽略。 */
+	FTimerHandle StarMapExitTimerHandle;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UInputMappingContext> MappingContext;

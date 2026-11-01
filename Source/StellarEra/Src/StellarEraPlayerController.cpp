@@ -20,6 +20,8 @@
 #include "InputMappingContext.h"
 #include "InputModifiers.h"
 #include "Engine/Engine.h"
+#include "Camera/PlayerCameraManager.h"
+#include "TimerManager.h"
 #include "Components/ChildActorComponent.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/LocalPlayer.h"
@@ -1125,6 +1127,14 @@ void AStellarEraPlayerController::ToggleStarMap()
 	if (CurrentStarMapPawn)
 	{
 		// ── 退出 ──
+		// 混合还没走完时又按了一次 M：忽略。此刻 GetPawn() 仍是星图 Pawn，
+		// 不拦的话会把整段退出流程重跑一遍、再压一个定时器上去。
+		if (StarMapExitTimerHandle.IsValid()
+			&& GetWorldTimerManager().IsTimerActive(StarMapExitTimerHandle))
+		{
+			return;
+		}
+
 		// 先退矿物透视再换 Pawn：它隐藏了行星网格、关了碰撞与大气，必须在恢复视角之前还原。
 		ExitMineralViewIfActive();
 
@@ -1161,14 +1171,38 @@ void AStellarEraPlayerController::ToggleStarMap()
 		//      PreviousPawn 已经失效时，退出分支照样没有可 Possess 的对象，玩家还是卡在
 		//      相机上。得重新拿一个默认 Pawn（如走 AGameModeBase::RestartPlayer，
 		//      或按 DefaultPawnClass 生成）。
-		if (APawn* ReturnPawn = PreviousPawn.Get())
+		APawn* const ReturnPawn = PreviousPawn.Get();
+		if (ReturnPawn && StarMapExitBlendSeconds > 0.f)
 		{
-			Possess(ReturnPawn);
+			// 不要一帧切回去：交给引擎做视点混合。起点是仍被 Possess 的星图相机
+			// （它的 CalcCamera 每帧还在产出画面），终点是返回 Pawn 的相机；引擎
+			// 逐帧插两条 FMinimalViewInfo，位置 / 朝向 / FOV 一起过渡。
+			SetViewTargetWithBlend(
+				ReturnPawn,
+				StarMapExitBlendSeconds,
+				EViewTargetBlendFunction::VTBlend_Cubic,
+				/*BlendExp=*/0.f,
+				/*bLockOutgoing=*/false);
+
+			// 混合结束再 Possess —— Possess 会立刻把视点设成返回 Pawn，提前调用
+			// 等于把混合掐掉。多等 0.05 s，避开「定时器与混合在同一帧收尾」的边界。
+			FTimerDelegate ExitBlendDone = FTimerDelegate::CreateWeakLambda(
+				this,
+				[this, WeakReturn = TWeakObjectPtr<APawn>(ReturnPawn)]()
+				{
+					FinishStarMapExit(WeakReturn.Get());
+				});
+			GetWorldTimerManager().SetTimer(
+				StarMapExitTimerHandle,
+				ExitBlendDone,
+				StarMapExitBlendSeconds + 0.05f,
+				/*bLoop=*/false);
 		}
-		// 星图期间 CalcCamera 每帧把相机 Actor 拽到渲染位置，退出后它还留在半空。
-		// 挂行星的那台必须搬回球心 —— 否则从外面看行星时，那台子相机飘在球外，
-		// 下次进场又得从它此刻的位置重算。深空单例相机直接跳过（没有挂载父）。
-		CurrentStarMapPawn->ResetToAttachOrigin();
+		else
+		{
+			// 没有可回的 Pawn（它已经没了），或混合被关掉：老路径，立刻收尾。
+			FinishStarMapExit(ReturnPawn);
+		}
 		// 星图的编辑模式不跟着换 Pawn 走：Possess 回飞船后组件已不在手上，
 		// 预览 Tick 与笔刷线都会留在原地。退出即关，重进再按 G。
 		ForceExitEditMode(CurrentStarMapPawn);
@@ -1277,6 +1311,28 @@ void AStellarEraPlayerController::ToggleStarMap()
 		CameraToUse->FocusOn(
 			FocusBody,
 			StarMapPlanetFocusRadiusScale * ResolveBodyRadiusCm(FocusBody));
+	}
+}
+
+void AStellarEraPlayerController::FinishStarMapExit(APawn* ReturnPawn)
+{
+	// 先认下当前这台星图相机，Possess 之后就认不出来了。
+	AStarMapCameraPawn* const Camera = Cast<AStarMapCameraPawn>(GetPawn());
+
+	if (ReturnPawn)
+	{
+		Possess(ReturnPawn);
+	}
+
+	// 星图期间 CalcCamera 每帧把相机 Actor 拽到渲染位置，退出后它还留在半空。
+	// 挂行星的那台必须搬回球心 —— 否则从外面看行星时，那台子相机飘在球外，
+	// 下次进场又得从它此刻的位置重算。深空单例相机直接跳过（没有挂载父）。
+	//
+	// 放在 Possess 之后：换人以后 CalcCamera 不再跑，搬过去的相对变换才不会被
+	// 下一帧的「Actor 跟着相机走」覆盖回来。
+	if (Camera)
+	{
+		Camera->ResetToAttachOrigin();
 	}
 }
 
