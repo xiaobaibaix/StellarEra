@@ -253,7 +253,14 @@ bool BuildPlanetAtmosphereMaterial(FString& OutError)
 	// --- 材质本体 ---
 	Material->BlendMode = BLEND_Translucent;
 	Material->SetShadingModel(MSM_Unlit);
-	Material->TwoSided = false;             // 球内看不见壳，交给引擎大气
+	// 双面：球内看到的是背面，不画背面就等于天空是黑的。
+	// 两面会在同一屏幕区域各出一个片元，由 HLSL 里的 TwoSidedSign 早退剔掉多余的一面
+	// （见下一任务）—— 在此之前会有两次混合，这是有意的中间态。
+	Material->TwoSided = true;
+
+	// 壳在壳半径处，地形比它近。开深度测试的话，球内脚下往上看会被地形挡掉整片，
+	// 只剩"透过地形的缝"。关掉之后由 HLSL 里的场景深度截断负责遮挡与空中透视。
+	Material->bDisableDepthTest = true;
 	// 不投影**不在这里设**：UMaterial 上没有 bCastDynamicShadow / bCastStaticShadow，
 	// 那两个是 UPrimitiveComponent 的属性（PrimitiveComponent.h:568/572），写上编译不过。
 	// 由 Task 3 壳组件的 SetCastShadow(false) 负责 —— 投影本来就是组件的属性，不是材质的。
