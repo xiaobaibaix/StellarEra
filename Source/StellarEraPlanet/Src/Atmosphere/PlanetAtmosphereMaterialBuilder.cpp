@@ -23,7 +23,23 @@ namespace
 const TCHAR* const AtmosphereAssetPath = TEXT("/Game/Code/Planet/Materials/M_PlanetAtmosphere");
 
 // ---------------------------------------------------------------------------
-// 壳的单次散射。自包含：不用 IncludeFilePaths（那需要一套 shader 目录映射），
+// 壳的单次散射。
+//
+// **云必须靠 IncludeFilePaths 引 .ush，不能写在本字符串里**：本字符串会被注入到
+// `CustomExpressionN(...)` 的**函数体**内（HLSLMaterialTranslator.cpp:14338），
+// 而函数体内再定义函数是编译错误 —— "function definition is not allowed here"。
+// 噪声 / 密度 / 相位函数，以及整个积分循环，定义在 /Project/PlanetClouds.ush，
+// 由引擎在 CustomExpressionN 的函数定义**之前**插一行 #include（同文件 14327-14336），
+// 因此它们展开在全局作用域。代价是它们看不见 Custom 节点的输入变量，
+// 每个依赖量都得显式传参 —— 见下面的 CloudAtmosphereRaymarch 调用。
+//
+// 积分循环之所以也搬进 .ush，是因为它必须**按区间分段**跑：整条壳弦均匀
+// 32 步时，云层那段常常只落进一两个采样点，一次 exp(-dC*ds) 就把透过率
+// 按死、而发射项还没积分起来，画面上就是硬边的黑楔形。
+// 虚拟目录 /Project 是引擎自带的：启动时映射到 <项目>/Shaders
+// （LaunchEngineLoop.cpp:2553-2558，仅当该目录存在）。所以磁盘上必须是
+// <项目>/Shaders/PlanetClouds.ush，而虚拟路径里**不再重复** "Shaders"。
+//
 // 不调用引擎的散射函数（那些要 LUT 或全局 Atmosphere uniform，材质里拿不到）。
 //
 // 坐标空间（已从引擎源码钉死，见计划「与规格的偏差」第 4 条）：
@@ -34,11 +50,12 @@ const TCHAR* const AtmosphereAssetPath = TEXT("/Game/Code/Planet/Materials/M_Pla
 // 注意：因为函数体里有 return，UE 不会再自动包一层 return，末尾必须自己 return。
 // ---------------------------------------------------------------------------
 const TCHAR* const AtmosphereHLSL = TEXT(R"(
-#define ATMO_STEPS 32
-#define ATMO_PI 3.14159265358979323846
-#define CLOUD_SHADOW_STEPS 3
-#define CLOUD_WEATHER_OCTAVES 3
-#define CLOUD_DETAIL_OCTAVES 2
+// 改 Shaders/PlanetClouds.ush 之后必须把这个数字 +1，否则画面不会有任何变化。
+// 材质资产的 shader map id 只吃 Custom 节点的 Code 与 IncludeFilePaths 两项，
+// .ush 的内容不进哈希（实测：改完 .ush 重跑 BuildAtmosphereMaterial、
+// 再 RecompileMaterial，连亮度参数 1→4 都逐像素相同，说明拿到的还是旧编译产物）。
+// 这个常量本身不参与运算，只用来改 Code 字符串 → 改哈希 → 强制重编译。
+#define PLANET_CLOUDS_VERSION 6
 
 float3 ro = CameraPos;
 float3 rd = normalize(WorldPos - CameraPos);
@@ -101,144 +118,19 @@ if (tExit <= tEnter)
     return float4(0.0, 0.0, 0.0, 0.0);
 }
 
-// 相位函数：瑞利各向同性、米氏 Henyey-Greenstein。
-// g = 0.8 与引擎 USkyAtmosphereComponent 的 MieAnisotropy 默认值一致，
-// 这样壳与引擎大气的前向散射波瓣形状相同，穿过壳边界时观感不突变。
-float cosTheta = dot(rd, SunDirection.rgb);
-float phaseR = 3.0 / (16.0 * ATMO_PI) * (1.0 + cosTheta * cosTheta);
-float g = 0.8;
-float g2 = g * g;
-float phaseM = (1.0 - g2) / (4.0 * ATMO_PI * pow(max(1.0 + g2 - 2.0 * g * cosTheta, 1e-4), 1.5));
+// 相位与积分全部在 CloudAtmosphereRaymarch 里（/Project/PlanetClouds.ush）。
+// 上面求出来的 tEnter / tExit 已经是"撞地或撞场景深度"之后的区间，
+// 函数内部再按云层切成三段有序积分，所以这里只负责一件事：把输入摊平成参数表。
+float4 march = CloudAtmosphereRaymarch(
+    ro, rd, PlanetCenter, SunDirection.rgb,
+    tEnter, tExit, PlanetRadius,
+    RayleighScaleHeight, MieScaleHeight,
+    RayleighBeta.rgb, MieBeta.rgb,
+    CloudBaseRadius, CloudTopRadius, CloudExtinction,
+    CloudNoiseScale, CloudDetailScale, CloudCoverage,
+    CloudDetailStrength, CloudDrift, CloudBrightness);
 
-// ---- 云 ----
-// 3D value noise。按单位方向采样（见 CloudDensity 的 q），球面没有接缝、极点不挤。
-float CloudHash13(float3 p)
-{
-    p = frac(p * 0.1031);
-    p += dot(p, p.yzx + 33.33);
-    return frac((p.x + p.y) * p.z);
-}
-
-float CloudValueNoise(float3 p)
-{
-    float3 i = floor(p);
-    float3 f = frac(p);
-    f = f * f * (3.0 - 2.0 * f);
-    float n000 = CloudHash13(i);
-    float n100 = CloudHash13(i + float3(1.0, 0.0, 0.0));
-    float n010 = CloudHash13(i + float3(0.0, 1.0, 0.0));
-    float n110 = CloudHash13(i + float3(1.0, 1.0, 0.0));
-    float n001 = CloudHash13(i + float3(0.0, 0.0, 1.0));
-    float n101 = CloudHash13(i + float3(1.0, 0.0, 1.0));
-    float n011 = CloudHash13(i + float3(0.0, 1.0, 1.0));
-    float n111 = CloudHash13(i + float3(1.0, 1.0, 1.0));
-    return lerp(
-        lerp(lerp(n000, n100, f.x), lerp(n010, n110, f.x), f.y),
-        lerp(lerp(n001, n101, f.x), lerp(n011, n111, f.x), f.y),
-        f.z);
-}
-
-// 归一化到 [0,1]：每层振幅减半，最后除以振幅总和。
-float CloudFbm(float3 p, int Octaves)
-{
-    float Sum = 0.0;
-    float Amp = 0.5;
-    float AmpSum = 0.0;
-    for (int i = 0; i < Octaves; ++i)
-    {
-        Sum += Amp * CloudValueNoise(p);
-        AmpSum += Amp;
-        p *= 2.03;
-        Amp *= 0.5;
-    }
-    return Sum / max(AmpSum, 1e-5);
-}
-
-// 云的消光系数（1/cm）。ops 是相对行星中心的向量，rLen 是它的长度（调用方已算）。
-float CloudDensity(float3 ops, float rLen)
-{
-    float Thickness = CloudTopRadius - CloudBaseRadius;
-    if (Thickness <= 0.0 || CloudExtinction <= 0.0)
-    {
-        return 0.0;
-    }
-    float h = (rLen - CloudBaseRadius) / Thickness;
-    if (h <= 0.0 || h >= 1.0)
-    {
-        return 0.0;   // 早退：云层之外的步不付噪声代价
-    }
-    float profile = smoothstep(0.0, 0.15, h) * (1.0 - smoothstep(0.72, 1.0, h));
-
-    float3 q = normalize(ops) * CloudNoiseScale;
-    float w = CloudFbm(q + CloudDrift, CLOUD_WEATHER_OCTAVES);
-    float d = saturate((w - (1.0 - CloudCoverage)) / max(CloudCoverage, 1e-3));
-    d *= profile;
-    d -= CloudDetailStrength
-        * CloudFbm(q * (CloudDetailScale / max(CloudNoiseScale, 1e-3)), CLOUD_DETAIL_OCTAVES)
-        * (1.0 - d);
-    return saturate(d) * CloudExtinction;
-}
-
-// 双瓣 Henyey-Greenstein：前向给银边，后向让云的暗面不至于死黑。
-float CloudPhase(float cosThetaCloud)
-{
-    float gF = 0.6;
-    float gB = -0.15;
-    float pF = (1.0 - gF * gF) / (4.0 * ATMO_PI * pow(max(1.0 + gF * gF - 2.0 * gF * cosThetaCloud, 1e-4), 1.5));
-    float pB = (1.0 - gB * gB) / (4.0 * ATMO_PI * pow(max(1.0 + gB * gB - 2.0 * gB * cosThetaCloud, 1e-4), 1.5));
-    return 0.7 * pF + 0.3 * pB;
-}
-
-float3 toSunDir = SunDirection.rgb;
-float phaseC = CloudPhase(cosTheta);
-
-// 单次散射积分：固定步长中点法
-float ds = (tExit - tEnter) / float(ATMO_STEPS);
-float3 transmittance = float3(1.0, 1.0, 1.0);
-float3 accumulated = float3(0.0, 0.0, 0.0);
-for (int i = 0; i < ATMO_STEPS; ++i)
-{
-    float t = tEnter + (float(i) + 0.5) * ds;
-    float3 p = ro + rd * t;
-    // 太阳被行星本体挡住时，这一段不产生单次散射：求 P 到"指向太阳的射线"的垂距，
-    // 小于行星半径即落在本影里。必须 bS < 0 —— 否则最近点落在射线的反向延长线上。
-    // 0.99~1.01 的平滑带给出晨昏线附近的过渡，避免一条硬边。
-    float3 ops = p - PlanetCenter;
-    float rLen = length(ops);
-    float bS = dot(ops, toSunDir);
-    float sunVis = 1.0;
-    if (bS < 0.0)
-    {
-        float dPerp = length(ops - bS * toSunDir);
-        sunVis = smoothstep(PlanetRadius * 0.99, PlanetRadius * 1.01, dPerp);
-    }
-    float h = max(rLen - PlanetRadius, 0.0);
-    float dR = exp(-h / RayleighScaleHeight);
-    float dM = exp(-h / MieScaleHeight);
-    float dC = CloudDensity(ops, rLen);
-    // 云的消光是灰度，直接加进 extinction。
-    float3 extinction = RayleighBeta.rgb * dR + MieBeta.rgb * dM + float3(dC, dC, dC);
-    transmittance *= exp(-extinction * ds);
-    accumulated += (RayleighBeta.rgb * dR * phaseR + MieBeta.rgb * dM * phaseM) * transmittance * sunVis * ds;
-
-    if (dC > 0.0)
-    {
-        // 云自遮挡：朝太阳方向再采几步，越往云顶透射越多 → 云顶亮、云底暗。
-        float cloudLight = sunVis;
-        float shadowStepCm = (CloudTopRadius - CloudBaseRadius) * 0.33;
-        for (int j = 1; j <= CLOUD_SHADOW_STEPS; ++j)
-        {
-            float3 sp = p + toSunDir * (float(j) * shadowStepCm);
-            float3 sops = sp - PlanetCenter;
-            cloudLight *= exp(-CloudDensity(sops, length(sops)) * shadowStepCm);
-        }
-        accumulated += float3(CloudBrightness, CloudBrightness, CloudBrightness)
-            * dC * phaseC * cloudLight * transmittance * ds;
-    }
-}
-
-float coverage = saturate(1.0 - dot(transmittance, float3(1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0)));
-return float4(accumulated * SunIntensity.rgb, coverage);
+return float4(march.rgb * SunIntensity.rgb, march.a);
 )");
 
 // 下面三个 helper 带 Atmo 前缀，是为避开 unity 合并单元里的重定义。
@@ -349,17 +241,18 @@ bool BuildPlanetAtmosphereMaterial(FString& OutError)
 		FLinearColor(1.0f, 1.0f, 1.0f, 1.0f), -800, 500);
 
 	// ---- 云 ----
-	// 初值按 21.8 km 行星的默认比例算：云底 0.02、云顶 0.07、光学厚度 6。
+	// 初值按 20 km 行星（表面半径 2e6 cm）的默认比例算：云底 0.02、云顶 0.07、
+	// 光学厚度 6。半径以行星中心为原点，所以是 r × (1 + 比例)，不是 r × 比例。
 	// 组件会在 OnRegister / BeginPlay 里按实际行星半径覆盖。
 	UMaterialExpressionScalarParameter* CloudBaseRadius =
-		AddAtmoScalarParam(Material, TEXT("CloudBaseRadius"), 43600.0f, -800, 800);
+		AddAtmoScalarParam(Material, TEXT("CloudBaseRadius"), 2040000.0f, -800, 800);
 	UMaterialExpressionScalarParameter* CloudTopRadius =
-		AddAtmoScalarParam(Material, TEXT("CloudTopRadius"), 152600.0f, -800, 900);
+		AddAtmoScalarParam(Material, TEXT("CloudTopRadius"), 2140000.0f, -800, 900);
 	UMaterialExpressionScalarParameter* CloudCoverage =
 		AddAtmoScalarParam(Material, TEXT("CloudCoverage"), 0.45f, -800, 1000);
-	// 5.5e-5 /cm：云层厚 1.09e5 cm 时 τ = 6。材质要的是消光系数，不是光学厚度。
+	// 6e-5 /cm：云层厚 1e5 cm 时 τ = 6。材质要的是消光系数，不是光学厚度。
 	UMaterialExpressionScalarParameter* CloudExtinction =
-		AddAtmoScalarParam(Material, TEXT("CloudExtinction"), 5.5e-5f, -800, 1100);
+		AddAtmoScalarParam(Material, TEXT("CloudExtinction"), 6e-5f, -800, 1100);
 	UMaterialExpressionScalarParameter* CloudNoiseScale =
 		AddAtmoScalarParam(Material, TEXT("CloudNoiseScale"), 8.0f, -800, 1200);
 	UMaterialExpressionScalarParameter* CloudDetailScale =
@@ -394,6 +287,11 @@ bool BuildPlanetAtmosphereMaterial(FString& OutError)
 	Custom->Material = Material;
 	Custom->Description = TEXT("PlanetAtmosphereSingleScatter");
 	Custom->Code = AtmosphereHLSL;
+	// 引擎会把每项渲染成一行 #include，插在 CustomExpressionN 的函数定义**之前**
+	// （HLSLMaterialTranslator.cpp:14327-14338），所以 .ush 里的函数在全局作用域，
+	// Code 里的调用点能看见它们。路径必须是已映射的虚拟目录，否则
+	// MaterialCachedData::Validate 会把这一项悄悄删掉（只留一条 Warning）。
+	Custom->IncludeFilePaths.Add(TEXT("/Project/PlanetClouds.ush"));
 	Custom->OutputType = CMOT_Float4;
 	Custom->MaterialExpressionEditorX = -300;
 	Custom->MaterialExpressionEditorY = 0;

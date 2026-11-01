@@ -1,0 +1,338 @@
+// Planet volumetric clouds - HLSL for M_PlanetAtmosphere's Custom node.
+//
+// Why this lives in a .ush instead of the Custom node's Code field:
+// UE injects a Custom node's Code into the *body* of the generated
+// CustomExpressionN function, so defining functions there is a compile error
+// ("function definition is not allowed here"). This file is expanded at global
+// scope via MaterialExpressionCustom::IncludeFilePaths, which means these
+// functions cannot see the Custom node's input variables - every value they
+// need is an explicit parameter.
+//
+// The virtual directory /Project is engine-provided: at startup it maps to
+// <Project>/Shaders (LaunchEngineLoop.cpp:2553-2558, only if the directory
+// exists), so the virtual path carries no "Shaders" segment.
+// ASCII only, no BOM: this file is fed to the shader preprocessor.
+
+#ifndef PLANET_CLOUDS_USH
+#define PLANET_CLOUDS_USH
+
+#define CLOUD_PI 3.14159265358979323846
+
+// Steps for the two atmosphere-only segments (before and after the cloud
+// layer). Rayleigh/Mie are smooth and low frequency, so they need far fewer
+// samples than the cloud layer.
+#define ATMO_STEPS 24
+
+// Steps for the segment that crosses the cloud layer. The layer is thin
+// compared to the atmosphere shell, so a uniform march over the whole chord
+// only lands one or two samples inside it - that produced hard black wedges
+// (extinction applied, emission not integrated).
+// The count is adaptive: a radial ray crosses the layer over one thickness,
+// a grazing ray at the limb can spend 6x that inside it, and a fixed count
+// turns that into visible scalloped banding along the silhouette.
+#define CLOUD_STEPS 48
+#define CLOUD_MIN_STEPS 12
+
+// Sun-ward samples per cloud sample for self-shadowing.
+#define CLOUD_SHADOW_STEPS 3
+
+// Self-shadowing marches sun-ward with the *same* extinction as the view ray,
+// but only 3 samples spaced a third of the layer apart. With a full optical
+// depth of 6 that estimator lands on exp(-6) ~ 0.2%, i.e. the whole cloud goes
+// black while still extinguishing the atmosphere behind it - the exact
+// "hard-edged dark blotches" symptom. Multiple scattering and the coarse
+// sample spacing both soften the real falloff, so scale the shadow term down.
+#define CLOUD_SHADOW_EXTINCTION_SCALE 0.2
+
+// Single scattering alone sends cloud radiance to zero in the planet's umbra
+// (SunVis = 0) and in deep self-shadowing, while the cloud still extinguishes
+// the atmosphere behind it - the result is black holes punched in the disk.
+// Real clouds are lit by multiple scattering and by the ground; this floor
+// stands in for both and is the only reason the night side stays readable.
+#define CLOUD_AMBIENT 0.25
+
+#define CLOUD_WEATHER_OCTAVES 3
+#define CLOUD_DETAIL_OCTAVES 2
+
+// Coverage -> noise threshold.
+// The textbook mapping is Thresh = 1 - Coverage, which assumes w is uniform on
+// [0,1]. CloudFbm is a sum of noise octaves, so it is bell-shaped and anything
+// uniform-ish near [0,1] is a fiction: measured on this generator w has mean
+// 0.497, sd 0.050, range [0.243, 0.631]. With the textbook mapping
+// Coverage=0.45 puts the threshold at w=0.55, i.e. +1 sigma - only a third of
+// the sphere passes and those samples are thin, which renders as a grey haze
+// with dark blotches instead of clouds. Mapping Coverage onto the measured
+// range keeps the knob meaningful: 0 -> nothing, 1 -> everything.
+#define CLOUD_THRESHOLD_AT_ZERO 0.63   // Coverage = 0
+#define CLOUD_THRESHOLD_AT_ONE 0.36    // Coverage = 1
+
+// How far past the threshold a sample reaches full extinction, in units of w.
+// Must be small compared to w's spread (sd 0.05) or the density ramp swallows
+// the whole distribution and nothing ever becomes opaque.
+#define CLOUD_COVERAGE_SHARPNESS 0.04
+
+// 3D gradient noise. Sampled on the normalized direction (see CloudDensity's
+// q), so the sphere has no seam and no pole pinch.
+//
+// Gradient noise rather than value noise on purpose: a value-noise field is
+// piecewise trilinear, so every isosurface is a union of flat polygons. That
+// is invisible while the density ramp is soft, but subtracting a high
+// frequency octave with a hard threshold turns it into a lattice of flat
+// triangles/chevrons across the disk. Gradient noise has smooth isosurfaces at
+// every frequency, which is what the detail octaves need.
+float3 CloudHash33(float3 p)
+{
+    p = frac(p * 0.1031);
+    p += dot(p, p.yzx + 33.33);
+    return frac(p * 2.17) * 2.0 - 1.0;
+}
+
+// Random unit-ish vector at lattice point p. Not normalised on purpose: a
+// radial distribution is fine for noise and normalise() is not free.
+float3 CloudGradient(float3 p)
+{
+    return CloudHash33(p);
+}
+
+// Returns roughly [-1, 1].
+float CloudPerlin(float3 p)
+{
+    float3 i = floor(p);
+    float3 f = p - i;
+    // Quintic fade: C2 continuous at cell borders, unlike the cubic fade.
+    float3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+
+    float n000 = dot(CloudGradient(i + float3(0.0, 0.0, 0.0)), f - float3(0.0, 0.0, 0.0));
+    float n100 = dot(CloudGradient(i + float3(1.0, 0.0, 0.0)), f - float3(1.0, 0.0, 0.0));
+    float n010 = dot(CloudGradient(i + float3(0.0, 1.0, 0.0)), f - float3(0.0, 1.0, 0.0));
+    float n110 = dot(CloudGradient(i + float3(1.0, 1.0, 0.0)), f - float3(1.0, 1.0, 0.0));
+    float n001 = dot(CloudGradient(i + float3(0.0, 0.0, 1.0)), f - float3(0.0, 0.0, 1.0));
+    float n101 = dot(CloudGradient(i + float3(1.0, 0.0, 1.0)), f - float3(1.0, 0.0, 1.0));
+    float n011 = dot(CloudGradient(i + float3(0.0, 1.0, 1.0)), f - float3(0.0, 1.0, 1.0));
+    float n111 = dot(CloudGradient(i + float3(1.0, 1.0, 1.0)), f - float3(1.0, 1.0, 1.0));
+
+    return lerp(
+        lerp(lerp(n000, n100, u.x), lerp(n010, n110, u.x), u.y),
+        lerp(lerp(n001, n101, u.x), lerp(n011, n111, u.x), u.y),
+        u.z);
+}
+
+// Normalized to [0,1]: amplitude halves per octave, divided by the amplitude
+// sum. Each octave is rotated so the lattice of one octave does not line up
+// with the next, which is where fBm tends to show axis-aligned structure.
+float CloudFbm(float3 p, int Octaves)
+{
+    const float3x3 Rot = float3x3(
+        0.00, 0.80, 0.60,
+        -0.80, 0.36, -0.48,
+        -0.60, -0.48, 0.64);
+    float Sum = 0.0;
+    float Amp = 0.5;
+    float AmpSum = 0.0;
+    for (int i = 0; i < Octaves; ++i)
+    {
+        Sum += Amp * (0.5 + 0.5 * CloudPerlin(p));
+        AmpSum += Amp;
+        p = mul(Rot, p) * 2.03;
+        Amp *= 0.5;
+    }
+    return Sum / max(AmpSum, 1e-5);
+}
+
+// Cloud extinction coefficient (1/cm).
+// ops = P - PlanetCenter, rLen = length(ops) (already computed by the caller).
+float CloudDensity(float3 ops, float rLen,
+    float BaseRadius, float TopRadius, float Extinction,
+    float NoiseScale, float DetailScale, float Coverage, float DetailStrength,
+    float Drift)
+{
+    float Thickness = TopRadius - BaseRadius;
+    if (Thickness <= 0.0 || Extinction <= 0.0 || Coverage <= 0.0)
+    {
+        return 0.0;
+    }
+    float h = (rLen - BaseRadius) / Thickness;
+    if (h <= 0.0 || h >= 1.0)
+    {
+        return 0.0;   // early out: steps outside the layer pay no noise cost
+    }
+    float profile = smoothstep(0.0, 0.15, h) * (1.0 - smoothstep(0.72, 1.0, h));
+
+    float3 q = normalize(ops) * NoiseScale;
+    float w = CloudFbm(q + Drift, CLOUD_WEATHER_OCTAVES);
+    float Thresh = lerp(CLOUD_THRESHOLD_AT_ZERO, CLOUD_THRESHOLD_AT_ONE, saturate(Coverage));
+    float d = saturate((w - Thresh) / CLOUD_COVERAGE_SHARPNESS);
+    d *= profile;
+
+    // Detail octaves modulate opacity; they must NOT be subtracted from the
+    // density. Subtracting re-thresholds the field at 3x the weather frequency,
+    // and a 12..48 sample march reconstructs that hard-edged field as a lattice
+    // of flat triangles across the disk. A bounded multiplicative term cannot
+    // create a new isosurface, so it survives the same sampling.
+    if (DetailStrength > 0.0)
+    {
+        float Detail = CloudFbm(q * (DetailScale / max(NoiseScale, 1e-3)), CLOUD_DETAIL_OCTAVES);
+        d *= saturate(1.0 - DetailStrength * Detail);
+    }
+    return saturate(d) * Extinction;
+}
+
+// Dual-lobe Henyey-Greenstein: forward lobe gives the silver lining, back lobe
+// keeps the shaded side of a cloud from going pure black.
+float CloudPhase(float cosTheta)
+{
+    float gF = 0.6;
+    float gB = -0.15;
+    float pF = (1.0 - gF * gF) / (4.0 * CLOUD_PI * pow(max(1.0 + gF * gF - 2.0 * gF * cosTheta, 1e-4), 1.5));
+    float pB = (1.0 - gB * gB) / (4.0 * CLOUD_PI * pow(max(1.0 + gB * gB - 2.0 * gB * cosTheta, 1e-4), 1.5));
+    return 0.7 * pF + 0.3 * pB;
+}
+
+// One ordered integration segment of the single-scatter march.
+//
+// Acc / Tr are carried across segments so the three calls below are
+// equivalent to one march with non-uniform step sizes. Settlement order is
+// what makes inside-the-atmosphere and outside-the-atmosphere views both
+// correct with a single translucent shell.
+void CloudAtmoSegment(
+    float3 Ro, float3 Rd, float3 Center, float3 SunDir,
+    float T0, float T1, int Steps,
+    float PlanetRadius, float RayleighScaleHeight, float MieScaleHeight,
+    float3 RayleighBeta, float3 MieBeta, float PhaseR, float PhaseM,
+    float CloudBaseRadius, float CloudTopRadius, float CloudExtinction,
+    float CloudNoiseScale, float CloudDetailScale, float CloudCoverage,
+    float CloudDetailStrength, float CloudDrift, float CloudBrightness,
+    float PhaseC,
+    inout float3 Acc, inout float3 Tr)
+{
+    if (T1 <= T0)
+    {
+        return;
+    }
+    float Ds = (T1 - T0) / float(Steps);
+    for (int i = 0; i < Steps; ++i)
+    {
+        float t = T0 + (float(i) + 0.5) * Ds;
+        float3 P = Ro + Rd * t;
+        float3 Ops = P - Center;
+        float RLen = length(Ops);
+
+        // Sun occluded by the planet body: perpendicular distance from P to the
+        // sun ray smaller than the planet radius means P is in the umbra.
+        float BS = dot(Ops, SunDir);
+        float SunVis = 1.0;
+        if (BS < 0.0)
+        {
+            float DPerp = length(Ops - BS * SunDir);
+            SunVis = smoothstep(PlanetRadius * 0.99, PlanetRadius * 1.01, DPerp);
+        }
+
+        float H = max(RLen - PlanetRadius, 0.0);
+        float DR = exp(-H / RayleighScaleHeight);
+        float DM = exp(-H / MieScaleHeight);
+        float DC = CloudDensity(Ops, RLen, CloudBaseRadius, CloudTopRadius, CloudExtinction,
+            CloudNoiseScale, CloudDetailScale, CloudCoverage, CloudDetailStrength, CloudDrift);
+
+        // Cloud extinction is grey, so it just adds to the per-channel one.
+        float3 Extinction = RayleighBeta * DR + MieBeta * DM + float3(DC, DC, DC);
+        float3 TrSeg = exp(-Extinction * Ds);
+
+        Acc += (RayleighBeta * DR * PhaseR + MieBeta * DM * PhaseM) * Tr * TrSeg * SunVis * Ds;
+
+        if (DC > 0.0)
+        {
+            // Cloud self-shadowing: march sun-ward through the layer. The top
+            // of a cloud sees less of the layer than its base, which is what
+            // gives the vertical light gradient.
+            float CloudLight = SunVis;
+            float ShadowStep = (CloudTopRadius - CloudBaseRadius) * (1.0 / float(CLOUD_SHADOW_STEPS));
+            for (int j = 1; j <= CLOUD_SHADOW_STEPS; ++j)
+            {
+                float3 SP = P + SunDir * (float(j) * ShadowStep);
+                float3 SOps = SP - Center;
+                CloudLight *= exp(-CloudDensity(SOps, length(SOps),
+                    CloudBaseRadius, CloudTopRadius, CloudExtinction,
+                    CloudNoiseScale, CloudDetailScale, CloudCoverage,
+                    CloudDetailStrength, CloudDrift) * ShadowStep * CLOUD_SHADOW_EXTINCTION_SCALE);
+            }
+            Acc += CloudBrightness * DC * PhaseC * max(CloudLight, CLOUD_AMBIENT) * Tr * TrSeg * Ds;
+        }
+
+        Tr *= TrSeg;
+    }
+}
+
+// Full march: [tEnter, tExit] split into atmosphere-only / cloud / atmosphere-only.
+// Returns RGB = single-scattered radiance (before SunIntensity), A = coverage.
+float4 CloudAtmosphereRaymarch(
+    float3 Ro, float3 Rd, float3 Center, float3 SunDir,
+    float TEnter, float TExit, float PlanetRadius,
+    float RayleighScaleHeight, float MieScaleHeight,
+    float3 RayleighBeta, float3 MieBeta,
+    float CloudBaseRadius, float CloudTopRadius, float CloudExtinction,
+    float CloudNoiseScale, float CloudDetailScale, float CloudCoverage,
+    float CloudDetailStrength, float CloudDrift, float CloudBrightness)
+{
+    float CosTheta = dot(Rd, SunDir);
+    float PhaseR = 3.0 / (16.0 * CLOUD_PI) * (1.0 + CosTheta * CosTheta);
+    float G = 0.8;
+    float G2 = G * G;
+    float PhaseM = (1.0 - G2) / (4.0 * CLOUD_PI * pow(max(1.0 + G2 - 2.0 * G * CosTheta, 1e-4), 1.5));
+    float PhaseC = CloudPhase(CosTheta);
+
+    // Where the ray crosses the cloud layer, clamped to the atmosphere chord.
+    // Intersecting the *base* sphere is enough: the top is clamped inside the
+    // shell by the component, so [enter, exit] of the shell already bounds it.
+    float CIn = 1e30;
+    float COut = -1e30;
+    if (CloudExtinction > 0.0 && CloudTopRadius > CloudBaseRadius)
+    {
+        float3 OCo = Ro - Center;
+        float B = dot(OCo, Rd);
+        float C = dot(OCo, OCo) - CloudBaseRadius * CloudBaseRadius;
+        float Disc = B * B - C;
+        if (Disc > 0.0)
+        {
+            float Sq = sqrt(Disc);
+            CIn = max(TEnter, -B - Sq);
+            COut = min(TExit, -B + Sq);
+        }
+    }
+
+    float3 Acc = float3(0.0, 0.0, 0.0);
+    float3 Tr = float3(1.0, 1.0, 1.0);
+
+    if (COut > CIn)
+    {
+        // ~0.4 thickness per step: a radial crossing gets CLOUD_MIN_STEPS, a
+        // grazing one maxes out at CLOUD_STEPS instead of banding.
+        float CloudStepTarget = max((CloudTopRadius - CloudBaseRadius) * 0.4, 1.0);
+        int CloudSteps = (int)clamp(ceil((COut - CIn) / CloudStepTarget),
+            (float)CLOUD_MIN_STEPS, (float)CLOUD_STEPS);
+        CloudAtmoSegment(Ro, Rd, Center, SunDir, TEnter, CIn, ATMO_STEPS,
+            PlanetRadius, RayleighScaleHeight, MieScaleHeight, RayleighBeta, MieBeta, PhaseR, PhaseM,
+            CloudBaseRadius, CloudTopRadius, CloudExtinction, CloudNoiseScale, CloudDetailScale,
+            CloudCoverage, CloudDetailStrength, CloudDrift, CloudBrightness, PhaseC, Acc, Tr);
+        CloudAtmoSegment(Ro, Rd, Center, SunDir, CIn, COut, CloudSteps,
+            PlanetRadius, RayleighScaleHeight, MieScaleHeight, RayleighBeta, MieBeta, PhaseR, PhaseM,
+            CloudBaseRadius, CloudTopRadius, CloudExtinction, CloudNoiseScale, CloudDetailScale,
+            CloudCoverage, CloudDetailStrength, CloudDrift, CloudBrightness, PhaseC, Acc, Tr);
+        CloudAtmoSegment(Ro, Rd, Center, SunDir, COut, TExit, ATMO_STEPS,
+            PlanetRadius, RayleighScaleHeight, MieScaleHeight, RayleighBeta, MieBeta, PhaseR, PhaseM,
+            CloudBaseRadius, CloudTopRadius, CloudExtinction, CloudNoiseScale, CloudDetailScale,
+            CloudCoverage, CloudDetailStrength, CloudDrift, CloudBrightness, PhaseC, Acc, Tr);
+    }
+    else
+    {
+        // No cloud layer on this ray (looking away, or clouds disabled).
+        CloudAtmoSegment(Ro, Rd, Center, SunDir, TEnter, TExit, ATMO_STEPS * 2,
+            PlanetRadius, RayleighScaleHeight, MieScaleHeight, RayleighBeta, MieBeta, PhaseR, PhaseM,
+            CloudBaseRadius, CloudTopRadius, CloudExtinction, CloudNoiseScale, CloudDetailScale,
+            CloudCoverage, CloudDetailStrength, CloudDrift, CloudBrightness, PhaseC, Acc, Tr);
+    }
+
+    float Coverage = saturate(1.0 - dot(Tr, float3(1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0)));
+    return float4(Acc, Coverage);
+}
+
+#endif // PLANET_CLOUDS_USH

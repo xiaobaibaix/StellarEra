@@ -29,8 +29,8 @@
 | 参数 | 默认值 | 单位 | 含义 |
 |---|---|---|---|
 | `bCloudsEnabled` | `true` | — | 总开关；关闭时把光学厚度传 0 |
-| `CloudBaseRatio` | `0.02` | 表面半径的倍数 | 云底高度 |
-| `CloudTopRatio` | `0.07` | 表面半径的倍数 | 云顶高度，必须 < `AtmosphereHeightRatio` |
+| `CloudBaseRatio` | `0.02` | 高度 / 表面半径 | 云底高度（绝对半径 = r × (1 + 比例)） |
+| `CloudTopRatio` | `0.07` | 高度 / 表面半径 | 云顶高度（同上），必须 < `AtmosphereHeightRatio` |
 | `CloudCoverage` | `0.45` | 0..1 | 0 = 晴空，1 = 全阴 |
 | `CloudOpticalDepth` | `6.0` | 无量纲 | 满密度、垂直穿层的总光学厚度 |
 | `CloudNoiseScale` | `8.0` | 无量纲 | 天气图频率（归一化方向上的噪声坐标） |
@@ -54,16 +54,22 @@ profile  = smoothstep(0, 0.15, h) * smoothstep(1, 0.72, h)      // 底部平、�
 if (h <= 0 || h >= 1) density = 0                                // 早退，云层外的步不付噪声代价
 
 q        = normalize(p - PlanetCenter) * CloudNoiseScale
-w        = fbm3(q + Drift, 3 层)                                 // 3D 噪声按方向采样 → 球面无接缝
-d        = saturate((w - (1 - CloudCoverage)) / max(CloudCoverage, 1e-3))
+w        = fbm3(q + Drift, 3 层)                                 // 3D 梯度噪声，按方向采样 → 球面无接缝
+d        = saturate((w - Thresh(Coverage)) / 0.04)
 d       *= profile
-d       -= CloudDetailStrength * fbm3(q * 3, 2 层) * (1 - d)     // 丝状侵蚀
+d       *= saturate(1 - CloudDetailStrength * fbm3(q * 3, 2 层)) // 细节只调不透明度
 d        = saturate(d)
 
 density  = d * β_cloud
 ```
 
-覆盖率到阈值的映射放在纯函数 `PlanetClouds::CoverageToNoiseThreshold(Coverage) = 1 - Coverage`（钳到 0..1）里，与 HLSL 里的公式一致，可单测边界。
+**阈值必须映射到噪声的实际取值区间。** 教科书写的是 `Thresh = 1 - Coverage`，那假设 `w` 在 [0,1] 上均匀；但 fBm 是若干八度相加，分布是钟形的。实测这颗行星上的 `w`：均值 0.497、标准差 0.050、区间 [0.243, 0.631]。用 `1 - Coverage` 时 Coverage=0.45 把阈值放在 0.55，即均值 **+1σ** —— 只有三分之一的方向穿过阈值，且穿过的样本平均密度只有 0.07（τ≈0.4），画面上是一层灰雾加暗斑，不是云。所以改成在实测区间上线性映射：`Thresh = lerp(0.63, 0.36, Coverage)`。密度斜坡 0.04 也必须相对 0.050 的标准差足够小，否则整段分布被斜坡吃掉、永远没有不透明的地方。
+
+纯函数 `PlanetClouds::CoverageToNoiseThreshold` 与 HLSL 的 `CLOUD_THRESHOLD_AT_ZERO` / `CLOUD_THRESHOLD_AT_ONE` 是同一个式子，测试里钉了「阈值必须落在噪声区间内」这条不变量。
+
+**细节项只能是乘法，不能从密度里减。** 减法等于以 3 倍频率重新做一次阈值，云边缘变成一条硬等值面；而 12~48 步的 march 把这个硬边场重建成满屏的**三角格**（值噪声是分片三线性，等值面本来就是多边形）。改成有界乘法后不再产生新的等值面，同样的采样率下就没有格子了。
+
+**噪声用梯度噪声而不是值噪声。** 值噪声的等值面同样是分片多边形，细节一硬就开始显出格子；梯度噪声在每个频率上等值面都是光滑的。八度之间还乘一个正交旋转矩阵，避免相邻八度的格点对齐。
 
 **为什么按方向取 3D 噪声而不是经纬度 2D**：经纬度在极点会挤成一团，并且在 ±180° 有接缝。3D 噪声按单位方向采样没有这两个问题。
 
@@ -79,7 +85,17 @@ density  = d * β_cloud
 
 输出结构不变：`float4(accumulated * SunIntensity.rgb, coverage)`，`coverage = 1 - mean(transmittance)`。
 
-步数：`ATMO_STEPS` 16 → 32。云层外（`h <= 0 || h >= 1`）早退，不付噪声代价。按当前参数云层占壳厚的 **56%**（`(0.07-0.02)/0.09`），约 18 步落在云层内。
+**昼夜两面都要能看。** 纯单次散射在行星本影里（`sunVis = 0`）和深度自遮挡处会把云压成 0，而云照样挡着后面的天空 —— 结果是盘面上一块块**黑洞**。所以云项取 `max(CloudLight, CLOUD_AMBIENT)`（0.25），代表多次散射加地面反照，夜面才不会比地表还黑。
+
+步数：整条射线**按云层分段**积分，不是均匀铺满整条弦。`[tEnter, tExit]` 被切成「云前 / 云中 / 云后」三段，累加器 `Acc` 与透射率 `Tr` 用 `inout` 跨段传递，等价于一次步长非均匀的 march。
+
+- 云前、云后两段各 `ATMO_STEPS`（24）步。瑞利/米氏是低频光滑量，不需要更密。
+- 云中那段步数自适应：`ceil(层长 / (0.4 × 云厚))`，钳在 `[CLOUD_MIN_STEPS 12, CLOUD_STEPS 48]`。正对看穿一层云厚得 12 步，掠射到地平线时同一条射线在云层里能待 6 倍长，固定步数会沿轮廓变成扇贝状条带。
+- 云层外（`h <= 0 || h >= 1`）早退，不付噪声代价。
+
+早先的做法是整条弦均匀 32~64 步，云层只占壳厚 56% 时平均只有一个多采样落在云里 —— 消光加上、散射没积到，画面上是硬边黑楔形。
+
+**改 `.ush` 必须改版本号。** `FMaterial::GetExpressionIncludesHash()` 名义上把 include 内容算进 shader map id，但实测改 `.ush` 后重生成材质、甚至 `recompile_material()` 都得到像素级一致的画面。现成办法是在 Custom 节点的 Code 开头写 `#define PLANET_CLOUDS_VERSION N`，每次改完 `.ush` 就把 N 加一，材质才会真正重编。
 
 ## 6. 改动点
 
@@ -87,7 +103,8 @@ density  = d * β_cloud
 |---|---|
 | `Source/StellarEraPlanet/Src/Atmosphere/PlanetCloudParams.h/.cpp` | **新建**。`FCloudLayerRadii`、`ComputeCloudLayerRadiiCm`、`CoverageToNoiseThreshold`。纯函数，不含 UObject |
 | `Source/StellarEraPlanet/Src/Atmosphere/PlanetAtmosphereComponent.h/.cpp` | 加 10 个 UPROPERTY（1 个开关 + 9 个数值）；`RefreshAtmosphereGeometry` 里推新参数；`TickComponent` 里每帧写 `CloudDrift`；应用参数前钳制比例 |
-| `Source/StellarEraPlanet/Src/Atmosphere/PlanetAtmosphereMaterialBuilder.cpp` | HLSL 加噪声/密度/相位；加 9 个标量参数节点；`ATMO_STEPS` → 32 |
+| `Source/StellarEraPlanet/Src/Atmosphere/PlanetAtmosphereMaterialBuilder.cpp` | HLSL 只剩剔除/求交/地面/调一次 `CloudAtmosphereRaymarch`；积分与噪声在 `Shaders/PlanetClouds.ush`；加 9 个标量参数节点；Code 顶部带 `PLANET_CLOUDS_VERSION` 缓存版本号 |
+| `Shaders/PlanetClouds.ush` | **新建**。梯度噪声、fBm、密度、双瓣相位、分段积分 |
 | `Source/StellarEraPlanet/Src/Tests/PlanetCloudParamsTests.cpp` | **新建**。纯函数测试 |
 | `Source/StellarEraPlanet/Src/Tests/PlanetAtmosphereMaterialTests.cpp` | 扩展既有两条测试：新增参数存在、HLSL 含云关键字 |
 
@@ -103,16 +120,16 @@ density  = d * β_cloud
 
 | 测试 | 断言 |
 |---|---|
-| `StellarEra.Planet.CloudParams.Radii` | 云底/顶 = 表面半径 × 比例；Top < 壳半径；比例倒挂时钳成 Top = Base |
-| `StellarEra.Planet.CloudParams.Coverage` | `Coverage=0` → 阈值 1（永不超阈）；`=1` → 0；越界钳制 |
+| `StellarEra.Planet.CloudParams.Radii` | 云底/顶 = 表面半径 × (1 + 比例)，且必须 > 表面半径；Top < 壳半径；比例倒挂时钳成 Top = Base |
+| `StellarEra.Planet.CloudParams.Coverage` | `Coverage=0` → 0.63、`=1` → 0.36；`0.45` → 0.5085；两个端点必须落在噪声实测区间 [0.243, 0.631] 内；越界钳制 |
 | `StellarEra.Planet.AtmosphereMaterial.Structure`（扩展） | `CloudBaseRadius`/`CloudTopRadius`/`CloudCoverage`/`CloudExtinction`/`CloudNoiseScale`/`CloudDetailScale`/`CloudDetailStrength`/`CloudDrift`/`CloudBrightness` 九个标量参数存在 |
-| `StellarEra.Planet.AtmosphereMaterial.Hlsl`（扩展） | HLSL 含 `CloudDensity`、`CloudFbm`、`CLOUD_SHADOW_STEPS`、`CloudBaseRadius` |
+| `StellarEra.Planet.AtmosphereMaterial.Hlsl`（扩展） | HLSL 含 `CloudDensity`、`CloudFbm`、`CLOUD_SHADOW_STEPS`、`CloudBaseRadius`；`.ush` 含 `CLOUD_THRESHOLD_AT_ZERO`/`_AT_ONE`；**不含** `d -= DetailStrength`（减法细节会出三角格） |
 
 材质测试必须跑在重建过材质之后 —— 与既有约定一致（`BuildAtmosphereMaterial` 没重跑就红）。
 
 ## 9. 风险与未验证项
 
-1. **条带**：壳内 32 步里约 18 步穿云层，云层厚 1.09e5 cm 时步长 ≈ 6000 cm，可能出现层状条带。备选：云层区间单独加密（`CLOUD_EXTRA_STEPS`），计划里留成可切换的常量。
+1. **掠射处的边缘台阶**：云中段的步数虽然自适应，但上限 48 步。掠射角同一条射线在云层里能待很长，此时步长被拉大，轮廓上的云边会看出像素级的台阶（放大后可见，正常观看距离不明显）。彻底解决要加逐像素抖动（需要把 `PixelPosition` 作为 Custom 节点输入接进来），当前没做。
 2. **HLSL 长度**：`MaterialExpressionCustom` 的代码长度没有硬限制，但采样器数量有上限。云不用纹理，不新增采样器。
 3. **双面剔除**：云与大气共用同一个片元与同一次早退，不需要额外处理。
 4. **云在壳内、壳关深度测试**：云与大气一样靠 `SceneDepthCm` 截断，云不会盖住比它近的飞船/地形。

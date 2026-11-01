@@ -10,14 +10,21 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraCloudParamsRadiiTest,
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FStellarEraCloudParamsRadiiTest::RunTest(const FString& Parameters)
 {
-	constexpr float SurfaceRadiusCm = 2180000.0f;   // UniverseMap 的大行星
+	constexpr float SurfaceRadiusCm = 2000000.0f;   // UniverseMap 里那颗 20 km 行星
 	constexpr float Tolerance = 1.0f;
 
 	const PlanetClouds::FCloudLayerRadii Radii =
 		PlanetClouds::ComputeCloudLayerRadiiCm(SurfaceRadiusCm, 0.02f, 0.07f);
 
-	TestEqual(TEXT("云底 = 表面半径 × 0.02"), Radii.BaseCm, 43600.0f, Tolerance);
-	TestEqual(TEXT("云顶 = 表面半径 × 0.07"), Radii.TopCm, 152600.0f, Tolerance);
+	// 比例是"高度 / 表面半径"，半径要以行星中心为原点：r × (1 + 比例)。
+	TestEqual(TEXT("云底 = 表面半径 × 1.02"), Radii.BaseCm, 2040000.0f, Tolerance);
+	TestEqual(TEXT("云顶 = 表面半径 × 1.07"), Radii.TopCm, 2140000.0f, Tolerance);
+
+	// 这条是真正的回归守卫：漏掉 (1 + …) 时云层落到地面以下，
+	// HLSL 里 h 恒大于 1、密度恒 0，画面完全看不见云 —— 而上面两条
+	// 若跟着实现一起写错，照样是绿的。
+	TestTrue(TEXT("云底在地表之上"), Radii.BaseCm > SurfaceRadiusCm);
+	TestTrue(TEXT("云顶在地表之上"), Radii.TopCm > SurfaceRadiusCm);
 
 	// 云必须留在壳内，否则会被射线求交直接裁掉，永远看不见。
 	const float ShellRadiusCm = PlanetAtmosphere::ComputeShellRadiusCm(SurfaceRadiusCm, 0.09f);
@@ -28,10 +35,10 @@ bool FStellarEraCloudParamsRadiiTest::RunTest(const FString& Parameters)
 		PlanetClouds::ComputeCloudLayerRadiiCm(1000.0f, 0.09f, 0.02f);
 	TestTrue(TEXT("Top 被钳到不小于 Base"), Inverted.TopCm >= Inverted.BaseCm);
 
-	// 负比例按 0 处理。
+	// 负比例按 0 处理 —— 半径退到地表，不是退到行星中心。
 	const PlanetClouds::FCloudLayerRadii Negative =
 		PlanetClouds::ComputeCloudLayerRadiiCm(1000.0f, -1.0f, -2.0f);
-	TestEqual(TEXT("负比例钳到 0"), Negative.BaseCm, 0.0f, Tolerance);
+	TestEqual(TEXT("负比例钳到地表"), Negative.BaseCm, 1000.0f, Tolerance);
 
 	return true;
 }
@@ -41,17 +48,30 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraCloudParamsCoverageTest,
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FStellarEraCloudParamsCoverageTest::RunTest(const FString& Parameters)
 {
-	// 阈值 = 1 - 覆盖率。噪声值域是 [0,1]，阈值 1 时任何噪声都超不过 → 晴空。
-	TestEqual(TEXT("覆盖率 0 → 阈值 1（永远是晴空）"),
-		PlanetClouds::CoverageToNoiseThreshold(0.0f), 1.0f, KINDA_SMALL_NUMBER);
-	TestEqual(TEXT("覆盖率 1 → 阈值 0（处处是云）"),
-		PlanetClouds::CoverageToNoiseThreshold(1.0f), 0.0f, KINDA_SMALL_NUMBER);
-	TestEqual(TEXT("覆盖率 0.45 → 阈值 0.55"),
-		PlanetClouds::CoverageToNoiseThreshold(0.45f), 0.55f, KINDA_SMALL_NUMBER);
+	// 阈值在噪声的**实测取值区间**上线性映射，不是教科书的 1 - Coverage。
+	// CloudFbm 实测均值 0.497、标准差 0.050、区间 [0.243, 0.631]；用 1 - Coverage
+	// 时覆盖率 0.45 落在 +1σ，画面是一层灰雾而不是云。
+	TestEqual(TEXT("覆盖率 0 → 阈值 0.63（晴空）"),
+		PlanetClouds::CoverageToNoiseThreshold(0.0f),
+		PlanetClouds::CloudNoiseThresholdAtZeroCoverage, KINDA_SMALL_NUMBER);
+	TestEqual(TEXT("覆盖率 1 → 阈值 0.36（处处是云）"),
+		PlanetClouds::CoverageToNoiseThreshold(1.0f),
+		PlanetClouds::CloudNoiseThresholdAtFullCoverage, KINDA_SMALL_NUMBER);
+	// 0.63 + (0.36 - 0.63) * 0.45 = 0.5085
+	TestEqual(TEXT("覆盖率 0.45 → 阈值 0.5085"),
+		PlanetClouds::CoverageToNoiseThreshold(0.45f), 0.5085f, 1e-4f);
+	// 阈值必须落在噪声的实际区间内，否则覆盖率整段失效：
+	// 高于 0.631 连最高的噪声都过不去（永远晴空），低于 0.243 则处处是云。
+	TestTrue(TEXT("覆盖率 0 的阈值仍低于噪声上界"),
+		PlanetClouds::CloudNoiseThresholdAtZeroCoverage < 0.631f);
+	TestTrue(TEXT("覆盖率 1 的阈值高于噪声下界"),
+		PlanetClouds::CloudNoiseThresholdAtFullCoverage > 0.243f);
 	TestEqual(TEXT("超上界钳制"),
-		PlanetClouds::CoverageToNoiseThreshold(2.0f), 0.0f, KINDA_SMALL_NUMBER);
+		PlanetClouds::CoverageToNoiseThreshold(2.0f),
+		PlanetClouds::CloudNoiseThresholdAtFullCoverage, KINDA_SMALL_NUMBER);
 	TestEqual(TEXT("超下界钳制"),
-		PlanetClouds::CoverageToNoiseThreshold(-1.0f), 1.0f, KINDA_SMALL_NUMBER);
+		PlanetClouds::CoverageToNoiseThreshold(-1.0f),
+		PlanetClouds::CloudNoiseThresholdAtZeroCoverage, KINDA_SMALL_NUMBER);
 
 	return true;
 }
