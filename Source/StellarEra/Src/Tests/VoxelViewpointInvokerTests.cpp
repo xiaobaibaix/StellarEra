@@ -113,8 +113,11 @@ bool FStellarEraInvokerViewpointShipTest::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	// OnRegister 自动启用：这是「生成后、首次 Possess 前」的既有行为。
-	TestTrue(TEXT("生成后自动启用"), AllEnabled(Invokers));
+	// 编辑器世界里 OnRegister 之后是**关闭**的：编辑器世界不跑 BeginPlay、
+	// 也没有 OnPossess，视点门控一次都到不了这里，所以 AlwaysLocal 子类在
+	// OnRegister 里主动关掉（否则摆在关卡里的飞船会在编辑视口里参与 LOD）。
+	// PIE / Game 是另一个世界、组件重新注册，那一步不触发，门控照常接管。
+	TestTrue(TEXT("编辑器世界里生成后是关闭的"), AllDisabled(Invokers));
 
 	TArray<FString> Messages;
 	const FDelegateHandle Handle = FVoxelMessages::LogMessageDelegate.AddLambda(
