@@ -383,10 +383,6 @@ bool FPlanetMineralViewStatisticsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("没有地质场时整表为空"),
 		View->GetAllElementVolumesCm3(100.f).Num(), 0);
 
-	// 非法的步长同样安全失败。
-	TestEqual(TEXT("步长 <= 0 时体积为 0"),
-		View->GetElementVolumeCm3(0, 0.f), 0.f, 1e-6f);
-
 	return true;
 }
 

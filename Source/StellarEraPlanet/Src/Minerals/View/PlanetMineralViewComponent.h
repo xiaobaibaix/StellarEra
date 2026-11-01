@@ -220,9 +220,10 @@ private:
 	/**
 	 * 行星的 LOD 调用器是**本组件**关掉的。
 	 *
-	 * 只有真关了才去恢复：星图模式也在切同一个调用器，无条件打开会把别人的状态
-	 * 踩掉。`bIsInvokerEnabled` 不是 UPROPERTY，切它不会弄脏关卡，编辑器预览里
-	 * 照样可以恢复 —— 所以 Deactivate 的恢复**不**按 bEditorPreview 分叉。
+	 * 只恢复**自己关掉的**那一次：进入时调用器本来就是关的话，SetEnabled(false)
+	 * 是空操作，退出时无条件打开就等于替别人改了状态。
+	 * `bIsInvokerEnabled` 不是 UPROPERTY，切它不会弄脏关卡，编辑器预览里照样可以
+	 * 恢复 —— 所以 Deactivate 的恢复**不**按 bEditorPreview 分叉。
 	 */
 	bool bDisabledPlanetInvoker = false;
 

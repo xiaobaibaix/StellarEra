@@ -6,6 +6,8 @@
 #include "PlanetGeologyField.h"
 #include "PlanetGeologyPreset.h"
 #include "PlanetMineralViewActor.h"
+#include "PlanetMineralVoxelSampling.h"
+#include "PlanetMineralVolume.h"
 #include "VoxelComponents/VoxelInvokerComponent.h"
 #include "VoxelMineralFieldActor.h"
 #include "VoxelPlanetActor.h"
@@ -72,6 +74,86 @@ namespace
 			};
 		}
 		return Out;
+	}
+
+	/**
+	 * 逐元素统计矿量。走解析场：与相机、LOD、体素世界全部无关。
+	 *
+	 * 采样在**归一化空间**：区域 AABB 先乘 RadiusVoxels 变成体素单位，步长同理。
+	 * 重叠的区域盒交给 CountMergedBoxSamples 去重 —— 矿脉相邻段的 AABB 必然重叠，
+	 * 逐盒各扫一遍会把重叠区数两遍，报出的矿量系统性偏高。
+	 *
+	 * 代价是 O((并集 AABB 边长 / 步长)³)：调用方**必须传粗步长**（米级），
+	 * 按单个体素去采样会把一次图例刷新变成几亿次求值。步长这里不夹 ——
+	 * 夹了会让报出的数悄悄变。
+	 */
+	float ComputeElementVolumeCm3(
+		const FPlanetGeologyField& Geology,
+		const AVoxelPlanetActor& Planet,
+		int32 ElementIndex,
+		float StepCm,
+		float SurfaceRadiusCm)
+	{
+		if (StepCm <= 0.f || SurfaceRadiusCm <= 0.f || Planet.VoxelSize <= 0.f)
+		{
+			return 0.f;
+		}
+
+		TArray<FPlanetGeologyRegion> Regions;
+		Geology.EnumerateRegions(ElementIndex, Regions);
+		if (Regions.IsEmpty())
+		{
+			return 0.f;
+		}
+
+		const float Threshold = Geology.GetAppearance().ColorThreshold;
+		const double RadiusVoxels = double(SurfaceRadiusCm) / double(Planet.VoxelSize);
+		const double StepVoxels = double(StepCm) / double(Planet.VoxelSize);
+
+		TArray<FPlanetMineralRegionBox> Boxes;
+		Boxes.Reserve(Regions.Num());
+		for (const FPlanetGeologyRegion& Region : Regions)
+		{
+			if (!Region.Bounds.IsValid)
+			{
+				continue;
+			}
+			FPlanetMineralRegionBox& Box = Boxes.AddDefaulted_GetRef();
+			Box.Min = FVector3d(Region.Bounds.Min) * RadiusVoxels;
+			Box.Max = FVector3d(Region.Bounds.Max) * RadiusVoxels;
+		}
+
+		const bool bPlanetCreated = Planet.IsCreated();
+		const int64 SolidSamples = CountMergedBoxSamples(Boxes, StepVoxels,
+			[&Geology, &Planet, ElementIndex, Threshold, RadiusVoxels, bPlanetCreated]
+			(const FVector3d& Point) -> bool
+			{
+				const FVector Normalized(
+					Point.X / RadiusVoxels, Point.Y / RadiusVoxels, Point.Z / RadiusVoxels);
+
+				if (Geology.SampleElementNormAtNormalized(ElementIndex, Normalized) <= Threshold)
+				{
+					return false;
+				}
+
+				if (bPlanetCreated)
+				{
+					const FIntVector Index(
+						FMath::RoundToInt(Point.X),
+						FMath::RoundToInt(Point.Y),
+						FMath::RoundToInt(Point.Z));
+					if (Planet.GetData().GetValue(Index, /*LOD=*/0).IsEmpty())
+					{
+						return false;
+					}
+				}
+
+				return true;
+			});
+
+		const double VoxelSizeCm = double(Planet.VoxelSize);
+		return float(double(SolidSamples) * StepVoxels * StepVoxels * StepVoxels
+			* VoxelSizeCm * VoxelSizeCm * VoxelSizeCm);
 	}
 } // namespace
 
@@ -323,6 +405,21 @@ bool UPlanetMineralViewComponent::Activate(AVoxelPlanetActor* InPlanet)
 	bool bBuilt = false;
 	if (bUseVoxelWorlds)
 	{
+		// 守卫必须在关调用器之前：早退时还没动过任何状态，失败路径不需要恢复。
+		//
+		// 为什么现在就要判：下面的 GetData() 是 `return *Data`（VoxelWorld.h:615），
+		// 而 Data 只在 CreateWorldInternal 里才有。编辑器世界里 Toggle() 会在
+		// CreateInEditor 早退时留下「有地质场、Data 为空」的状态，而
+		// EnterMineralPreviewInEditor 是 CallInEditor 按钮 —— 点一下就会踩到。
+		if (!InPlanet->IsCreated())
+		{
+			UE_LOG(LogTemp, Error,
+				TEXT("[矿物] 行星体素世界尚未创建，无法进入体素视图：%s"),
+				*InPlanet->GetName());
+			SpawnedView->Destroy();
+			return false;
+		}
+
 		// 体素路径要求行星自己停下来：视图期间没有挖掘、也不需要行星继续生成块。
 		// 停掉它同时让下面那把长读锁的等待有界 —— 只在飞的少量块会与它竞争。
 		bDisabledPlanetInvoker = false;
@@ -508,7 +605,8 @@ void UPlanetMineralViewComponent::RestorePlanetInvoker(AVoxelPlanetActor* Planet
 {
 	if (!bDisabledPlanetInvoker)
 	{
-		// 不是我们关的（或根本没关成）：别替别人打开。星图模式也在切这个调用器。
+		// 不是我们关的（或根本没关成）：进入时它本来就是关的，退出时别把它打开
+		// —— 那不是我们改的状态。
 		return;
 	}
 	bDisabledPlanetInvoker = false;
@@ -644,89 +742,6 @@ void UPlanetMineralViewComponent::OnPreviewPresetChanged(UPlanetGeologyPreset* P
 }
 #endif
 
-namespace
-{
-	/**
-	 * 逐元素统计矿量。走解析场：与相机、LOD、体素世界全部无关。
-	 *
-	 * 代价是 O((区域 AABB 边长 / 步长)³)：调用方**必须传粗步长**（米级），
-	 * 按单个体素去采样会把一次图例刷新变成几亿次求值。步长这里不夹 ——
-	 * 夹了会让报出的数悄悄变。
-	 *
-	 * 采样点在**归一化空间**，步长从厘米换算过去。区域 AABB 之外的采样点直接跳过
-	 * —— 那里 Norm 恒为 0，换算成体素后只会白白跑一遍分布求值。
-	 */
-	float ComputeElementVolumeCm3(
-		const FPlanetGeologyField& Geology,
-		const AVoxelPlanetActor& Planet,
-		int32 ElementIndex,
-		float StepCm,
-		float SurfaceRadiusCm)
-	{
-		if (StepCm <= 0.f || SurfaceRadiusCm <= 0.f || Planet.VoxelSize <= 0.f)
-		{
-			return 0.f;
-		}
-
-		TArray<FPlanetGeologyRegion> Regions;
-		Geology.EnumerateRegions(ElementIndex, Regions);
-		if (Regions.IsEmpty())
-		{
-			return 0.f;
-		}
-
-		const float Threshold = Geology.GetAppearance().ColorThreshold;
-		const double RadiusVoxels = double(SurfaceRadiusCm) / double(Planet.VoxelSize);
-		const double StepVoxels = double(StepCm) / double(Planet.VoxelSize);
-
-		const bool bPlanetCreated = Planet.IsCreated();
-		int64 SolidSamples = 0;
-
-		for (const FPlanetGeologyRegion& Region : Regions)
-		{
-			if (!Region.Bounds.IsValid)
-			{
-				continue;
-			}
-			const FVector3d Min = FVector3d(Region.Bounds.Min) * RadiusVoxels;
-			const FVector3d Max = FVector3d(Region.Bounds.Max) * RadiusVoxels;
-
-			for (double Z = Min.Z; Z <= Max.Z; Z += StepVoxels)
-			{
-				for (double Y = Min.Y; Y <= Max.Y; Y += StepVoxels)
-				{
-					for (double X = Min.X; X <= Max.X; X += StepVoxels)
-					{
-						const FVector Normalized(
-							X / RadiusVoxels, Y / RadiusVoxels, Z / RadiusVoxels);
-
-						if (Geology.SampleElementNormAtNormalized(ElementIndex, Normalized) <= Threshold)
-						{
-							continue;
-						}
-
-						if (bPlanetCreated)
-						{
-							const FIntVector Index(
-								FMath::RoundToInt(X), FMath::RoundToInt(Y), FMath::RoundToInt(Z));
-							if (Planet.GetData().GetValue(Index, /*LOD=*/0).IsEmpty())
-							{
-								continue;
-							}
-						}
-
-						++SolidSamples;
-					}
-				}
-			}
-		}
-
-		const double VoxelSizeCm = double(Planet.VoxelSize);
-		return float(double(SolidSamples) * StepVoxels * StepVoxels * StepVoxels
-			* VoxelSizeCm * VoxelSizeCm * VoxelSizeCm);
-	}
-} // namespace
-
 float UPlanetMineralViewComponent::GetElementVolumeCm3(
 	int32 ElementIndex, float StepCm) const
 {
@@ -736,6 +751,18 @@ float UPlanetMineralViewComponent::GetElementVolumeCm3(
 	{
 		return 0.f;
 	}
+
+	// 体素路径下 Activate 已经持有一把覆盖整个视图期的读锁，这里不能再拿：
+	// 同线程重复加读锁会 checkf（VoxelSharedMutex.h:106-111）。
+	// MC 路径下没人拿锁，而行星的块生成线程还在写同一棵八叉树 —— 就地补一把。
+	TUniquePtr<FVoxelReadScopeLock> LocalLock;
+	if (!PlanetDataLock && PlanetPtr->IsCreated())
+	{
+		LocalLock = MakeUnique<FVoxelReadScopeLock>(
+			PlanetPtr->GetData(), PlanetPtr->GetWorldBounds(),
+			TEXT("PlanetMineralStats"));
+	}
+
 	return ComputeElementVolumeCm3(
 		*GeologyPtr, *PlanetPtr, ElementIndex, StepCm, PlanetPtr->GetSurfaceRadiusCm());
 }
