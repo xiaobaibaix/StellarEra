@@ -9,6 +9,7 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialExpressionCameraPositionWS.h"
 #include "Materials/MaterialExpressionComponentMask.h"
+#include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionCustom.h"
 #include "Materials/MaterialExpressionPixelDepth.h"
 #include "Materials/MaterialExpressionScalarParameter.h"
@@ -168,6 +169,17 @@ UMaterial* LoadOrCreatePlanetWaterMaterial(EPlanetWaterMaterialLoad& OutLoad, FS
 
 	Material->PreEditChange(nullptr);
 	Material->GetExpressionCollection().Empty();
+
+	// 本构建器依赖的资产属性全部在这里显式复位。重建路径载入的是磁盘上的旧资产，
+	// 它可能被人手改过 —— 图由代码重建，属性也必须由代码重建，否则「材质图完全由
+	// 代码生成、可复现」这个承诺只对节点成立、对材质属性不成立。
+	Material->MaterialDomain = MD_Surface;
+	Material->BlendMode = BLEND_Translucent;
+	Material->TwoSided = true;   // 水下抬头要看得见水面
+	Material->SetShadingModel(MSM_DefaultLit);   // 光照走场景，昼夜自动生效
+	// TLM_Surface 才会启用 Roughness / Specular / Normal 输入并做逐光高光；
+	// 默认的 TLM_VolumetricNonDirectional 只有漫反射体积光照，水面不会有太阳反光。
+	Material->TranslucencyLightingMode = TLM_Surface;
 	return Material;
 }
 
@@ -255,6 +267,9 @@ UMaterial* BuildPlanetWaterMaterialInternal(EPlanetWaterMaterialLoad& OutLoad, F
 	UMaterialExpressionScalarParameter* ShallowOpacity = AddPlanetWaterScalarParam(Material, TEXT("ShallowOpacity"), 0.35f, -1100, 100);
 	UMaterialExpressionScalarParameter* FresnelPower = AddPlanetWaterScalarParam(Material, TEXT("FresnelPower"), 4.0f, -1100, 200);
 	UMaterialExpressionScalarParameter* FoamStrength = AddPlanetWaterScalarParam(Material, TEXT("FoamStrength"), 0.8f, -1100, 300);
+	// 高光强度（设计 §6.3 的 SpecularPower）。TLM_Surface 下 Specular 输入才生效；
+	// 没有它就只是一片漫反射色的半透明面，水面最可辨识的太阳反光会完全消失。
+	UMaterialExpressionScalarParameter* SpecularPower = AddPlanetWaterScalarParam(Material, TEXT("SpecularPower"), 0.85f, -1100, 350);
 
 	UMaterialExpressionVectorParameter* ShallowColor = AddPlanetWaterVectorParam(Material, TEXT("ShallowColor"),
 		FLinearColor(0.055f, 0.22f, 0.28f, 1.0f), -1100, 400);
@@ -262,6 +277,14 @@ UMaterial* BuildPlanetWaterMaterialInternal(EPlanetWaterMaterialLoad& OutLoad, F
 		FLinearColor(0.012f, 0.055f, 0.115f, 1.0f), -1100, 500);
 	UMaterialExpressionVectorParameter* FoamColor = AddPlanetWaterVectorParam(Material, TEXT("FoamColor"),
 		FLinearColor(0.75f, 0.80f, 0.85f, 1.0f), -1100, 600);
+
+	// 低粗糙度：水面高光的光斑要窄。v1 先给常量（法线贴图 v2 才进来，届时再参数化）。
+	UMaterialExpressionConstant* Roughness = NewObject<UMaterialExpressionConstant>(Material);
+	Roughness->Material = Material;
+	Roughness->R = 0.06f;
+	Roughness->MaterialExpressionEditorX = -1100;
+	Roughness->MaterialExpressionEditorY = 700;
+	Material->GetExpressionCollection().AddExpression(Roughness);
 
 	// --- Custom 节点 ---
 	UMaterialExpressionCustom* Custom = NewObject<UMaterialExpressionCustom>(Material);
@@ -310,9 +333,8 @@ UMaterial* BuildPlanetWaterMaterialInternal(EPlanetWaterMaterialLoad& OutLoad, F
 	Material->GetExpressionCollection().AddExpression(MaskA);
 
 	// --- 材质本体 ---
-	Material->BlendMode = BLEND_Translucent;
-	Material->TwoSided = true;   // 水下抬头要看得见水面
-	// 着色模型保持默认的 DefaultLit：光照走场景，昼夜与天体光照自动生效。
+	// 混合模式 / 双面 / 着色模型 / 半透明光照模式在 LoadOrCreatePlanetWaterMaterial
+	// 里统一复位（重建路径也要覆盖人手改过的旧资产）。
 
 	UMaterialEditorOnlyData* EditorData = Material->GetEditorOnlyData();
 	if (!EditorData)
@@ -324,6 +346,10 @@ UMaterial* BuildPlanetWaterMaterialInternal(EPlanetWaterMaterialLoad& OutLoad, F
 	EditorData->BaseColor.OutputIndex = 0;
 	EditorData->Opacity.Expression = MaskA;
 	EditorData->Opacity.OutputIndex = 0;
+	EditorData->Specular.Expression = SpecularPower;
+	EditorData->Specular.OutputIndex = 0;
+	EditorData->Roughness.Expression = Roughness;
+	EditorData->Roughness.OutputIndex = 0;
 
 	if (!SavePlanetWaterMaterial(Material, OutError))
 	{
@@ -371,8 +397,9 @@ FAutoConsoleCommandWithWorldAndArgs GBuildPlanetWaterMaterialCommand(
 			{
 				UE_LOG(LogTemp, Error, TEXT("[水体] 材质生成失败：%s"), *Error);
 			}
-			// -TestExit 靠日志里出现这一行退出进程：成功、失败都打，
-			// 否则失败时无头进程会一直挂着（QUIT 本身不生效，见计划里的环境事实）。
+			// 这行只是给人看的结果标记：-TestExit 等的是自动化测试队列空，与它无关。
+			// 无头跑本命令时 -ExecCmds 里的 QUIT 不生效，进程不会自己退；要用
+			// StellarEra.PlanetWaterMaterial.Done + 资产字节数判断成功，再按 PID 杀掉。
 			UE_LOG(LogTemp, Display, TEXT("StellarEra.PlanetWaterMaterial.Done ok=%d"),
 				bOk ? 1 : 0);
 		}));

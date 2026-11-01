@@ -32,6 +32,19 @@ bool FStellarEraWaterMaterialTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("必须是半透明"), int32(Material->GetBlendMode()), int32(BLEND_Translucent));
 	TestTrue(TEXT("必须双面（水下要能看到水面）"), Material->IsTwoSided());
 
+	// 参数齐全只说明「名字在」，说明不了「接到哪个插槽」。下面钉住实际接线。
+	UMaterialEditorOnlyData* EditorData = Material->GetEditorOnlyData();
+	if (TestNotNull(TEXT("必须拿到 EditorOnlyData"), EditorData))
+	{
+		TestNotNull(TEXT("BaseColor 必须接线（水色）"), EditorData->BaseColor.Expression);
+		TestNotNull(TEXT("Opacity 必须接线（不透明度，否则水面不透明）"), EditorData->Opacity.Expression);
+	}
+
+	TestTrue(TEXT("着色模型必须是 DefaultLit（走场景光照）"),
+		Material->GetShadingModels().HasOnlyShadingModel(MSM_DefaultLit));
+	TestEqual(TEXT("半透明光照模式必须是 TLM_Surface（默认体积模式没有逐光高光）"),
+		int32(Material->TranslucencyLightingMode.GetValue()), int32(TLM_Surface));
+
 	// --- 参数齐全 ---
 	TArray<FMaterialParameterInfo> ScalarInfos;
 	TArray<FGuid> ScalarGuids;

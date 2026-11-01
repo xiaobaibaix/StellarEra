@@ -16,7 +16,8 @@
  * CreatePackage 会拿到一个未完全加载的包，SavePackage 必定失败，错误还会被
  * SAVE_NoError 吞掉。所以这里按资产是否存在分两条路径，并在日志里说明走的是哪条。
  *
- * 失败时返回 false 并把原因写进 OutError（不弹窗、不打日志，由调用方决定怎么说）。
+ * 成功时由本函数把「新建 / 重建」与资产路径写进日志；失败时返回 false 并把原因
+ * 写进 OutError（不弹窗），错误日志由控制台命令按需打。
  */
 STELLARERAPLANET_API bool BuildPlanetWaterMaterial(FString& OutError);
 
