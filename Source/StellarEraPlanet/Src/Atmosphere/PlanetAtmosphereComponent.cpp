@@ -15,7 +15,7 @@ namespace
 	/** /Engine/BasicShapes/Sphere 的半径是 50 cm。 */
 	constexpr float BasicSphereRadiusCm = 50.0f;
 
-	const TCHAR* const AtmosphereMaterialPath = TEXT("/Game/Materials/M_PlanetAtmosphere");
+	const TCHAR* const AtmosphereMaterialPath = TEXT("/Game/Code/Planet/Materials/M_PlanetAtmosphere");
 
 	// 材质参数名。必须与 PlanetAtmosphereMaterialBuilder.cpp 里的一致。
 	// 这里没有 CameraPos：相机位置由材质的 CameraPositionWS 节点从视图 uniform 取，

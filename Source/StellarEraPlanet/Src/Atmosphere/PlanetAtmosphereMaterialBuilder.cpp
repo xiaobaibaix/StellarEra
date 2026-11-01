@@ -17,7 +17,7 @@
 namespace
 {
 
-const TCHAR* const AtmosphereAssetPath = TEXT("/Game/Materials/M_PlanetAtmosphere");
+const TCHAR* const AtmosphereAssetPath = TEXT("/Game/Code/Planet/Materials/M_PlanetAtmosphere");
 
 // ---------------------------------------------------------------------------
 // 壳的单次散射。自包含：不用 IncludeFilePaths（那需要一套 shader 目录映射），
@@ -284,7 +284,7 @@ bool BuildPlanetAtmosphereMaterial(FString& OutError)
 
 FAutoConsoleCommandWithWorldAndArgs GBuildAtmosphereMaterialCommand(
 	TEXT("StellarEra.BuildAtmosphereMaterial"),
-	TEXT("重建 /Game/Materials/M_PlanetAtmosphere。改完 HLSL 字符串后跑一次。"),
+	TEXT("重建 /Game/Code/Planet/Materials/M_PlanetAtmosphere。改完 HLSL 字符串后跑一次。"),
 	FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
 		[](const TArray<FString>& Args, UWorld* World)
 		{

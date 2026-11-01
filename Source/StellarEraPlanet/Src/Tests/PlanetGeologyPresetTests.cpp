@@ -111,7 +111,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyLegacyPathTest,
 
 bool FPlanetGeologyLegacyPathTest::RunTest(const FString& Parameters)
 {
-	const FString Expected = TEXT("/Game/Geology/Planets/DA_Geology_Earth");
+	const FString Expected = TEXT("/Game/Code/Planet/Geology/MineralData/DA_Geology_Earth");
 
 	TestEqual(TEXT("earth 迁移到 DA_Geology_Earth"),
 		AVoxelPlanetActor::MakeLegacyGeologyAssetPath(TEXT("earth")).GetLongPackageName(),
@@ -126,12 +126,12 @@ bool FPlanetGeologyLegacyPathTest::RunTest(const FString& Parameters)
 		AVoxelPlanetActor::MakeLegacyGeologyAssetPath(FString()).IsNull());
 	TestEqual(TEXT("其它名字按同一规则拼"),
 		AVoxelPlanetActor::MakeLegacyGeologyAssetPath(TEXT("mars")).GetLongPackageName(),
-		FString(TEXT("/Game/Geology/Planets/DA_Geology_Mars")));
+		FString(TEXT("/Game/Code/Planet/Geology/MineralData/DA_Geology_Mars")));
 
 	// 包名对但对象名漂移，PostLoad 的 TryLoad 一样会失败 —— 所以连对象名一起钉。
 	TestEqual(TEXT("对象名与包名都一致"),
 		AVoxelPlanetActor::MakeLegacyGeologyAssetPath(TEXT("earth")).ToString(),
-		FString(TEXT("/Game/Geology/Planets/DA_Geology_Earth.DA_Geology_Earth")));
+		FString(TEXT("/Game/Code/Planet/Geology/MineralData/DA_Geology_Earth.DA_Geology_Earth")));
 
 	// 迁移目标必须真的有资产：路径拼得再一致，资产不存在旧关卡还是没矿。
 	TestTrue(TEXT("资产真的在磁盘上"), FPackageName::DoesPackageExist(Expected));
@@ -172,7 +172,7 @@ bool FPlanetGeologyLegacyMigrationTest::RunTest(const FString& Parameters)
 	}
 
 	TestEqual(TEXT("迁移目标是 DA_Geology_Earth"),
-		Asset->GetPackage()->GetName(), FString(TEXT("/Game/Geology/Planets/DA_Geology_Earth")));
+		Asset->GetPackage()->GetName(), FString(TEXT("/Game/Code/Planet/Geology/MineralData/DA_Geology_Earth")));
 	TestTrue(TEXT("迁移成功后旧字段被清空"), Actor->GeologyPreset.IsEmpty());
 	return true;
 }

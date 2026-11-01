@@ -153,7 +153,7 @@ public:
 	void NotifyContentChanged();
 
 	/**
-	 * 行星名 → 预设资产路径：`earth` → `/Game/Geology/Planets/DA_Geology_Earth`。
+	 * 行星名 → 预设资产路径：`earth` → `/Game/Code/Planet/Geology/MineralData/DA_Geology_Earth`。
 	 *
 	 * **路径规则只留这一份**。三个消费方都必须走它：`PostLoad` 的迁移
 	 * （`AVoxelPlanetActor::MakeLegacyGeologyAssetPath` 转发到这里）、

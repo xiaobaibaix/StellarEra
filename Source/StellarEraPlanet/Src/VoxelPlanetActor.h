@@ -260,7 +260,7 @@ public:
 	UPlanetGeologyPreset* GetGeologyPresetAsset() const { return GeologyAsset; }
 
 	/**
-	 * 旧字段名 → 预设资产路径：`earth` → `/Game/Geology/Planets/DA_Geology_Earth`。
+	 * 旧字段名 → 预设资产路径：`earth` → `/Game/Code/Planet/Geology/MineralData/DA_Geology_Earth`。
 	 * 空名返回空路径。纯函数，便于测试。
 	 */
 	static FSoftObjectPath MakeLegacyGeologyAssetPath(const FString& LegacyName);
@@ -326,7 +326,7 @@ public:
 	TObjectPtr<UMaterialInterface> BaseVoxelMaterial;
 
 	/**
-	 * 行星存档资产的路径：`/Game/Saves/PlanetVoxel/<地图名>/<Actor 标签>`。
+	 * 行星存档资产的路径：`/Game/Code/Maps/Saves/PlanetVoxel/<地图名>/<Actor 标签>`。
 	 *
 	 * 纯函数，便于无头测试。规则：
 	 * - 地图名剥掉 `UEDPIE_<n>_` 前缀 —— 否则每开一次 PIE 就换一个资产路径，

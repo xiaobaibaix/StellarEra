@@ -597,7 +597,7 @@ bool FStellarEraStarMapEditComponentDefaultsTest::RunTest(const FString& Paramet
 	const UPlanetEditComponent* Edit =
 		Cast<UPlanetEditComponent>(
 			StellarEraTest::FindBlueprintComponentTemplate(
-				TEXT("/Game/Code/BP_StarMapCameraPawn.BP_StarMapCameraPawn"),
+				TEXT("/Game/Code/Pawns/BP_StarMapCameraPawn.BP_StarMapCameraPawn"),
 				UPlanetEditComponent::StaticClass()));
 	TestNotNull(TEXT("BP_StarMapCameraPawn 蓝图里挂着 PlanetEdit"), Edit);
 	if (!Edit)
@@ -628,7 +628,7 @@ bool FStellarEraStarMapBlueprintPawnTest::RunTest(const FString& Parameters)
 	const UPlanetEditComponent* Edit =
 		Cast<UPlanetEditComponent>(
 			StellarEraTest::FindBlueprintComponentTemplate(
-				TEXT("/Game/Code/BP_StarMapCameraPawn.BP_StarMapCameraPawn"),
+				TEXT("/Game/Code/Pawns/BP_StarMapCameraPawn.BP_StarMapCameraPawn"),
 				UPlanetEditComponent::StaticClass()));
 	if (!TestNotNull(TEXT("BP_StarMapCameraPawn 蓝图里挂着 PlanetEdit"), Edit))
 	{

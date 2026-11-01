@@ -19,7 +19,7 @@ namespace StellarEraTest
 	/**
 	 * 在蓝图的 SCS 里找指定组件类的模板。
 	 *
-	 * @param BlueprintObjectPath 蓝图资产路径，形如 "/Game/Code/BP_VoxelPlanet.BP_VoxelPlanet"
+	 * @param BlueprintObjectPath 蓝图资产路径，形如 "/Game/Code/Planet/BP_VoxelPlanet.BP_VoxelPlanet"
 	 * @param ComponentClass      目标组件类，子类也算命中
 	 * @return 组件模板；蓝图没加载上、没有 SCS、或没挂这类组件时返回 nullptr
 	 */

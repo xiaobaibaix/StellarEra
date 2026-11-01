@@ -32,7 +32,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSpaceshipCollisionTest,
 bool FStellarEraSpaceshipCollisionTest::RunTest(const FString& Parameters)
 {
 	UClass* ShipClass = LoadClass<ASpaceshipPawn>(
-		nullptr, TEXT("/Game/Code/BP_SpaceshipPawn.BP_SpaceshipPawn_C"));
+		nullptr, TEXT("/Game/Code/Pawns/BP_SpaceshipPawn.BP_SpaceshipPawn_C"));
 	TestNotNull(TEXT("BP_SpaceshipPawn_C 可加载"), ShipClass);
 	if (!ShipClass)
 	{
@@ -101,7 +101,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraShipContactProbesTest,
 bool FStellarEraShipContactProbesTest::RunTest(const FString& Parameters)
 {
 	UClass* ShipClass = LoadClass<ASpaceshipPawn>(
-		nullptr, TEXT("/Game/Code/BP_SpaceshipPawn.BP_SpaceshipPawn_C"));
+		nullptr, TEXT("/Game/Code/Pawns/BP_SpaceshipPawn.BP_SpaceshipPawn_C"));
 	TestNotNull(TEXT("BP_SpaceshipPawn_C 可加载"), ShipClass);
 	if (!ShipClass)
 	{
@@ -191,7 +191,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraShipContactProbesActorLocalTest,
 bool FStellarEraShipContactProbesActorLocalTest::RunTest(const FString& Parameters)
 {
 	UClass* ShipClass = LoadClass<ASpaceshipPawn>(
-		nullptr, TEXT("/Game/Code/BP_SpaceshipPawn.BP_SpaceshipPawn_C"));
+		nullptr, TEXT("/Game/Code/Pawns/BP_SpaceshipPawn.BP_SpaceshipPawn_C"));
 	TestNotNull(TEXT("BP_SpaceshipPawn_C 可加载"), ShipClass);
 	if (!ShipClass)
 	{
@@ -291,7 +291,7 @@ bool FStellarEraShipLandingDetectionTest::RunTest(const FString& Parameters)
 	};
 
 	UClass* ShipClass = LoadClass<ASpaceshipPawn>(
-		nullptr, TEXT("/Game/Code/BP_SpaceshipPawn.BP_SpaceshipPawn_C"));
+		nullptr, TEXT("/Game/Code/Pawns/BP_SpaceshipPawn.BP_SpaceshipPawn_C"));
 	TestNotNull(TEXT("BP_SpaceshipPawn_C 可加载"), ShipClass);
 	if (!ShipClass)
 	{

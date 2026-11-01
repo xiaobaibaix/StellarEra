@@ -11,10 +11,10 @@
  */
 namespace PlanetMineralMaterials
 {
-	/** `/Game/Materials/M_PlanetGhost`（包路径，不含 `.AssetName`）。 */
+	/** `/Game/Code/Planet/Materials/M_PlanetGhost`（包路径，不含 `.AssetName`）。 */
 	STELLARERAPLANET_API const TCHAR* GetGhostMaterialPath();
 
-	/** `/Game/Materials/M_MineralBlock`（包路径，不含 `.AssetName`）。 */
+	/** `/Game/Code/Planet/Materials/M_MineralBlock`（包路径，不含 `.AssetName`）。 */
 	STELLARERAPLANET_API const TCHAR* GetBlockMaterialPath();
 
 #if WITH_EDITOR

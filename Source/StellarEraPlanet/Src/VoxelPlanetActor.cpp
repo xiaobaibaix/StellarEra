@@ -187,7 +187,7 @@ AVoxelPlanetActor::AVoxelPlanetActor()
 	// 实例自带序列化值。早于此属性存在的已摆放 Actor 没有对应标签，
 	// 加载时同样会采用这个 CDO 默认值。
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> PlanetMaterialFinder(
-		TEXT("/Game/Materials/M_PlanetVertexColor.M_PlanetVertexColor"));
+		TEXT("/Game/Code/Planet/Materials/M_PlanetVertexColor.M_PlanetVertexColor"));
 	if (PlanetMaterialFinder.Succeeded())
 	{
 		VoxelMaterial = PlanetMaterialFinder.Object;
@@ -365,7 +365,7 @@ FString AVoxelPlanetActor::MakePlanetSaveObjectAssetPath(const FString& MapName,
 	const FString SafeMap = SanitizedMap.IsEmpty() ? FString(TEXT("Untitled")) : SanitizedMap;
 	const FString SafeLabel = SanitizedLabel.IsEmpty() ? FString(TEXT("Planet")) : SanitizedLabel;
 
-	return FString::Printf(TEXT("/Game/Saves/PlanetVoxel/%s/%s"), *SafeMap, *SafeLabel);
+	return FString::Printf(TEXT("/Game/Code/Maps/Saves/PlanetVoxel/%s/%s"), *SafeMap, *SafeLabel);
 }
 
 UMaterialInterface* AVoxelPlanetActor::StripMaterialInstanceDynamic(UMaterialInterface* Candidate)
@@ -582,6 +582,20 @@ void AVoxelPlanetActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyCh
 
 void AVoxelPlanetActor::RebuildPlanet()
 {
+	// 没有世界就没有体素世界可建。蓝图**类默认值对象**（Default__Xxx_C）不在任何
+	// 世界里，GetWorld() 返回 nullptr，而 AVoxelWorld::CreateWorld 第一件事就是
+	// 取 GetWorld()->WorldType（VoxelWorld.cpp:245）—— 空指针当场访问违例。
+	//
+	// 这条路并非只在脚本里能踩到：在蓝图编辑器的「类默认值」面板改 Terrain /
+	// Radius 等任何属性，PostEditChangeProperty 都会落在 CDO 上。下面的哈希守卫
+	// 也拦不住，因为 CDO 上 IsCreated() 恒为 false，每次都会往下走。
+	//
+	// 早退不丢东西：真正进入世界时 OnConstruction 会重新走一遍并把世界建出来。
+	if (!GetWorld())
+	{
+		return;
+	}
+
 	// 也在这里修一次：OnConstruction 之外还有两条入口（BeginPlay 与
 	// PostEditChangeProperty），它们同样可能撞上未修正的组件树。必须排在下面
 	// 的哈希守卫**之前** —— 守卫在「哈希没变且世界已建好」时会直接返回，把修正
@@ -1165,6 +1179,25 @@ void AVoxelPlanetActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void AVoxelPlanetActor::PostLoad()
 {
 	Super::PostLoad();
+
+	// 类默认值对象（Default__BP_VoxelPlanet_C）不持有生成器。
+	//
+	// 生成器是每颗行星私有的运行期适配器（见 RebuildPlanet）。一旦 CDO 上出现一个
+	// 名为 VoxelPlanetGenerator 的子对象，关卡里每颗行星的同名子对象在解析 archetype
+	// 时都会**按名字**找到它（UObjectArchetype.cpp:127），把它当自己的原型；保存外部
+	// Actor 包时 harvester 会连带 harvest export 的原型（PackageHarvester.cpp:616），
+	// 于是引用了另一个包里的私有对象，保存直接失败：
+	//   "Illegal reference to private object: '...Default__BP_VoxelPlanet_C:VoxelPlanetGenerator'"
+	//
+	// 兜底而不是主防线：主防线是 RebuildPlanet 开头的「没有世界就早退」，让 CDO 根本
+	// 建不出生成器。这里清掉的是**历史上已经落盘**的那一份 —— CDO 的 PlanetGenerator
+	// 虽然标了 Transient，但 CDO 序列化会连瞬态属性一起写（PackageHarvester.cpp:638），
+	// 所以它会跟着 BP 包一代代传下去；清空后下次存 BP，那个子对象会因为不可达被丢弃。
+	if (HasAnyFlags(RF_ClassDefaultObject))
+	{
+		PlanetGenerator = nullptr;
+		Generator = FVoxelGeneratorPicker();
+	}
 
 	// 迁移：旧关卡存的是 JSON 预设名。找不到资产就原样保留字符串，
 	// 不报错 —— 资产可能还没建（Task 6）。

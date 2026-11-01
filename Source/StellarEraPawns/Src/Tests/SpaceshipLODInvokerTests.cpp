@@ -24,7 +24,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSpaceshipLODInvokerTest,
 bool FStellarEraSpaceshipLODInvokerTest::RunTest(const FString& Parameters)
 {
 	UClass* ShipClass = LoadClass<ASpaceshipPawn>(
-		nullptr, TEXT("/Game/Code/BP_SpaceshipPawn.BP_SpaceshipPawn_C"));
+		nullptr, TEXT("/Game/Code/Pawns/BP_SpaceshipPawn.BP_SpaceshipPawn_C"));
 	if (!TestNotNull(TEXT("BP_SpaceshipPawn_C 可加载"), ShipClass))
 	{
 		return false;

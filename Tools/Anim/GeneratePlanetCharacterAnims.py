@@ -17,7 +17,7 @@ import unreal
 SKELETON_PATH = (
     "/Game/Fab/Blender_3D｜Pomni_3D_Model/pomni_3d_model/SkeletalMeshes/Object_14_Skeleton"
 )
-SAVE_PATH = "/Game/Anims/PlanetCharacter"
+SAVE_PATH = "/Game/Code/Pawns/Character/Anim"
 FRAME_RATE = 30.0
 
 # glTF 层级。Root_142 不在 Object_14_Skeleton 的 117 根骨骼里，Hips 实际就是根骨。

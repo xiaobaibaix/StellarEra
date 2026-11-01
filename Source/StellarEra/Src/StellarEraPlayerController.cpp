@@ -96,7 +96,7 @@ AStellarEraPlayerController::AStellarEraPlayerController()
 	StarMapPawnClass = AStarMapCameraPawn::StaticClass();
 
 	static ConstructorHelpers::FClassFinder<AStarMapCameraPawn> StarMapClassFinder(
-		TEXT("/Game/Code/BP_StarMapCameraPawn.BP_StarMapCameraPawn_C"));
+		TEXT("/Game/Code/Pawns/BP_StarMapCameraPawn.BP_StarMapCameraPawn_C"));
 	if (StarMapClassFinder.Succeeded())
 	{
 		StarMapPawnClass = StarMapClassFinder.Class;

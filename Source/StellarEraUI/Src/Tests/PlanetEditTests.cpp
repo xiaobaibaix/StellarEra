@@ -423,7 +423,7 @@ bool FStellarEraPlanetEditGridDefaultsTest::RunTest(const FString& Parameters)
 	const UPlanetSurfaceGridComponent* Grid =
 		Cast<UPlanetSurfaceGridComponent>(
 			StellarEraTest::FindBlueprintComponentTemplate(
-				TEXT("/Game/Code/BP_VoxelPlanet.BP_VoxelPlanet"),
+				TEXT("/Game/Code/Planet/BP_VoxelPlanet.BP_VoxelPlanet"),
 				UPlanetSurfaceGridComponent::StaticClass()));
 	if (!TestNotNull(TEXT("BP_VoxelPlanet 蓝图里挂着 EditGrid"), Grid))
 	{
@@ -476,7 +476,7 @@ bool FStellarEraPlanetEditComponentDefaultsTest::RunTest(const FString& Paramete
 	const UPlanetEditComponent* CharacterEdit =
 		Cast<UPlanetEditComponent>(
 			StellarEraTest::FindBlueprintComponentTemplate(
-				TEXT("/Game/Code/BP_PlanetCharacter.BP_PlanetCharacter"),
+				TEXT("/Game/Code/Pawns/Character/BP_PlanetCharacter.BP_PlanetCharacter"),
 				UPlanetEditComponent::StaticClass()));
 	TestNotNull(TEXT("BP_PlanetCharacter 蓝图里挂着 PlanetEdit"), CharacterEdit);
 
@@ -763,16 +763,16 @@ bool FStellarEraPlanetSaveObjectPathTest::RunTest(const FString& Parameters)
 {
 	TestEqual(TEXT("常规路径"),
 		AVoxelPlanetActor::MakePlanetSaveObjectAssetPath(TEXT("UniverseMap"), TEXT("BP_VoxelPlanet2")),
-		FString(TEXT("/Game/Saves/PlanetVoxel/UniverseMap/BP_VoxelPlanet2")));
+		FString(TEXT("/Game/Code/Maps/Saves/PlanetVoxel/UniverseMap/BP_VoxelPlanet2")));
 
 	// PIE 前缀必须剥掉，否则同一条目每开一次 PIE 就换一个资产路径。
 	TestEqual(TEXT("剥掉 UEDPIE 前缀并清洗非法字符"),
 		AVoxelPlanetActor::MakePlanetSaveObjectAssetPath(TEXT("UEDPIE_0_UniverseMap"), TEXT("BP Planet:2")),
-		FString(TEXT("/Game/Saves/PlanetVoxel/UniverseMap/BP_Planet_2")));
+		FString(TEXT("/Game/Code/Maps/Saves/PlanetVoxel/UniverseMap/BP_Planet_2")));
 
 	TestEqual(TEXT("空输入有稳定回退"),
 		AVoxelPlanetActor::MakePlanetSaveObjectAssetPath(FString(), FString()),
-		FString(TEXT("/Game/Saves/PlanetVoxel/Untitled/Planet")));
+		FString(TEXT("/Game/Code/Maps/Saves/PlanetVoxel/Untitled/Planet")));
 
 	return true;
 }

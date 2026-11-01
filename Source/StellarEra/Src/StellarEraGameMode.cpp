@@ -26,7 +26,7 @@ AStellarEraGameMode::AStellarEraGameMode()
 	DefaultPawnClass = APlanetCharacter::StaticClass();
 
 	static ConstructorHelpers::FClassFinder<APlanetCharacter> CharacterClassFinder(
-		TEXT("/Game/Code/BP_PlanetCharacter.BP_PlanetCharacter_C"));
+		TEXT("/Game/Code/Pawns/Character/BP_PlanetCharacter.BP_PlanetCharacter_C"));
 	if (CharacterClassFinder.Succeeded())
 	{
 		DefaultPawnClass = CharacterClassFinder.Class;
@@ -51,7 +51,7 @@ AStellarEraGameMode::AStellarEraGameMode()
 	ShipClass = ASpaceshipPawn::StaticClass();
 
 	static ConstructorHelpers::FClassFinder<ASpaceshipPawn> ShipClassFinder(
-		TEXT("/Game/Code/BP_SpaceshipPawn.BP_SpaceshipPawn_C"));
+		TEXT("/Game/Code/Pawns/BP_SpaceshipPawn.BP_SpaceshipPawn_C"));
 	if (ShipClassFinder.Succeeded())
 	{
 		ShipClass = ShipClassFinder.Class;

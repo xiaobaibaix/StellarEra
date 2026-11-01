@@ -34,7 +34,7 @@ FSoftObjectPath UPlanetGeologyPreset::MakeAssetPath(const FString& PlanetName)
 
 	const FString AssetName = FString::Printf(TEXT("DA_Geology_%s"), *Name);
 	return FSoftObjectPath(FString::Printf(
-		TEXT("/Game/Geology/Planets/%s.%s"), *AssetName, *AssetName));
+		TEXT("/Game/Code/Planet/Geology/MineralData/%s.%s"), *AssetName, *AssetName));
 }
 
 void UPlanetGeologyPreset::MigrateLegacyElement(FPlanetGeologyElementParams& Element,
@@ -276,6 +276,6 @@ namespace
 
 static FAutoConsoleCommand CreateEarthGeologyPresetCommand(
 	TEXT("StellarEra.CreateEarthGeologyPreset"),
-	TEXT("创建或覆盖 /Game/Geology/Planets/DA_Geology_Earth。"),
+	TEXT("创建或覆盖 /Game/Code/Planet/Geology/MineralData/DA_Geology_Earth。"),
 	FConsoleCommandDelegate::CreateStatic(&CreateEarthGeologyPreset));
 #endif

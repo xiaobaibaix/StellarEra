@@ -24,10 +24,10 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraPlanetCharacterAnimationAssetsTest,
 bool FStellarEraPlanetCharacterAnimationAssetsTest::RunTest(const FString& Parameters)
 {
 	const TCHAR* AnimPaths[] = {
-		TEXT("/Game/Anims/PlanetCharacter/AS_Pomni_Idle.AS_Pomni_Idle"),
-		TEXT("/Game/Anims/PlanetCharacter/AS_Pomni_Walk.AS_Pomni_Walk"),
-		TEXT("/Game/Anims/PlanetCharacter/AS_Pomni_Run.AS_Pomni_Run"),
-		TEXT("/Game/Anims/PlanetCharacter/AS_Pomni_Air.AS_Pomni_Air"),
+		TEXT("/Game/Code/Pawns/Character/Anim/AS_Pomni_Idle.AS_Pomni_Idle"),
+		TEXT("/Game/Code/Pawns/Character/Anim/AS_Pomni_Walk.AS_Pomni_Walk"),
+		TEXT("/Game/Code/Pawns/Character/Anim/AS_Pomni_Run.AS_Pomni_Run"),
+		TEXT("/Game/Code/Pawns/Character/Anim/AS_Pomni_Air.AS_Pomni_Air"),
 	};
 
 	for (const TCHAR* Path : AnimPaths)
@@ -53,7 +53,7 @@ bool FStellarEraPlanetCharacterAnimationAssetsTest::RunTest(const FString& Param
 	}
 
 	UClass* BlueprintClass = LoadClass<APlanetCharacter>(
-		nullptr, TEXT("/Game/Code/BP_PlanetCharacter.BP_PlanetCharacter_C"));
+		nullptr, TEXT("/Game/Code/Pawns/Character/BP_PlanetCharacter.BP_PlanetCharacter_C"));
 	TestNotNull(TEXT("BP_PlanetCharacter 可加载"), BlueprintClass);
 	if (BlueprintClass)
 	{

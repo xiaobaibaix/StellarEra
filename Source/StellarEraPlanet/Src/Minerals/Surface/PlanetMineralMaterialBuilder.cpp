@@ -7,8 +7,8 @@
 // 在 Game 目标里也要按路径加载资产，只有材质构建本身是编辑器专属。
 namespace
 {
-	const TCHAR* const GhostPath = TEXT("/Game/Materials/M_PlanetGhost");
-	const TCHAR* const BlockPath = TEXT("/Game/Materials/M_MineralBlock");
+	const TCHAR* const GhostPath = TEXT("/Game/Code/Planet/Materials/M_PlanetGhost");
+	const TCHAR* const BlockPath = TEXT("/Game/Code/Planet/Materials/M_MineralBlock");
 } // namespace
 
 const TCHAR* PlanetMineralMaterials::GetGhostMaterialPath()
@@ -314,7 +314,7 @@ namespace
 {
 	FAutoConsoleCommandWithWorldAndArgs GBuildMineralMaterialsCommand(
 		TEXT("StellarEra.BuildMineralMaterials"),
-		TEXT("重建 /Game/Materials/M_PlanetGhost 与 M_MineralBlock。改完材质参数后跑一次。"),
+		TEXT("重建 /Game/Code/Planet/Materials/M_PlanetGhost 与 M_MineralBlock。改完材质参数后跑一次。"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
 			[](const TArray<FString>& Args, UWorld* World)
 			{

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""创建 /Game/Code/ABP_PlanetCharacter，并搭 Locomotion 状态机。
+"""创建 /Game/Code/Pawns/Character/Anim/ABP_PlanetCharacter，并搭 Locomotion 状态机。
 
 在编辑器内执行：
 
@@ -10,7 +10,7 @@
 
 前置条件：
   - Task 2 的 UPlanetCharacterAnimInstance 已编译并重开过编辑器；
-  - /Game/Anims/PlanetCharacter/ 下四个 AS_ 资产存在。
+  - /Game/Code/Pawns/Character/Anim/ 下四个 AS_ 资产存在。
 重复运行会删除并重建 ABP。
 """
 
@@ -23,8 +23,8 @@ SKELETON_PATH = (
 MESH_PATH = (
     "/Game/Fab/Blender_3D｜Pomni_3D_Model/pomni_3d_model/SkeletalMeshes/Object_14"
 )
-ABP_PATH = "/Game/Code/ABP_PlanetCharacter"
-ANIM_DIR = "/Game/Anims/PlanetCharacter"
+ABP_PATH = "/Game/Code/Pawns/Character/Anim/ABP_PlanetCharacter"
+ANIM_DIR = "/Game/Code/Pawns/Character/Anim"
 
 STATES = [
     {"name": "Idle", "animation": f"{ANIM_DIR}/AS_Pomni_Idle", "loop": True, "pos": [0.0, 0.0]},
