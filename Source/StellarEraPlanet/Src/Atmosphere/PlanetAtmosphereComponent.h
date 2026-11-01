@@ -99,6 +99,61 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "StellarEra|Atmosphere")
 	bool bAtmosphereEnabled = true;
 
+	// ---- 体积云 ----
+	// 云与大气共用同一次 ray march：两层同心半透明壳无法同时排对序
+	// （球内要"先大气后云"，球外要"先云后大气"），见
+	// docs/superpowers/specs/2026-11-02-planet-volumetric-clouds-design.md。
+
+	/** 云的总开关。关掉 = 光学厚度传 0，材质不重建。 */
+	UPROPERTY(EditAnywhere, Category = "StellarEra|Clouds")
+	bool bCloudsEnabled = true;
+
+	/** 云底高度 / 表面半径。必须小于 AtmosphereHeightRatio，否则云会长到壳外被裁掉。 */
+	UPROPERTY(EditAnywhere, Category = "StellarEra|Clouds", meta = (ClampMin = "0.0"))
+	float CloudBaseRatio = 0.02f;
+
+	/** 云顶高度 / 表面半径。 */
+	UPROPERTY(EditAnywhere, Category = "StellarEra|Clouds", meta = (ClampMin = "0.0"))
+	float CloudTopRatio = 0.07f;
+
+	/** 覆盖率：0 = 晴空，1 = 全阴。 */
+	UPROPERTY(EditAnywhere, Category = "StellarEra|Clouds", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float CloudCoverage = 0.45f;
+
+	/**
+	 * 满密度垂直穿层的总光学厚度（无量纲）。
+	 *
+	 * 材质要的是消光系数（1/cm），由 本值 / 云层厚度 换算 —— 换一颗更大/更小的
+	 * 行星时云的浓淡不变。与 ComputeShellScatteringParams 用 τ 反推 β 同一个理由。
+	 */
+	UPROPERTY(EditAnywhere, Category = "StellarEra|Clouds", meta = (ClampMin = "0.0"))
+	float CloudOpticalDepth = 6.0f;
+
+	/** 天气图频率（噪声坐标取在归一化方向上）。越大云块越碎。 */
+	UPROPERTY(EditAnywhere, Category = "StellarEra|Clouds", meta = (ClampMin = "0.0"))
+	float CloudNoiseScale = 8.0f;
+
+	/** 细节侵蚀的频率。 */
+	UPROPERTY(EditAnywhere, Category = "StellarEra|Clouds", meta = (ClampMin = "0.0"))
+	float CloudDetailScale = 24.0f;
+
+	/** 细节侵蚀强度。设为 0 可省两层噪声，是首要的降级旋钮。 */
+	UPROPERTY(EditAnywhere, Category = "StellarEra|Clouds", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float CloudDetailStrength = 0.35f;
+
+	/** 云随时间漂移的速度（噪声坐标/秒）。0 = 静止。 */
+	UPROPERTY(EditAnywhere, Category = "StellarEra|Clouds")
+	float CloudDriftPerSecond = 0.02f;
+
+	/**
+	 * 云的亮度倍率。
+	 *
+	 * 云与大气共用 SunIntensity（14，那是为单次散射的大气补的），直接照搬会把
+	 * 云顶推到溢出白。这个倍率是给云单独的补偿项 —— 不要去改 SunIntensity。
+	 */
+	UPROPERTY(EditAnywhere, Category = "StellarEra|Clouds", meta = (ClampMin = "0.0"))
+	float CloudBrightness = 1.0f;
+
 	/** 运行时改半径后调用，重算缩放与材质参数。 */
 	UFUNCTION(BlueprintCallable, Category = "StellarEra|Atmosphere")
 	void RefreshAtmosphereGeometry();

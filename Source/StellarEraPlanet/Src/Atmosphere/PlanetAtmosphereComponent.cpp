@@ -7,6 +7,7 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "PlanetAtmosphereParams.h"
+#include "PlanetCloudParams.h"
 #include "UObject/ConstructorHelpers.h"
 #include "VoxelPlanetActor.h"
 
@@ -29,6 +30,15 @@ namespace
 	const FName ParamPlanetCenter(TEXT("PlanetCenter"));
 	const FName ParamSunDirection(TEXT("SunDirection"));
 	const FName ParamSunIntensity(TEXT("SunIntensity"));
+	const FName ParamCloudBaseRadius(TEXT("CloudBaseRadius"));
+	const FName ParamCloudTopRadius(TEXT("CloudTopRadius"));
+	const FName ParamCloudCoverage(TEXT("CloudCoverage"));
+	const FName ParamCloudExtinction(TEXT("CloudExtinction"));
+	const FName ParamCloudNoiseScale(TEXT("CloudNoiseScale"));
+	const FName ParamCloudDetailScale(TEXT("CloudDetailScale"));
+	const FName ParamCloudDetailStrength(TEXT("CloudDetailStrength"));
+	const FName ParamCloudDrift(TEXT("CloudDrift"));
+	const FName ParamCloudBrightness(TEXT("CloudBrightness"));
 }
 
 UPlanetAtmosphereComponent::UPlanetAtmosphereComponent()
@@ -226,6 +236,27 @@ void UPlanetAtmosphereComponent::RefreshAtmosphereGeometry()
 		FLinearColor(Scattering.MieBeta.X, Scattering.MieBeta.Y, Scattering.MieBeta.Z, 1.0f));
 	AtmosphereMID->SetVectorParameterValue(ParamSunIntensity, SunIntensity);
 
+	// ---- 云 ----
+	// 先钳比例：云必须留在壳内，否则射线求交会把整层裁掉，而且不会有任何报错。
+	const float ClampedTopRatio = FMath::Min(CloudTopRatio, AtmosphereHeightRatio);
+	const float ClampedBaseRatio = FMath::Min(CloudBaseRatio, ClampedTopRatio);
+	const PlanetClouds::FCloudLayerRadii CloudRadii =
+		PlanetClouds::ComputeCloudLayerRadiiCm(SurfaceRadiusCm, ClampedBaseRatio, ClampedTopRatio);
+
+	const float CloudExtinctionPerCm =
+		(bCloudsEnabled && CloudOpticalDepth > 0.0f && CloudRadii.TopCm > CloudRadii.BaseCm)
+			? CloudOpticalDepth / (CloudRadii.TopCm - CloudRadii.BaseCm)
+			: 0.0f;
+
+	AtmosphereMID->SetScalarParameterValue(ParamCloudBaseRadius, CloudRadii.BaseCm);
+	AtmosphereMID->SetScalarParameterValue(ParamCloudTopRadius, CloudRadii.TopCm);
+	AtmosphereMID->SetScalarParameterValue(ParamCloudCoverage, FMath::Clamp(CloudCoverage, 0.0f, 1.0f));
+	AtmosphereMID->SetScalarParameterValue(ParamCloudExtinction, CloudExtinctionPerCm);
+	AtmosphereMID->SetScalarParameterValue(ParamCloudNoiseScale, CloudNoiseScale);
+	AtmosphereMID->SetScalarParameterValue(ParamCloudDetailScale, CloudDetailScale);
+	AtmosphereMID->SetScalarParameterValue(ParamCloudDetailStrength, CloudDetailStrength);
+	AtmosphereMID->SetScalarParameterValue(ParamCloudBrightness, CloudBrightness);
+
 	SetVisibility(true);
 }
 
@@ -315,6 +346,10 @@ void UPlanetAtmosphereComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	const FVector PlanetCenter = GetComponentLocation();
 	AtmosphereMID->SetVectorParameterValue(ParamPlanetCenter,
 		FLinearColor(PlanetCenter.X, PlanetCenter.Y, PlanetCenter.Z, 1.0f));
+
+	// 云漂移：每帧一个标量，成本可忽略；CloudDriftPerSecond = 0 时写进去的是常数。
+	AtmosphereMID->SetScalarParameterValue(ParamCloudDrift,
+		GetWorld()->GetTimeSeconds() * CloudDriftPerSecond);
 
 	// 相机位置**不在这里**：材质用 CameraPositionWS 视图 uniform 自己取。
 	// 早先这里每帧写 MID 参数，但编辑器里组件 Tick 早于视口 Tick，写进去的相机位置
