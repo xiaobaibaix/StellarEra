@@ -95,10 +95,6 @@ bool FStellarEraWaterOceanTest::RunTest(const FString& Parameters)
 	const double ExpectedRadiusCm = double(Field->GetSeaLevelRadius()) * WaterTestVoxelSize;
 	double WorstRadiusError = 0.0;
 	double NearestOnLandCap = TNumericLimits<double>::Max();
-	double WorstNormalDot = 1.0;
-
-	// 法线是逐顶点追加的，元素下标与顶点下标一一对应。
-	const UE::Geometry::FDynamicMeshNormalOverlay* Normals = Mesh.Attributes()->PrimaryNormals();
 
 	for (const int32 VertexId : Mesh.VertexIndicesItr())
 	{
@@ -108,19 +104,46 @@ bool FStellarEraWaterOceanTest::RunTest(const FString& Parameters)
 
 		const FVector3d Direction = Position / FMath::Max(RadiusCm, 1e-9);
 
-		// 法线必须朝外：水面是一张球面片，径向就是精确解。
-		const FVector3f Normal = Normals->GetElement(VertexId);
-		WorstNormalDot = FMath::Min(WorstNormalDot,
-			FVector3d::DotProduct(FVector3d(Normal.X, Normal.Y, Normal.Z), Direction));
-
 		// 陆地内部的顶点必须被裁掉。允许一格余量：跨岸的那一格会被保留下来
 		// （水面探进陆地一格，海岸线由交线自然给出）。
 		const double AngleFromCap = FMath::Acos(FMath::Clamp(Direction.Z, -1.0, 1.0));
 		NearestOnLandCap = FMath::Min(NearestOnLandCap, AngleFromCap);
 	}
 
+	// 法线必须**绑在三角形上**，而且按三角形读。只往法线层 AppendElement 而不
+	// SetTriangle 时，三角形的三个元素一直是 INDEX_NONE，渲染端回退到顶点法线
+	// (0,1,0) —— 球面上等于整片水面都朝上打光；而按顶点读孤立元素仍是漂亮的
+	// 径向值，正好看不见这个错。所以这里逐三角形断言 IsSetTriangle，并从三角形
+	// 上取角元素比对径向方向。
+	const UE::Geometry::FDynamicMeshNormalOverlay* Normals = Mesh.Attributes()->PrimaryNormals();
+	int32 UnboundTriangles = 0;
+	double WorstNormalDot = 1.0;
+	for (const int32 TriangleId : Mesh.TriangleIndicesItr())
+	{
+		if (Normals == nullptr || !Normals->IsSetTriangle(TriangleId))
+		{
+			++UnboundTriangles;
+			continue;
+		}
+		const UE::Geometry::FIndex3i Triangle = Mesh.GetTriangle(TriangleId);
+		for (int32 Corner = 0; Corner < 3; ++Corner)
+		{
+			const int32 VertexId = Triangle[Corner];
+			const FVector3d Position = Mesh.GetVertex(VertexId);
+			const FVector3d Direction = Position / FMath::Max(Position.Size(), 1e-9);
+			const FVector3f Normal = Normals->GetElementAtVertex(TriangleId, VertexId);
+			WorstNormalDot = FMath::Min(WorstNormalDot,
+				FVector3d::DotProduct(FVector3d(Normal.X, Normal.Y, Normal.Z), Direction));
+		}
+	}
+
+	AddInfo(FString::Printf(TEXT("海洋：三角形 %d，未绑定法线 %d，最差法线点积 %.6f，最近陆地顶点 %.4f rad"),
+		Mesh.TriangleCount(), UnboundTriangles, WorstNormalDot, NearestOnLandCap));
+
 	TestTrue(FString::Printf(TEXT("所有顶点必须落在海面半径上（最大误差 %.4f cm）"), WorstRadiusError),
 		WorstRadiusError < 1.0);
+	TestEqual(TEXT("每个三角形都必须绑定法线元素（否则渲染端回退到 (0,1,0)）"),
+		UnboundTriangles, 0);
 	TestTrue(FString::Printf(TEXT("法线必须朝外（最差点积 %.4f）"), WorstNormalDot),
 		WorstNormalDot > 0.99);
 	TestTrue(FString::Printf(TEXT("陆地内部（角距 < 0.35）不得有水面顶点（最近的 %.4f rad）"),
@@ -198,7 +221,8 @@ bool FStellarEraWaterRiverTest::RunTest(const FString& Parameters)
 		Mesh.TriangleCount() > 0);
 
 	bool bAllSane = true;
-	TArray<double> PairRadii;
+	TArray<FVector3d> Positions;
+	Positions.Reserve(Mesh.VertexCount());
 	for (const int32 VertexId : Mesh.VertexIndicesItr())
 	{
 		const FVector3d Position = Mesh.GetVertex(VertexId);
@@ -206,38 +230,84 @@ bool FStellarEraWaterRiverTest::RunTest(const FString& Parameters)
 			&& FMath::IsFinite(Position.Z);
 		// 河面必须贴着地表那一层：半径落在 [海面, 最高地形] 之间。
 		bAllSane &= Position.Size() > double(Field->GetSeaLevelRadius()) * WaterTestVoxelSize;
-		PairRadii.Add(Position.Size());
+		Positions.Add(Position);
 	}
 	TestTrue(TEXT("河面顶点必须是有限值且高于海面"), bAllSane);
 
-	// 沿每条河向下游水位单调不增。顶点按「每条折线、每点先左岸后右岸」的顺序追加，
-	// 所以先按折线分组、再每两点取平均。
+	// 每个顶点的半径必须来自「方向最近的那个折线点」：河带只在切平面上偏一点，
+	// 最近点就是它自己的格。把别处的水位用到这里（或者顶点顺序错位）会在这里现形。
 	//
-	// 不能跨折线比较：折线之间彼此独立。谷地上这次烘焙出了 296 条折线，上一条的
-	// 终点是入海口（≈ 海面）、下一条的源头还在山上（比海面高 3 体素），把它们当
-	// 一条河看，单调性必然被打破 —— 那是折线顺序，不是水位错误。
-	bool bMonotone = true;
-	int32 VertexCursor = 0;
+	// 不再按顶点顺序断言「沿下游单调不增」：烘焙对每个源头各给一条折线、每条都画到
+	// 入海口（谷地上这次是 296 条），构建器又把干流去重了 —— 顶点顺序里没有
+	// 「一条河」的连续分组可言。水位单调是折线本身的性质（BakeRiver 已经钉住），
+	// 这里钉的是「顶点 ↔ 折线点」的对应关系。
+	TArray<FVector> PointDirections;
+	TArray<double> PointSurfaceRadiiCm;
 	for (const FPlanetRiverPolyline& River : Field->GetRivers())
 	{
-		double PreviousRadius = TNumericLimits<double>::Max();
-		for (int32 PointIndex = 0; PointIndex < River.Points.Num(); ++PointIndex)
+		for (const FPlanetRiverPoint& Point : River.Points)
 		{
-			if (!PairRadii.IsValidIndex(VertexCursor + 1))
-			{
-				bMonotone = false;
-				break;
-			}
-			const double PairRadius = (PairRadii[VertexCursor] + PairRadii[VertexCursor + 1]) * 0.5;
-			VertexCursor += 2;
-			bMonotone &= PairRadius <= PreviousRadius + 1e-3;
-			PreviousRadius = PairRadius;
+			PointDirections.Add(Point.Dir.GetSafeNormal());
+			// 与构建器的 RiverSurfaceLiftCm 对齐（5 cm）：河面比水位抬一点防 z-fighting。
+			PointSurfaceRadiiCm.Add(double(Point.WaterLevelRadius) * WaterTestVoxelSize + 5.0);
 		}
 	}
-	// 每条折线的每个点必须恰好贡献两个顶点，否则上面的分组已经错位、断言失去意义。
-	TestEqual(TEXT("顶点数必须等于「折线点数 × 2」（左岸 + 右岸）"),
-		VertexCursor, PairRadii.Num());
-	TestTrue(TEXT("河面水位必须沿下游单调不增"), bMonotone);
+
+	double WorstRadiusError = 0.0;
+	double WorstNearestAngle = 0.0;
+	for (const FVector3d& Position : Positions)
+	{
+		const FVector3d Direction = Position.GetSafeNormal();
+		int32 BestIndex = INDEX_NONE;
+		double BestDot = -1.0;
+		for (int32 Index = 0; Index < PointDirections.Num(); ++Index)
+		{
+			const double Dot = FVector3d::DotProduct(Direction, FVector3d(PointDirections[Index]));
+			if (Dot > BestDot)
+			{
+				BestDot = Dot;
+				BestIndex = Index;
+			}
+		}
+		if (BestIndex == INDEX_NONE)
+		{
+			WorstRadiusError = TNumericLimits<double>::Max();
+			continue;
+		}
+		WorstNearestAngle = FMath::Max(WorstNearestAngle,
+			FMath::Acos(FMath::Clamp(BestDot, -1.0, 1.0)));
+		WorstRadiusError = FMath::Max(WorstRadiusError,
+			FMath::Abs(Position.Size() - PointSurfaceRadiiCm[BestIndex]));
+	}
+
+	const double CellAngle = (PI * 0.5) / double(FMath::Max(Field->GetResolution(), 1));
+	TestTrue(TEXT("必须有折线点可供比对"), PointDirections.Num() > 0);
+	TestTrue(FString::Printf(TEXT("每个顶点都必须在半格内找到自己的折线点（最远 %.4f rad，半格 %.4f）"),
+		WorstNearestAngle, 0.5 * CellAngle),
+		WorstNearestAngle < 0.5 * CellAngle);
+	TestTrue(FString::Printf(TEXT("顶点半径必须等于最近折线点的水位（最大误差 %.4f cm）"), WorstRadiusError),
+		WorstRadiusError < 1e-3);
+
+	// 干流只画一次：任意两个河面顶点都不能近到重合。修复前每条折线各自重画整条
+	// 干流，干流顶点两两相距 0 cm。阈值取 1% 格长 —— 支流在汇入点的两岸与干流
+	// 只差一个切向偏角（实测约 2% 格长），那是正常的接缝，不是重复条带。
+	double MinimumVertexDistanceCm = TNumericLimits<double>::Max();
+	for (int32 Left = 0; Left < Positions.Num(); ++Left)
+	{
+		for (int32 Right = Left + 1; Right < Positions.Num(); ++Right)
+		{
+			MinimumVertexDistanceCm = FMath::Min(
+				MinimumVertexDistanceCm, FVector3d::Distance(Positions[Left], Positions[Right]));
+		}
+	}
+	const double CellArcCm =
+		CellAngle * WaterTestRadius * WaterTestVoxelSize;
+	AddInfo(FString::Printf(TEXT("河流：三角形 %d，顶点 %d，任意两顶点最小距离 %.3f cm（一格 %.1f cm）"),
+		Mesh.TriangleCount(), Positions.Num(), MinimumVertexDistanceCm, CellArcCm));
+	TestTrue(FString::Printf(
+		TEXT("不得有重合的河带：任意两顶点距离必须 > 1%% 格长 %.2f cm（实测最小 %.3f cm）"),
+		CellArcCm * 0.01, MinimumVertexDistanceCm),
+		MinimumVertexDistanceCm > CellArcCm * 0.01);
 
 	return true;
 }

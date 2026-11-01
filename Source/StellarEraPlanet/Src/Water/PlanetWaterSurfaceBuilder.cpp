@@ -4,6 +4,7 @@
 
 #include "DynamicMesh/DynamicMeshAttributeSet.h"
 #include "PlanetBiomeCubemap.h"
+#include "PlanetHydrologyGrid.h"
 
 namespace
 {
@@ -42,6 +43,26 @@ namespace
 		return Index;
 	}
 
+	/**
+	 * 追加三角形，并把三个角上的径向法线元素**绑定**到这个三角形上。
+	 *
+	 * 只 AppendElement 而不 SetTriangle 是不够的：三角形的三个法线元素会一直是
+	 * INDEX_NONE，渲染端于是回退到顶点法线 (0,1,0) —— 球面上等于整片水面都朝上
+	 * 打光。元素下标 == 顶点下标（AddWaterVertex 顶点与法线一一对应追加），
+	 * 所以这里直接填 (A,B,C)。返回三角形下标，失败时 -1（退化 / 非流形）。
+	 */
+	int32 AppendWaterTriangle(
+		UE::Geometry::FDynamicMesh3& Mesh, const int32 A, const int32 B, const int32 C)
+	{
+		const int32 TriangleId = Mesh.AppendTriangle(A, B, C);
+		if (TriangleId >= 0)
+		{
+			Mesh.Attributes()->PrimaryNormals()->SetTriangle(
+				TriangleId, UE::Geometry::FIndex3i(A, B, C));
+		}
+		return TriangleId;
+	}
+
 	/** 切平面的两个正交基。选哪个轴当参考只影响顶点顺序，不影响形状。 */
 	void MakeTangentBasis(const FVector& Normal, FVector& OutT1, FVector& OutT2)
 	{
@@ -57,7 +78,7 @@ void PlanetWaterSurfaceBuilder::BuildOcean(
 	UE::Geometry::FDynamicMesh3& OutMesh)
 {
 	ResetMesh(OutMesh);
-	if (!Field.IsValid() || Params.OceanResolution < 2)
+	if (!Field.IsValid() || Params.OceanResolution < 2 || Params.VoxelSize <= 0.0)
 	{
 		return;
 	}
@@ -84,6 +105,7 @@ void PlanetWaterSurfaceBuilder::BuildOcean(
 	// 会保留没有三角形引用的孤立顶点，而「水面不得出现在陆地内部」这条契约是按
 	// 顶点判的 —— 先建后挑等于把整片陆地都算成水面。跨格共用的角因此记在
 	// CornerVertex 里，同一格角只建一次。
+	int32 RejectedTriangles = 0;
 	for (int32 Face = 0; Face < PlanetBiomeCubemap::NumFaces; ++Face)
 	{
 		TArray<int32> CornerVertex;
@@ -121,11 +143,21 @@ void PlanetWaterSurfaceBuilder::BuildOcean(
 				const int32 C = CornerAt(X + 1, Y + 1);
 				const int32 D = CornerAt(X, Y + 1);
 				// 绕序在双面材质下不影响可见性；光照用法线，不看法线方向与绕序。
-				OutMesh.AppendTriangle(A, B, C);
-				OutMesh.AppendTriangle(A, C, D);
+				if (AppendWaterTriangle(OutMesh, A, B, C) < 0)
+				{
+					++RejectedTriangles;
+				}
+				if (AppendWaterTriangle(OutMesh, A, C, D) < 0)
+				{
+					++RejectedTriangles;
+				}
 			}
 		}
 	}
+
+	ensureMsgf(RejectedTriangles == 0,
+		TEXT("[水面] 海洋有 %d 个三角形被 AppendTriangle 拒绝（退化或非流形），网格会漏洞"),
+		RejectedTriangles);
 }
 
 void PlanetWaterSurfaceBuilder::BuildLakes(
@@ -134,7 +166,7 @@ void PlanetWaterSurfaceBuilder::BuildLakes(
 	UE::Geometry::FDynamicMesh3& OutMesh)
 {
 	ResetMesh(OutMesh);
-	if (!Field.IsValid())
+	if (!Field.IsValid() || Params.VoxelSize <= 0.0)
 	{
 		return;
 	}
@@ -143,6 +175,7 @@ void PlanetWaterSurfaceBuilder::BuildLakes(
 	// 再密一倍没有意义 —— 湖的水位与边界本来就只精确到一格。
 	const double CellAngle = (PI * 0.5) / double(FMath::Max(Field.GetResolution(), 1));
 
+	int32 RejectedTriangles = 0;
 	for (const FPlanetLakeBasin& Lake : Field.GetLakes())
 	{
 		const double WaterRadiusCm = double(Lake.WaterLevelRadius) * Params.VoxelSize;
@@ -184,8 +217,11 @@ void PlanetWaterSurfaceBuilder::BuildLakes(
 			{
 				for (int32 Segment = 0; Segment < Segments; ++Segment)
 				{
-					OutMesh.AppendTriangle(CenterVertex,
-						CurrentRing[Segment], CurrentRing[(Segment + 1) % Segments]);
+					if (AppendWaterTriangle(OutMesh, CenterVertex,
+						CurrentRing[Segment], CurrentRing[(Segment + 1) % Segments]) < 0)
+					{
+						++RejectedTriangles;
+					}
 				}
 			}
 			else
@@ -193,14 +229,26 @@ void PlanetWaterSurfaceBuilder::BuildLakes(
 				for (int32 Segment = 0; Segment < Segments; ++Segment)
 				{
 					const int32 Next = (Segment + 1) % Segments;
-					OutMesh.AppendTriangle(PreviousRing[Segment], CurrentRing[Segment], CurrentRing[Next]);
-					OutMesh.AppendTriangle(PreviousRing[Segment], CurrentRing[Next], PreviousRing[Next]);
+					if (AppendWaterTriangle(OutMesh,
+						PreviousRing[Segment], CurrentRing[Segment], CurrentRing[Next]) < 0)
+					{
+						++RejectedTriangles;
+					}
+					if (AppendWaterTriangle(OutMesh,
+						PreviousRing[Segment], CurrentRing[Next], PreviousRing[Next]) < 0)
+					{
+						++RejectedTriangles;
+					}
 				}
 			}
 
 			Swap(PreviousRing, CurrentRing);
 		}
 	}
+
+	ensureMsgf(RejectedTriangles == 0,
+		TEXT("[水面] 湖泊有 %d 个三角形被 AppendTriangle 拒绝（退化或非流形），网格会漏洞"),
+		RejectedTriangles);
 }
 
 void PlanetWaterSurfaceBuilder::BuildRivers(
@@ -209,14 +257,23 @@ void PlanetWaterSurfaceBuilder::BuildRivers(
 	UE::Geometry::FDynamicMesh3& OutMesh)
 {
 	ResetMesh(OutMesh);
-	if (!Field.IsValid() || Params.PlanetRadiusVoxels <= 0.0)
+	if (!Field.IsValid() || Params.PlanetRadiusVoxels <= 0.0 || Params.VoxelSize <= 0.0)
 	{
 		return;
 	}
 
 	// 厘米 → 球面角。河宽是沿途变化的，所以逐点换算、不做全局近似。
 	const double PlanetRadiusCm = Params.PlanetRadiusVoxels * Params.VoxelSize;
+	const int32 Resolution = Field.GetResolution();
 
+	// 每个水文栅格的河岸顶点。烘焙对**每个源头**各给一条折线，而且每条都一路画到
+	// 入海口 —— 干流的每一格因此同时属于所有上游折线。每条折线各建一套顶点的话，
+	// 干流上就是完全重合的两层条带：半透明材质下表现为 z-fighting，或一条更深的带子。
+	// 所以一格的河岸只发一次：按折线顺序走，每条只画到第一个已经被画过的格
+	// （**含**它 —— 支流要接上干流，停在半路会断开），之后的部分归先画的那条折线。
+	TMap<int32, FIntPoint> EmittedBanks;
+
+	int32 RejectedTriangles = 0;
 	for (const FPlanetRiverPolyline& River : Field.GetRivers())
 	{
 		const int32 NumPoints = River.Points.Num();
@@ -225,10 +282,35 @@ void PlanetWaterSurfaceBuilder::BuildRivers(
 			continue;
 		}
 
-		TArray<int32> LeftBank;
-		TArray<int32> RightBank;
-
+		// 前缀长度：第一个已发射的格（含）就是尽头。起点若落在干流上，前缀只有一格，
+		// 画不出三角形，也就不建任何顶点 —— 孤立顶点会让一切按顶点判的断言失真。
+		int32 PrefixLength = NumPoints;
 		for (int32 Index = 0; Index < NumPoints; ++Index)
+		{
+			const int32 Cell = PlanetHydrologyGrid::DirectionToCell(
+				River.Points[Index].Dir, Resolution);
+			if (EmittedBanks.Contains(Cell))
+			{
+				PrefixLength = Index + 1;
+				break;
+			}
+		}
+		if (PrefixLength < 2)
+		{
+			continue;
+		}
+
+		// 先只算方向、不建顶点：切线退化之后的部分不画，那些点也就不会留下孤立顶点。
+		TArray<FVector> LeftDirections;
+		TArray<FVector> RightDirections;
+		TArray<double> SurfaceRadiiCm;
+		TArray<int32> Cells;
+		LeftDirections.Reserve(PrefixLength);
+		RightDirections.Reserve(PrefixLength);
+		SurfaceRadiiCm.Reserve(PrefixLength);
+		Cells.Reserve(PrefixLength);
+
+		for (int32 Index = 0; Index < PrefixLength; ++Index)
 		{
 			const FPlanetRiverPoint& Point = River.Points[Index];
 			const FVector Direction = Point.Dir.GetSafeNormal();
@@ -255,19 +337,52 @@ void PlanetWaterSurfaceBuilder::BuildRivers(
 
 			// 河面比水位再抬 5 cm：河床被下切过，理论上不共面，但河岸的顶点
 			// 恰好落在体素面上，抬一点可以彻底避免 z-fighting。
-			const double SurfaceRadiusCm =
-				double(Point.WaterLevelRadius) * Params.VoxelSize + RiverSurfaceLiftCm;
+			SurfaceRadiiCm.Add(
+				double(Point.WaterLevelRadius) * Params.VoxelSize + RiverSurfaceLiftCm);
+			LeftDirections.Add((Direction - Side * HalfAngle).GetSafeNormal());
+			RightDirections.Add((Direction + Side * HalfAngle).GetSafeNormal());
+			Cells.Add(PlanetHydrologyGrid::DirectionToCell(Direction, Resolution));
+		}
 
-			LeftBank.Add(AddWaterVertex(
-				OutMesh, (Direction - Side * HalfAngle).GetSafeNormal(), SurfaceRadiusCm));
-			RightBank.Add(AddWaterVertex(
-				OutMesh, (Direction + Side * HalfAngle).GetSafeNormal(), SurfaceRadiusCm));
+		if (LeftDirections.Num() < 2)
+		{
+			continue;   // 一个段都画不出来：不要留下没有三角形引用的顶点
+		}
+
+		TArray<int32> LeftBank;
+		TArray<int32> RightBank;
+		LeftBank.Reserve(LeftDirections.Num());
+		RightBank.Reserve(LeftDirections.Num());
+		for (int32 Index = 0; Index < LeftDirections.Num(); ++Index)
+		{
+			const int32 Left = AddWaterVertex(OutMesh, LeftDirections[Index], SurfaceRadiiCm[Index]);
+			const int32 Right = AddWaterVertex(OutMesh, RightDirections[Index], SurfaceRadiiCm[Index]);
+			LeftBank.Add(Left);
+			RightBank.Add(Right);
+
+			// 汇入点所在的格已经属于干流：保留干流那一对，别被支流覆盖。
+			if (!EmittedBanks.Contains(Cells[Index]))
+			{
+				EmittedBanks.Add(Cells[Index], FIntPoint(Left, Right));
+			}
 		}
 
 		for (int32 Index = 0; Index + 1 < LeftBank.Num(); ++Index)
 		{
-			OutMesh.AppendTriangle(LeftBank[Index], RightBank[Index], RightBank[Index + 1]);
-			OutMesh.AppendTriangle(LeftBank[Index], RightBank[Index + 1], LeftBank[Index + 1]);
+			if (AppendWaterTriangle(OutMesh,
+				LeftBank[Index], RightBank[Index], RightBank[Index + 1]) < 0)
+			{
+				++RejectedTriangles;
+			}
+			if (AppendWaterTriangle(OutMesh,
+				LeftBank[Index], RightBank[Index + 1], LeftBank[Index + 1]) < 0)
+			{
+				++RejectedTriangles;
+			}
 		}
 	}
+
+	ensureMsgf(RejectedTriangles == 0,
+		TEXT("[水面] 河流有 %d 个三角形被 AppendTriangle 拒绝（退化或非流形），网格会漏洞"),
+		RejectedTriangles);
 }
