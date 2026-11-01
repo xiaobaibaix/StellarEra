@@ -36,6 +36,7 @@ class STELLARERAPLANET_API UAlwaysLocalVoxelInvokerComponent : public UVoxelSimp
 public:
 	//~ Begin UVoxelInvokerComponentBase Interface
 	virtual bool IsLocalInvoker_Implementation() const override;
+	virtual void OnRegister() override;
 	//~ End UVoxelInvokerComponentBase Interface
 };
 
@@ -54,5 +55,6 @@ class STELLARERAPLANET_API UAlwaysLocalVoxelInvokerWithPredictionComponent
 public:
 	//~ Begin UVoxelInvokerComponentBase Interface
 	virtual bool IsLocalInvoker_Implementation() const override;
+	virtual void OnRegister() override;
 	//~ End UVoxelInvokerComponentBase Interface
 };
