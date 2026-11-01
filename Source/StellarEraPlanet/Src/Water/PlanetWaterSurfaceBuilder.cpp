@@ -175,6 +175,9 @@ void PlanetWaterSurfaceBuilder::BuildLakes(
 	// 再密一倍没有意义 —— 湖的水位与边界本来就只精确到一格。
 	const double CellAngle = (PI * 0.5) / double(FMath::Max(Field.GetResolution(), 1));
 
+	// 没有地形高度就裁不了余量（旧行为：整张球冠铺满 AngularRadius）。
+	const bool bClipMargin = Params.TerrainHeightFn && Params.PlanetRadiusVoxels > 0.0;
+
 	int32 RejectedTriangles = 0;
 	for (const FPlanetLakeBasin& Lake : Field.GetLakes())
 	{
@@ -193,32 +196,94 @@ void PlanetWaterSurfaceBuilder::BuildLakes(
 			FMath::CeilToInt(double(Lake.AngularRadius) / CellAngle), 2, 64);
 		const int32 Segments = FMath::Clamp(Rings * 4, 8, 256);
 
-		// 中心一圈扇形，往外每环一圈四边形。
-		const int32 CenterVertex = AddWaterVertex(OutMesh, Center, WaterRadiusCm);
-
-		TArray<int32> PreviousRing;
-		TArray<int32> CurrentRing;
-		for (int32 Ring = 1; Ring <= Rings; ++Ring)
+		// 每段（方位角）能保留到第几环；默认铺满，bClipMargin 时把「岸外」的
+		// 余量环砍掉。
+		//
+		// 湖的真实范围只到 AngularRadius − 2 格：烘焙在最大角距之上固定加了
+		// 2 格余量（见 FPlanetLakeBasin::AngularRadius）。那 2 格是刻意探进岸里
+		// 的，**只有地形高过水位时**才是安全的 —— 水面埋在地里、由深度测试裁掉。
+		// 地形低于水位时（岸外的海床、崖下），这圈水面底下是空气，就是「水面
+		// 悬空」。所以余量按段从内往外走，遇到第一环地形低于水位就停 —— 不是
+		// 挖洞：外侧余量本来就没有存在的理由。
+		TArray<int32> KeepRing;
+		KeepRing.Init(Rings, Segments);
+		if (bClipMargin)
 		{
-			const double Theta = double(Lake.AngularRadius) * double(Ring) / double(Rings);
-			const double SinTheta = FMath::Sin(Theta);
-			const double CosTheta = FMath::Cos(Theta);
+			const double InnerAngle = FMath::Max(double(Lake.AngularRadius) - 2.0 * CellAngle, 0.0);
 
-			CurrentRing.Reset();
 			for (int32 Segment = 0; Segment < Segments; ++Segment)
 			{
 				const double Phi = 2.0 * PI * double(Segment) / double(Segments);
-				const FVector Direction = (Center * CosTheta
-					+ (T1 * FMath::Cos(Phi) + T2 * FMath::Sin(Phi)) * SinTheta).GetSafeNormal();
-				CurrentRing.Add(AddWaterVertex(OutMesh, Direction, WaterRadiusCm));
+				const double SinPhi = FMath::Sin(Phi);
+				const double CosPhi = FMath::Cos(Phi);
+
+				for (int32 Ring = 1; Ring <= Rings; ++Ring)
+				{
+					const double Theta = double(Lake.AngularRadius) * double(Ring) / double(Rings);
+					if (Theta <= InnerAngle)
+					{
+						continue;   // 湖内：烘焙保证这里水面下有地形
+					}
+
+					const FVector Direction = (Center * FMath::Cos(Theta)
+						+ (T1 * CosPhi + T2 * SinPhi) * FMath::Sin(Theta)).GetSafeNormal();
+					const double TerrainRadius = double(Params.PlanetRadiusVoxels)
+						+ double(Params.TerrainAmplitude) * double(Params.TerrainHeightFn(Direction));
+
+					if (TerrainRadius < double(Lake.WaterLevelRadius))
+					{
+						KeepRing[Segment] = Ring - 1;
+						break;
+					}
+				}
+			}
+		}
+
+		// 顶点按需创建：只建被保留三角形用到的。FDynamicMesh3 会保留没有三角形
+		// 引用的孤立顶点，而余量裁掉之后每段的边缘是锯齿状的，先整环建好就会
+		// 留下一批永远看不见的顶点。
+		TMap<int32, int32> RingVertices;   // 键 = Ring * Segments + Segment
+		int32 CenterVertex = INDEX_NONE;
+
+		const auto GetCenterVertex = [&]()
+		{
+			if (CenterVertex == INDEX_NONE)
+			{
+				CenterVertex = AddWaterVertex(OutMesh, Center, WaterRadiusCm);
+			}
+			return CenterVertex;
+		};
+		const auto GetRingVertex = [&](const int32 Ring, const int32 Segment)
+		{
+			const int32 Key = Ring * Segments + Segment;
+			if (const int32* Existing = RingVertices.Find(Key))
+			{
+				return *Existing;
 			}
 
+			const double Theta = double(Lake.AngularRadius) * double(Ring) / double(Rings);
+			const double Phi = 2.0 * PI * double(Segment) / double(Segments);
+			const FVector Direction = (Center * FMath::Cos(Theta)
+				+ (T1 * FMath::Cos(Phi) + T2 * FMath::Sin(Phi)) * FMath::Sin(Theta)).GetSafeNormal();
+			const int32 Vertex = AddWaterVertex(OutMesh, Direction, WaterRadiusCm);
+			RingVertices.Add(Key, Vertex);
+			return Vertex;
+		};
+
+		// 中心一圈扇形，往外每环一圈四边形。
+		for (int32 Ring = 1; Ring <= Rings; ++Ring)
+		{
 			if (Ring == 1)
 			{
 				for (int32 Segment = 0; Segment < Segments; ++Segment)
 				{
-					if (AppendWaterTriangle(OutMesh, CenterVertex,
-						CurrentRing[Segment], CurrentRing[(Segment + 1) % Segments]) < 0)
+					const int32 Next = (Segment + 1) % Segments;
+					if (KeepRing[Segment] < 1 || KeepRing[Next] < 1)
+					{
+						continue;
+					}
+					if (AppendWaterTriangle(OutMesh, GetCenterVertex(),
+						GetRingVertex(1, Segment), GetRingVertex(1, Next)) < 0)
 					{
 						++RejectedTriangles;
 					}
@@ -229,20 +294,26 @@ void PlanetWaterSurfaceBuilder::BuildLakes(
 				for (int32 Segment = 0; Segment < Segments; ++Segment)
 				{
 					const int32 Next = (Segment + 1) % Segments;
+					// 任一角的段在这一环已经停了，这一格四边形就不完整（缺一条边），
+					// 整格丢掉；外侧的段本来就比内侧短。
+					if (KeepRing[Segment] < Ring || KeepRing[Next] < Ring)
+					{
+						continue;
+					}
 					if (AppendWaterTriangle(OutMesh,
-						PreviousRing[Segment], CurrentRing[Segment], CurrentRing[Next]) < 0)
+						GetRingVertex(Ring - 1, Segment), GetRingVertex(Ring, Segment),
+						GetRingVertex(Ring, Next)) < 0)
 					{
 						++RejectedTriangles;
 					}
 					if (AppendWaterTriangle(OutMesh,
-						PreviousRing[Segment], CurrentRing[Next], PreviousRing[Next]) < 0)
+						GetRingVertex(Ring - 1, Segment), GetRingVertex(Ring, Next),
+						GetRingVertex(Ring - 1, Next)) < 0)
 					{
 						++RejectedTriangles;
 					}
 				}
 			}
-
-			Swap(PreviousRing, CurrentRing);
 		}
 	}
 

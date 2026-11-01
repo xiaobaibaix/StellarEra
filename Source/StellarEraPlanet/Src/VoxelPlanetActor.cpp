@@ -15,6 +15,7 @@
 #include "PlanetSurfaceGridComponent.h"
 #include "PlanetGeologyField.h"
 #include "PlanetGeologyPreset.h"
+#include "PlanetWaterComponent.h"
 // biome cubemap：配色按方向烘成贴图，材质逐像素查表 —— 颜色与网格密度解耦。
 #include "PlanetBiomeCubemap.h"
 #include "VoxelPlanetNoiseTerrain.h"
@@ -212,6 +213,10 @@ AVoxelPlanetActor::AVoxelPlanetActor()
 	// 占位值，RebuildPlanet 会按半径重算。
 	LODInvoker->LODToSet = 6;
 	LODInvoker->LODRange = 150000.f;
+
+	// 水面组件。内部的分量（海洋 / 湖泊 / 河流）由它自己在重建时创建；
+	// 这里只建宿主组件，让它随行星的变换走。
+	WaterComponent = CreateDefaultSubobject<UPlanetWaterComponent>(TEXT("PlanetWater"));
 
 	// 大气壳、矿物观察组件与表面编辑网格都不在这里创建：它们由 BP_VoxelPlanet
 	// 挂载。原生 AVoxelPlanetActor 实例因此不带这三个组件，本项目只用 BP。
@@ -710,6 +715,13 @@ void AVoxelPlanetActor::RebuildPlanet()
 	// OnConstruction 调到；摆在这里就只在真正重建时发生一次。
 	InstallBiomeMaterial(/*bForceBake=*/true);
 
+	// --- 3.6 水面 ---
+	//
+	// 排在 CreateWorld **之前**：编辑器世界在上面那个 Toggle() 早退里就 return 了，
+	// 而水面与体素世界无关（它只依赖水文场），所以它必须在这之前装好，
+	// 否则编辑器视口里永远看不到水，只有 PIE 里才有。
+	RebuildWater();
+
 	// --- 4. 重建世界，让新生成器生效 ---
 	// CreateWorld 会报 "already created" 并保留旧生成器实例（它在创建时把
 	// 所有参数快照为 const），因此不先销毁的话，参数编辑会被静默忽略。
@@ -905,6 +917,37 @@ bool AVoxelPlanetActor::InstallBiomeMaterial(bool bForceBake)
 	const bool bSwitched = (VoxelMaterial != BiomeMaterial);
 	VoxelMaterial = BiomeMaterial;
 	return bSwitched;
+}
+
+void AVoxelPlanetActor::RebuildWater()
+{
+	if (!WaterComponent)
+	{
+		return;
+	}
+
+	// 组件由 C++ 创建，但根组件可能晚于它出现（RepairLegacyRootComponent），
+	// 所以附着放在这里做一次，而不是构造函数里。
+	if (!WaterComponent->GetAttachParent() && GetRootComponent())
+	{
+		WaterComponent->AttachToComponent(
+			GetRootComponent(), FAttachmentTransformRules::KeepRelativeTransform);
+	}
+
+	FPlanetWaterConfig Config;
+	const bool bHasWater = PlanetGenerator
+		&& PlanetGenerator->Terrain
+		&& PlanetGenerator->Terrain->GetWaterConfig(Config)
+		&& PlanetGenerator->GetHydrology().IsValid();
+
+	// 地形模块也传下去：湖泊的 2 格余量要靠它采样地表高度，水面才不会悬在岸外。
+	// 没有水时传空 → 组件会拆掉全部分量。
+	WaterComponent->RebuildWater(
+		bHasWater ? PlanetGenerator->GetHydrology().Get() : nullptr,
+		Config,
+		double(VoxelSize),
+		double(GetScaledRadiusVoxels()),
+		bHasWater ? PlanetGenerator->Terrain.Get() : nullptr);
 }
 
 void AVoxelPlanetActor::PreSave(FObjectPreSaveContext ObjectSaveContext)

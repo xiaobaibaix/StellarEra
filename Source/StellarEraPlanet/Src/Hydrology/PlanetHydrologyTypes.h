@@ -51,7 +51,12 @@ struct FPlanetLakeBasin
 	/** 水面半径（体素，含 Radius）。 */
 	float WaterLevelRadius = 0.f;
 
-	/** 角半径（弧度）：湖面覆盖的球冠半角，已含 1 格余量。 */
+	/**
+	 * 角半径（弧度）：湖面覆盖的球冠半角，= 最大角距 + **2 格**（见 PlanetHydrologyBake）。
+	 *
+	 * 那 2 格是探进岸里的余量：岸外地形高过水位时是安全的，低于水位时水面会悬空，
+	 * 由水面几何按地形高度裁掉（PlanetWaterSurfaceBuilder::BuildLakes）。
+	 */
 	float AngularRadius = 0.f;
 };
 

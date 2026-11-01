@@ -33,6 +33,18 @@ namespace PlanetWaterSurfaceBuilder
 
 		/** 海洋球壳每面的格数。96 → 1 km 半径行星上三角边长约 3 m。 */
 		int32 OceanResolution = 96;
+
+		/**
+		 * 地形高度回调：返回**归一化**位移（−1..1，0 = 基准球面）。
+		 *
+		 * 与 `UVoxelPlanetTerrainModule::GetRawOffset` 同源，水文烘焙用的也是它。
+		 * 只有湖泊用得上：湖冠的 2 格余量必须落在地形高过水位的地方（水面埋进
+		 * 岸里），否则那圈水面会悬在岸外的空气里。为空 = 不裁剪（旧行为）。
+		 */
+		TFunction<float(const FVector&)> TerrainHeightFn;
+
+		/** 归一化位移 → 体素的换算系数（= 地形模块的 Amplitude）。 */
+		float TerrainAmplitude = 0.f;
 	};
 
 	/** 海洋：半径恒为海面的球壳，陆地内部整格跳过。 */

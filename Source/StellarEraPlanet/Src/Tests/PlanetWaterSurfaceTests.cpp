@@ -169,8 +169,13 @@ bool FStellarEraWaterLakeTest::RunTest(const FString& Parameters)
 		return false;
 	}
 
+	// 有余量裁剪时湖冠必须跟着岸走：传地形高度回调（与地形模块的 GetRawOffset 同源）。
+	PlanetWaterSurfaceBuilder::FBuildParams BuildParams = MakeWaterBuildParams();
+	BuildParams.TerrainHeightFn = &WaterTestBowlHeight;
+	BuildParams.TerrainAmplitude = MakeWaterTestParams().Amplitude;
+
 	UE::Geometry::FDynamicMesh3 Mesh(true, false, false, false);
-	PlanetWaterSurfaceBuilder::BuildLakes(*Field, MakeWaterBuildParams(), Mesh);
+	PlanetWaterSurfaceBuilder::BuildLakes(*Field, BuildParams, Mesh);
 
 	TestTrue(FString::Printf(TEXT("湖泊必须有三角形（实际 %d）"), Mesh.TriangleCount()),
 		Mesh.TriangleCount() > 0);
@@ -197,6 +202,39 @@ bool FStellarEraWaterLakeTest::RunTest(const FString& Parameters)
 	TestTrue(FString::Printf(TEXT("湖面不得超出湖的角半径 %.4f（实测最远 %.4f）"),
 		Lake.AngularRadius, FarthestAngle),
 		FarthestAngle <= double(Lake.AngularRadius) + 1e-3);
+
+	// 湖的**真实范围**只到「烘焙的最大角距」；`AngularRadius` 在它之上又加了 2 格，
+	// 那 2 格是刻意探进岸里的余量。岸外地形若低于湖的水位，水面的这圈余量就会
+	// 悬在空中（碗形夹具里表现为高出海面的一圈）。所以：余量只允许出现在地形
+	// 高过水位、水面埋进地里的地方。
+	const double CellAngle = (PI * 0.5) / double(MakeWaterTestParams().Resolution);
+	const double InnerAngle = FMath::Max(double(Lake.AngularRadius) - 2.0 * CellAngle, 0.0);
+	int32 ExposedMarginVertices = 0;
+	double FarthestExposedAngle = 0.0;
+	for (const int32 VertexId : Mesh.VertexIndicesItr())
+	{
+		const FVector3d Position = Mesh.GetVertex(VertexId);
+		const double RadiusCm = Position.Size();
+		const FVector3d Direction = Position / FMath::Max(RadiusCm, 1e-9);
+		const double Angle = FMath::Acos(FMath::Clamp(
+			FVector3d::DotProduct(Direction, FVector3d(Lake.CentroidDir)), -1.0, 1.0));
+		if (Angle <= InnerAngle + 1e-4)
+		{
+			continue;
+		}
+		const double TerrainRadius = WaterTestRadius + double(MakeWaterTestParams().Amplitude)
+			* double(WaterTestBowlHeight(FVector(Direction)));
+		if (TerrainRadius < double(Lake.WaterLevelRadius))
+		{
+			++ExposedMarginVertices;
+			FarthestExposedAngle = FMath::Max(FarthestExposedAngle, Angle);
+		}
+	}
+
+	AddInfo(FString::Printf(TEXT("碗：角半径 %.4f，真实范围 %.4f，实测最远 %.4f，水位 %.3f 体素"),
+		Lake.AngularRadius, InnerAngle, FarthestAngle, Lake.WaterLevelRadius));
+	TestEqual(FString::Printf(TEXT("湖泊余量不得悬空（最远悬空角 %.4f rad）"), FarthestExposedAngle),
+		ExposedMarginVertices, 0);
 
 	return true;
 }

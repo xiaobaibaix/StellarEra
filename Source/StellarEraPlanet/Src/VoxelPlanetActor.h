@@ -15,6 +15,7 @@
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
 class UPlanetSurfaceGridComponent;
+class UPlanetWaterComponent;
 class UVoxelPlanetGenerator;
 class UVoxelPlanetTerrainModule;
 class UVoxelSimpleInvokerComponent;
@@ -302,6 +303,10 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet")
 	TObjectPtr<UVoxelSimpleInvokerComponent> LODInvoker;
 
+	/** 行星水面。构造函数里创建，挂在根组件下面。 */
+	UPROPERTY(Transient, VisibleAnywhere, Category = "水体")
+	TObjectPtr<UPlanetWaterComponent> WaterComponent;
+
 	/** 运行期烘焙的 biome cubemap（瞬态：每次重建重烘，不落盘）。 */
 	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "Planet|Color")
 	TObjectPtr<UTextureCube> BiomeCubemap;
@@ -413,6 +418,9 @@ private:
 	 *         立刻换材质（ApplyNewMaterials）；世界还没建时由 CreateWorld 自己读。
 	 */
 	bool InstallBiomeMaterial(bool bForceBake);
+
+	/** 按当前水文场重建水面。没有水的行星会拆掉全部分量。 */
+	void RebuildWater();
 
 	/** 上次烘焙用的分辨率。-1 = 从没烘过。 */
 	int32 BakedCubemapResolution = -1;
