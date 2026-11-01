@@ -113,6 +113,37 @@ public:
 	void OrbitLook(float DeltaYaw, float DeltaPitch);
 
 	/**
+	 * 鼠标位移 → 改**视线朝向**，不动相机位置（右键）。
+	 *
+	 * 与 OrbitLook 的区别：OrbitLook 改的是「相机绕焦点的方向」（位置跟着变），
+	 * 本函数只把镜头从「正对焦点」偏开一点，`OrbitRotation`（决定位置）一点都不动。
+	 * 于是锁定天体之后画面不再永远死盯球心。
+	 *
+	 * 偏移量不在这里夹取：越拖越大是正常的，真正生效前由 ClampAimOffset 压回
+	 * MaxAimOffsetDeg 的圆锥内。这样往回拖时手感是连续的（而不是一到边界就卡住、
+	 * 再拖也不动）。灵敏度倍率与 OrbitLook 共用一套（OrbitLookScale）。
+	 */
+	void AimLook(float DeltaYaw, float DeltaPitch);
+
+	/**
+	 * 把「基准朝向 + 偏移」合成后压回圆锥：结果视线与 BaseRotation 方向的夹角
+	 * 不超过 MaxOffsetDeg 度。纯函数（不碰世界、不碰成员），所以能无头测。
+	 *
+	 * 锥是绕**夹角**夹的，不是逐轴夹 Pitch/Yaw —— 逐轴夹出来的边界是球面上一个
+	 * 正方形，斜着拖能到 90°√2 ≈ 127°，「半球」的承诺就破了。
+	 *
+	 * 退化情形一律返回 BaseRotation（roll 归零）：
+	 *   - MaxOffsetDeg ≤ 0；
+	 *   - AimOffset 含 NaN / 非有限值（绝不把 NaN 写进相机朝向）；
+	 *   - 合成结果与基准方向重合。
+	 * 结果是 roll 恒为 0 —— 星图相机不翻滚。
+	 */
+	static FRotator ClampAimOffset(
+		const FRotator& BaseRotation,
+		const FRotator& AimOffset,
+		double MaxOffsetDeg);
+
+	/**
 	 * 绕行视角的灵敏度倍率，夹在 [MinScale, MaxScale]：相机离焦点表面越近越小，
 	 * 越远越大（可以超过 1）。
 	 *
@@ -317,6 +348,20 @@ protected:
 	FRotator OrbitRotation = FRotator::ZeroRotator;
 
 	/**
+	 * 右键拖出来的朝向偏移（yaw / pitch 的累加量）。**只影响朝向，不影响位置**。
+	 *
+	 * 相机位置仍按 OrbitRotation 算，实际朝向是
+	 * ClampAimOffset(OrbitRotation, AimOffset, MaxAimOffsetDeg)。两件事拆开，
+	 * 于是「转头」不会让相机绕着球跑，绕球也永远从正对球心的方向起算。
+	 *
+	 * 归零时机：选中天体变化、FocusOn（按 M 入场）、EnterFrom。滚轮缩放不动它。
+	 * 不归零的话，换一颗天体时玩家会带着上一颗行星的偏移去看新目标，第一眼
+	 * 就是歪的 —— 而「锁定 = 正对」是这个模式的默认约定。
+	 */
+	UPROPERTY(Transient, VisibleAnywhere, Category = "StarMap|State")
+	FRotator AimOffset = FRotator::ZeroRotator;
+
+	/**
 	 * 相机到焦点的距离（厘米）。
 	 *
 	 * **只在发生过一次选中之后才有意义。** 初始值 0 是哨兵，不影响任何可观测结果：
@@ -416,6 +461,18 @@ protected:
 	 */
 	UPROPERTY(EditAnywhere, Category = "StarMap", meta = (ClampMin = "1.0"))
 	double MaxOrbitLookScale = 8.0;
+
+	/**
+	 * 右键转头能离开「正对焦点」的最大角度（度）。
+	 *
+	 * 90 = 半球：相机停在焦点外某处，镜头可以扫到与「看向球心」垂直的方向，
+	 * 但转不到背后（转到背后时绕行位置与画面就完全对不上，玩家会以为相机穿模）。
+	 * 调小更像「微调构图」，调大能看到更多侧后方。上限本身也支持 0（锁死正对）。
+	 *
+	 * 夹取在 ClampAimOffset 里，按**夹角**算，不是逐轴。
+	 */
+	UPROPERTY(EditAnywhere, Category = "StarMap", meta = (ClampMin = "0.0", ClampMax = "180.0"))
+	double MaxAimOffsetDeg = 90.0;
 
 	/**
 	 * 相机在地表之上的最小高度（厘米）。

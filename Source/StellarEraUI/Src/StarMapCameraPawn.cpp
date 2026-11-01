@@ -135,6 +135,8 @@ void AStarMapCameraPawn::EnterFrom(const FVector& InCameraLocation, const FRotat
 	// 「原地不动、不选中」：把进入前的视角直接拿来当基准，于是进入星图时画面不变。
 	CameraLocation = InCameraLocation;
 	OrbitRotation = InCameraRotation;
+	// 上次退出前可能还带着右键拖出来的偏移；重新进入从「正对」起步。
+	AimOffset = FRotator::ZeroRotator;
 	LastSeenSelected = nullptr;
 
 	// 上一次退出星图时可能还有没走完的拉远；重新进入从新视角起步，它必须作废。
@@ -160,6 +162,10 @@ void AStarMapCameraPawn::FocusOn(AActor* Body, double DistanceCm)
 	{
 		OrbitRotation = ToFocus.Rotation();
 	}
+
+	// 按 M 进场是「重新锁定」，右键拖出来的偏移一并清掉：入场第一眼必须正对焦点，
+	// 否则上一颗天体的构图会带到这一颗上。
+	AimOffset = FRotator::ZeroRotator;
 
 	// 距离**不在这里一次写完**：瞬移到目标距离会让整颗行星在同一帧里从
 	// LOD 1/3/5 塌到 6/7，画面会「啪」地掉精度。这里只记起点与目标，插值交给
@@ -214,6 +220,79 @@ void AStarMapCameraPawn::OrbitLook(float DeltaYaw, float DeltaPitch)
 	// 夹到 ±89°：到 90° 时视线与 up 平行，Rotation 的 roll 会翻掉，画面会打转。
 	OrbitRotation.Pitch = FMath::Clamp(OrbitRotation.Pitch + DeltaPitch * Scale, -89.0, 89.0);
 	OrbitRotation.Roll = 0.0;
+}
+
+void AStarMapCameraPawn::AimLook(float DeltaYaw, float DeltaPitch)
+{
+	// 灵敏度与绕行共用一套：贴地看得细时慢、拉远扫星系时快。这里不乘距离的
+	// 任何其它因素 —— 转头不改变相机位置，画面移动量本来就只取决于角度。
+	double Scale = 1.0;
+	if (AActor* Selected = ResolveSelectedBody())
+	{
+		Scale = OrbitLookScale(
+			OrbitDistanceCm, ResolveFocusSurfaceRadiusCm(Selected),
+			MinOrbitLookScale, MaxOrbitLookScale);
+	}
+
+	// 只累加、不在这里夹取：真的夹在这里，拖到边界后再往回拖也要先把「多拖的
+	// 那一段」抵消掉才动，手感像卡住。夹取在 CalcCamera 合成时做（ClampAimOffset）。
+	AimOffset.Yaw += DeltaYaw * Scale;
+	AimOffset.Pitch = FMath::Clamp(AimOffset.Pitch + DeltaPitch * Scale, -89.0, 89.0);
+	AimOffset.Roll = 0.0;
+}
+
+FRotator AStarMapCameraPawn::ClampAimOffset(
+	const FRotator& BaseRotation,
+	const FRotator& AimOffset,
+	const double MaxOffsetDeg)
+{
+	// 上限退化（0 / 负数 / NaN）＝「永远正对」。
+	if (!FMath::IsFinite(MaxOffsetDeg) || MaxOffsetDeg <= 0.0)
+	{
+		return BaseRotation;
+	}
+
+	// 偏移里有 NaN / 无穷时按「没有偏移」处理。宁可这一帧不转头，也不能把 NaN
+	// 写进 OutResult.Rotation —— 那会让整帧的画面矩阵全变成 NaN。
+	if (!FMath::IsFinite(AimOffset.Pitch) || !FMath::IsFinite(AimOffset.Yaw))
+	{
+		return BaseRotation;
+	}
+
+	// 用四元数合成，不用 FRotator 的 operator+：后者是欧拉角逐分量相加，
+	// 基准俯仰不为零时与真实旋转不是一回事，锥面会算歪。
+	const FQuat BaseQuat = BaseRotation.Quaternion();
+	const FQuat ViewQuat = BaseQuat * FRotator(AimOffset.Pitch, AimOffset.Yaw, 0.0).Quaternion();
+
+	const FVector BaseDir = BaseQuat.GetForwardVector();
+	const FVector ViewDir = ViewQuat.GetForwardVector();
+
+	// 夹角（度）。Dot 先夹到 [-1, 1]：浮点残差会让 acos 拿到 1.0000001 而返回 NaN。
+	const double CosAngle = FMath::Clamp(double(FVector::DotProduct(BaseDir, ViewDir)), -1.0, 1.0);
+	const double AngleDeg = FMath::RadiansToDegrees(FMath::Acos(CosAngle));
+
+	if (AngleDeg <= MaxOffsetDeg)
+	{
+		// 没超界：原样返回（GetNormalized 把 pitch 收进 ±90、roll 归零）。
+		return ViewQuat.Rotator().GetNormalized();
+	}
+
+	// 超界：绕「基准 × 现状」这个轴把基准方向转到锥面上（右手定则，
+	// +90° 的偏航正好转到 +Y，符号已验证）。基线与现状共线时叉积为零，
+	// 此时夹角只可能是 0°（上面已返回）或 180°（转到背后）—— 任取一根垂直轴
+	// 都能把方向送到锥面边界上。
+	FVector Axis = FVector::CrossProduct(BaseDir, ViewDir);
+	if (Axis.IsNearlyZero())
+	{
+		Axis = FVector::CrossProduct(BaseDir, FVector::UpVector);
+		if (Axis.IsNearlyZero())
+		{
+			Axis = FVector::CrossProduct(BaseDir, FVector::RightVector);
+		}
+	}
+	Axis = Axis.GetSafeNormal();
+
+	return BaseDir.RotateAngleAxis(MaxOffsetDeg, Axis).Rotation();
 }
 
 double AStarMapCameraPawn::OrbitLookScale(
@@ -514,6 +593,11 @@ void AStarMapCameraPawn::CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult
 		// FocusOn 自己会同步 LastSeenSelected，所以刚启动的那次拉远不会走到这里。
 		bSmoothFocusActive = false;
 		LastSeenSelected = Selected;
+
+		// 换了观测目标：右键偏移归零，新目标第一眼是正对的。归零与 OrbitRotation
+		// 的重算是一体的 —— 偏移是相对「正对焦点」的，换了焦点它就没有意义了。
+		AimOffset = FRotator::ZeroRotator;
+
 		if (Selected)
 		{
 			const FVector ToFocus = Selected->GetActorLocation() - CameraLocation;
@@ -588,7 +672,14 @@ void AStarMapCameraPawn::CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult
 	}
 
 	OutResult.Location = CameraLocation;
-	OutResult.Rotation = OrbitRotation;
+
+	// 朝向 = 绕行朝向 + 右键偏移，并压回半球内。位置用的是 OrbitRotation、
+	// 与 AimOffset 无关，所以「转头」不会挪相机（见 AimOffset 的说明）。
+	//
+	// 未选中时放开上限（180° = 不夹）：那时相机位置本来就冻结，没有「绕谁」
+	// 可言，再夹锥只会让画面卡死在进入时的朝向上 —— 右键这时就是自由环顾。
+	OutResult.Rotation = ClampAimOffset(
+		OrbitRotation, AimOffset, Selected ? MaxAimOffsetDeg : 180.0);
 }
 
 AActor* AStarMapCameraPawn::PickBodyAtScreenPosition(
