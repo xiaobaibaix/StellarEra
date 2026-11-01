@@ -873,7 +873,12 @@ void UCosmosSimulationSubsystem::CarryRiders(AActor* BodyActor, const FVector& D
 		//   2. 挂在**别的 Pawn** 上的（登船后的角色挂在飞船下）：那个 Pawn
 		//      如果也被本函数推着走，附着关系已经带走了它，同样会走两步。
 		// TActorIterator 的遍历顺序不保证，靠顺序去重是不可靠的，所以按附着
-		// 关系去重。（本项目当前只有一处 AttachToActor：登船时角色挂到飞船下。）
+		// 关系去重。
+		//
+		// 本项目有两处 AttachToActor：登船时角色挂到飞船下；平时角色挂在行星下
+		// （APlanetCharacter::SetRidePlanet），由附着层级搬运。行星角色的位移
+		// 因此**不经过本函数** —— 本函数是兜底，只负责那些没有附着父级、却仍
+		// 够得着判定球的 Pawn。
 		if (Rider->GetAttachParentActor())
 		{
 			continue;

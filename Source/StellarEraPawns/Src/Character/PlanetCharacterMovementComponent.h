@@ -24,7 +24,13 @@
  *      （同文件 :832），于是位移量等于底座的绝对世界坐标 —— 单帧把胶囊瞬移约 8×10⁵ cm。
  *      这一条只能靠重写本函数关掉。
  *
- * 两条都关掉之后，角色的搬运全部交给 UCosmosSimulationSubsystem::CarryRiders，恰好一处。
+ * 两条都关掉之后，角色的搬运交给**行星附着关系**（APlanetCharacter::SetRidePlanet）：
+ * 角色是行星的子 Actor，行星平移多少、引擎的变换层级就把它带走多少。
+ *
+ * 为什么不是「恢复本函数」：UpdateBasedMovement 无条件把底座位移 MoveUpdatedComponent
+ * 一次，而附着层级已经带过一次 —— 两者并存就是 2× 位移。所以本函数必须保持空实现。
+ * UCosmosSimulationSubsystem::CarryRiders 降级为兜底，只负责没有附着父级的 Pawn。
+ *
  * 底座本身照旧由 CMC 设置，所以 MOVE_Walking、地板判定、摩擦、台阶、跳跃这些语义
  * **完全不受影响** —— 本类只拿走「底座会移动我」这一件事。
  */
