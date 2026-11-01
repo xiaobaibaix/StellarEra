@@ -651,6 +651,12 @@ void AVoxelPlanetActor::RebuildPlanet()
 	// 地质预设与地形模块一样，是「这颗行星」的参数。
 	PlanetGenerator->GeologyPreset = GeologyAsset;
 
+	// --- 1.5 水文场 ---
+	// 必须在 FVoxelGeneratorPicker 之前：GetInstance 会走 MakeTerrainContext，
+	// 而密度场要读 Context.Hydrology 才知道哪里下切。烘焙是同步的（512 分辨率
+	// 0.5–1 s），所以只在缓存键变化时发生 —— 拖动星球不会重烘。
+	PlanetGenerator->RefreshHydrology();
+
 	// --- 2. 把世界边长收到刚好裹住星球 ---
 	// AVoxelWorld 的 RenderOctreeDepth 默认是 10，即世界边长 32768 体素，
 	// 而本星球半径只有 1000 体素 —— 星球只占边长的 6%。
@@ -935,6 +941,13 @@ void AVoxelPlanetActor::PostSaveRoot(FObjectPostSaveRootContext ObjectSaveContex
 
 void AVoxelPlanetActor::InvalidateAndRebuild()
 {
+	// 地形资产变了，水文场也过期了。RefreshHydrology 自己会比较配置，
+	// 这里显式丢弃是为了让「先失效、后重建」的顺序在调用点上就看得见。
+	if (PlanetGenerator)
+	{
+		PlanetGenerator->InvalidateHydrology();
+	}
+
 	// 把上次的哈希抹掉再重建。
 	//
 	// RebuildPlanet 顶部有一道「哈希没变且世界已建好就跳过」的守卫，而触发这次

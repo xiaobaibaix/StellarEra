@@ -14,7 +14,9 @@ namespace
 {
 	constexpr double TestRadius = 1000.0;
 
-	FPlanetHydrologyParams MakeTestParams()
+	// 名字必须与 PlanetBiomeCubemapTests.cpp 的同名 helper 区分开：unity build 会把
+	// 两个文件塞进同一个 TU，匿名名字空间也随之合并，同名不同返回值直接编译失败。
+	FPlanetHydrologyParams MakeBakeTestParams()
 	{
 		FPlanetHydrologyParams Params;
 		Params.SeaLevel = -0.3f;
@@ -63,7 +65,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraHydrologyLakeTest,
 
 bool FStellarEraHydrologyLakeTest::RunTest(const FString& Parameters)
 {
-	const FPlanetHydrologyParams Params = MakeTestParams();
+	const FPlanetHydrologyParams Params = MakeBakeTestParams();
 	const TSharedPtr<FPlanetHydrologyField> Field =
 		FPlanetHydrologyBake::Bake(&BowlHeight, Params, TestRadius);
 	TestTrue(TEXT("烘焙必须返回有效的场"), Field.IsValid() && Field->IsValid());
@@ -117,7 +119,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraHydrologyRiverTest,
 
 bool FStellarEraHydrologyRiverTest::RunTest(const FString& Parameters)
 {
-	const FPlanetHydrologyParams Params = MakeTestParams();
+	const FPlanetHydrologyParams Params = MakeBakeTestParams();
 	const TSharedPtr<FPlanetHydrologyField> Field =
 		FPlanetHydrologyBake::Bake(&ValleyHeight, Params, TestRadius);
 	TestTrue(TEXT("烘焙必须返回有效的场"), Field.IsValid() && Field->IsValid());

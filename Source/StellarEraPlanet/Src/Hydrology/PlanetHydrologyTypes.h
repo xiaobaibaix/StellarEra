@@ -73,3 +73,52 @@ struct FPlanetRiverPolyline
 {
 	TArray<FPlanetRiverPoint> Points;
 };
+
+/**
+ * 一颗行星的水体配置：水文参数 + 外观参数。
+ *
+ * 为什么放在一起：地形模块只暴露一个 GetWaterConfig，拆成两个虚函数会让
+ * 「有水文参数但没有外观参数」这种半吊子状态在类型上合法。
+ */
+struct FPlanetWaterConfig
+{
+	/** 海平面、分辨率、汇流阈值、下切深度、ε。 */
+	FPlanetHydrologyParams Params;
+
+	/** 近岸的浅水色。 */
+	FLinearColor ShallowColor = FLinearColor(0.055f, 0.22f, 0.28f);
+
+	/** 深海色。 */
+	FLinearColor DeepColor = FLinearColor(0.012f, 0.055f, 0.115f);
+
+	/** 岸边泡沫色。 */
+	FLinearColor FoamColor = FLinearColor(0.75f, 0.80f, 0.85f);
+
+	/** 水深小于它开始泛泡沫（体素）。 */
+	float FoamDepthVoxels = 0.35f;
+
+	/** 水面的最大不透明度。1 = 完全遮住海底。 */
+	float MaxOpacity = 0.85f;
+};
+
+/**
+ * 精确比较，用于生成器的缓存键。
+ *
+ * 刻意不用 FMath::IsNearlyEqual：缓存键要的是「是不是同一组参数」，
+ * 不是「视觉上是否等价」。近似相等会让「改了一点点海平面」被当成没改。
+ */
+inline bool operator==(const FPlanetHydrologyParams& A, const FPlanetHydrologyParams& B)
+{
+	return A.SeaLevel == B.SeaLevel
+		&& A.Amplitude == B.Amplitude
+		&& A.MinRiverFlow == B.MinRiverFlow
+		&& A.MaxCarveDepth == B.MaxCarveDepth
+		&& A.RiverWidthScale == B.RiverWidthScale
+		&& A.Resolution == B.Resolution
+		&& A.Epsilon == B.Epsilon;
+}
+
+inline bool operator!=(const FPlanetHydrologyParams& A, const FPlanetHydrologyParams& B)
+{
+	return !(A == B);
+}

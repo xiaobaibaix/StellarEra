@@ -6,10 +6,13 @@
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
 #include "VoxelMinimal.h"
+// FPlanetWaterConfig（GetWaterConfig 的参数）需要完整定义。
+#include "PlanetHydrologyTypes.h"
 #include "VoxelPlanetTerrainModule.generated.h"
 
 class FVoxelGeneratorInstance;
 class FPlanetGeologyField;
+class FPlanetHydrologyField;
 
 /**
  * 行星交给地形模块的上下文。
@@ -40,6 +43,15 @@ struct FVoxelPlanetTerrainContext
 	 * 只读指针，构造后不可变，因此可以安全地在后台体素线程上共享。
 	 */
 	TSharedPtr<const FPlanetGeologyField> Geology;
+
+	/**
+	 * 这颗行星的水文场；为空 = 这颗星没有水（纯球模块，或者模块不重写
+	 * GetWaterConfig）。
+	 *
+	 * 只读指针，构造后不可变，因此可以安全地在后台体素线程上共享 —— 与
+	 * Geology 同理。密度场靠它做河道下切。
+	 */
+	TSharedPtr<const FPlanetHydrologyField> Hydrology;
 };
 
 /**
@@ -85,6 +97,26 @@ public:
 	 */
 	virtual float GetSurfaceRadiusVoxels(const FVoxelPlanetTerrainContext& Context, const FVector& UnitDir) const
 		PURE_VIRTUAL(UVoxelPlanetTerrainModule::GetSurfaceRadiusVoxels, return Context.Radius;);
+
+	/**
+	 * 未削平的归一化位移（0 = 基准球面，范围 −1..1）。
+	 *
+	 * 与 GetSurfaceRadiusVoxels 的区别正是「有没有被海平面削平」：后者回答
+	 * 「角色该站在哪」，会避开水面；前者回答「地形本来长多高」，是水文烘焙的
+	 * 唯一输入。混用会把海床当成陆地再淹一遍。
+	 *
+	 * 默认返回 0：抽象类不该被实例化，但真有子类忘了重写时，给一颗光滑球
+	 * 总好过让水文烘焙读到随机值。
+	 */
+	virtual float GetRawOffset(const FVector& UnitDir) const;
+
+	/**
+	 * 水体配置。返回 false = 这颗星不要水（纯球模块就是 false）。
+	 *
+	 * OutConfig 在返回 false 时仍被写成一个合法的默认值 —— 调用方可以先取值
+	 * 再看返回值，不必分支初始化。
+	 */
+	virtual bool GetWaterConfig(FPlanetWaterConfig& OutConfig) const;
 
 #if WITH_EDITOR
 	/**
