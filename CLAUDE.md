@@ -10,6 +10,22 @@
 - C++ 为主；蓝图只承载资产配置（`Content/Code/BP_*`）
 - 编辑器用 VS Code。仓库没有 `.sln` / `.vcxproj` 是正常的，别把 IDE 生成物入库
 
+### IntelliSense：UBT 只管 `.cpp`，头文件要单独喂 includePath
+VS Code 不解析 `.Build.cs`，C/C++ 扩展只读 `.vscode/compileCommands_StellarEra.json`。而 UBT 的 VSCode 生成器（`VSCodeProjectFileGenerator.WriteCompileCommands`）里的 `SourceFilesForClangCompilationDatabase` **只挑 `.cpp/.cc/.cxx/.c`，头文件永远不会入库**；cpptools 对库里查不到的文件回退到 `c_cpp_properties.json` 的 `includePath/forcedInclude`，而 UBT 生成的那份只有 `compileCommands` 一个字段 —— 于是**每个 `.h` 的第一个 `#include` 都报"无法打开源文件"**（`.cpp` 反而正常，这是最迷惑的地方）。
+
+另外 UE5 的宏**不出现在命令行**上：全部塞进 `Intermediate/Build/<plat>/<arch>/UnrealEditor/<Config>/<Module>/Definitions.<Module>.h`，靠 `/FI` 强制包含。所以只补 `includePath` 不够，`forcedInclude` 也得给一份（只给一份，13 个模块的 Definitions 互相 `#undef` 会打架；任意一份即可，它内含的 `SharedDefinitions.*.h` 已经定义好全工程的 `*_API`）。
+
+两步都靠 `Tools/vscode_intellisense.py` 自动完成，它从 rsp 里抽出 `/I` 与 `/FI` 回填到 `c_cpp_properties.json`：
+
+```bash
+# 1. 模块增删改名后先重生成工程文件（UBT 生成的 .ignore / *.code-workspace 可能带只读属性，先 attrib -R）
+"<UE>/Engine/Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.exe" -ProjectFiles \
+  -Project="<项目>/StellarEra.uproject" -Game -Engine -Progress -VSCode
+# 2. 再把 includePath / forcedInclude 补回去（UBT 会覆盖 c_cpp_properties.json）
+python Tools/vscode_intellisense.py
+```
+最后在 VS Code 执行 `C/C++: Reset IntelliSense Database`（或重载窗口）—— cpptools 缓存编译命令，不重载不生效。
+
 ## 模块结构（5 个模块，依赖严格分层，无环）
 ```
 StellarEra        ─→ StellarEraUI（Public）, StellarEraCosmos, StellarEraPawns,
