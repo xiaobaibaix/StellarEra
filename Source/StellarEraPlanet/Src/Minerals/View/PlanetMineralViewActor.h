@@ -35,7 +35,8 @@ public:
 	APlanetMineralViewActor();
 
 	/**
-	 * 按元素建 N 个体素世界。失败时把已建的逐个销毁，不留半成品。
+	 * 按元素建 N 个体素世界。失败时销毁已建的体素世界并返回 false，但**球壳与
+	 * bHasBuilt 会留下** —— 本 Actor 从此不可重建，调用方必须 Destroy() 本 Actor。
 	 *
 	 * ParamsByElement 与 Elements 的下标必须同为**运行期元素下标**
 	 * （FPlanetGeologyField::GetSampledElementDefinitions 的顺序）。空槽照样
@@ -76,7 +77,19 @@ public:
 	void SetElementVisible(int32 Index, bool bVisible);
 	void SetAllElementsVisible(bool bVisible);
 
-	/** 兜底：观察体走任何销毁路径都要带走它建的体素世界。重复调用安全。 */
+	/**
+	 * 兜底之一：Destroy() 与关卡卸载。UWorld::DestroyActor 会调 Destroyed()
+	 * （LevelActor.cpp:926），**编辑器世界与游戏世界都会触发** —— 编辑器预览是
+	 * 本功能的主路径，靠的就是这个钩子。
+	 */
+	virtual void Destroyed() override;
+
+	/**
+	 * 兜底之二：无缝切图这类「走 EndPlay 而不走 Destroy」的路径。编辑器世界不跑
+	 * BeginPlay，AActor::RouteEndPlay 会按 ActorHasBegunPlay 直接跳过
+	 * （Actor.cpp:3221-3231），所以编辑器预览保护不到 —— 那条由 Destroyed() 负责。
+	 * 两个钩子都幂等，先后触发是空操作。
+	 */
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	/** 球壳组件，仅供测试与调试。 */
@@ -107,8 +120,9 @@ private:
 	FVector LastPlanetCenterWorld = FVector::ZeroVector;
 
 	/**
-	 * Build 已经建过组件。Build 不可重入：旧组件不会被销毁、组件名又是固定的，
-	 * 第二次 NewObject 会在同一个 Outer 上撞名（致命错误），所以入口直接断言。
+	 * Build / BuildVoxelWorlds 已经建过组件与世界。两条路径都不可重入：组件名固定，
+	 * 第二次 NewObject 会在同一个 Outer 上撞名（致命错误），体素世界也会重复 spawn。
+	 * 所以两个入口都 ensureMsgf 后早退，且两处都不清这个标志 —— 一旦置真就是终态。
 	 */
 	bool bHasBuilt = false;
 

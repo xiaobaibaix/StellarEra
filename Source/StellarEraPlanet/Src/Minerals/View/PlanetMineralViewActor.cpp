@@ -41,6 +41,36 @@ namespace
 #endif
 		return Material;
 	}
+
+	// 可见性有两套标志，按世界类型各认一套：
+	//
+	// - 游戏世界只认 AActor::bHidden（SetActorHiddenInGame）。
+	// - 编辑器世界里 SetActorHiddenInGame **对渲染没有效果**：USceneComponent::ShouldRender
+	//   用的是 bShowInEditor = !bHiddenEdTemporary && !Owner->IsHiddenEd()
+	//   （SceneComponent.cpp:3485 起），而 IsHiddenEd() 不读 bHidden。所以编辑器预览
+	//   必须同时翻临时隐藏标志；它是非序列化状态（SetIsTemporarilyHiddenInEditor），
+	//   不会把关卡标脏 —— 与 PlanetMineralViewComponent.cpp:271-272 隐藏行星用的是同一招。
+	void SetFieldVisible(AVoxelMineralFieldActor& Field, bool bVisible)
+	{
+		Field.SetActorHiddenInGame(!bVisible);
+#if WITH_EDITOR
+		if (Field.GetWorld() && Field.GetWorld()->WorldType == EWorldType::Editor)
+		{
+			Field.SetIsTemporarilyHiddenInEditor(!bVisible);
+		}
+#endif
+	}
+
+	bool IsFieldVisible(const AVoxelMineralFieldActor& Field)
+	{
+#if WITH_EDITOR
+		if (Field.GetWorld() && Field.GetWorld()->WorldType == EWorldType::Editor)
+		{
+			return !Field.IsTemporarilyHiddenInEditor();
+		}
+#endif
+		return !Field.IsHidden();
+	}
 }
 
 APlanetMineralViewActor::APlanetMineralViewActor()
@@ -281,10 +311,13 @@ bool APlanetMineralViewActor::BuildVoxelWorlds(
 		return false;
 	}
 
-	// 没有世界就没有体素世界可建：下面的 SpawnActor 与 AVoxelWorld::CreateWorld
-	// 都直接解引用 GetWorld()（VoxelWorld.cpp:244-246），空指针当场访问违例且不带
-	// 任何诊断。AVoxelMineralFieldActor::CreateForElement 对同一条约束有同款守卫
-	//（VoxelMineralFieldActor.cpp:47-61），这里跟它一致。
+	// 没有世界就没有体素世界可建：
+	//  - 下面的 World->SpawnActor 要非空 World；
+	//  - AVoxelWorld::CreateWorld 在**编辑器构建**里第一件事就是解引用
+	//    GetWorld()->WorldType（VoxelWorld.cpp:244-246：244 行是 #if WITH_EDITOR，
+	//    245-246 才是解引用；这段在非编辑器构建里被编译掉，那时它走后面的路径）。
+	// 空指针当场访问违例且不带任何诊断。AVoxelMineralFieldActor::CreateForElement 对
+	// 同一条约束有同款守卫（VoxelMineralFieldActor.cpp:47-62），这里跟它一致。
 	//
 	// 放在 bHasBuilt 之前：这一条失败时本 Actor 什么都没建，不该被标成「已建」。
 	UWorld* World = GetWorld();
@@ -308,14 +341,23 @@ bool APlanetMineralViewActor::BuildVoxelWorlds(
 
 	// AlwaysSpawn：碰撞拒绝的 spawn 会静默返回 nullptr，读起来像「体素世界创建失败」。
 	// Owner 指向本观察体：Actor 图里能看出归属，也方便在 Outliner 里找到。
+	//
+	// ObjectFlags 必须把观察体自己的 RF_Transient 镜像过去：编辑器世界里观察体就是
+	// 用 RF_Transient spawn 的（PlanetMineralViewComponent.cpp:231-236），目的正是
+	// 永不落进 umap；但 UWorld::SpawnActor 只从 spawn 参数取 flags 与 Level
+	// （LevelActor.cpp:669 / :537），不会继承。不镜像的话，编辑器预览会在保存
+	// UniverseMap 时把 N 个矿物体素世界一并写进关卡。
 	FActorSpawnParameters SpawnParams;
 	SpawnParams.Owner = this;
+	SpawnParams.ObjectFlags |= GetFlags() & RF_Transient;
 	SpawnParams.SpawnCollisionHandlingOverride =
 		ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
+	// 循环里不再重算：CreateForElement 稍后会用同一份 Actor 变换覆盖 spawn 位置，
+	// 循环内每轮取一次纯属白费。
+	const FTransform PlanetTransform = PlanetWorld.GetActorTransform();
 	for (int32 ElementIndex = 0; ElementIndex < ParamsByElement.Num(); ++ElementIndex)
 	{
-		const FTransform PlanetTransform = PlanetWorld.GetActorTransform();
 		AVoxelMineralFieldActor* Field = World->SpawnActor<AVoxelMineralFieldActor>(
 			AVoxelMineralFieldActor::StaticClass(),
 			PlanetTransform.GetLocation(), PlanetTransform.Rotator(), SpawnParams);
@@ -327,6 +369,9 @@ bool APlanetMineralViewActor::BuildVoxelWorlds(
 			UE_LOG(LogTemp, Error, TEXT("[矿物] 元素 #%d 的体素世界创建失败"), ElementIndex);
 			if (Field)
 			{
+				// 与 ReleaseAllFields 走同一条清理：漏了 DestroyField 的话，
+				// 体素世界在编辑器世界里要一直吊到 GC 才消失。
+				Field->DestroyField();
 				Field->Destroy();
 			}
 			ReleaseAllFields();
@@ -336,7 +381,10 @@ bool APlanetMineralViewActor::BuildVoxelWorlds(
 		ElementFields.Add(Field);
 	}
 
-	LastPlanetCenterWorld = PlanetWorld.GetActorLocation();
+	// 先把观察体自己落到球心再取基准：Build 用的是 GetActorLocation()，这里也是 ——
+	// 「基准 = 球心」由本函数构造，不再依赖调用方 spawn 时给的位置。
+	SetActorLocation(PlanetWorld.GetActorLocation());
+	LastPlanetCenterWorld = GetActorLocation();
 	return true;
 }
 
@@ -392,10 +440,20 @@ bool APlanetMineralViewActor::SetElementColor(int32 Index, const FLinearColor& C
 	return true;
 }
 
+void APlanetMineralViewActor::Destroyed()
+{
+	// Destroy() 与关卡卸载：这是**编辑器世界里唯一会触发的钩子**（编辑器世界不跑
+	// BeginPlay，EndPlay 会被跳过）。体素世界不 attach、不随本 Actor 级联销毁，
+	// 必须在这里显式销毁。
+	ReleaseAllFields();
+	Super::Destroyed();
+}
+
 void APlanetMineralViewActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	// 体素世界是本 Actor 建的，但不归它所有：ElementFields 只是强引用，销毁靠这里。
-	// 组件走 Deactivate 时已经调过一次，ReleaseAllFields 幂等，重复调用是空操作。
+	// 无缝切图 / 关卡卸载里那些「有 EndPlay 但不 Destroy」的路径。
+	// 编辑器预览保护不到（World 不跑 BeginPlay，RouteEndPlay 直接跳过），那条归
+	// Destroyed()。两者都幂等：同一个体素世界只会被销毁一次，第二次是空操作。
 	ReleaseAllFields();
 	Super::EndPlay(EndPlayReason);
 }
@@ -415,7 +473,7 @@ bool APlanetMineralViewActor::IsElementVisible(int32 Index) const
 {
 	if (ElementFields.IsValidIndex(Index) && ElementFields[Index])
 	{
-		return !ElementFields[Index]->IsHidden();
+		return IsFieldVisible(*ElementFields[Index]);
 	}
 	return MineralMeshes.IsValidIndex(Index) && MineralMeshes[Index]
 		&& MineralMeshes[Index]->IsVisible();
@@ -425,7 +483,7 @@ void APlanetMineralViewActor::SetElementVisible(int32 Index, bool bVisible)
 {
 	if (ElementFields.IsValidIndex(Index) && ElementFields[Index])
 	{
-		ElementFields[Index]->SetActorHiddenInGame(!bVisible);
+		SetFieldVisible(*ElementFields[Index], bVisible);
 		return;
 	}
 	if (!MineralMeshes.IsValidIndex(Index) || !MineralMeshes[Index])
@@ -441,7 +499,7 @@ void APlanetMineralViewActor::SetAllElementsVisible(bool bVisible)
 	{
 		if (Field)
 		{
-			Field->SetActorHiddenInGame(!bVisible);
+			SetFieldVisible(*Field, bVisible);
 		}
 	}
 	for (UDynamicMeshComponent* Component : MineralMeshes)

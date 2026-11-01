@@ -50,10 +50,11 @@ bool AVoxelMineralFieldActor::CreateForElement(
 	const AVoxelWorld& PlanetWorld,
 	UMaterialInterface* BaseMaterial)
 {
-	// 没有世界就没有体素世界可建：AVoxelWorld::CreateWorld 第一件事就是取
-	// GetWorld()->WorldType（VoxelWorld.cpp:244-246），空指针当场访问违例，且不带
-	// 任何诊断。AVoxelPlanetActor::RebuildPlanet 对同一条约束有同款守卫
-	//（VoxelPlanetActor.cpp:585-590），这里跟它一致。
+	// 没有世界就没有体素世界可建：AVoxelWorld::CreateWorld 在**编辑器构建**里第一
+	// 件事就是解引用 GetWorld()->WorldType（VoxelWorld.cpp:244-246：244 行是
+	// #if WITH_EDITOR、245-246 才是解引用；这段在非编辑器构建里被编译掉）。空指针
+	// 当场访问违例且不带任何诊断。AVoxelPlanetActor::RebuildPlanet 对同一条约束
+	// 有同款守卫（VoxelPlanetActor.cpp:585-590），这里跟它一致。
 	//
 	// 早退不丢东西：本 Actor 没有任何在「进世界之前」被调用的入口
 	//（不覆写 OnConstruction / PostEditChangeProperty），所以不存在
