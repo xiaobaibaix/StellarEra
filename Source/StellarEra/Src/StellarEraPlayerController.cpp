@@ -20,6 +20,7 @@
 #include "InputMappingContext.h"
 #include "InputModifiers.h"
 #include "Engine/Engine.h"
+#include "Components/ChildActorComponent.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/LocalPlayer.h"
 #include "EngineUtils.h"
@@ -128,6 +129,8 @@ void AStellarEraPlayerController::SetupInputComponent()
 	EnhancedInput->BindAction(IA_Look, ETriggerEvent::Triggered, this, &AStellarEraPlayerController::OnLook);
 	EnhancedInput->BindAction(IA_LookActivate, ETriggerEvent::Started, this, &AStellarEraPlayerController::OnLookActivateStarted);
 	EnhancedInput->BindAction(IA_LookActivate, ETriggerEvent::Completed, this, &AStellarEraPlayerController::OnLookActivateCompleted);
+	EnhancedInput->BindAction(IA_LookMiddle, ETriggerEvent::Started, this, &AStellarEraPlayerController::OnLookMiddleStarted);
+	EnhancedInput->BindAction(IA_LookMiddle, ETriggerEvent::Completed, this, &AStellarEraPlayerController::OnLookMiddleCompleted);
 	EnhancedInput->BindAction(IA_Jump, ETriggerEvent::Started, this, &AStellarEraPlayerController::OnJump);
 	EnhancedInput->BindAction(IA_Sprint, ETriggerEvent::Started, this, &AStellarEraPlayerController::OnSprintStarted);
 	EnhancedInput->BindAction(IA_Sprint, ETriggerEvent::Completed, this, &AStellarEraPlayerController::OnSprintCompleted);
@@ -234,6 +237,7 @@ void AStellarEraPlayerController::ApplyMouseModeForPawn(APawn* InPawn)
 	// 或者星图里没按左键也在转视角。
 	bLookHeld = false;
 	bStarMapSelectHeld = false;
+	bStarMapMiddleHeld = false;
 	bEditRightPressValid = false;
 
 	const bool bWalking = Cast<APlanetCharacter>(InPawn) != nullptr;
@@ -312,6 +316,7 @@ void AStellarEraPlayerController::BuildInputAssets()
 	IA_Move = MakeAction(this, TEXT("IA_Move"), EInputActionValueType::Axis2D);
 	IA_Look = MakeAction(this, TEXT("IA_Look"), EInputActionValueType::Axis2D);
 	IA_LookActivate = MakeAction(this, TEXT("IA_LookActivate"), EInputActionValueType::Boolean);
+	IA_LookMiddle = MakeAction(this, TEXT("IA_LookMiddle"), EInputActionValueType::Boolean);
 	IA_Jump = MakeAction(this, TEXT("IA_Jump"), EInputActionValueType::Boolean);
 	IA_Sprint = MakeAction(this, TEXT("IA_Sprint"), EInputActionValueType::Boolean);
 
@@ -343,9 +348,12 @@ void AStellarEraPlayerController::BuildInputAssets()
 	MapKey(MappingContext, IA_Move, EKeys::D, { MakeSwizzleYXZ(this) });
 	MapKey(MappingContext, IA_Move, EKeys::A, { MakeSwizzleYXZ(this), MakeNegate(this) });
 
-	// 鼠标位移本身一直有值，能不能用由 IA_LookActivate（右键）在 OnLook 里把关。
+	// 鼠标位移本身一直有值，能不能用、拿去干什么由 OnLook 按按住的键分派：
+	// 右键 = 转头（Aim），左键 = 绕行，中键 = 绕行（编辑 / 矿物透视下左键被借走时用）。
+	// 三个键都要分别映射成布尔动作 —— IA_Look 只有位移，分不清按的是哪个键。
 	MapKey(MappingContext, IA_Look, EKeys::Mouse2D);
 	MapKey(MappingContext, IA_LookActivate, EKeys::RightMouseButton);
+	MapKey(MappingContext, IA_LookMiddle, EKeys::MiddleMouseButton);
 
 	MapKey(MappingContext, IA_Jump, EKeys::SpaceBar);
 	MapKey(MappingContext, IA_Sprint, EKeys::LeftShift);
@@ -429,26 +437,41 @@ void AStellarEraPlayerController::OnMove(const FInputActionValue& Value)
 	}
 }
 
-bool AStellarEraPlayerController::ShouldOrbitStarMapLook(
-	const bool bLookHeld,
+EStarMapLookMode AStellarEraPlayerController::ResolveStarMapLookMode(
+	const bool bRightHeld,
+	const bool bLeftHeld,
+	const bool bMiddleHeld,
 	const bool bEditMode,
 	const bool bContinuousDigging,
 	const bool bActiveMineralView)
 {
-	// 连续挖期间连右键也不放行：挖掘点跟着光标走，视角一动路径就画歪了。
+	// 连续挖期间一个键都不放行：挖掘点跟着光标走，视角一动路径就画歪了。
+	// 转头也算 —— 视线一变，屏幕射线跟着变，挖掘点一样会漂。
 	if (bContinuousDigging)
 	{
-		return false;
+		return EStarMapLookMode::None;
 	}
 
-	// 编辑模式与矿物透视都把左键借走了 —— 前者是挖掘 / 填充，后者是图例点击。
-	// 这两种状态下视角只认右键（与角色「不按右键就别动视角」是同一套门）。
-	if (!bLookHeld && (bEditMode || bActiveMineralView))
+	// 右键优先：它只转头、不挪相机，与同时按住的其它键不冲突。
+	if (bRightHeld)
 	{
-		return false;
+		return EStarMapLookMode::Aim;
 	}
 
-	return true;
+	// 中键绕行不看模式：编辑 / 矿物透视下左键被借走时，它就是唯一的绕行键。
+	if (bMiddleHeld)
+	{
+		return EStarMapLookMode::Orbit;
+	}
+
+	// 左键在编辑模式（挖掘 / 填充）与矿物透视（图例点击）里已经被借走，
+	// 这两种状态下按下左键必须什么都不做。
+	if (bLeftHeld && !bEditMode && !bActiveMineralView)
+	{
+		return EStarMapLookMode::Orbit;
+	}
+
+	return EStarMapLookMode::None;
 }
 
 void AStellarEraPlayerController::OnLook(const FInputActionValue& Value)
@@ -475,19 +498,27 @@ void AStellarEraPlayerController::OnLook(const FInputActionValue& Value)
 	else if (AStarMapCameraPawn* StarMap = Cast<AStarMapCameraPawn>(GetPawn()))
 	{
 		// 星图的鼠标位移只在按住鼠标（CaptureDuringMouseDown）时才有值，所以
-		// 「现在按的是左键还是右键」只能靠 bLookHeld（右键）区分。什么时候该转、
-		// 什么时候不该转全在 ShouldOrbitStarMapLook 里，见它的说明。
+		// 「现在按的是哪个键」靠各键的按住标志区分；拿去哪由 ResolveStarMapLookMode
+		// 决定（右键转头 / 左键绕行 / 中键绕行 / 编辑时左键什么都不做）。
 		const UPlanetEditComponent* Edit = GetEditComponentInEditMode();
-		if (!ShouldOrbitStarMapLook(
-				bLookHeld,
-				Edit != nullptr,
-				Edit && Edit->IsContinuousDigging(),
-				ActiveMineralView != nullptr))
+		switch (ResolveStarMapLookMode(
+			bLookHeld,
+			bStarMapSelectHeld,
+			bStarMapMiddleHeld,
+			Edit != nullptr,
+			Edit && Edit->IsContinuousDigging(),
+			ActiveMineralView != nullptr))
 		{
-			return;
+		case EStarMapLookMode::Orbit:
+			StarMap->OrbitLook(DeltaYaw, DeltaPitch);
+			break;
+		case EStarMapLookMode::Aim:
+			StarMap->AimLook(DeltaYaw, DeltaPitch);
+			break;
+		case EStarMapLookMode::None:
+		default:
+			break;
 		}
-
-		StarMap->OrbitLook(DeltaYaw, DeltaPitch);
 	}
 }
 
@@ -556,6 +587,18 @@ void AStellarEraPlayerController::OnLookActivateCompleted(const FInputActionValu
 	}
 
 	Edit->PlaceAtScreenPosition(FVector2D(MouseX, MouseY));
+}
+
+void AStellarEraPlayerController::OnLookMiddleStarted(const FInputActionValue& Value)
+{
+	// 只记状态、不区分 Pawn：分派在 OnLook 里，角色/飞船根本不看这个标志。
+	// 星图里它是「编辑模式下左键被借走」时的绕行键（见 ResolveStarMapLookMode）。
+	bStarMapMiddleHeld = true;
+}
+
+void AStellarEraPlayerController::OnLookMiddleCompleted(const FInputActionValue& Value)
+{
+	bStarMapMiddleHeld = false;
 }
 
 void AStellarEraPlayerController::OnJump(const FInputActionValue& Value)
@@ -913,6 +956,90 @@ ASpaceshipPawn* AStellarEraPlayerController::ResolveStarMapFocusShip(APawn* Ente
 	return nullptr;
 }
 
+AVoxelPlanetActor* AStellarEraPlayerController::ResolveReferencePlanet(const APawn* EnteringPawn)
+{
+	if (!EnteringPawn)
+	{
+		return nullptr;
+	}
+
+	// 驾驶中：飞船的参考行星由 CosmosSimulationSubsystem 每帧维护（最近的行星），
+	// 是「玩家心中的当前行星」的权威来源，不要在这里重新算一遍距离。
+	if (const ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(EnteringPawn))
+	{
+		return Ship->GetPlanetActor();
+	}
+
+	// 步行：角色的 PlanetActor 由它自己的重评定时器维护（ReevaluatePlanet）。
+	// 深空里两者都可能为空 —— 那就退回单例相机，见 ToggleStarMap 进入分支。
+	if (const APlanetCharacter* Character = Cast<APlanetCharacter>(EnteringPawn))
+	{
+		return Character->PlanetActor;
+	}
+
+	return nullptr;
+}
+
+AStarMapCameraPawn* AStellarEraPlayerController::FindChildStarMapCamera(const AActor* PlanetOwner)
+{
+	if (!PlanetOwner)
+	{
+		return nullptr;
+	}
+
+	// 只扫 CAC 的「已创建子 Actor」。GetChildActor() 在组件注册后才有值；
+	// CDO / 未实例化的模板上恒为空 —— FindChildStarMapCamera(CDO) 返回空是预期行为。
+	//
+	// 用 AActor::GetComponents<T>（C++ 口径），不是 GetComponentsByClass ——
+	// 后者在 5.8 里只有蓝图包装 K2_GetComponentsByClass，C++ 直接调不到。
+	TArray<UChildActorComponent*> ChildActorComponents;
+	PlanetOwner->GetComponents<UChildActorComponent>(ChildActorComponents);
+	for (UChildActorComponent* ChildActorComponent : ChildActorComponents)
+	{
+		if (AStarMapCameraPawn* Camera = Cast<AStarMapCameraPawn>(ChildActorComponent->GetChildActor()))
+		{
+			return Camera;
+		}
+	}
+	return nullptr;
+}
+
+AStarMapCameraPawn* AStellarEraPlayerController::FindAttachedStarMapCamera(const AActor* PlanetOwner)
+{
+	if (!PlanetOwner)
+	{
+		return nullptr;
+	}
+
+	// 兜底路径：相机是关卡里的独立 Actor、手动 Attach 到星球（UniverseMap 里
+	// 现存的 3 台就是这种）。CAC 的子 Actor 也会 Attach 到宿主，所以 CAC 相机
+	// 在这里同样能被取到 —— 也就是说这条路对两种摆法都成立，只是让位给 CAC 扫描。
+	//
+	// 不递归：只认直接挂在星球上的第一层，避免行星的其它挂载物（飞船、角色、
+	// 后续的采矿平台）里再藏一台相机时被误取。
+	TArray<AActor*> AttachedActors;
+	PlanetOwner->GetAttachedActors(AttachedActors, /*bResetArray=*/true,
+		/*bRecursivelyIncludeAttachedActors=*/false);
+	for (AActor* AttachedActor : AttachedActors)
+	{
+		if (AStarMapCameraPawn* Camera = Cast<AStarMapCameraPawn>(AttachedActor))
+		{
+			return Camera;
+		}
+	}
+	return nullptr;
+}
+
+AStarMapCameraPawn* AStellarEraPlayerController::ResolvePlanetStarMapCamera(const APawn* EnteringPawn)
+{
+	const AActor* PlanetOwner = ResolveReferencePlanet(EnteringPawn);
+	if (AStarMapCameraPawn* ChildCamera = FindChildStarMapCamera(PlanetOwner))
+	{
+		return ChildCamera;
+	}
+	return FindAttachedStarMapCamera(PlanetOwner);
+}
+
 void AStellarEraPlayerController::OnMineralViewToggle()
 {
 	if (!Cast<AStarMapCameraPawn>(GetPawn()))
@@ -1052,36 +1179,50 @@ void AStellarEraPlayerController::ToggleStarMap()
 	}
 
 	// ── 进入 ──
-	if (!StarMapPawn)
+	// 进入前的 Pawn 先记下：既决定焦点飞船（ResolveStarMapFocusShip），也决定
+	// 用哪台相机（ResolvePlanetStarMapCamera）。原来这行写在 EnterFrom 之后，
+	// 现在提前 —— EnterFrom 与选相机都不改 GetPawn()，语义不变、依赖先满足。
+	PreviousPawn = GetPawn();
+
+	// B2 路线（2026-11-01 用户选定）：BP_VoxelPlanet 挂一个 Child Actor Component
+	// （子类 BP_StarMapCameraPawn），「星球 + 它的星图相机」成为一个可整体复制的
+	// 组合，参数（缩放步长 / 高度区间 / 最大距离）按星球在组件细节面板里配。
+	// 找得到就用它；找不到（行星没挂 CAC、或从深空进图）退回下面的懒创建单例，
+	// 行为与旧版完全一致 —— 所以没挂 CAC 的存量关卡不用改也能跑。
+	AStarMapCameraPawn* CameraToUse = ResolvePlanetStarMapCamera(PreviousPawn.Get());
+	if (!CameraToUse)
 	{
-		// 懒创建，之后复用：每次进出都 Spawn/Destroy 没必要。
-		FActorSpawnParameters SpawnParams;
-		SpawnParams.Owner = this;
-		SpawnParams.SpawnCollisionHandlingOverride =
-			ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		UClass* const PawnClass = StarMapPawnClass
-			? StarMapPawnClass.Get()
-			: AStarMapCameraPawn::StaticClass();
-		StarMapPawn = GetWorld()->SpawnActor<AStarMapCameraPawn>(
-			PawnClass, FTransform::Identity, SpawnParams);
+		if (!StarMapPawn)
+		{
+			// 懒创建，之后复用：每次进出都 Spawn/Destroy 没必要。
+			FActorSpawnParameters SpawnParams;
+			SpawnParams.Owner = this;
+			SpawnParams.SpawnCollisionHandlingOverride =
+				ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			UClass* const PawnClass = StarMapPawnClass
+				? StarMapPawnClass.Get()
+				: AStarMapCameraPawn::StaticClass();
+			StarMapPawn = GetWorld()->SpawnActor<AStarMapCameraPawn>(
+				PawnClass, FTransform::Identity, SpawnParams);
+		}
+		CameraToUse = StarMapPawn.Get();
 	}
-	if (!StarMapPawn)
+	if (!CameraToUse)
 	{
+		// 两条路都没拿到相机（Spawn 失败）。PreviousPawn 刚写、Possess 还没动，
+		// 原样清掉，别给退出分支留「上一个 Pawn 是自己」的脏状态。
+		PreviousPawn.Reset();
 		return;
 	}
 
 	// 「进入时相机原地不动、不选中」：把进入前的视角直接交给它当基准。
 	// 用 GetPlayerViewPoint 而不是读 Pawn 的变换 —— 相机在 tick 组之后才更新，
-	// Pawn 的变换不等于玩家此刻看到的画面。
+	// Pawn 的变换不等于玩家此刻看到的画面。行星相机的 Actor 变换不影响渲染
+	// （CalcCamera 按焦点现算），Attach 在行星上只影响它在大纲/层级里的归属。
 	FVector ViewLocation;
 	FRotator ViewRotation;
 	GetPlayerViewPoint(ViewLocation, ViewRotation);
-	StarMapPawn->EnterFrom(ViewLocation, ViewRotation);
-
-	// 记住进入前 Possess 的是谁：退出时要换回去；进入后以飞船为焦点拉远 ——
-	// 驾驶中就是当前飞船，步行则是角色最近的飞船。步行若没有焦点，相机只会
-	// 冻在眼位、UI 也没有选中可画，看起来就像 M 键没生效。
-	PreviousPawn = GetPawn();
+	CameraToUse->EnterFrom(ViewLocation, ViewRotation);
 
 	// 进星图前退出编辑模式：星图里左键是拾取，不能同时保留笔刷状态与网格。
 	ForceExitEditMode(PreviousPawn.Get());
@@ -1090,16 +1231,21 @@ void AStellarEraPlayerController::ToggleStarMap()
 
 	Subsystem->SetSelectedBody(nullptr);
 	Subsystem->SetStarMapActive(true);
-	Possess(StarMapPawn);
+	Possess(CameraToUse);
 
 	// 进入前有焦点飞船（驾驶中就是当前飞船，步行时是最近的飞船）：选中它，
 	// 并让相机以它为焦点、沿当前视线拉远到能看清飞船连同附近轨道。放在 Possess
 	// 之后 —— FocusOn 只改相机 Pawn 自己的状态，不依赖 Possess，但语义上
 	// 「进入星图」这个动作应当整体先完成再调相机。
+	//
+	// **就算用的是行星相机，图内点选别的星球也只走 SetSelectedBody + FocusOn、
+	// 不换相机**：换相机 = 换 Possess = 两台相机各 4 个 invoker 的 bUseForLOD
+	// 翻转 = 体素八叉树全量重建，正是 2026-10-24 那个 chunk 簿记 ensure 的触发
+	// 模式。单相机 + 换焦点没有这个成本，「每星球一台」的差异收敛到参数上。
 	if (EnteringShip)
 	{
 		Subsystem->SetSelectedBody(EnteringShip);
-		StarMapPawn->FocusOn(EnteringShip, StarMapFocusDistanceCm);
+		CameraToUse->FocusOn(EnteringShip, StarMapFocusDistanceCm);
 	}
 }
 

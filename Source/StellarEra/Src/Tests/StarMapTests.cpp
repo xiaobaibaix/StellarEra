@@ -7,6 +7,7 @@
 #include "CosmosOrbitComponent.h"
 #include "CosmosSimulationSubsystem.h"
 #include "CosmosTrajectoryComponent.h"
+#include "Components/ChildActorComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "PlanetCharacter.h"
@@ -16,6 +17,8 @@
 #include "StellarEraPlayerController.h"
 
 #include "BlueprintComponentTestHelpers.h"
+
+#include <limits>
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -646,40 +649,343 @@ bool FStellarEraStarMapBlueprintPawnTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapLookGateTest,
-	"StellarEra.StarMap.LookGate",
+// 星图里左 / 右 / 中三个键各管什么。纯函数，OnLook 调它，测试直接调它。
+//
+// 右键在本项目里是「转头」的通用键。星图里它改的是**视线朝向**而不是绕行位置
+// （见 AStarMapCameraPawn::AimLook）：锁定天体后画面不再死盯球心，但相机到焦点的
+// 距离与绕行方向都不变。
+//
+// 左键默认绕行；编辑模式 / 矿物透视把左键借走（挖掘填充 / 图例）之后，绕行改由
+// 中键承担 —— 否则这两种状态下就没有绕行的键了。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapLookDispatchTest,
+	"StellarEra.StarMap.LookDispatch",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FStellarEraStarMapLookGateTest::RunTest(const FString& Parameters)
+bool FStellarEraStarMapLookDispatchTest::RunTest(const FString& Parameters)
 {
-	// 参数顺序：(bLookHeld, bEditMode, bContinuousDigging, bActiveMineralView)
-	// bLookHeld = 右键按着 —— 星图的鼠标位移只在按住鼠标时才有值，
-	// 「按的是哪个键」只能靠它区分。
-	using FGate = AStellarEraPlayerController;
+	using FController = AStellarEraPlayerController;
+	using EMode = EStarMapLookMode;
 
-	// ── 普通星图：左键拖拽就转视角（也是选中时区分点击 / 拖拽的那条路）──
-	TestTrue(TEXT("普通星图 左键转视角"),
-		FGate::ShouldOrbitStarMapLook(/*Look*/ false, /*Edit*/ false, /*Dig*/ false, /*Mineral*/ false));
-	TestTrue(TEXT("普通星图 右键转视角"),
-		FGate::ShouldOrbitStarMapLook(true, false, false, false));
+	// 参数顺序：(右键, 左键, 中键, 编辑模式, 连续挖, 矿物透视)
+	auto Resolve = [](bool bRight, bool bLeft, bool bMiddle, bool bEdit, bool bDig, bool bMineral)
+	{
+		return FController::ResolveStarMapLookMode(bRight, bLeft, bMiddle, bEdit, bDig, bMineral);
+	};
 
-	// ── 编辑模式：左键归挖掘 / 填充，视角只认右键 ──
-	TestFalse(TEXT("编辑模式 左键不转视角"),
-		FGate::ShouldOrbitStarMapLook(false, true, false, false));
-	TestTrue(TEXT("编辑模式 右键转视角"),
-		FGate::ShouldOrbitStarMapLook(true, true, false, false));
+	// ── 普通星图：左键绕行、右键转头、中键也绕行 ──
+	TestTrue(TEXT("普通星图 左键绕行"), Resolve(false, true, false, false, false, false) == EMode::Orbit);
+	TestTrue(TEXT("普通星图 右键转头"), Resolve(true, false, false, false, false, false) == EMode::Aim);
+	TestTrue(TEXT("普通星图 中键绕行"), Resolve(false, false, true, false, false, false) == EMode::Orbit);
 
-	// ── 连续挖：右键也压住，否则挖掘点会跟着视角漂 ──
-	TestFalse(TEXT("连续挖 左键不转视角"),
-		FGate::ShouldOrbitStarMapLook(false, true, true, false));
-	TestFalse(TEXT("连续挖 右键也不转视角"),
-		FGate::ShouldOrbitStarMapLook(true, true, true, false));
+	// ── 编辑模式：左键归挖掘 / 填充，绕行改由中键，右键仍转头 ──
+	TestTrue(TEXT("编辑模式 左键不转"), Resolve(false, true, false, true, false, false) == EMode::None);
+	TestTrue(TEXT("编辑模式 右键转头"), Resolve(true, false, false, true, false, false) == EMode::Aim);
+	TestTrue(TEXT("编辑模式 中键绕行"), Resolve(false, false, true, true, false, false) == EMode::Orbit);
 
 	// ── 矿物透视：左键归图例，与编辑模式同一套门 ──
-	TestFalse(TEXT("矿物透视 左键不转视角"),
-		FGate::ShouldOrbitStarMapLook(false, false, false, true));
-	TestTrue(TEXT("矿物透视 右键转视角"),
-		FGate::ShouldOrbitStarMapLook(true, false, false, true));
+	TestTrue(TEXT("矿物透视 左键不转"), Resolve(false, true, false, false, false, true) == EMode::None);
+	TestTrue(TEXT("矿物透视 右键转头"), Resolve(true, false, false, false, false, true) == EMode::Aim);
+	TestTrue(TEXT("矿物透视 中键绕行"), Resolve(false, false, true, false, false, true) == EMode::Orbit);
+
+	// ── 连续挖：一个键都不放行 —— 挖掘点跟着光标走，视角一动路径就画歪 ──
+	TestTrue(TEXT("连续挖 左键不转"), Resolve(false, true, false, true, true, false) == EMode::None);
+	TestTrue(TEXT("连续挖 右键不转头"), Resolve(true, false, false, true, true, false) == EMode::None);
+	TestTrue(TEXT("连续挖 中键不转"), Resolve(false, false, true, true, true, false) == EMode::None);
+
+	// ── 同时按住：右键优先（转头不改变位置，比绕行更「安全」）──
+	TestTrue(TEXT("左右同按 右键优先"), Resolve(true, true, false, false, false, false) == EMode::Aim);
+	TestTrue(TEXT("右中同按 右键优先"), Resolve(true, false, true, false, false, false) == EMode::Aim);
+
+	// ── 什么都没按：不动 ──
+	TestTrue(TEXT("没按键 不动"), Resolve(false, false, false, false, false, false) == EMode::None);
+
+	return true;
+}
+
+// 转头偏移的圆锥夹取。OrbitRotation 决定相机位置，AimOffset 只决定朝向：
+// 合成后的视线方向必须落在「相机 → 焦点」方向的 MaxAimOffsetDeg 圆锥内，
+// 否则玩家能把镜头转到背后，绕行位置与画面对不上。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapAimConeTest,
+	"StellarEra.StarMap.AimCone",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraStarMapAimConeTest::RunTest(const FString& Parameters)
+{
+	constexpr double Tolerance = 1e-6;
+
+	/** 两个朝向之间的夹角（度）。 */
+	auto AngleBetween = [](const FRotator& A, const FRotator& B)
+	{
+		const double Dot = FMath::Clamp(
+			double(FVector::DotProduct(A.Vector(), B.Vector())), -1.0, 1.0);
+		return FMath::RadiansToDegrees(FMath::Acos(Dot));
+	};
+
+	// 基准朝向：看向 +X（yaw 0 / pitch 0 / roll 0）。
+	const FRotator Base = FRotator::ZeroRotator;
+	constexpr double MaxDeg = 90.0;
+
+	// ── 不超界：原样合成，一点都不夹 ──
+	{
+		const FRotator Out = AStarMapCameraPawn::ClampAimOffset(Base, FRotator(0.0, 30.0, 0.0), MaxDeg);
+		TestEqual(TEXT("30° 偏航不夹取 yaw"), Out.Yaw, 30.0, Tolerance);
+		TestEqual(TEXT("30° 偏航不夹取 pitch"), Out.Pitch, 0.0, Tolerance);
+	}
+
+	// ── 超界：压回锥面（方向夹角恰好等于上限）──
+	{
+		const FRotator Out = AStarMapCameraPawn::ClampAimOffset(Base, FRotator(0.0, 120.0, 0.0), MaxDeg);
+		TestEqual(TEXT("120° 偏航夹到 90°"), AngleBetween(Out, Base), 90.0, Tolerance);
+		TestEqual(TEXT("夹取后只剩偏航"), Out.Pitch, 0.0, Tolerance);
+	}
+
+	// 俯仰方向单独超界同样要夹。
+	{
+		const FRotator Out = AStarMapCameraPawn::ClampAimOffset(Base, FRotator(120.0, 0.0, 0.0), MaxDeg);
+		TestEqual(TEXT("120° 俯仰夹到 90°"), AngleBetween(Out, Base), 90.0, Tolerance);
+	}
+
+	// 斜向超界：俯仰与偏航同时给大值时，合成方向实际是 104.5°，同样要压回 90°。
+	{
+		const FRotator Out = AStarMapCameraPawn::ClampAimOffset(Base, FRotator(60.0, 120.0, 0.0), MaxDeg);
+		TestEqual(TEXT("斜向 104.5° 夹到 90°"), AngleBetween(Out, Base), 90.0, Tolerance);
+	}
+
+	// 越过天顶的偏移（pitch 100°）合成出来只有 80° —— 说明夹取按**合成后的夹角**
+	// 判，不是逐轴判：逐轴版会先把 pitch 压到 90、把 yaw 压到 180 以内的另一支，
+	// 得到的方向根本不一样。
+	{
+		const FRotator Out = AStarMapCameraPawn::ClampAimOffset(Base, FRotator(100.0, 180.0, 0.0), MaxDeg);
+		TestEqual(TEXT("pitch 100°/yaw 180° 合成后仅 80°，不夹取"),
+			AngleBetween(Out, Base), 80.0, Tolerance);
+	}
+
+	// ── 边界：恰好等于上限不夹 ──
+	{
+		const FRotator Out = AStarMapCameraPawn::ClampAimOffset(Base, FRotator(0.0, 90.0, 0.0), MaxDeg);
+		TestEqual(TEXT("恰好 90° 不夹取"), Out.Yaw, 90.0, Tolerance);
+	}
+
+	// ── 上限 0：退化成品，原样返回基准朝向 ──
+	{
+		const FRotator Out = AStarMapCameraPawn::ClampAimOffset(Base, FRotator(0.0, 30.0, 0.0), 0.0);
+		TestTrue(TEXT("上限 0 返回基准朝向"), Out.Equals(Base, Tolerance));
+	}
+
+	// ── NaN：按「没有偏移」处理，绝不能把 NaN 写进 OutResult.Rotation ──
+	{
+		const FRotator Out = AStarMapCameraPawn::ClampAimOffset(
+			Base, FRotator(0.0, std::numeric_limits<double>::quiet_NaN(), 0.0), MaxDeg);
+		TestTrue(TEXT("NaN 偏航退回基准朝向"), Out.Equals(Base, Tolerance));
+	}
+
+	// ── 基准朝向非零：夹的是相对基准的夹角，不是世界轴 ──
+	{
+		const FRotator Tilted(0.0, 45.0, 0.0);
+		const FRotator Out = AStarMapCameraPawn::ClampAimOffset(Tilted, FRotator(0.0, 150.0, 0.0), MaxDeg);
+		TestEqual(TEXT("非零基准 夹到 90°"), AngleBetween(Out, Tilted), 90.0, Tolerance);
+	}
+
+	// ── 夹取结果的 roll 恒为 0：星图相机不允许翻滚 ──
+	{
+		const FRotator Out = AStarMapCameraPawn::ClampAimOffset(Base, FRotator(20.0, 20.0, 30.0), MaxDeg);
+		TestEqual(TEXT("偏移里的 roll 被丢掉"), Out.Roll, 0.0, Tolerance);
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapPlanetCameraTest,
+	"StellarEra.StarMap.PlanetCamera",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraStarMapPlanetCameraTest::RunTest(const FString& Parameters)
+{
+	// B2 路线（2026-11-01，用户选定）：BP_VoxelPlanet 挂 Child Actor Component 当
+	// 「自带相机」，控制器进图时优先用它（ResolvePlanetStarMapCamera）。解析链有
+	// 三段要验：CAC 扫描（FindChildStarMapCamera）、附加 Actor 兜底扫描
+	// （FindAttachedStarMapCamera）、以及 Pawn → 行星 → 相机的串联与优先级。
+	// 行星本体不真生（体素组件太重）：扫描只读组件 / 附加关系与 Cast，
+	// 「普通 Actor + CAC / 附加相机」就能把逻辑验满；串联的「解析不出行星」
+	// 分支用没走 BeginPlay 的飞船验（编辑器世界 SpawnActor 只走 OnRegister）。
+
+	UWorld* World = UWorld::CreateWorld(EWorldType::Editor, false);
+	if (!TestNotNull(TEXT("测试世界"), World))
+	{
+		return false;
+	}
+	FWorldContext& WorldContext = GEngine->CreateNewWorldContext(EWorldType::Editor);
+	WorldContext.SetCurrentWorld(World);
+	World->InitializeActorsForPlay(FURL());
+
+	ON_SCOPE_EXIT
+	{
+		GEngine->DestroyWorldContext(World);
+		World->DestroyWorld(false);
+	};
+
+	// 裸 AActor 没有根组件，AttachToActor 会静默失败（附加关系建立不起来）。
+	// 测试里的「行星 / 挂载物」统一用这个造：带一个已注册的 SceneComponent 当根。
+	auto MakeActor = [World](const TCHAR* Label) -> AActor*
+	{
+		AActor* Actor = World->SpawnActor<AActor>(AActor::StaticClass(), FTransform::Identity);
+		if (!Actor)
+		{
+			return nullptr;
+		}
+		USceneComponent* Root = NewObject<USceneComponent>(Actor, TEXT("TestRoot"));
+		Actor->SetRootComponent(Root);
+		Root->RegisterComponent();
+		UE_LOG(LogTemp, Verbose, TEXT("[test] 造 Actor %s"), Label);
+		return Actor;
+	};
+
+	// ══ 一、CAC 扫描：BP_VoxelPlanet 上那台「自带相机」══
+
+	// ── 空 Owner / 没挂 CAC：返回空，不是崩 ──
+	TestTrue(TEXT("CAC: 空 Owner → 空"),
+		AStellarEraPlayerController::FindChildStarMapCamera(nullptr) == nullptr);
+
+	AActor* NoCacOwner = MakeActor(TEXT("没挂 CAC 的行星"));
+	if (!TestNotNull(TEXT("没挂 CAC 的行星"), NoCacOwner))
+	{
+		return false;
+	}
+	TestTrue(TEXT("CAC: 没挂 CAC → 空"),
+		AStellarEraPlayerController::FindChildStarMapCamera(NoCacOwner) == nullptr);
+
+	// ── CAC 子类不是星图相机：不认 ──
+	// AActor 是抽象类，用具体可生成的 APawn 当「错的子类」。
+	AActor* WrongCacOwner = MakeActor(TEXT("子类错误的行星"));
+	if (!TestNotNull(TEXT("子类错误的行星"), WrongCacOwner))
+	{
+		return false;
+	}
+	UChildActorComponent* WrongCac = NewObject<UChildActorComponent>(WrongCacOwner);
+	WrongCac->SetChildActorClass(APawn::StaticClass());
+	WrongCac->RegisterComponent();
+	TestTrue(TEXT("CAC: 子类不是星图相机 → 空"),
+		AStellarEraPlayerController::FindChildStarMapCamera(WrongCacOwner) == nullptr);
+
+	// ── CAC 子类是星图相机：返回子 Actor，且归属是行星 Actor ──
+	AActor* CacPlanet = MakeActor(TEXT("挂了 CAC 的行星"));
+	if (!TestNotNull(TEXT("挂了 CAC 的行星"), CacPlanet))
+	{
+		return false;
+	}
+	UChildActorComponent* CameraCac = NewObject<UChildActorComponent>(CacPlanet);
+	CameraCac->SetChildActorClass(AStarMapCameraPawn::StaticClass());
+	CameraCac->RegisterComponent();
+
+	AStarMapCameraPawn* ChildCamera =
+		AStellarEraPlayerController::FindChildStarMapCamera(CacPlanet);
+	if (!TestNotNull(TEXT("CAC: 挂了相机 → 解析到子相机"), ChildCamera))
+	{
+		return false;
+	}
+	// 注意：UChildActorComponent 构造里 bSetOwner=false，子 Actor 的 GetOwner() 就是空，
+	// 只有 ParentComponent/ParentActor 指向宿主。别拿 GetOwner() 断言。
+	TestTrue(TEXT("CAC: 解析到的就是该组件的子 Actor"),
+		ChildCamera == Cast<AStarMapCameraPawn>(CameraCac->GetChildActor()));
+	TestTrue(TEXT("CAC: 子相机的父 Actor 是行星 Actor"),
+		ChildCamera->GetAttachParentActor() == CacPlanet);
+
+	// ── 优先级：CAC 与手动附加相机同时存在时，取 CAC 的那台 ──
+	// 过渡期真实情况 —— 三颗行星上既有新加的 CAC，也还留着旧的手动相机。
+	AStarMapCameraPawn* LegacyCamera = World->SpawnActor<AStarMapCameraPawn>(
+		AStarMapCameraPawn::StaticClass(), FTransform::Identity);
+	if (!TestNotNull(TEXT("旧的手动相机"), LegacyCamera))
+	{
+		return false;
+	}
+	TestTrue(TEXT("旧相机挂到同一颗行星上"),
+		LegacyCamera->AttachToActor(CacPlanet, FAttachmentTransformRules::KeepRelativeTransform));
+	TestTrue(TEXT("CAC: 两种相机都在时优先取 CAC 的"),
+		AStellarEraPlayerController::FindChildStarMapCamera(CacPlanet) == ChildCamera);
+
+	// ══ 二、附加 Actor 兜底扫描：手动 Attach 的旧摆法 ══
+
+	// ── 空 Owner / 没挂任何 Actor：返回空，不是崩 ──
+	TestTrue(TEXT("附加: 空 Owner → 空"),
+		AStellarEraPlayerController::FindAttachedStarMapCamera(nullptr) == nullptr);
+
+	AActor* Plain = MakeActor(TEXT("普通 Actor"));
+	if (!TestNotNull(TEXT("普通 Actor"), Plain))
+	{
+		return false;
+	}
+	TestTrue(TEXT("没挂附加 Actor → 空"),
+		AStellarEraPlayerController::FindAttachedStarMapCamera(Plain) == nullptr);
+
+	// ── 挂了东西但不是星图相机：不认 ──
+	AActor* WrongOwner = MakeActor(TEXT("错误子类 Owner"));
+	AActor* WrongChild = MakeActor(TEXT("错误子类 Child"));
+	if (!TestNotNull(TEXT("错误子类 Owner"), WrongOwner) ||
+		!TestNotNull(TEXT("错误子类 Child"), WrongChild))
+	{
+		return false;
+	}
+	TestTrue(TEXT("非相机也能挂上去"),
+		WrongChild->AttachToActor(WrongOwner, FAttachmentTransformRules::KeepRelativeTransform));
+	TestTrue(TEXT("附加的不是星图相机 → 空"),
+		AStellarEraPlayerController::FindAttachedStarMapCamera(WrongOwner) == nullptr);
+
+	// ── 直接挂星图相机：返回它，且父 Actor 是行星 ──
+	AActor* PlanetOwner = MakeActor(TEXT("行星 Owner"));
+	if (!TestNotNull(TEXT("行星 Owner"), PlanetOwner))
+	{
+		return false;
+	}
+	AStarMapCameraPawn* AttachedCamera = World->SpawnActor<AStarMapCameraPawn>(
+		AStarMapCameraPawn::StaticClass(), FTransform::Identity);
+	if (!TestNotNull(TEXT("星图相机"), AttachedCamera))
+	{
+		return false;
+	}
+	TestTrue(TEXT("相机挂到行星上"),
+		AttachedCamera->AttachToActor(PlanetOwner, FAttachmentTransformRules::KeepRelativeTransform));
+
+	AStarMapCameraPawn* Resolved =
+		AStellarEraPlayerController::FindAttachedStarMapCamera(PlanetOwner);
+	if (!TestNotNull(TEXT("挂了星图相机 → 解析到它"), Resolved))
+	{
+		return false;
+	}
+	TestTrue(TEXT("解析到的就是那台相机"), Resolved == AttachedCamera);
+	TestTrue(TEXT("相机的父 Actor 是行星"), Resolved->GetAttachParentActor() == PlanetOwner);
+
+	// ── 相机挂在「行星的挂载物」上（隔一层）：不认，避免飞船/平台上挂的相机被当成行星相机 ──
+	AActor* OuterPlanet = MakeActor(TEXT("外层行星"));
+	AActor* Middle = MakeActor(TEXT("中间挂载物"));
+	AStarMapCameraPawn* NestedCamera = World->SpawnActor<AStarMapCameraPawn>(
+		AStarMapCameraPawn::StaticClass(), FTransform::Identity);
+	if (!TestNotNull(TEXT("外层行星"), OuterPlanet) ||
+		!TestNotNull(TEXT("中间挂载物"), Middle) ||
+		!TestNotNull(TEXT("嵌套相机"), NestedCamera))
+	{
+		return false;
+	}
+	TestTrue(TEXT("挂载物挂到行星上"),
+		Middle->AttachToActor(OuterPlanet, FAttachmentTransformRules::KeepRelativeTransform));
+	TestTrue(TEXT("相机挂到挂载物上"),
+		NestedCamera->AttachToActor(Middle, FAttachmentTransformRules::KeepRelativeTransform));
+	TestTrue(TEXT("隔一层挂的相机 → 空（不递归）"),
+		AStellarEraPlayerController::FindAttachedStarMapCamera(OuterPlanet) == nullptr);
+
+	// ── 串联：进图 Pawn → 参考行星 → 相机 ──
+	TestTrue(TEXT("空 Pawn → 无行星相机"),
+		AStellarEraPlayerController::ResolvePlanetStarMapCamera(nullptr) == nullptr);
+
+	ASpaceshipPawn* Ship = World->SpawnActor<ASpaceshipPawn>(
+		ASpaceshipPawn::StaticClass(), FTransform::Identity);
+	if (!TestNotNull(TEXT("飞船"), Ship))
+	{
+		return false;
+	}
+	// 编辑器世界不走 BeginPlay，PlanetActor 还是空 —— 正好覆盖「解析不出行星」
+	// 的分支（深空进图 → 退回单例相机，见 ToggleStarMap 进入分支）。
+	TestTrue(TEXT("飞船无参考行星 → 无行星相机"),
+		AStellarEraPlayerController::ResolvePlanetStarMapCamera(Ship) == nullptr);
 
 	return true;
 }

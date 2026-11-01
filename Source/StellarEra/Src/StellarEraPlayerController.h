@@ -11,12 +11,30 @@
 
 class AStarMapCameraPawn;
 class ASpaceshipPawn;
+class AVoxelPlanetActor;
 class UInputAction;
 class UInputMappingContext;
 class UPlanetMineralViewComponent;
 class UPlanetEditComponent;
 struct FInputActionValue;
 struct FStarMapScreenCandidate;
+
+/**
+ * 星图里鼠标位移该拿去干什么。
+ *
+ * - `Orbit`：绕焦点转（相机位置跟着变），见 AStarMapCameraPawn::OrbitLook。
+ * - `Aim`：只转视线朝向（相机位置不变），见 AStarMapCameraPawn::AimLook。
+ * - `None`：正在编辑 / 连续挖，视角一律不动。
+ *
+ * 与「哪个键按着」分开建模：右键在普通模式与编辑模式里都归 Aim，左键在编辑
+ * 模式里归挖掘（None）—— 一个 bool 表达不了这种三路分派。
+ */
+enum class EStarMapLookMode : uint8
+{
+	None,
+	Orbit,
+	Aim,
+};
 
 /**
  * 本项目的玩家控制器。
@@ -69,6 +87,49 @@ public:
 	static ASpaceshipPawn* ResolveStarMapFocusShip(APawn* EnteringPawn);
 
 	/**
+	 * 「进图时的参考行星」：进星图该借用谁的星图相机。
+	 *
+	 * 驾驶中 → 飞船的参考行星（ASpaceshipPawn::GetPlanetActor，子系统每帧维护）；
+	 * 步行 → 角色当前所在的行星（APlanetCharacter::PlanetActor）；
+	 * 其他 Pawn / 空 → 空。**只做类型解析，不做距离搜索** —— 那是 Pawn 自己的职责，
+	 * 这里越俎代庖会把「最近的行星」与「玩家心中的当前行星」混成一件事。
+	 */
+	static AVoxelPlanetActor* ResolveReferencePlanet(const APawn* EnteringPawn);
+
+	/**
+	 * 在 Owner 的组件里找「行星自带的星图相机」：第一台作为
+	 * UChildActorComponent 子 Actor 存在的 AStarMapCameraPawn。
+	 *
+	 * BP_VoxelPlanet 挂一个 Child Actor Component（子类 BP_StarMapCameraPawn），
+	 * 「星球 + 它的星图相机」就成了一个可整体复制、每个实例可单独换类（Details
+	 * 里 Child Actor Class 可编辑）的组合 —— 这是 B2 路线（用户选定，2026-11-01）。
+	 *
+	 * 注意 CAC 的子 Actor 在类默认对象（CDO）里不存在、实例化才创建，所以
+	 * 本函数对 CDO 恒返回空 —— 这是 CAC 的机制，不是 bug。
+	 * 纯函数（只读组件与 Cast），无头可测；Owner / 子 Actor 不是星图相机时返回空。
+	 */
+	static AStarMapCameraPawn* FindChildStarMapCamera(const AActor* PlanetOwner);
+
+	/**
+	 * 在 Owner 上找直接 Attach 的第一台 AStarMapCameraPawn。
+	 *
+	 * 这条路径覆盖「相机是关卡里的独立 Actor、手动 Attach 到星球」的旧摆法
+	 * （UniverseMap 里现存的 3 台就是这种）。CAC 的子 Actor 其实也会 Attach 到
+	 * 宿主，所以本函数同样能取到 CAC 相机 —— 保留它是为了让 CAC 尚未普及、
+	 * 或临时手摆一台相机的关卡也能正常工作。
+	 *
+	 * 不递归子挂载物，避免飞船 / 角色 / 采矿平台上挂的相机被误认成行星相机。
+	 */
+	static AStarMapCameraPawn* FindAttachedStarMapCamera(const AActor* PlanetOwner);
+
+	/**
+	 * 上面两步的串联：进星图时优先用焦点行星自带的相机。
+	 * 先认 CAC（显式声明的那台），没有再退回附加关系（手动摆的那台）；
+	 * 都没有、或进图时解析不出行星（深空）→ 返回空，调用方退回单例相机。
+	 */
+	static AStarMapCameraPawn* ResolvePlanetStarMapCamera(const APawn* EnteringPawn);
+
+	/**
 	 * 换视点的唯一驱动：把 World 里所有实现 IVoxelViewpointInvokers 的 Pawn
 	 * 按 InPawn 设成视点，只有 InPawn 拿到 true。InPawn 为空（OnUnPossess
 	 * 路径）时全部关掉。
@@ -79,18 +140,28 @@ public:
 	static void ApplyViewpointInvokerGate(UWorld* World, const APawn* InPawn);
 
 	/**
-	 * 星图的鼠标位移该不该用来转视角。纯函数，OnLook 调它，测试直接调它。
+	 * 星图的鼠标位移该拿去哪。纯函数，OnLook 调它，测试直接调它。
 	 *
 	 * 星图的鼠标位移只在按住鼠标（CaptureDuringMouseDown）时才有值，所以
-	 * 「现在按的是左键还是右键」只能靠 bLookHeld（右键）区分：
-	 *   - 连续挖期间：左右都不转 —— 挖掘点跟着光标走，视角一动就画歪。
-	 *   - 编辑模式 / 矿物透视：左键已被借走（挖掘填充 / 图例），只有右键能转。
-	 *   - 其余：左键拖拽就转（也是选中时区分点击与拖拽的那条路）。
+	 * 「按的是哪个键」只能靠按住的标志位区分。分派规则（按优先级）：
+	 *   - 连续挖期间一律 None —— 挖掘点跟着光标走，视角一动就画歪（转头也算，
+	 *     视线一变，屏幕射线就变了）。
+	 *   - 右键 → Aim：只转头、不挪相机，任何模式都可用。
+	 *   - 中键 → Orbit：编辑 / 矿物透视下左键被借走时，绕行改由它承担。
+	 *   - 左键 → Orbit，但编辑模式（挖掘 / 填充）与矿物透视（图例）下左键已被
+	 *     借走，只能是 None。
+	 *   - 都没按 → None。
 	 *
-	 * 只决定「转不转」；缩放走 OnZoom（滚轮），任何状态下都能用。
+	 * 右键优先于其它键：转头不改变相机位置，同时按住时先满足它更符合直觉。
+	 * 只决定「拿去哪」；缩放走 OnZoom（滚轮），任何状态下都能用。
 	 */
-	static bool ShouldOrbitStarMapLook(
-		bool bLookHeld, bool bEditMode, bool bContinuousDigging, bool bActiveMineralView);
+	static EStarMapLookMode ResolveStarMapLookMode(
+		bool bRightHeld,
+		bool bLeftHeld,
+		bool bMiddleHeld,
+		bool bEditMode,
+		bool bContinuousDigging,
+		bool bActiveMineralView);
 
 	/** 当前激活的矿物透视组件；未激活时为空。星图 UI 用它画图例、喂矿体显隐。 */
 	virtual UPlanetMineralViewComponent* GetActiveMineralView() const override { return ActiveMineralView; }
@@ -140,6 +211,10 @@ protected:
 	/** 右键按下 / 松开。只当角色视角的开关用，飞船的转向不看它。 */
 	void OnLookActivateStarted(const FInputActionValue& Value);
 	void OnLookActivateCompleted(const FInputActionValue& Value);
+
+	/** 中键按下 / 松开。星图里它顶替被借走的左键做绕行，其它 Pawn 不看它。 */
+	void OnLookMiddleStarted(const FInputActionValue& Value);
+	void OnLookMiddleCompleted(const FInputActionValue& Value);
 	void OnJump(const FInputActionValue& Value);
 	void OnSprintStarted(const FInputActionValue& Value);
 	void OnSprintCompleted(const FInputActionValue& Value);
@@ -247,6 +322,12 @@ protected:
 	 */
 	bool bStarMapSelectHeld = false;
 
+	/**
+	 * 星图里中键是否按住。用途与 bStarMapSelectHeld 同理，但归绕行 —— 编辑模式
+	 * 与矿物透视把左键借走之后，绕行只能靠中键。换 Pawn 时一并清零。
+	 */
+	bool bStarMapMiddleHeld = false;
+
 	/** 左键按下的屏幕位置（像素）。用 double 存 —— 与 GetMousePosition 的 double 重载对齐。 */
 	FVector2D StarMapPressPosition = FVector2D::ZeroVector;
 
@@ -288,7 +369,14 @@ protected:
 	UPROPERTY()
 	TSubclassOf<AStarMapCameraPawn> StarMapPawnClass;
 
-	/** 星图相机 Pawn。懒创建并复用，不每次进出都 Spawn/Destroy。 */
+	/**
+	 * 兜底星图相机 Pawn。懒创建并复用，不每次进出都 Spawn/Destroy。
+	 *
+	 * 2026-11-01 起**只是兜底**：进图优先用焦点行星自带的星图相机
+	 * （见 ResolvePlanetStarMapCamera），行星没挂相机或从深空进入才用这台。
+	 * 用了行星相机时本成员保持为空（或保留上一台旧的），退出不销毁任何一台 ——
+	 * 行星相机随行星生死，单例兜底随控制器生死。
+	 */
 	UPROPERTY(Transient)
 	TObjectPtr<AStarMapCameraPawn> StarMapPawn;
 
@@ -313,6 +401,12 @@ protected:
 	 */
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> IA_LookActivate;
+
+	/**
+	 * 星图的中键（绕行）。与 IA_LookActivate 同一个套路：IA_Look 只有鼠标位移，
+	 * 「按的是哪个键」得另有布尔动作来分辨。
+	 */
+	TObjectPtr<UInputAction> IA_LookMiddle;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> IA_Jump;
@@ -349,9 +443,9 @@ protected:
 	TObjectPtr<UInputAction> IA_StarMapToggle;
 
 	/**
-	 * 星图里选中天体 / 拖拽转视角（鼠标左键）。按下与松开的位移区分两者。
-	 * 编辑模式与矿物透视下左键已被借走，那时拖拽是编辑 / 图例，转视角改用右键
-	 * —— 见 ShouldOrbitStarMapLook。
+	 * 星图里选中天体 / 拖拽绕行（鼠标左键）。按下与松开的位移区分两者。
+	 * 编辑模式与矿物透视下左键已被借走，那时拖拽是编辑 / 图例，绕行改由中键承担、
+	 * 转头仍是右键 —— 见 ResolveStarMapLookMode。
 	 */
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> IA_StarMapSelect;
