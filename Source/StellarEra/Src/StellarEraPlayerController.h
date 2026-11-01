@@ -76,15 +76,13 @@ public:
 	virtual AActor* PickBodyUnderScreenPosition(const FVector2D& ScreenPosition) const override;
 
 	/**
-	 * 进入星图时该以谁为焦点。
+	 * 这个天体身上（含它的挂载物）有没有星图相机。
 	 *
-	 * 驾驶中 → 当前飞船；步行 → 角色最近的那艘飞船（玩家口中的「当前飞船」）；
-	 * 其他 Pawn / 空 → 空（相机保持冻结）。
-	 *
-	 * 步行也必须给焦点：没有焦点时星图相机停在角色眼位、UI 又因为没有选中
-	 * 而不画任何东西，玩家看到的就是「按 M 没反应」。
+	 * 星图的聚焦目标**只认带相机的天体**：相机是「照这颗天体的视点」，没有相机的
+	 * 天体（飞船）在星图里既不被进场自动聚焦，也点不中。纯查询，不碰世界，
+	 * 所以能无头测。
 	 */
-	static ASpaceshipPawn* ResolveStarMapFocusShip(APawn* EnteringPawn);
+	static bool HasStarMapCamera(const AActor* Body);
 
 	/**
 	 * 「进图时的参考行星」：进星图该借用谁的星图相机。
@@ -134,8 +132,8 @@ public:
 	 * 按 InPawn 设成视点，只有 InPawn 拿到 true。InPawn 为空（OnUnPossess
 	 * 路径）时全部关掉。
 	 *
-	 * 静态是为了让测试能在没有控制器实例的情况下验它 —— 与
-	 * ResolveStarMapFocusShip 同理。不实现本接口的 Pawn 不受影响。
+	 * 静态是为了让测试能在没有控制器实例的情况下验它 —— 与 HasStarMapCamera
+	 * 同理。不实现本接口的 Pawn 不受影响。
 	 */
 	static void ApplyViewpointInvokerGate(UWorld* World, const APawn* InPawn);
 
@@ -240,8 +238,9 @@ protected:
 	 * 方向由「当前 Possess 的是不是星图 Pawn」判定，**不用单独的状态标志** ——
 	 * 幂等，也不会和实际 Possess 的 Pawn 不同步。
 	 *
-	 * 进入时若当前是飞船 → 聚焦它；若当前是角色 → 聚焦角色最近的飞船
-	 * （见 ResolveStarMapFocusShip）。
+	 * 进入时聚焦**借用了相机的那颗行星**（行星相机就挂在它身上）；深空退回单例
+	 * 相机时，聚焦离进场 Pawn 最近的、带星图相机的已注册天体。飞船没有星图相机，
+	 * 不再被聚焦（见 HasStarMapCamera）。
 	 *
 	 * 做成无参是为了直接绑给 Enhanced Input：FEnhancedInputActionHandlerSignature
 	 * 就是一个无参委托（EnhancedInputComponent.h:490 的 DEFINE_BIND_ACTION）。
@@ -349,15 +348,13 @@ protected:
 	float SelectionPixelRadius = 20.f;
 
 	/**
-	 * 按 M 进星图时，相机以焦点飞船为中心拉远到的距离（厘米）。
-	 * 驾驶中焦点就是当前飞船；步行时是角色最近的飞船。
+	 * 焦点是行星时（按 M 进场、按 H 进矿物透视），相机拉远到「地表半径 × 本倍率」。
 	 *
-	 * 世界尺度：1 AU = 1e6 厘米。5e5 = 0.5 AU 只是**期望**距离，实际会被
-	 * AStarMapCameraPawn 的「不穿行星」区间夹住：视线上有行星时只能拉到命中点
-	 * 之前，玩家把视角抬离地面后才能继续拉远。
+	 * 3 倍半径能把整颗行星连同它附近的空间一起框进画面，是这个项目里行星构图的
+	 * 默认档。实际距离仍会被 AStarMapCameraPawn 的「不穿行星」区间夹住。
 	 */
 	UPROPERTY(EditAnywhere, Category = "StarMap", meta = (ClampMin = "0.0"))
-	double StarMapFocusDistanceCm = 5.0e5;
+	double StarMapPlanetFocusRadiusScale = 3.0;
 
 	/**
 	 * 生成星图相机用的类：优先蓝图子类 BP_StarMapCameraPawn。

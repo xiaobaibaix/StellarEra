@@ -442,9 +442,12 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapFocusTargetTest,
 
 bool FStellarEraStarMapFocusTargetTest::RunTest(const FString& Parameters)
 {
-	// 进入星图时的焦点选择。步行路径是这次要盯住的那条：角色按 M 时若没有
-	// 焦点，星图相机停在角色眼位（CalcCamera 冻结），星图 UI 又只画选中/悬停，
-	// 画面与普通视角完全一样 —— 玩家会以为 M 键没生效。
+	// 2026-11-01 起的规则：星图的聚焦目标**只认挂了星图相机的天体**。
+	// 之前「驾驶飞船按 M → 聚焦飞船」「步行按 M → 聚焦最近的飞船」都取消了 ——
+	// 飞船没有相机，进了星图应该看它所在的那颗行星。
+	//
+	// 这条判定同时管两处：进场自动聚焦，以及图内鼠标拾取（点不中的天体也不会
+	// 被选中）。所以只验 HasStarMapCamera 就够，两处用的是同一个函数。
 	UWorld* World = UWorld::CreateWorld(EWorldType::Editor, false);
 	if (!TestNotNull(TEXT("测试世界"), World))
 	{
@@ -460,38 +463,69 @@ bool FStellarEraStarMapFocusTargetTest::RunTest(const FString& Parameters)
 		World->DestroyWorld(false);
 	};
 
-	APawn* OtherPawn = World->SpawnActor<APawn>(
-		APawn::StaticClass(), FTransform::Identity);
-	ASpaceshipPawn* NearShip = World->SpawnActor<ASpaceshipPawn>(
-		ASpaceshipPawn::StaticClass(),
-		FTransform(FRotator::ZeroRotator, FVector(500.0, 0.0, 0.0)));
-	ASpaceshipPawn* FarShip = World->SpawnActor<ASpaceshipPawn>(
-		ASpaceshipPawn::StaticClass(),
-		FTransform(FRotator::ZeroRotator, FVector(50000.0, 0.0, 0.0)));
-	APlanetCharacter* Character = World->SpawnActor<APlanetCharacter>(
-		APlanetCharacter::StaticClass(), FTransform::Identity);
+	// 裸 AActor 没有根组件，CAC 与 Attach 都建不起来；统一挂一个已注册的
+	// SceneComponent 当根（与 PlanetCamera 测试同一手法）。
+	auto MakeActor = [World]() -> AActor*
+	{
+		AActor* Actor = World->SpawnActor<AActor>(AActor::StaticClass(), FTransform::Identity);
+		if (!Actor)
+		{
+			return nullptr;
+		}
+		USceneComponent* Root = NewObject<USceneComponent>(Actor, TEXT("TestRoot"));
+		Actor->SetRootComponent(Root);
+		Root->RegisterComponent();
+		return Actor;
+	};
 
-	if (!TestNotNull(TEXT("其他 Pawn"), OtherPawn) ||
-		!TestNotNull(TEXT("近处飞船"), NearShip) ||
-		!TestNotNull(TEXT("远处飞船"), FarShip) ||
-		!TestNotNull(TEXT("角色"), Character))
+	// ── 空指针：不是崩 ──
+	TestFalse(TEXT("空 Actor → 不可聚焦"),
+		AStellarEraPlayerController::HasStarMapCamera(nullptr));
+
+	// ── 飞船（真实关卡里的情形：有 4 个体素调用器，但没有星图相机）──
+	ASpaceshipPawn* Ship = World->SpawnActor<ASpaceshipPawn>(
+		ASpaceshipPawn::StaticClass(), FTransform::Identity);
+	if (!TestNotNull(TEXT("飞船"), Ship))
 	{
 		return false;
 	}
+	TestFalse(TEXT("飞船没有星图相机 → 不可聚焦"),
+		AStellarEraPlayerController::HasStarMapCamera(Ship));
 
-	// ── 驾驶中：焦点就是当前飞船 ──
-	TestTrue(TEXT("驾驶中 → 当前飞船"),
-		AStellarEraPlayerController::ResolveStarMapFocusShip(NearShip) == NearShip);
+	// ── 裸 Actor：什么都没有 ──
+	AActor* Plain = MakeActor();
+	if (!TestNotNull(TEXT("普通 Actor"), Plain))
+	{
+		return false;
+	}
+	TestFalse(TEXT("普通 Actor → 不可聚焦"),
+		AStellarEraPlayerController::HasStarMapCamera(Plain));
 
-	// ── 步行：取角色最近的飞船，而不是随机一艘 ──
-	TestTrue(TEXT("步行 → 最近的飞船"),
-		AStellarEraPlayerController::ResolveStarMapFocusShip(Character) == NearShip);
+	// ── 挂了 CAC 子相机（BP_VoxelPlanet 的摆法）──
+	AActor* CacPlanet = MakeActor();
+	if (!TestNotNull(TEXT("挂了 CAC 的行星"), CacPlanet))
+	{
+		return false;
+	}
+	UChildActorComponent* CameraCac = NewObject<UChildActorComponent>(CacPlanet);
+	CameraCac->SetChildActorClass(AStarMapCameraPawn::StaticClass());
+	CameraCac->RegisterComponent();
+	TestTrue(TEXT("挂了 CAC 星图相机 → 可聚焦"),
+		AStellarEraPlayerController::HasStarMapCamera(CacPlanet));
 
-	// ── 其他 Pawn / 空：没有焦点（相机保持冻结）──
-	TestTrue(TEXT("其他 Pawn → 无焦点"),
-		AStellarEraPlayerController::ResolveStarMapFocusShip(OtherPawn) == nullptr);
-	TestTrue(TEXT("空 Pawn → 无焦点"),
-		AStellarEraPlayerController::ResolveStarMapFocusShip(nullptr) == nullptr);
+	// ── 手动 Attach 的旧摆法也要认 ──
+	AActor* AttachedPlanet = MakeActor();
+	AStarMapCameraPawn* AttachedCamera = World->SpawnActor<AStarMapCameraPawn>(
+		AStarMapCameraPawn::StaticClass(), FTransform::Identity);
+	if (!TestNotNull(TEXT("手动附加的行星"), AttachedPlanet) ||
+		!TestNotNull(TEXT("手动附加的相机"), AttachedCamera))
+	{
+		return false;
+	}
+	TestTrue(TEXT("相机挂到行星上"),
+		AttachedCamera->AttachToActor(AttachedPlanet, FAttachmentTransformRules::KeepRelativeTransform));
+	TestTrue(TEXT("手动附加的星图相机 → 可聚焦"),
+		AStellarEraPlayerController::HasStarMapCamera(AttachedPlanet));
 
 	return true;
 }

@@ -938,22 +938,12 @@ void AStellarEraPlayerController::LeaveShip(ASpaceshipPawn* Ship)
 	Possess(PawnCharacter);
 }
 
-ASpaceshipPawn* AStellarEraPlayerController::ResolveStarMapFocusShip(APawn* EnteringPawn)
+bool AStellarEraPlayerController::HasStarMapCamera(const AActor* Body)
 {
-	if (ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(EnteringPawn))
-	{
-		return Ship;
-	}
-
-	// 步行进星图：角色没有「驾驶中的飞船」，用最近的一艘当焦点。
-	// 不给焦点的话相机停在角色眼位（CalcCamera 冻结），星图 UI 又只画选中/悬停，
-	// 画面与普通视角完全一样 —— 玩家会以为 M 键没生效。
-	if (APlanetCharacter* Character = Cast<APlanetCharacter>(EnteringPawn))
-	{
-		return ASpaceshipPawn::FindNearestTo(Character->GetWorld(), Character->GetActorLocation());
-	}
-
-	return nullptr;
+	// 与 ResolvePlanetStarMapCamera 同一个解析顺序（先 CAC、再附加关系），
+	// 免得「点得中」与「取得到相机」两套判据互相矛盾。
+	return FindChildStarMapCamera(Body) != nullptr
+		|| FindAttachedStarMapCamera(Body) != nullptr;
 }
 
 AVoxelPlanetActor* AStellarEraPlayerController::ResolveReferencePlanet(const APawn* EnteringPawn)
@@ -1079,9 +1069,10 @@ void AStellarEraPlayerController::OnMineralViewToggle()
 	ForceExitEditMode(GetPawn());
 
 	// 只拉远、不改朝向：按 H 前看哪儿，进入后还是那个角度（spec §3）。
+	// 距离与按 M 进场聚焦行星用同一个倍率，两种进入方式构图一致。
 	if (AStarMapCameraPawn* StarMap = Cast<AStarMapCameraPawn>(GetPawn()))
 	{
-		StarMap->FocusOn(Planet, 3.0 * Planet->GetSurfaceRadiusCm());
+		StarMap->FocusOn(Planet, StarMapPlanetFocusRadiusScale * Planet->GetSurfaceRadiusCm());
 	}
 
 	ActiveMineralView = MineralView;
@@ -1116,6 +1107,9 @@ void AStellarEraPlayerController::ExitMineralViewIfActive()
 	ActiveMineralView->Deactivate();
 	ActiveMineralView = nullptr;
 }
+
+/** 天体的世界半径（厘米）。定义在拾取那一节，这里先声明 —— 进场聚焦要用。 */
+static double ResolveBodyRadiusCm(const AActor* Body);
 
 void AStellarEraPlayerController::ToggleStarMap()
 {
@@ -1183,8 +1177,8 @@ void AStellarEraPlayerController::ToggleStarMap()
 	}
 
 	// ── 进入 ──
-	// 进入前的 Pawn 先记下：既决定焦点飞船（ResolveStarMapFocusShip），也决定
-	// 用哪台相机（ResolvePlanetStarMapCamera）。原来这行写在 EnterFrom 之后，
+	// 进入前的 Pawn 先记下：决定用哪台相机（ResolvePlanetStarMapCamera），
+	// 也是「深空退路」里挑最近焦点天体的原点。原来这行写在 EnterFrom 之后，
 	// 现在提前 —— EnterFrom 与选相机都不改 GetPawn()，语义不变、依赖先满足。
 	PreviousPawn = GetPawn();
 
@@ -1236,25 +1230,53 @@ void AStellarEraPlayerController::ToggleStarMap()
 	// 进星图前退出编辑模式：星图里左键是拾取，不能同时保留笔刷状态与网格。
 	ForceExitEditMode(PreviousPawn.Get());
 
-	ASpaceshipPawn* EnteringShip = ResolveStarMapFocusShip(PreviousPawn.Get());
+	// 焦点天体：只有挂了星图相机的天体才能被聚焦，飞船没有相机 → 不让它当焦点。
+	//
+	// 行星相机就挂在行星身上，所以「借用谁的相机」与「聚焦谁」是同一颗：沿进场
+	// 视线把它拉远到 StarMapPlanetFocusRadiusScale 倍地表半径，整颗行星进画面。
+	// 用的是深空单例相机（没有宿主行星）时，焦点退回离进场 Pawn 最近的、带相机
+	// 的已注册天体；一个都没有就不聚焦，相机停在场点。
+	AActor* FocusBody = CameraToUse->GetAttachParentActor();
+	if (!FocusBody)
+	{
+		double BestDistanceSq = TNumericLimits<double>::Max();
+		TArray<AActor*> Bodies;
+		Subsystem->GetRegisteredBodies(Bodies);
+		const FVector From = PreviousPawn.IsValid()
+			? PreviousPawn->GetActorLocation()
+			: CameraToUse->GetActorLocation();
+		for (AActor* Body : Bodies)
+		{
+			if (!HasStarMapCamera(Body))
+			{
+				continue;
+			}
+			const double DistanceSq = FVector::DistSquared(From, Body->GetActorLocation());
+			if (DistanceSq < BestDistanceSq)
+			{
+				BestDistanceSq = DistanceSq;
+				FocusBody = Body;
+			}
+		}
+	}
 
 	Subsystem->SetSelectedBody(nullptr);
 	Subsystem->SetStarMapActive(true);
 	Possess(CameraToUse);
 
-	// 进入前有焦点飞船（驾驶中就是当前飞船，步行时是最近的飞船）：选中它，
-	// 并让相机以它为焦点、沿当前视线拉远到能看清飞船连同附近轨道。放在 Possess
-	// 之后 —— FocusOn 只改相机 Pawn 自己的状态，不依赖 Possess，但语义上
-	// 「进入星图」这个动作应当整体先完成再调相机。
+	// 选中焦点并拉远。放在 Possess 之后 —— FocusOn 只改相机 Pawn 自己的状态，
+	// 不依赖 Possess，但语义上「进入星图」这个动作应当整体先完成再调相机。
 	//
 	// **就算用的是行星相机，图内点选别的星球也只走 SetSelectedBody + FocusOn、
 	// 不换相机**：换相机 = 换 Possess = 两台相机各 4 个 invoker 的 bUseForLOD
 	// 翻转 = 体素八叉树全量重建，正是 2026-10-24 那个 chunk 簿记 ensure 的触发
 	// 模式。单相机 + 换焦点没有这个成本，「每星球一台」的差异收敛到参数上。
-	if (EnteringShip)
+	if (FocusBody)
 	{
-		Subsystem->SetSelectedBody(EnteringShip);
-		CameraToUse->FocusOn(EnteringShip, StarMapFocusDistanceCm);
+		Subsystem->SetSelectedBody(FocusBody);
+		CameraToUse->FocusOn(
+			FocusBody,
+			StarMapPlanetFocusRadiusScale * ResolveBodyRadiusCm(FocusBody));
 	}
 }
 
@@ -1562,10 +1584,19 @@ AActor* AStellarEraPlayerController::PickBodyUnderScreenPosition(
 	Subsystem->GetRegisteredBodies(Bodies);
 
 	// 投影留在调用方，拾取函数才能是纯函数、才能无头测。
+	//
+	// 只有挂了星图相机的天体可被点中（见 HasStarMapCamera）：星图的相机是「照某颗
+	// 天体」的视点，选中即焦点，没有相机的天体（飞船）不该抢走焦点。它的标记仍由
+	// HUD 画出来，只是点不中。
 	TArray<FStarMapScreenCandidate> Candidates;
 	Candidates.Reserve(Bodies.Num());
 	for (AActor* Body : Bodies)
 	{
+		if (!HasStarMapCamera(Body))
+		{
+			continue;
+		}
+
 		FStarMapScreenCandidate Candidate;
 		if (MakeScreenCandidate(Body, Candidate))
 		{
