@@ -6,7 +6,11 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-namespace
+// 用具名命名空间而不是匿名命名空间：UBT 默认开 unity build，本文件的 .cpp 会与
+// Atmosphere/PlanetAtmosphereComponent.cpp 落进同一个 TU，两边匿名命名空间里的
+// AtmosphereMaterialPath 撞名（C2086 / C2374）。与 Star/SunMaterialBuilder.cpp 的
+// 做法一致：具名命名空间在任何 unity 分组下都不冲突。
+namespace StellarEraAtmosphereMaterialTests
 {
 	/** 与 PlanetAtmosphereComponent.cpp 的 AtmosphereMaterialPath 是同一个资产。 */
 	const TCHAR* const AtmosphereMaterialPath =
@@ -22,7 +26,7 @@ namespace
 		return Infos.ContainsByPredicate(
 			[Name](const FMaterialParameterInfo& Info) { return Info.Name == Name; });
 	}
-}
+} // namespace StellarEraAtmosphereMaterialTests
 
 // 锁死"资产真的按 PlanetAtmosphereMaterialBuilder.cpp 当前的样子重建过"。
 // 改生成器代码忘了重跑 StellarEra.BuildAtmosphereMaterial，就会红在这里，
@@ -32,7 +36,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraAtmosphereMaterialStructureTest,
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FStellarEraAtmosphereMaterialStructureTest::RunTest(const FString& Parameters)
 {
-	UMaterial* Material = LoadAtmosphereMaterial();
+	UMaterial* Material = StellarEraAtmosphereMaterialTests::LoadAtmosphereMaterial();
 	if (!TestNotNull(TEXT("材质资产"), Material))
 	{
 		AddError(TEXT("资产不存在。先在编辑器里跑一次 StellarEra.BuildAtmosphereMaterial。"));
@@ -53,7 +57,8 @@ bool FStellarEraAtmosphereMaterialStructureTest::RunTest(const FString& Paramete
 	};
 	for (const TCHAR* Name : ScalarNames)
 	{
-		TestTrue(FString::Printf(TEXT("标量参数 %s"), Name), HasParameter(ScalarInfos, FName(Name)));
+		TestTrue(FString::Printf(TEXT("标量参数 %s"), Name),
+			StellarEraAtmosphereMaterialTests::HasParameter(ScalarInfos, FName(Name)));
 	}
 
 	TArray<FMaterialParameterInfo> VectorInfos;
@@ -66,7 +71,8 @@ bool FStellarEraAtmosphereMaterialStructureTest::RunTest(const FString& Paramete
 	};
 	for (const TCHAR* Name : VectorNames)
 	{
-		TestTrue(FString::Printf(TEXT("向量参数 %s"), Name), HasParameter(VectorInfos, FName(Name)));
+		TestTrue(FString::Printf(TEXT("向量参数 %s"), Name),
+			StellarEraAtmosphereMaterialTests::HasParameter(VectorInfos, FName(Name)));
 	}
 
 	return true;
@@ -79,7 +85,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraAtmosphereMaterialHlslTest,
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FStellarEraAtmosphereMaterialHlslTest::RunTest(const FString& Parameters)
 {
-	UMaterial* Material = LoadAtmosphereMaterial();
+	UMaterial* Material = StellarEraAtmosphereMaterialTests::LoadAtmosphereMaterial();
 	if (!TestNotNull(TEXT("材质资产"), Material))
 	{
 		return false;
