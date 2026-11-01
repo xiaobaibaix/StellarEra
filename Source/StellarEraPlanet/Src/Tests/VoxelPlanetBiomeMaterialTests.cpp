@@ -65,4 +65,34 @@ bool FStellarEraBiomeMaterialUnwrapTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// 切图崩溃的回归钉（2026-11-01）：编辑器态插件把 bCreateMaterialInstances 硬编成
+// false，会把手上的 VoxelMaterial 原样登记进全局 FVoxelMaterialInterfaceManager，
+// 那是 GC root。MID 的 Outer 若指向行星 Actor，旧关卡的可达链就是
+// MID → Actor → Level → World → Package，永远收不掉，切图时 UEditorEngine
+// 以 "World Memory Leaks" 直接 Fatal。所以 Outer 必须是瞬态包。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraBiomeMaterialOuterTest,
+	"StellarEra.Planet.BiomeMaterial.TransientOuter",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraBiomeMaterialOuterTest::RunTest(const FString& Parameters)
+{
+	UMaterial* Base = NewObject<UMaterial>(GetTransientPackage());
+	if (!TestNotNull(TEXT("基准材质创建成功"), Base))
+	{
+		return false;
+	}
+
+	UMaterialInstanceDynamic* Dynamic = AVoxelPlanetActor::CreateBiomeMaterialMID(Base);
+	if (!TestNotNull(TEXT("biome MID 创建成功"), Dynamic))
+	{
+		return false;
+	}
+
+	TestTrue(TEXT("父材质正确"), Dynamic->Parent == Base);
+	TestTrue(TEXT("Outer 是瞬态包（否则切图会 World Memory Leaks）"),
+		Dynamic->GetOuter() == GetTransientPackage());
+
+	return true;
+}
+
 #endif

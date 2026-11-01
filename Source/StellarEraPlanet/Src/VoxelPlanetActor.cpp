@@ -400,6 +400,13 @@ UMaterialInterface* AVoxelPlanetActor::StripMaterialInstanceDynamic(UMaterialInt
 	return nullptr;
 }
 
+UMaterialInstanceDynamic* AVoxelPlanetActor::CreateBiomeMaterialMID(UMaterialInterface* Parent)
+{
+	// Outer 必须是瞬态包，理由见头文件：插件在编辑器态把这张 MID 直接登记进
+	// 全局管理器（GC root），Outer 指向行星 Actor 会把整张旧关卡钉住。
+	return UMaterialInstanceDynamic::Create(Parent, GetTransientPackage(), TEXT("BiomeMaterialMID"));
+}
+
 #if WITH_EDITOR
 void AVoxelPlanetActor::EnsureSaveObject()
 {
@@ -863,8 +870,7 @@ bool AVoxelPlanetActor::InstallBiomeMaterial(bool bForceBake)
 
 	if (!BiomeMaterial || BiomeMaterial->Parent != BaseVoxelMaterial)
 	{
-		BiomeMaterial = UMaterialInstanceDynamic::Create(
-			BaseVoxelMaterial, this, TEXT("BiomeMaterialMID"));
+		BiomeMaterial = CreateBiomeMaterialMID(BaseVoxelMaterial);
 		if (!BiomeMaterial)
 		{
 			return false;
