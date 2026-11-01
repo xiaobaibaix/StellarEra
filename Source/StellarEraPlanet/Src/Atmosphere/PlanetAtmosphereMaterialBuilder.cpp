@@ -99,8 +99,13 @@ float coverage = saturate(1.0 - dot(transmittance, float3(1.0 / 3.0, 1.0 / 3.0, 
 return float4(accumulated * SunIntensity.rgb, coverage);
 )");
 
+// 下面三个 helper 带 Atmo 前缀，是为避开 unity 合并单元里的重定义。
+// Star/SunMaterialBuilder.cpp 与本源文件会落进同一个 Module.StellarEraPlanet.cpp，
+// 两边都在匿名命名空间里定义了同名同签名的 helper，编译报 C2084。
+// 匿名命名空间在 unity blob 里其实是同一个作用域，改名是唯一不牵动对方的办法。
+
 /** 建一个标量参数节点并登记到材质。 */
-UMaterialExpressionScalarParameter* AddScalarParam(UMaterial* Material, const TCHAR* Name,
+UMaterialExpressionScalarParameter* AddAtmoScalarParam(UMaterial* Material, const TCHAR* Name,
 	float Default, int32 PosX, int32 PosY)
 {
 	UMaterialExpressionScalarParameter* Expr = NewObject<UMaterialExpressionScalarParameter>(Material);
@@ -114,7 +119,7 @@ UMaterialExpressionScalarParameter* AddScalarParam(UMaterial* Material, const TC
 }
 
 /** 建一个向量参数节点并登记到材质。 */
-UMaterialExpressionVectorParameter* AddVectorParam(UMaterial* Material, const TCHAR* Name,
+UMaterialExpressionVectorParameter* AddAtmoVectorParam(UMaterial* Material, const TCHAR* Name,
 	FLinearColor Default, int32 PosX, int32 PosY)
 {
 	UMaterialExpressionVectorParameter* Expr = NewObject<UMaterialExpressionVectorParameter>(Material);
@@ -128,7 +133,7 @@ UMaterialExpressionVectorParameter* AddVectorParam(UMaterial* Material, const TC
 }
 
 /** 给 Custom 节点加一个命名输入。InputName 就是 HLSL 里的变量名。 */
-void AddCustomInput(UMaterialExpressionCustom* Custom, const TCHAR* InputName, UMaterialExpression* Source)
+void AddAtmoCustomInput(UMaterialExpressionCustom* Custom, const TCHAR* InputName, UMaterialExpression* Source)
 {
 	FCustomInput& In = Custom->Inputs.AddDefaulted_GetRef();
 	In.InputName = InputName;
@@ -170,16 +175,16 @@ bool BuildPlanetAtmosphereMaterial(FString& OutError)
 
 	// --- 参数节点。初值与 Task 1 的 ComputeShellScatteringParams 在 0.75km 行星上
 	// --- 算出的量级一致；Task 3 会在 BeginPlay 里按实际行星半径覆盖掉。
-	UMaterialExpressionScalarParameter* PlanetRadius = AddScalarParam(Material, TEXT("PlanetRadius"), 75000.0f, -800, -400);
-	UMaterialExpressionScalarParameter* ShellRadius = AddScalarParam(Material, TEXT("ShellRadius"), 78750.0f, -800, -300);
-	UMaterialExpressionScalarParameter* RayleighScaleHeight = AddScalarParam(Material, TEXT("RayleighScaleHeight"), 1181.25f, -800, -200);
-	UMaterialExpressionScalarParameter* MieScaleHeight = AddScalarParam(Material, TEXT("MieScaleHeight"), 236.25f, -800, -100);
+	UMaterialExpressionScalarParameter* PlanetRadius = AddAtmoScalarParam(Material, TEXT("PlanetRadius"), 75000.0f, -800, -400);
+	UMaterialExpressionScalarParameter* ShellRadius = AddAtmoScalarParam(Material, TEXT("ShellRadius"), 78750.0f, -800, -300);
+	UMaterialExpressionScalarParameter* RayleighScaleHeight = AddAtmoScalarParam(Material, TEXT("RayleighScaleHeight"), 1181.25f, -800, -200);
+	UMaterialExpressionScalarParameter* MieScaleHeight = AddAtmoScalarParam(Material, TEXT("MieScaleHeight"), 236.25f, -800, -100);
 
 	// 2.24169e-4 = 0.2648 / 1181.25（地球瑞利垂直光学厚度 / 壳标高）
-	UMaterialExpressionVectorParameter* RayleighBeta = AddVectorParam(Material, TEXT("RayleighBeta"),
+	UMaterialExpressionVectorParameter* RayleighBeta = AddAtmoVectorParam(Material, TEXT("RayleighBeta"),
 		FLinearColor(3.92938e-5f, 9.18247e-5f, 2.24169e-4f, 1.0f), -800, 0);
 	// 2.25524e-5 = 0.005328 / 236.25
-	UMaterialExpressionVectorParameter* MieBeta = AddVectorParam(Material, TEXT("MieBeta"),
+	UMaterialExpressionVectorParameter* MieBeta = AddAtmoVectorParam(Material, TEXT("MieBeta"),
 		FLinearColor(2.25524e-5f, 2.25524e-5f, 2.25524e-5f, 1.0f), -800, 100);
 
 	// 相机位置取视图 uniform（CameraPositionWS 节点 → MEVP_WorldSpaceCameraPosition，
@@ -194,11 +199,11 @@ bool BuildPlanetAtmosphereMaterial(FString& OutError)
 	CameraPos->MaterialExpressionEditorX = -800;
 	CameraPos->MaterialExpressionEditorY = 200;
 	Material->GetExpressionCollection().AddExpression(CameraPos);
-	UMaterialExpressionVectorParameter* PlanetCenter = AddVectorParam(Material, TEXT("PlanetCenter"),
+	UMaterialExpressionVectorParameter* PlanetCenter = AddAtmoVectorParam(Material, TEXT("PlanetCenter"),
 		FLinearColor::Black, -800, 300);
-	UMaterialExpressionVectorParameter* SunDirection = AddVectorParam(Material, TEXT("SunDirection"),
+	UMaterialExpressionVectorParameter* SunDirection = AddAtmoVectorParam(Material, TEXT("SunDirection"),
 		FLinearColor(1.0f, 0.0f, 0.0f, 1.0f), -800, 400);
-	UMaterialExpressionVectorParameter* SunIntensity = AddVectorParam(Material, TEXT("SunIntensity"),
+	UMaterialExpressionVectorParameter* SunIntensity = AddAtmoVectorParam(Material, TEXT("SunIntensity"),
 		FLinearColor(1.0f, 1.0f, 1.0f, 1.0f), -800, 500);
 
 	// --- Custom 节点 ---
@@ -212,17 +217,17 @@ bool BuildPlanetAtmosphereMaterial(FString& OutError)
 	Material->GetExpressionCollection().AddExpression(Custom);
 
 	// 名字必须与 HLSL 里的引用一致；顺序只是可读性。
-	AddCustomInput(Custom, TEXT("WorldPos"), WorldPos);
-	AddCustomInput(Custom, TEXT("CameraPos"), CameraPos);
-	AddCustomInput(Custom, TEXT("PlanetRadius"), PlanetRadius);
-	AddCustomInput(Custom, TEXT("ShellRadius"), ShellRadius);
-	AddCustomInput(Custom, TEXT("PlanetCenter"), PlanetCenter);
-	AddCustomInput(Custom, TEXT("SunDirection"), SunDirection);
-	AddCustomInput(Custom, TEXT("RayleighScaleHeight"), RayleighScaleHeight);
-	AddCustomInput(Custom, TEXT("MieScaleHeight"), MieScaleHeight);
-	AddCustomInput(Custom, TEXT("RayleighBeta"), RayleighBeta);
-	AddCustomInput(Custom, TEXT("MieBeta"), MieBeta);
-	AddCustomInput(Custom, TEXT("SunIntensity"), SunIntensity);
+	AddAtmoCustomInput(Custom, TEXT("WorldPos"), WorldPos);
+	AddAtmoCustomInput(Custom, TEXT("CameraPos"), CameraPos);
+	AddAtmoCustomInput(Custom, TEXT("PlanetRadius"), PlanetRadius);
+	AddAtmoCustomInput(Custom, TEXT("ShellRadius"), ShellRadius);
+	AddAtmoCustomInput(Custom, TEXT("PlanetCenter"), PlanetCenter);
+	AddAtmoCustomInput(Custom, TEXT("SunDirection"), SunDirection);
+	AddAtmoCustomInput(Custom, TEXT("RayleighScaleHeight"), RayleighScaleHeight);
+	AddAtmoCustomInput(Custom, TEXT("MieScaleHeight"), MieScaleHeight);
+	AddAtmoCustomInput(Custom, TEXT("RayleighBeta"), RayleighBeta);
+	AddAtmoCustomInput(Custom, TEXT("MieBeta"), MieBeta);
+	AddAtmoCustomInput(Custom, TEXT("SunIntensity"), SunIntensity);
 
 	Custom->RebuildOutputs();
 

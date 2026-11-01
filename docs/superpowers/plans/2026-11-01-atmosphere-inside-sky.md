@@ -64,6 +64,43 @@ UnrealEditor-Cmd "$WT/StellarEra.uproject" \
 
 ---
 
+## Task 0: 修掉 unity 合并单元里的重定义（HEAD 上已坏）
+
+**执行时发现的阻塞**，不修它后面所有构建都是红的。
+
+干净 worktree 里构建，`Module.StellarEraPlanet.cpp`（unity 合并单元）同时包含
+`Src/Star/SunMaterialBuilder.cpp` 与 `Src/Atmosphere/PlanetAtmosphereMaterialBuilder.cpp`，
+两者都在匿名命名空间里定义了 `AddScalarParam` / `AddVectorParam` / `AddCustomInput`，
+同一个 TU 里重定义 → `error C2084`。匿名命名空间在 unity blob 里其实是同一个作用域。
+
+主仓之所以没炸：`SunMaterialBuilder.cpp` 当前处于「已修改」状态，UBT 的 adaptive
+non-unity 把它踢出了 unity blob。**那批改动一提交，主仓也会炸** —— 这是 HEAD 上的真实缺陷，
+不是本次改动引入的（第一次全量构建在测试文件存在之前就已失败）。
+
+**Files:** Modify `Source/StellarEraPlanet/Src/Atmosphere/PlanetAtmosphereMaterialBuilder.cpp`
+
+- [ ] **Step 1: 三个 helper 加 `Atmo` 前缀**
+
+`AddScalarParam` → `AddAtmoScalarParam`、`AddVectorParam` → `AddAtmoVectorParam`、
+`AddCustomInput` → `AddAtmoCustomInput`（定义与全部调用点）。在定义处留注释说明原因。
+只动本文件，不碰对侧 `SunMaterialBuilder.cpp`（那边有未提交的工作）。
+
+- [ ] **Step 2: 构建**
+
+Expected: `Result: Succeeded`。
+
+- [ ] **Step 3: 提交**
+
+```bash
+git commit -m "fix(构建): 大气材质 builder 的 helper 加 Atmo 前缀
+
+与 Star/SunMaterialBuilder.cpp 落进同一个 unity blob 时报 C2084。
+只改本方三个文件内 helper，不动对侧。" \
+  -- Source/StellarEraPlanet/Src/Atmosphere/PlanetAtmosphereMaterialBuilder.cpp
+```
+
+---
+
 ## Task 1: 材质结构断言测试（先红）
 
 **Files:**
