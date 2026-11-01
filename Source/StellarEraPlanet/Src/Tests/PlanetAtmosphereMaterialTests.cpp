@@ -53,7 +53,10 @@ bool FStellarEraAtmosphereMaterialStructureTest::RunTest(const FString& Paramete
 
 	const TCHAR* const ScalarNames[] = {
 		TEXT("PlanetRadius"), TEXT("ShellRadius"),
-		TEXT("RayleighScaleHeight"), TEXT("MieScaleHeight")
+		TEXT("RayleighScaleHeight"), TEXT("MieScaleHeight"),
+		TEXT("CloudBaseRadius"), TEXT("CloudTopRadius"), TEXT("CloudCoverage"),
+		TEXT("CloudExtinction"), TEXT("CloudNoiseScale"), TEXT("CloudDetailScale"),
+		TEXT("CloudDetailStrength"), TEXT("CloudDrift"), TEXT("CloudBrightness")
 	};
 	for (const TCHAR* Name : ScalarNames)
 	{
@@ -111,6 +114,12 @@ bool FStellarEraAtmosphereMaterialHlslTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("HLSL 含场景深度截断"), Custom->Code.Contains(TEXT("SceneDepthCm")));
 	// 夜面不该有辉光：没有这一段，本影里照样散射，暗面会挂一圈蓝边。
 	TestTrue(TEXT("HLSL 含太阳遮挡"), Custom->Code.Contains(TEXT("sunVis")));
+
+	// 云：密度函数、噪声、自遮挡步数、云层半径参数。四个都在，才说明云真进了 shader。
+	TestTrue(TEXT("HLSL 含云密度函数"), Custom->Code.Contains(TEXT("CloudDensity")));
+	TestTrue(TEXT("HLSL 含噪声函数"), Custom->Code.Contains(TEXT("CloudFbm")));
+	TestTrue(TEXT("HLSL 含云自遮挡"), Custom->Code.Contains(TEXT("CLOUD_SHADOW_STEPS")));
+	TestTrue(TEXT("HLSL 含云层底半径"), Custom->Code.Contains(TEXT("CloudBaseRadius")));
 
 	return true;
 }
