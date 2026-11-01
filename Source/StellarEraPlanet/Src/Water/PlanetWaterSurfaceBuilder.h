@@ -34,7 +34,7 @@ namespace PlanetWaterSurfaceBuilder
 		/**
 		 * 海洋球壳每面的格数。格弧长 ≈ (π/2 × 行星半径) / OceanResolution，
 		 * 96 在 1 km 半径上约 16 m。规格 §6.1 的 2–4 m 在 10 km 行星上需要
-		 * 每面约 10⁴ 格（≈ 6 亿三角形），当前预算下不可达；保持 96。
+		 * 每边约 4×10³–8×10³ 格（全星约 2–8 亿三角形），当前预算下不可达；保持 96。
 		 */
 		int32 OceanResolution = 96;
 

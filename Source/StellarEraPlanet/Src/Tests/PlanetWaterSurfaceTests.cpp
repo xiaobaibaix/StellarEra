@@ -430,7 +430,9 @@ bool FStellarEraWaterEndToEndTest::RunTest(const FString& Parameters)
 	Terrain->GetWaterConfig(Config);
 	Config.Params.Resolution = 128;
 
-	// UniverseMap 的行星半径（体素）。海面与格占比都按它算。
+	// 夹具行星半径（体素）。烘焙里半径只作整体平移（Height = Radius + Amplitude × 噪声），
+	// 所有断言都是相对量、与取值无关 —— 取 UniverseMap 中两颗 10,000 体素行星的值，
+	// 与 DA_Terrain_Earth 那颗的 20,000 不同，不必对齐。
 	constexpr double PlanetRadiusVoxels = 10000.0;
 	const TSharedPtr<FPlanetHydrologyField> Field = FPlanetHydrologyBake::Bake(
 		[Terrain](const FVector& UnitDir) { return Terrain->GetRawOffset(UnitDir); },

@@ -60,9 +60,9 @@ public:
 	 * 海洋球壳每面的格数。
 	 *
 	 * 每格弧长 ≈ (π/2 × 行星半径) / OceanResolution：96 在 1 km 半径上约 16 m，
-	 * 不是 3 m。规格 §6.1 的「2–4 m」在 10 km 行星上需要每面约 10⁴ 格（≈ 6 亿
-	 * 三角形），当前预算下不可达，所以保持 96 —— 海洋的观感靠半透明 + 菲涅尔，
-	 * 不靠几何密度。
+	 * 不是 3 m。规格 §6.1 的「2–4 m」在 10 km 行星上需要每边约 4×10³–8×10³ 格
+	 * （全星约 2–8 亿三角形），当前预算下不可达，所以保持 96 —— 海洋的观感靠
+	 * 半透明 + 菲涅尔，不靠几何密度。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "水体", meta = (ClampMin = "8", ClampMax = "512"))
 	int32 OceanResolution = 96;
