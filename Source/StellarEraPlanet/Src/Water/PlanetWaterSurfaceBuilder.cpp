@@ -199,8 +199,9 @@ void PlanetWaterSurfaceBuilder::BuildLakes(
 		// 每段（方位角）能保留到第几环；默认铺满，bClipMargin 时把「岸外」的
 		// 余量环砍掉。
 		//
-		// 湖的真实范围只到 AngularRadius − 2 格：烘焙在最大角距之上固定加了
-		// 2 格余量（见 FPlanetLakeBasin::AngularRadius）。那 2 格是刻意探进岸里
+		// 湖的真实范围只到 AngularRadius − PlanetLakeCapMarginCells 格：烘焙在
+		// 最大角距之上加了这个常量那么多格（见 FPlanetLakeBasin::AngularRadius）。
+		// 那些格是刻意探进岸里
 		// 的，**只有地形高过水位时**才是安全的 —— 水面埋在地里、由深度测试裁掉。
 		// 地形低于水位时（岸外的海床、崖下），这圈水面底下是空气，就是「水面
 		// 悬空」。所以余量按段从内往外走，遇到第一环地形低于水位就停 —— 不是
@@ -209,7 +210,8 @@ void PlanetWaterSurfaceBuilder::BuildLakes(
 		KeepRing.Init(Rings, Segments);
 		if (bClipMargin)
 		{
-			const double InnerAngle = FMath::Max(double(Lake.AngularRadius) - 2.0 * CellAngle, 0.0);
+			const double InnerAngle = FMath::Max(
+				double(Lake.AngularRadius) - double(PlanetLakeCapMarginCells) * CellAngle, 0.0);
 
 			for (int32 Segment = 0; Segment < Segments; ++Segment)
 			{

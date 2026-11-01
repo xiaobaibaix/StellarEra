@@ -12,7 +12,13 @@
 
 namespace
 {
-	/** Task 7 的 PlanetWaterMaterialBuilder 生成资产的固定路径。 */
+	/**
+	 * Task 7 的 PlanetWaterMaterialBuilder 生成资产的固定路径。
+	 *
+	 * 全工程没有硬引用指向它（组件是运行期加载的），所以打包时靠
+	 * `Config/DefaultGame.ini` 里的 `DirectoriesToAlwaysCook=(Path="/Game/Code/Planet/Materials")`
+	 * 保底，否则 cook 会把它剔掉、打包版静默没有水。
+	 */
 	const TCHAR* const PlanetWaterComponentMaterialPath =
 		TEXT("/Game/Code/Planet/Materials/M_PlanetWater.M_PlanetWater");
 }
@@ -105,7 +111,11 @@ void UPlanetWaterComponent::AddWaterMesh(
 		return;
 	}
 
-	UDynamicMeshComponent* Component = NewObject<UDynamicMeshComponent>(GetOwner());
+	// RF_Transient：这张分量只属于本次运行。不标的话，PIE 的内存复制会把所有
+	// 非 Transient 的 OwnedComponents 一起复制进 PIE 世界，而 ClearWaterMeshes
+	// 只认识本数组里的那些 —— 结果是两份水面叠在一起。
+	UDynamicMeshComponent* Component = NewObject<UDynamicMeshComponent>(
+		GetOwner(), NAME_None, RF_Transient);
 	if (!Component)
 	{
 		return;

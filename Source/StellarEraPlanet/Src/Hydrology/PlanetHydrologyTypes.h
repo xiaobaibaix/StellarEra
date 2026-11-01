@@ -5,6 +5,15 @@
 #include "CoreMinimal.h"
 
 /**
+ * 湖冠角半径里「探进岸里」的余量格数。
+ *
+ * PlanetHydrologyBake 在最大角距之上加这么多格，写进 FPlanetLakeBasin::AngularRadius；
+ * PlanetWaterSurfaceBuilder::BuildLakes 再从 AngularRadius 里减掉同一个数，得到湖的
+ * 真实范围。两处必须用同一个常量 —— 改一处会静默错裁余量（水面要么悬空，要么缺一圈）。
+ */
+constexpr int32 PlanetLakeCapMarginCells = 2;
+
+/**
  * 水文烘焙的参数快照。
  *
  * 由地形模块的 GetWaterConfig 打包（见 VoxelPlanetNoiseTerrain），烘焙层不认识
@@ -52,9 +61,9 @@ struct FPlanetLakeBasin
 	float WaterLevelRadius = 0.f;
 
 	/**
-	 * 角半径（弧度）：湖面覆盖的球冠半角，= 最大角距 + **2 格**（见 PlanetHydrologyBake）。
+	 * 角半径（弧度）：湖面覆盖的球冠半角，= 最大角距 + `PlanetLakeCapMarginCells` 格。
 	 *
-	 * 那 2 格是探进岸里的余量：岸外地形高过水位时是安全的，低于水位时水面会悬空，
+	 * 那些格是探进岸里的余量：岸外地形高过水位时是安全的，低于水位时水面会悬空，
 	 * 由水面几何按地形高度裁掉（PlanetWaterSurfaceBuilder::BuildLakes）。
 	 */
 	float AngularRadius = 0.f;

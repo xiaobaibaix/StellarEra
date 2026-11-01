@@ -619,6 +619,20 @@ void AVoxelPlanetActor::RebuildPlanet()
 	// 所以拖动星球这条热路径上它是廉价的。
 	RefreshLODInvoker();
 
+	// 水面也有自己的一条刷新路径，同样排在哈希守卫**之前**。
+	//
+	// VoxelSize 不进 ComputeParamsHash（见那里的注释），它只触发基类自己的体素世界
+	// 重建（meta=(Recreate)），IsCreated() 仍为真 —— 随后的哈希守卫会直接返回。
+	// 但水面几何正是用 VoxelSize 把体素半径折成厘米的（见 UPlanetWaterComponent），
+	// 不在这里补一次，改 VoxelSize 后水面就停在旧尺寸、与体素地形错位。
+	//
+	// 水文场以体素为单位、与 VoxelSize 无关，所以这里不需要先 RefreshHydrology()。
+	// 首次重建时生成器还没建，跳过这里，由下面的 3.6 统一建水面。
+	if (PlanetGenerator && !FMath::IsNearlyEqual(LastWaterVoxelSize, VoxelSize))
+	{
+		RebuildWater();
+	}
+
 	// 细节面板的一次编辑会同时触发 PostEditChangeProperty 和重新执行
 	// OnConstruction：没有这道守卫，改一个参数就会把世界重建两次，生成时间
 	// 翻倍，流送重置还会再次打开背面的空洞。这里复查 IsCreated()，保证全新
@@ -921,6 +935,10 @@ bool AVoxelPlanetActor::InstallBiomeMaterial(bool bForceBake)
 
 void AVoxelPlanetActor::RebuildWater()
 {
+	// 记下这次用的尺寸：RebuildPlanet 在哈希守卫之前拿它做「值变了就刷新」的比较。
+	// 放在组件判空之前 —— 不管有没有组件，尺寸都是这次请求的输入。
+	LastWaterVoxelSize = VoxelSize;
+
 	if (!WaterComponent)
 	{
 		return;
@@ -1639,9 +1657,12 @@ uint64 AVoxelPlanetActor::ComputeParamsHash() const
 	// 每个字段单独混合，结构体填充字节就不会把未初始化的数据漏进哈希。
 	//
 	// 这里刻意**不含**基类的 VoxelSize / MaxLOD / NumberOfThreads / VoxelMaterial：
-	// 它们是本 Actor 自己的属性，改动由基类的 PostEditChangeProperty 直接走
+	// 它们是本 Actor 自己的属性，世界几何的改动由基类的 PostEditChangeProperty 直接走
 	// meta=(Recreate) 重建，我们再哈希一遍只会让同一次编辑重建两次。
 	// 也不含 OrbitLOD —— 它只喂 LOD Invoker，由 RefreshLODInvoker 单独处理。
+	// VoxelSize 还有一条例外：它不进哈希，但**水面几何**要用它把体素半径折成厘米，
+	// 所以 RebuildPlanet 在守卫之前单独比较一次并刷新水面（基类的重建只重建体素世界，
+	// IsCreated() 仍为真，守卫会把水面刷新一并吞掉）。
 	uint64 Hash = 1469598103934665603ULL;
 	// 形参名别叫 Data：基类有一个私有成员 AVoxelWorld::Data（TVoxelSharedPtr<FVoxelData>），
 	// 遮蔽它会触发 C4458，而本项目按「警告即错误」编译。

@@ -435,6 +435,15 @@ private:
 	uint64 LastParamsHash = 0;
 
 	/**
+	 * 上次重建水面用的 VoxelSize（cm）；-1 = 从没建过。
+	 *
+	 * VoxelSize 刻意不进 ComputeParamsHash（见 .cpp），但水面几何要用它把体素半径
+	 * 折成厘米。所以 RebuildPlanet 在哈希守卫**之前**单独比较一次，值变了就刷新水面
+	 * —— 否则只改 VoxelSize 时守卫会早退，水面停在旧尺寸、与体素地形错位。
+	 */
+	float LastWaterVoxelSize = -1.f;
+
+	/**
 	 * 后台存档任务；无效 = 没有在跑。
 	 *
 	 * 存成 TFuture 是为了 EndPlay 能先等它跑完再做同步兜底 —— 否则退出时

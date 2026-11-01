@@ -208,7 +208,8 @@ bool FStellarEraWaterLakeTest::RunTest(const FString& Parameters)
 	// 悬在空中（碗形夹具里表现为高出海面的一圈）。所以：余量只允许出现在地形
 	// 高过水位、水面埋进地里的地方。
 	const double CellAngle = (PI * 0.5) / double(MakeWaterTestParams().Resolution);
-	const double InnerAngle = FMath::Max(double(Lake.AngularRadius) - 2.0 * CellAngle, 0.0);
+	const double InnerAngle = FMath::Max(
+		double(Lake.AngularRadius) - double(PlanetLakeCapMarginCells) * CellAngle, 0.0);
 	int32 ExposedMarginVertices = 0;
 	double FarthestExposedAngle = 0.0;
 	for (const int32 VertexId : Mesh.VertexIndicesItr())
@@ -231,10 +232,62 @@ bool FStellarEraWaterLakeTest::RunTest(const FString& Parameters)
 		}
 	}
 
-	AddInfo(FString::Printf(TEXT("碗：角半径 %.4f，真实范围 %.4f，实测最远 %.4f，水位 %.3f 体素"),
-		Lake.AngularRadius, InnerAngle, FarthestAngle, Lake.WaterLevelRadius));
+	// 反过来也要钉住：真实湖域（InnerAngle 以内，即烘焙的最大角距）**每个方位**都必须
+	// 被水面盖到。只断言「没有悬空余量」的话，误裁到湖域内部照样绿。
+	//
+	// 重建构建器的环/段划分（同一套公式与同一切平面基），取「InnerAngle 以内最后
+	// 一环」，要求每个方位段上的最大极角都不小于它。
+	const int32 Rings = FMath::Clamp(
+		FMath::CeilToInt(double(Lake.AngularRadius) / CellAngle), 2, 64);
+	const int32 Segments = FMath::Clamp(Rings * 4, 8, 256);
+	int32 LastInnerRing = 0;
+	for (int32 Ring = 1; Ring <= Rings; ++Ring)
+	{
+		if (double(Lake.AngularRadius) * double(Ring) / double(Rings) <= InnerAngle + 1e-9)
+		{
+			LastInnerRing = Ring;
+		}
+	}
+	const double LastInnerAngle =
+		double(Lake.AngularRadius) * double(LastInnerRing) / double(Rings);
+
+	const FVector LakeCenter = Lake.CentroidDir.GetSafeNormal();
+	const FVector Reference =
+		(FMath::Abs(LakeCenter.Z) < 0.9) ? FVector::UpVector : FVector::RightVector;
+	const FVector LakeT1 = FVector::CrossProduct(LakeCenter, Reference).GetSafeNormal();
+	const FVector LakeT2 = FVector::CrossProduct(LakeCenter, LakeT1).GetSafeNormal();
+
+	TArray<double> MaxAnglePerSegment;
+	MaxAnglePerSegment.Init(0.0, Segments);
+	for (const int32 VertexId : Mesh.VertexIndicesItr())
+	{
+		const FVector3d Position = Mesh.GetVertex(VertexId);
+		const double RadiusCm = Position.Size();
+		const FVector Direction = Position / FMath::Max(RadiusCm, 1e-9);
+		const double Theta = FMath::Acos(FMath::Clamp(
+			FVector::DotProduct(Direction, LakeCenter), -1.0, 1.0));
+		const double Phi = FMath::Atan2(
+			FVector::DotProduct(Direction, LakeT2), FVector::DotProduct(Direction, LakeT1));
+		int32 Segment = FMath::RoundToInt(Phi / (2.0 * PI / double(Segments)));
+		Segment = ((Segment % Segments) + Segments) % Segments;
+		MaxAnglePerSegment[Segment] = FMath::Max(MaxAnglePerSegment[Segment], Theta);
+	}
+	int32 UncoveredSegments = 0;
+	for (const double SegmentMaxAngle : MaxAnglePerSegment)
+	{
+		if (SegmentMaxAngle < LastInnerAngle - 1e-3)
+		{
+			++UncoveredSegments;
+		}
+	}
+
+	AddInfo(FString::Printf(
+		TEXT("碗：角半径 %.4f，真实范围 %.4f，内侧最后一环 %.4f，实测最远 %.4f，未覆盖段 %d，水位 %.3f 体素"),
+		Lake.AngularRadius, InnerAngle, LastInnerAngle, FarthestAngle,
+		UncoveredSegments, Lake.WaterLevelRadius));
 	TestEqual(FString::Printf(TEXT("湖泊余量不得悬空（最远悬空角 %.4f rad）"), FarthestExposedAngle),
 		ExposedMarginVertices, 0);
+	TestEqual(TEXT("真实湖域的每个方位都必须被水面覆盖"), UncoveredSegments, 0);
 
 	return true;
 }

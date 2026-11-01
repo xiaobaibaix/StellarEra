@@ -563,7 +563,7 @@ TSharedPtr<FPlanetHydrologyField> FPlanetHydrologyBake::Bake(
 		FPlanetLakeBasin Basin;
 		Basin.CentroidDir = Centroid;
 		Basin.WaterLevelRadius = float(LakeLevel);
-		Basin.AngularRadius = float(MaxAngle + 2.0 * CellAngle);
+		Basin.AngularRadius = float(MaxAngle + double(PlanetLakeCapMarginCells) * CellAngle);
 		Lakes.Add(Basin);
 	}
 
