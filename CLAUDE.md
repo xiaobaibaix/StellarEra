@@ -228,6 +228,8 @@ N 体数据分四层，**编辑器里只填人类单位**：
 - `UniverseMap` 三体初态在 t≈0.84 模拟年近距离交会后能量漂移爆掉；先看日志“能量漂移”行，别先查渲染。
 - 飞船会不会被行星剥走，看“飞船轨道半径 / 行星近拱点 Hill 半径”：≈0.61 被剥走，≈0.36 能活；飞船轨道面必须与行星轨道面共面。
 - 体素八叉树的碰撞细分路径不读 `LODToSet`（锁死 Height 0），是爆块主因。
+- **切图崩 `World Memory Leaks: N leaks objects and packages`** → 别猜，看日志里泄漏对象的 Outer 链。旧世界的 UObject 只要还被 GC root 握着就收不掉，`UEditorEngine` 在关卡加载后直接 Fatal。已踩过一次：`BiomeMaterialMID` 的 Outer 曾是行星 Actor，而编辑器态插件把这张 MID 原样登记进全局 `FVoxelMaterialInterfaceManager`（GC root）—— 现在统一走 `AVoxelPlanetActor::CreateBiomeMaterialMID`（瞬态包当 Outer），回归测试 `StellarEra.Planet.BiomeMaterial.TransientOuter`。**给体素相关物建 MID / 纹理，Outer 一律给瞬态包。**
+- **World Partition 关卡里删掉 `WorldDataLayers` 再保存** → `Assertion failed: CanResolveDataLayers()`（`DataLayerManager.cpp`），进程当场死、关卡只写一半。脚本批量清空 Actor 时最容易踩（`bCanResolveDataLayers` 只在 `Initialize()` 且无 Level Instance 父级时才置 true）。要模板关卡就**新建空关卡**，别「复制后清空」。
 - 体素行星存档有两种格式，**存与读的 `voxel.data.StoreSpecialValueForGeneratorValuesInSaves` 必须一致**。当前 ini 是 0（新格式）；仓库里的 `Content/Saves/PlanetVoxel/**` 是 **1（旧格式）** 的，因为 145 MB 的 LFS 资产没跟着提交。新拉下来的仓库若直接进 `UniverseMap`，会读出一颗坏星。迁移三步：把 ini 改回 1 → 进关卡等它加载完（会慢约 36 s）→ 执行 `StellarEra.Planet.ResaveAll 0`（它在写之前把 CVar 切成 0，读的时候还得是 1，所以不能提前到命令行）→ 把 ini 改回 0。
 
 更细的设计见 `docs/superpowers/specs/`，实施记录见 `docs/superpowers/plans/`。

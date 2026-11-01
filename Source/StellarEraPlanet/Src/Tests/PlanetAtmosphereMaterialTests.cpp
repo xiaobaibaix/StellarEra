@@ -109,6 +109,8 @@ bool FStellarEraAtmosphereMaterialHlslTest::RunTest(const FString& Parameters)
 
 	TestTrue(TEXT("HLSL 含面剔除"), Custom->Code.Contains(TEXT("TwoSidedSign")));
 	TestTrue(TEXT("HLSL 含场景深度截断"), Custom->Code.Contains(TEXT("SceneDepthCm")));
+	// 夜面不该有辉光：没有这一段，本影里照样散射，暗面会挂一圈蓝边。
+	TestTrue(TEXT("HLSL 含太阳遮挡"), Custom->Code.Contains(TEXT("sunVis")));
 
 	return true;
 }

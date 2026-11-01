@@ -35,17 +35,22 @@ class STELLARERAPLANET_API UPlanetAtmosphereComponent : public UStaticMeshCompon
 public:
 	UPlanetAtmosphereComponent();
 
-	/** 壳厚度 / 行星表面半径。决定辉光与天空的"厚度"，与瑞利/米氏标高一起决定地平线颜色。 */
+	/**
+	 * 壳厚度 / 行星表面半径。决定辉光与天空的"厚度"，与瑞利/米氏标高一起决定地平线颜色。
+	 *
+	 * 注意这不是纯渲染参数：飞船的大气阻力剖面用同一属性当壳顶
+	 * （SpaceshipPawn 的密度函数），改大等于把可飞行的大气层抬得更高。
+	 */
 	UPROPERTY(EditAnywhere, Category = "StellarEra|Atmosphere", meta = (ClampMin = "0.0"))
-	float AtmosphereHeightRatio = 0.05f;
+	float AtmosphereHeightRatio = 0.09f;
 
-	/** 瑞利标高 / 壳半径。 */
+	/** 瑞利标高 / 壳半径。越小，密度越贴地面，天空越低越浓、高空越透。 */
 	UPROPERTY(EditAnywhere, Category = "StellarEra|Atmosphere", meta = (ClampMin = "0.0"))
-	float RayleighScaleHeightRatio = 0.015f;
+	float RayleighScaleHeightRatio = 0.008f;
 
 	/** 米氏标高 / 壳半径。 */
 	UPROPERTY(EditAnywhere, Category = "StellarEra|Atmosphere", meta = (ClampMin = "0.0"))
-	float MieScaleHeightRatio = 0.003f;
+	float MieScaleHeightRatio = 0.0015f;
 
 	/**
 	 * 大气阻力：海平面（ρ = 1）、相对速度 1 km/s 时的减速度（km/s²）。0 = 关闭。
@@ -63,9 +68,20 @@ public:
 	UPROPERTY(EditAnywhere, Category = "StellarEra|Atmosphere", meta = (ClampMin = "0.0"))
 	float DragAccelerationAtKmPerSecond = 10.0f;
 
-	/** 太阳辐照度的线性 RGB 倍率。调到与地形被同一盏 DirectionalLight 照出来的亮度相称。 */
+	/**
+	 * 太阳辐照度的线性 RGB 倍率。
+	 *
+	 * 名义上是"与地形那盏 DirectionalLight 相称"，实际默认值远大于 1：材质只算
+	 * **单次散射**，而真实天空的亮度有相当一部分来自多次散射，瑞利相位函数在 90°
+	 * 方向又只有 3/(16π) ≈ 0.06。两项合起来，物理量级的 accumulated 只有 ~0.01
+	 * 线性值 —— 混合出来不是"发蓝光"，而是把背景压暗成暗蓝。14 就是把这段差额
+	 * 补回来的系数，不是太阳真的亮了 14 倍。
+	 *
+	 * 想更亮/更暗直接调这里或材质实例参数，不要靠改 RayleighBeta 去凑亮度
+	 * —— 那会连光学厚度一起改，颜色会跟着变。
+	 */
 	UPROPERTY(EditAnywhere, Category = "StellarEra|Atmosphere")
-	FLinearColor SunIntensity = FLinearColor::White;
+	FLinearColor SunIntensity = FLinearColor(14.0f, 14.0f, 14.0f, 1.0f);
 
 	/**
 	 * 大气总开关：关掉 = 这颗行星没有大气。

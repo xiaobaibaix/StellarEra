@@ -107,6 +107,8 @@ float g = 0.8;
 float g2 = g * g;
 float phaseM = (1.0 - g2) / (4.0 * ATMO_PI * pow(max(1.0 + g2 - 2.0 * g * cosTheta, 1e-4), 1.5));
 
+float3 toSunDir = SunDirection.rgb;
+
 // 单次散射积分：固定步长中点法
 float ds = (tExit - tEnter) / float(ATMO_STEPS);
 float3 transmittance = float3(1.0, 1.0, 1.0);
@@ -115,12 +117,23 @@ for (int i = 0; i < ATMO_STEPS; ++i)
 {
     float t = tEnter + (float(i) + 0.5) * ds;
     float3 p = ro + rd * t;
+    // 太阳被行星本体挡住时，这一段不产生单次散射：求 P 到"指向太阳的射线"的垂距，
+    // 小于行星半径即落在本影里。必须 bS < 0 —— 否则最近点落在射线的反向延长线上。
+    // 0.99~1.01 的平滑带给出晨昏线附近的过渡，避免一条硬边。
+    float3 ops = p - PlanetCenter;
+    float bS = dot(ops, toSunDir);
+    float sunVis = 1.0;
+    if (bS < 0.0)
+    {
+        float dPerp = length(ops - bS * toSunDir);
+        sunVis = smoothstep(PlanetRadius * 0.99, PlanetRadius * 1.01, dPerp);
+    }
     float h = max(length(p - PlanetCenter) - PlanetRadius, 0.0);
     float dR = exp(-h / RayleighScaleHeight);
     float dM = exp(-h / MieScaleHeight);
     float3 extinction = RayleighBeta.rgb * dR + MieBeta.rgb * dM;
     transmittance *= exp(-extinction * ds);
-    accumulated += (RayleighBeta.rgb * dR * phaseR + MieBeta.rgb * dM * phaseM) * transmittance * ds;
+    accumulated += (RayleighBeta.rgb * dR * phaseR + MieBeta.rgb * dM * phaseM) * transmittance * sunVis * ds;
 }
 
 float coverage = saturate(1.0 - dot(transmittance, float3(1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0)));

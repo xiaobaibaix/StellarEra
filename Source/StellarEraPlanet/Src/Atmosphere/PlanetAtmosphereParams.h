@@ -91,8 +91,8 @@ namespace PlanetAtmosphere
 	 * 所以 β 必须相应变薄，观感才对。
 	 *
 	 * @param ShellRadiusCm             壳半径（cm），来自 ComputeShellRadiusCm
-	 * @param RayleighScaleHeightRatio  瑞利标高 / 壳半径，默认 0.015
-	 * @param MieScaleHeightRatio       米氏标高 / 壳半径，默认 0.003
+	 * @param RayleighScaleHeightRatio  瑞利标高 / 壳半径，组件默认 0.008
+	 * @param MieScaleHeightRatio       米氏标高 / 壳半径，组件默认 0.0015
 	 */
 	STELLARERAPLANET_API FShellScatteringParams ComputeShellScatteringParams(
 		float ShellRadiusCm, float RayleighScaleHeightRatio, float MieScaleHeightRatio);
