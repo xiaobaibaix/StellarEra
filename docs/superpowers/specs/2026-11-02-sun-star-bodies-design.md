@@ -66,12 +66,12 @@
 
 ### 5.1 `UStarBodyComponent`（新增）
 
-位置：`Source/StellarEraPlanet/Src/Atmosphere/UStarBodyComponent.h/.cpp`
+位置：`Source/StellarEraPlanet/Src/Atmosphere/StarBodyComponent.h/.cpp`
 
 - 继承 `UActorComponent`，**不 Tick**，只存参数并充当标记（与 `UCosmosOrbitComponent` 同样的取舍）。
-- 字段：
-  - `FLinearColor LightColor = White`（预留：将来若做单光源染色，用它驱动 `DirectionalLight`）
-  - `bool bDrivesDirectionalLight = true`（这颗恒星是否接管关卡主光；多颗恒星时只有最近那颗生效）
+- 字段只有一个：`bool bDrivesDirectionalLight = true`（这颗恒星是否接管关卡主光；多颗恒星时只有最近那颗生效）。
+  恒星的颜色由各自的材质实例（`MI_Sun_*`）承载，不在这里冗余一份 ——
+  多恒星光照本就列为非目标，留一个没人消费的颜色字段只会误导后来者。
 - 恒星的位置直接用 `GetOwner()->GetActorLocation()`，组件自己不存位置。
 
 ### 5.2 太阳方向解析（核心改动）
@@ -97,45 +97,69 @@
 这条是多恒星场景下"地形明暗面与天空明暗分界一致"的必要条件：天空按最近恒星算，
 地形若还按另一盏灯的朝向算，两者会打架。
 
-### 5.4 `BP_Star` 预制体
+### 5.4 `AStarBodyActor`（新增 C++ 类，放在 Cosmos）
 
-`Content/Code/Planet/BP_Star.uasset` 已存在但当前没有可用组件。补成恒星预制体：
+恒星必须同时挂两个模块的组件（Cosmos 的 `UCosmosOrbitComponent` + Planet 的 `UStarBodyComponent`）。
+Planet 不能依赖 Cosmos，所以**只有 Cosmos 能同时引用两者** —— 恒星 Actor 因此放在
+`Source/StellarEraCosmos/Src/StarBodyActor.h/.cpp`。
 
-- `StaticMeshComponent`：`/Engine/BasicShapes/Sphere`，`relative_scale3d = 30000`
-  → 半径 50 × 30000 = 1.5e6 cm
-- 材质：每个实例用不同预设（`MI_Sun_G2V` / `MI_Sun_B3V` / `MI_Sun_M2V`）
-- `UCosmosOrbitComponent`：质量按第 5.5 节填
-- `UStarBodyComponent`
+不采用"在 `Content/Code/Planet/BP_Star` 蓝图里拼组件"的做法：跨模块组件的拼装在脚本里脆弱、
+无法被自动化测试覆盖，而且骨架组件按 `CLAUDE.md` 的「Actor 组件归属口径」本就该写在 C++ 里。
+
+- 根组件 `UStaticMeshComponent`：`/Engine/BasicShapes/Sphere`，`relative_scale3d = 10000`
+  → 半径 50 × 10000 = 5e5 cm（5 公里）；无碰撞、不投影、`Movable`（N 体每帧写位置）
+- 默认材质 `/Game/Code/Res/Star/Materials/MI_Sun_G2V`（实例在关卡里各自覆盖）
+- `UCosmosOrbitComponent`、`UStarBodyComponent`
+- 不 Tick
 
 ### 5.5 关卡数据（`UniverseMap`）
 
 世界标定 `CentimetersPerAu = 1.0e6`（`CosmosSimulationSubsystem.h:180`），
 `TimeScale = 0.00333`（同文件 `:185`），即 **1 模拟年 ≈ 300 秒真实时间**。
-圆轨道周期 `P[年] = sqrt(r[AU]³ / M[M☉])`，速度 `v[AU/年] = 2π·sqrt(M/r)`，
+引力常数 `G = 4π²`（AU³ / (M☉·年²)），所以 `v[AU/年] = sqrt(G·M_eff/r)`、`P[年] = 2π·r/v`，
 `1 AU/年 = 4.74047 km/s`。
+
+**初速必须按多体合力算，不能套二体公式。** 三颗等质量恒星共线时，外侧一颗除中间那颗外
+还受另一颗外侧恒星的拉力；后者的距离是 2d，贡献 `1/4` 的加速度：
+
+- 外侧恒星：`a = G(M_A/d² + M_C/(2d)² + M_P·cosθ/r_PB²)`，d = 200 AU
+  → `a = 123.55 AU/年²`，`v = sqrt(a·d) = **157.19 AU/年 = 745.1 km/s**`，`P = 8.00 模拟年 ≈ 40 分钟`
+  （套二体公式得 140.5 AU/年 = 666 km/s，偏低 11%，轨道会明显偏心）
+- 行星：`a = G(M_A/100² + 2·M_C·(100/223.6)/223.6²) = 465.4 AU/年²`
+  → 相对速度 `215.96 AU/年`；再按**零总动量**分配（A 被行星拉动，
+  `G·250/100² = 0.987`）→ A `−0.54`、行星 `+215.42 AU/年 = 1021.2 km/s`，
+  `P = 2.91 模拟年 ≈ 14.6 分钟`
 
 | 天体 | 位置 (cm) | 半径 (cm) | `MassEarth` (M⊕) | 初速 (km/s) | 圆轨道周期 |
 |---|---|---|---|---|---|
-| 恒星 A（中） | (0, 0, 0) | 1.5e6 | 3.329460837e10（= 1e5 M☉） | (0, 0, 0) | — |
-| 恒星 B | (−2e8, 0, 0) | 1.5e6 | 3.329460837e10 | (0, +666, 0) | 8.94 模拟年 ≈ 44.7 分钟 |
-| 恒星 C | (+2e8, 0, 0) | 1.5e6 | 3.329460837e10 | (0, −666, 0) | 同上，反向 |
-| 行星 | (0, 1e8, 0) | 1e6 | 1 | (−942, 0, 0) | 3.16 模拟年 ≈ 15.8 分钟 |
+| 恒星 A（中） | (0, 0, 0) | 5e5 | 3.329460837e10（= 1e5 M☉） | (−2.55, 0, 0) | — |
+| 恒星 B | (−2e8, 0, 0) | 5e5 | 3.329460837e10 | (0, +745.1, 0) | 8.00 模拟年 ≈ 40 分钟 |
+| 恒星 C | (+2e8, 0, 0) | 5e5 | 3.329460837e10 | (0, −745.1, 0) | 同上，反向 |
+| 行星 | (0, 1e8, 0) | 2e6 | 8.3236520936e7（= 250 M☉） | (+1021.2, 0, 0) | 2.91 模拟年 ≈ 14.6 分钟 |
 
 - 三颗恒星共线于 X 轴。B / C 分居 ±X，速度分别沿 ∓Y（两个速度矢量方向相反），
   但两者绕 A 的**旋向相同**，所以相位恒相差 180°，**永不交汇**（与现有关卡两颗行星的做法一致）。
+  行星 +X 方向的速度与 B / C 同旋向（三者的 `r × v` 都是 −Z）。
+- **行星质量必须保持"游戏大质量"（250 M☉），不能改成真实的 1 M⊕。**
+  1 M⊕ 在 100 AU 处的 Hill 半径只有 `100·(1/3e5)^(1/3) ≈ 0.0215 AU = 2.15e4 cm`，
+  比行星半径 2e6 cm 还小 —— 飞船在**地表**就会被恒星剥走。
+  250 M☉ 时 `r_H ≈ 9.4 AU = 9.4e6 cm`，飞船离行星中心 2.39e6 cm（比值 0.25），
+  低于 0.36 这条"能活"的经验阈值。现有关卡本来就用的 2500 M☉，本次降到 250 是为了
+  把行星对恒星的扰动压小 10 倍。
 - 行星放在 +Y 方向，避免与 X 轴上的恒星重叠。
 - 天空张角（`2·atan(R/d)`）：
-  - 主太阳 A：`2·atan(1.5e6 / 1e8)` ≈ **1.72°**（真太阳 0.53°）
-  - B / C：距行星 `sqrt((2e8)² + (1e8)²)` ≈ 2.236e8 cm ≈ 223.6 AU，各约 **0.77°**
+  - 主太阳 A：`2·atan(5e5 / 1e8)` ≈ **0.57°**（真太阳 0.53°，基本一致）
+  - B / C：距行星 `sqrt((2e8)² + (1e8)²)` ≈ 2.236e8 cm ≈ 223.6 AU，各约 **0.26°**
 - 质量量级是游戏尺度（现有关卡的"行星"已有 2500 M☉），决定动力学的是质量**比**，
   不是绝对值；视觉与周期对上即可。
 
 ### 5.6 关卡内容改动
 
-- 保留一颗半径 1e6 的行星（现 `BP_VoxelPlanet` 或 `BP_VoxelPlanet2` 之一），
-  移到 (0, 1e8, 0) 并给圆轨道初速。
-- 删除另外两颗 `BP_VoxelPlanet`（含它们的大气组件与外挂星图相机）。
-- 放置 3 个 `BP_Star` 实例。
+- 保留 `BP_VoxelPlanet3`（唯一在原点、表面半径 2e6 cm、飞船与 `PlayerStart` 就摆在它上方的那颗），
+  移到 (0, 1e8, 0) 并给圆轨道初速；质量从 1e4 M☉ 改成 250 M☉。
+- 删除 `BP_VoxelPlanet` 与 `BP_VoxelPlanet2`（含它们的大气壳与对应的星图相机）。
+- 放置 3 个 `AStarBodyActor` 实例（材质分别用 `MI_Sun_G2V` / `MI_Sun_B3V` / `MI_Sun_M2V`）。
+- 飞船与 `PlayerStart` 随行星平移同样的位移，飞船初速与行星相同（否则一出生就被甩下）。
 - 对应体素存档目录 `Content/Saves/PlanetVoxel/**` 的清理单独确认，不在本次代码改动里做。
 
 ### 5.7 顺带修复：材质构建器的路径漂移
@@ -150,7 +174,7 @@
 ```
 关卡摆放                       运行时每帧
 ─────────                     ───────────────────────────────────────
-BP_Star(A/B/C)                UCosmosSimulationSubsystem.Tick
+AStarBodyActor(A/B/C)          UCosmosSimulationSubsystem.Tick
  ├ UCosmosOrbitComponent  ──→   推进 N 体、把位置写回 Actor
  └ UStarBodyComponent           │
 行星 BP_VoxelPlanet               ▼
@@ -166,9 +190,12 @@ BP_Star(A/B/C)                UCosmosSimulationSubsystem.Tick
    - 关卡式测试世界放两颗 `UStarBodyComponent`，行星靠近其中一颗 →
      `ResolveSunDirection` 指向最近那颗。
    - 世界里只有 `ADirectionalLight` → 回退路径与改动前一致。
-   - 命名：`StellarEra.Planet.Atmosphere.SunDirection.*`
-2. **无头长时间跑**：模拟 ≥ 10 模拟年，检查日志"能量漂移"行与天体是否逃逸。
-   这是三恒星的真正风险点。
+   - 命名：`StellarEra.Planet.Atmosphere.StarBody.FindNearest`、
+     `StellarEra.Planet.Atmosphere.SunDirection.Compute`、
+     `StellarEra.Cosmos.StarBodyActor.Skeleton`
+2. **无头长时间跑**：`StellarEra.Cosmos.Simulator.FourBodyStability` 在求解器里跑 10 模拟年，
+   断言能量漂移 < 1e-4 且没有天体超出 500 AU。**这是三恒星的真正风险点**，
+   参数一改就要重跑。
 3. **画面验证**：PIE 里站在行星表面抬头，确认太阳盘大小、另两颗恒星、明暗分界跟随。
 
 ## 8. 风险与退路
