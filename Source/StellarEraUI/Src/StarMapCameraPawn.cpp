@@ -93,6 +93,14 @@ void AStarMapCameraPawn::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// 拍下挂载原点：星图期间 Actor 每帧跟着渲染相机走，退出时靠它搬回球心。
+	// 只有挂在行星上的那台（BP_StarMapCameraPawn 作为 CAC 子 Actor）有挂载父；
+	// 深空单例相机没有，保持单位变换即可 —— ResetToAttachOrigin 会直接跳过。
+	if (GetRootComponent() && GetRootComponent()->GetAttachParent())
+	{
+		AttachOriginRelativeTransform = GetRootComponent()->GetRelativeTransform();
+	}
+
 	// 解析器捕获 this：Pawn 与组件同生共死，组件在 EndPlay 里会清掉它。
 	if (UPlanetEditComponent* Edit = GetPlanetEditComponent())
 	{
@@ -132,7 +140,8 @@ UPlanetEditComponent* AStarMapCameraPawn::GetPlanetEditComponent() const
 
 void AStarMapCameraPawn::EnterFrom(const FVector& InCameraLocation, const FRotator& InCameraRotation)
 {
-	// 「原地不动、不选中」：把进入前的视角直接拿来当基准，于是进入星图时画面不变。
+	// 位置由调用方给，通常是行星表面锚点（ComputeEntryAnchorLocation）而不是进入前的
+	// 视点 —— 这台相机挂在行星球心，直接原地接手会先看见星体内部。朝向仍用进入前的。
 	CameraLocation = InCameraLocation;
 	OrbitRotation = InCameraRotation;
 	// 上次退出前可能还带着右键拖出来的偏移；重新进入从「正对」起步。
@@ -144,6 +153,64 @@ void AStarMapCameraPawn::EnterFrom(const FVector& InCameraLocation, const FRotat
 
 	// 顺手把 Actor 摆过去，方便在 PIE 里看它、点它。它不影响相机。
 	SetActorLocationAndRotation(InCameraLocation, InCameraRotation, /*bSweep=*/false);
+}
+
+FVector AStarMapCameraPawn::ComputeSurfaceAnchorLocation(
+	const FVector& PlanetCenter,
+	const FVector& TowardWorldLocation,
+	const double SurfaceRadiusCm,
+	const double AltitudeCm)
+{
+	if (SurfaceRadiusCm <= 0.0)
+	{
+		return PlanetCenter;
+	}
+
+	// 方向取「球心 → 当前视点」：相机从玩家正在看的那一侧贴上来，进场不至于从背面
+	// 钻进球里。两者重合时没有方向可言，退回世界 +Z。
+	FVector Direction = TowardWorldLocation - PlanetCenter;
+	if (!Direction.Normalize())
+	{
+		Direction = FVector::UpVector;
+	}
+
+	// 高度上限按半径的 1/4 夹：星图相机的拉远目标默认才 5e5 cm，锚点若浮到半空，
+	// 进场那一帧与目标的距离会远得看不出是同一颗天体（也会让 LOD 一上来就是低的）。
+	const double ClampedAltitude = FMath::Clamp(AltitudeCm, 0.0, SurfaceRadiusCm * 0.25);
+	return PlanetCenter + Direction * (SurfaceRadiusCm + ClampedAltitude);
+}
+
+FVector AStarMapCameraPawn::ComputeEntryAnchorLocation(const FVector& TowardWorldLocation) const
+{
+	// 只有挂在行星上的那台（作为 CAC 子 Actor）算得出锚点；深空单例相机没有宿主，
+	// 保持当前 Actor 位置 —— 它本来就摆在关卡里，不需要搬家。
+	const AVoxelPlanetActor* const Planet = Cast<AVoxelPlanetActor>(GetAttachParentActor());
+	if (!Planet)
+	{
+		return GetActorLocation();
+	}
+
+	return ComputeSurfaceAnchorLocation(
+		Planet->GetActorLocation(),
+		TowardWorldLocation,
+		Planet->GetSurfaceRadiusCm(),
+		EntryAnchorAltitudeCm);
+}
+
+void AStarMapCameraPawn::ResetToAttachOrigin()
+{
+	// 星图期间 CalcCamera 每帧把 Actor 拽到渲染相机位置，退出后它还留在半空；
+	// 不搬回挂载原点，下次从外面看行星时那台子相机就飘在球心外。
+	if (!GetRootComponent() || !GetRootComponent()->GetAttachParent())
+	{
+		return;
+	}
+
+	SetActorRelativeTransform(
+		AttachOriginRelativeTransform,
+		/*bSweep=*/false,
+		nullptr,
+		ETeleportType::TeleportPhysics);
 }
 
 void AStarMapCameraPawn::FocusOn(AActor* Body, double DistanceCm)

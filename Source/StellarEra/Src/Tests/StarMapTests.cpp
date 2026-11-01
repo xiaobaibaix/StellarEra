@@ -990,4 +990,66 @@ bool FStellarEraStarMapPlanetCameraTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 入场锚点：行星相机挂在球心，进星图前要沿「球心 → 当前视点」搬到球面附近。
+// ─────────────────────────────────────────────────────────────────────────────
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapEntryAnchorTest,
+	"StellarEra.StarMap.EntryAnchor",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraStarMapEntryAnchorTest::RunTest(const FString& Parameters)
+{
+	const FVector Center(1.0e7, -2.0e6, 3.0e5); // 不放在原点，顺带验证减法不是「按原点算」
+	constexpr double Radius = 1.0e6;
+	constexpr double Altitude = 1.0e5;
+	constexpr double Tolerance = 1.0;
+
+	// ── 方向：只取「球心 → 视点」的方向，与视点远近无关 ──
+	{
+		const FVector Anchor = AStarMapCameraPawn::ComputeSurfaceAnchorLocation(
+			Center, Center + FVector(5.0e6, 0.0, 0.0), Radius, Altitude);
+		TestEqual(TEXT("沿 +X：距离 = 半径 + 高度"),
+			static_cast<double>((Anchor - Center).Size()), Radius + Altitude, Tolerance);
+		TestTrue(TEXT("沿 +X：方向正确"),
+			(Anchor - Center).GetSafeNormal().Equals(FVector::ForwardVector, 1e-6));
+	}
+	{
+		// 视点离得极近（几乎贴着球心）方向仍要归一化，不能按距离缩放
+		const FVector Anchor = AStarMapCameraPawn::ComputeSurfaceAnchorLocation(
+			Center, Center + FVector(0.0, 1.0, 0.0), Radius, Altitude);
+		TestEqual(TEXT("视点很近：距离仍 = 半径 + 高度"),
+			static_cast<double>((Anchor - Center).Size()), Radius + Altitude, Tolerance);
+	}
+
+	// ── 高度：夹在 [0, 半径/4]，防止锚点浮到半空 ──
+	{
+		const FVector Anchor = AStarMapCameraPawn::ComputeSurfaceAnchorLocation(
+			Center, Center + FVector(0.0, 0.0, 1.0e6), Radius, Radius);
+		TestEqual(TEXT("高度超过半径/4 → 夹到半径/4"),
+			static_cast<double>((Anchor - Center).Size()), Radius + Radius * 0.25, Tolerance);
+	}
+	{
+		const FVector Anchor = AStarMapCameraPawn::ComputeSurfaceAnchorLocation(
+			Center, Center + FVector(0.0, 0.0, 1.0e6), Radius, -5.0e5);
+		TestEqual(TEXT("负高度 → 夹到 0"), static_cast<double>((Anchor - Center).Size()),
+			Radius, Tolerance);
+	}
+
+	// ── 退化输入 ──
+	{
+		const FVector Anchor = AStarMapCameraPawn::ComputeSurfaceAnchorLocation(
+			Center, Center, Radius, Altitude);
+		TestTrue(TEXT("视点与球心重合 → 退回世界 +Z"),
+			(Anchor - Center).GetSafeNormal().Equals(FVector::UpVector, 1e-6));
+	}
+	{
+		const FVector Anchor = AStarMapCameraPawn::ComputeSurfaceAnchorLocation(
+			Center, Center + FVector(1.0e6, 0.0, 0.0), 0.0, Altitude);
+		TestTrue(TEXT("半径 <= 0 → 原样返回球心"), Anchor.Equals(Center));
+	}
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

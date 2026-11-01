@@ -84,8 +84,39 @@ public:
 	 */
 	UPlanetEditComponent* GetPlanetEditComponent() const;
 
-	/** 进入星图模式时由控制器调用：把相机原地钉住，并重置为「未选中」。 */
+	/** 进入星图模式时由控制器调用：把相机放到给定位置，并重置为「未选中」。 */
 	void EnterFrom(const FVector& InCameraLocation, const FRotator& InCameraRotation);
+
+	/**
+	 * 入场锚点：行星地表之上 AltitudeCm 的世界位置。
+	 *
+	 * 方向 = PlanetCenter → TowardWorldLocation；两者重合时退回 +Z（不产生 NaN）。
+	 * 高度夹在 [0, 25% 半径]：蓝图里填多大都不会把相机送进轨道尺度。
+	 * SurfaceRadiusCm ≤ 0（拿不到可信几何）返回 PlanetCenter，由调用方按「没有
+	 * 行星」处理。纯函数，不碰世界，所以能无头测。
+	 */
+	static FVector ComputeSurfaceAnchorLocation(
+		const FVector& PlanetCenter,
+		const FVector& TowardWorldLocation,
+		double SurfaceRadiusCm,
+		double AltitudeCm);
+
+	/**
+	 * 用自己挂载的行星算入场锚点：球心 + 地表半径 + EntryAnchorAltitudeCm。
+	 *
+	 * 没挂在行星上（深空单例相机）返回当前 Actor 位置 —— 与「入场画面不变」
+	 * 的旧行为一致。
+	 */
+	FVector ComputeEntryAnchorLocation(const FVector& TowardWorldLocation) const;
+
+	/**
+	 * 把相机摆回挂载原点（行星球心）。
+	 *
+	 * 星图期间 Actor 每帧跟着渲染相机走（见 CalcCamera 末尾），退出时必须搬回来，
+	 * 否则这颗行星的子 Actor 会一直漂在最后看的位置上。没有挂载（深空单例相机）
+	 * 什么都不做。
+	 */
+	void ResetToAttachOrigin();
 
 	/**
 	 * 进入星图模式时聚焦到某个天体：把焦点设为它，并让相机沿当前视线方向
@@ -341,6 +372,14 @@ protected:
 	/** 本 Pawn 是否当前视点。初值 false —— OnRegister 会自动启用，BeginPlay 要按它关掉。 */
 	bool bIsViewpoint = false;
 
+	/**
+	 * 挂载原点（相对变换），BeginPlay 拍下。
+	 *
+	 * ResetToAttachOrigin 用它把相机搬回行星球心的设计位置。未挂载（深空单例
+	 * 相机）时保持单位变换，且 ResetToAttachOrigin 直接跳过。
+	 */
+	FTransform AttachOriginRelativeTransform = FTransform::Identity;
+
 	// ── 运行时状态 ──
 
 	/** 从哪个方向看（yaw / pitch）。相机位置 = 焦点 − 这个方向 × 距离。 */
@@ -489,6 +528,16 @@ protected:
 	 */
 	UPROPERTY(EditAnywhere, Category = "StarMap")
 	double MinSurfaceAltitudeCm = 5.0e3;
+
+	/**
+	 * 进星图时相机锚点离地表的距离（厘米）。
+	 *
+	 * 默认 1e5 = 1 公里：行星半径是 1e6–2e6 厘米的量级，1 公里处地表起伏清晰，
+	 * 又不会让入场第一帧埋在体素里。实际值再夹进 [0, 25% 地表半径]，见
+	 * ComputeSurfaceAnchorLocation。按星球在 BP_StarMapCameraPawn 里可分别配。
+	 */
+	UPROPERTY(EditAnywhere, Category = "StarMap", meta = (ClampMin = "0.0"))
+	double EntryAnchorAltitudeCm = 1.0e5;
 
 	/**
 	 * 焦点不是行星时（飞船/角色），相机到焦点中心的最小距离（厘米）。

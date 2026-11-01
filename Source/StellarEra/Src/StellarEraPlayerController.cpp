@@ -1171,6 +1171,10 @@ void AStellarEraPlayerController::ToggleStarMap()
 		{
 			Possess(ReturnPawn);
 		}
+		// 星图期间 CalcCamera 每帧把相机 Actor 拽到渲染位置，退出后它还留在半空。
+		// 挂行星的那台必须搬回球心 —— 否则从外面看行星时，那台子相机飘在球外，
+		// 下次进场又得从它此刻的位置重算。深空单例相机直接跳过（没有挂载父）。
+		CurrentStarMapPawn->ResetToAttachOrigin();
 		// 星图的编辑模式不跟着换 Pawn 走：Possess 回飞船后组件已不在手上，
 		// 预览 Tick 与笔刷线都会留在原地。退出即关，重进再按 G。
 		ForceExitEditMode(CurrentStarMapPawn);
@@ -1215,14 +1219,19 @@ void AStellarEraPlayerController::ToggleStarMap()
 		return;
 	}
 
-	// 「进入时相机原地不动、不选中」：把进入前的视角直接交给它当基准。
+	// 入场位置：行星相机挂在球心，直接原地接手会先看见星体内部，所以先沿
+	// 「球心 → 进入前视点」把它搬到球面附近（ComputeEntryAnchorLocation）。
+	// 深空单例相机没有宿主行星，函数内部退回它自己的位置，行为与旧版一致。
+	//
 	// 用 GetPlayerViewPoint 而不是读 Pawn 的变换 —— 相机在 tick 组之后才更新，
-	// Pawn 的变换不等于玩家此刻看到的画面。行星相机的 Actor 变换不影响渲染
-	// （CalcCamera 按焦点现算），Attach 在行星上只影响它在大纲/层级里的归属。
+	// Pawn 的变换不等于玩家此刻看到的画面。朝向仍取进入前的视线，于是进场第一帧
+	// 是「贴着球面、朝原方向看」，随后 FocusOn 的平滑拉远把画面退到焦点飞船。
 	FVector ViewLocation;
 	FRotator ViewRotation;
 	GetPlayerViewPoint(ViewLocation, ViewRotation);
-	CameraToUse->EnterFrom(ViewLocation, ViewRotation);
+	CameraToUse->EnterFrom(
+		CameraToUse->ComputeEntryAnchorLocation(ViewLocation),
+		ViewRotation);
 
 	// 进星图前退出编辑模式：星图里左键是拾取，不能同时保留笔刷状态与网格。
 	ForceExitEditMode(PreviousPawn.Get());
