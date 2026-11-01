@@ -63,17 +63,13 @@
 
 ## 执行前基线（**先做，别跳**）
 
-- [ ] **把工作区现有未提交改动落盘。** 开工前 `git status --short -- Source/` 必须干净。当前有 3 个文件未提交（`VoxelPlanetActor.h/.cpp` 的 biome MID Outer 修复 + 对应测试），它们与本计划无关，但会污染每一步的 diff 复审：
+- [x] **把工作区现有未提交改动落盘。** 已在写计划时完成（`git status --short -- Source/` 现在应为空）。当时 5 个未提交文件拆成了 3 个提交：
 
-  ```bash
-  git -C F:/workspace/ue/StellarEra add Source/StellarEraPlanet/Src/VoxelPlanetActor.h \
-    Source/StellarEraPlanet/Src/VoxelPlanetActor.cpp \
-    Source/StellarEraPlanet/Src/Tests/VoxelPlanetBiomeMaterialTests.cpp
-  git -C F:/workspace/ue/StellarEra commit -m "fix(行星): biome MID 用瞬态包当 Outer" \
-    -- Source/StellarEraPlanet/Src/VoxelPlanetActor.h \
-       Source/StellarEraPlanet/Src/VoxelPlanetActor.cpp \
-       Source/StellarEraPlanet/Src/Tests/VoxelPlanetBiomeMaterialTests.cpp
-  ```
+  - `956d4b6` `fix(行星): biome MID 改用瞬态包当 Outer` —— `VoxelPlanetActor.h/.cpp` + `VoxelPlanetBiomeMaterialTests.cpp`
+  - `e988f2d` `fix(恒星): 太阳材质构建器改用具名命名空间` —— unity build 撞名
+  - `123cacc` `test(视点): 登船判据跟上 bBoarded`
+
+  开工时只需确认 `git status --short -- Source/` 是空的；不是空就说明又叠了新工作，先弄明白再动手。
 
 - [ ] **确认目标关卡里的行星参数**（`Content/Maps/UniverseMap`，带体素行星的那颗）：记录 `Radius`、`VoxelSize`、`Terrain` 指向的 `DA_Terrain_*` 以及其中的 `SeaLevel` / `Amplitude`。Task 9 的验收要用它。用编辑器 MCP（`execute_python_code`）：
 
