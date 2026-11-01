@@ -1,4 +1,4 @@
-﻿// 水文烘焙：Priority-Flood + ε 填洼，4 邻接汇流，河道下切，湖泊与河流特征提取。
+﻿// 水文烘焙：Priority-Flood + ε 填洼，8 邻接汇流，河道下切，湖泊与河流特征提取。
 
 #include "PlanetHydrologyBake.h"
 
@@ -95,6 +95,24 @@ namespace
 		return X >= PlanetHydrologyGrid::Padding && X <= Resolution
 			&& Y >= PlanetHydrologyGrid::Padding && Y <= Resolution;
 	}
+
+	/** 8 邻接的步进：4 个轴向 + 4 个对角。Distance 是格距，D8 的坡度要用。 */
+	struct FNeighborStep
+	{
+		int32 DX;
+		int32 DY;
+		double Distance;
+	};
+
+	constexpr int32 NumNeighbors = 8;
+	constexpr double DiagonalDistance = 1.4142135623730951;   // √2
+
+	const FNeighborStep NeighborSteps[NumNeighbors] =
+	{
+		{ -1, 0, 1.0 }, { 1, 0, 1.0 }, { 0, -1, 1.0 }, { 0, 1, 1.0 },
+		{ -1, -1, DiagonalDistance }, { -1, 1, DiagonalDistance },
+		{ 1, -1, DiagonalDistance }, { 1, 1, DiagonalDistance },
+	};
 }
 
 TSharedPtr<FPlanetHydrologyField> FPlanetHydrologyBake::Bake(
@@ -128,36 +146,35 @@ TSharedPtr<FPlanetHydrologyField> FPlanetHydrologyBake::Bake(
 		InteriorMask[Cell] = IsInterior(X, Y, Resolution) ? 1 : 0;
 	});
 
-	// --- 2. 4 邻接表 ---
+	// --- 2. 8 邻接表 ---
 	//
-	// 每格 4 个槽（-1 = 空），共 4 × 6 × (N+2)² × 4 B —— N = 512 时约 25 MB，
+	// 每格 8 个槽（-1 = 空），共 8 × 6 × (N+2)² × 4 B —— N = 512 时约 51 MB，
 	// 烘焙结束即释放。
 	//
-	// 跨面那一半靠「把格坐标外插一格 → 求方向 → 找最近的格」得到。相邻面的边界格与
-	// 外插出来的方向只差半格，即使最近邻偶尔夹错 1 格，水位也只是换了一条几乎重合的
-	// 路传播。
+	// 跨面那一半靠「把格坐标外插一格 → 求方向 → 找最近的格」得到；对角步进同样只把
+	// 两个坐标各外插一格再求方向，因此墙角附近的对角跨面不需要单独分支。相邻面的
+	// 边界格与外插出来的方向只差半格，即使最近邻偶尔夹错 1 格，水位也只是换了一条
+	// 几乎重合的路传播。
 	//
 	// 构造完必须**对称化**：填洼只往「未访问的邻居」推，邻接不对称会让某些格永远
 	// 不被访问到，表现为湖里出现几个水位恒为 FLT_MAX 的洞。
 	//
 	// 幽灵格不参与：它们只用于采样，把它们当节点会让邻接表在面边上多出一堆
 	// 「只进不出」的单向边（谁也不知道一度被谁指到）。它们的事在第 8 步统一处理。
-	static const int32 NeighborOffsets[4][2] = { {-1, 0}, {1, 0}, {0, -1}, {0, 1} };
-
 	TArray<int32> Neighbors;
-	Neighbors.Init(INDEX_NONE, CellCount * 4);
+	Neighbors.Init(INDEX_NONE, CellCount * NumNeighbors);
 	for (int32 Cell = 0; Cell < CellCount; ++Cell)
 	{
 		int32 Face = 0, X = 0, Y = 0;
 		PlanetHydrologyGrid::DecodeCell(Cell, Resolution, Face, X, Y);
-		for (int32 Side = 0; Side < 4; ++Side)
+		for (int32 Side = 0; Side < NumNeighbors; ++Side)
 		{
 			const FVector Dir = PlanetBiomeCubemap::FaceUVToDirection(
 				Face,
-				PlanetHydrologyGrid::CellToU(X + NeighborOffsets[Side][0], Resolution),
-				PlanetHydrologyGrid::CellToU(Y + NeighborOffsets[Side][1], Resolution));
+				PlanetHydrologyGrid::CellToU(X + NeighborSteps[Side].DX, Resolution),
+				PlanetHydrologyGrid::CellToU(Y + NeighborSteps[Side].DY, Resolution));
 			const int32 Target = PlanetHydrologyGrid::DirectionToCell(Dir, Resolution);
-			Neighbors[Cell * 4 + Side] = (Target == Cell) ? INDEX_NONE : Target;
+			Neighbors[Cell * NumNeighbors + Side] = (Target == Cell) ? INDEX_NONE : Target;
 		}
 	}
 	{
@@ -168,16 +185,16 @@ TSharedPtr<FPlanetHydrologyField> FPlanetHydrologyBake::Bake(
 			{
 				continue;
 			}
-			for (int32 Side = 0; Side < 4; ++Side)
+			for (int32 Side = 0; Side < NumNeighbors; ++Side)
 			{
-				const int32 Target = Slots[Cell * 4 + Side];
+				const int32 Target = Slots[Cell * NumNeighbors + Side];
 				if (Target == INDEX_NONE || InteriorMask[Target] == 0)
 				{
 					continue;
 				}
-				int32* TargetSlots = Slots + Target * 4;
+				int32* TargetSlots = Slots + Target * NumNeighbors;
 				bool bReciprocated = false;
-				for (int32 Index = 0; Index < 4; ++Index)
+				for (int32 Index = 0; Index < NumNeighbors; ++Index)
 				{
 					bReciprocated |= (TargetSlots[Index] == Cell);
 				}
@@ -185,7 +202,7 @@ TSharedPtr<FPlanetHydrologyField> FPlanetHydrologyBake::Bake(
 				{
 					continue;
 				}
-				for (int32 Index = 0; Index < 4; ++Index)
+				for (int32 Index = 0; Index < NumNeighbors; ++Index)
 				{
 					if (TargetSlots[Index] == INDEX_NONE)
 					{
@@ -232,9 +249,9 @@ TSharedPtr<FPlanetHydrologyField> FPlanetHydrologyBake::Bake(
 		{
 			const int32 Cell = ComponentStack.Pop(EAllowShrinking::No);
 			ComponentCells.Add(Cell);
-			for (int32 Side = 0; Side < 4; ++Side)
+			for (int32 Side = 0; Side < NumNeighbors; ++Side)
 			{
-				const int32 Next = Neighbors[Cell * 4 + Side];
+				const int32 Next = Neighbors[Cell * NumNeighbors + Side];
 				if (Next == INDEX_NONE || BelowSea[Next] == 0 || ComponentSeen[Next] != 0)
 				{
 					continue;
@@ -248,6 +265,15 @@ TSharedPtr<FPlanetHydrologyField> FPlanetHydrologyBake::Bake(
 		{
 			Swap(SeedCells, ComponentCells);
 		}
+	}
+
+	// 海洋掩码。流向那一步必须用它、而不是「低于海平面」：闭塞盆地的湖底同样可以
+	// 低于海平面，但它不是海，仍要参与汇流（否则它上游的汇流量凭空消失）。
+	TArray<uint8> OceanMask;
+	OceanMask.Init(0, CellCount);
+	for (const int32 Cell : SeedCells)
+	{
+		OceanMask[Cell] = 1;
 	}
 
 	// --- 4. Priority-Flood + ε ---
@@ -296,9 +322,9 @@ TSharedPtr<FPlanetHydrologyField> FPlanetHydrologyBake::Bake(
 		Water[Entry.Cell] = float(Entry.Level);
 		PopOrder.Add(Entry.Cell);
 
-		for (int32 Side = 0; Side < 4; ++Side)
+		for (int32 Side = 0; Side < NumNeighbors; ++Side)
 		{
-			const int32 Next = Neighbors[Entry.Cell * 4 + Side];
+			const int32 Next = Neighbors[Entry.Cell * NumNeighbors + Side];
 			if (Next == INDEX_NONE || InteriorMask[Next] == 0 || State[Next] != ECellState::Unqueued)
 			{
 				continue;
@@ -327,30 +353,46 @@ TSharedPtr<FPlanetHydrologyField> FPlanetHydrologyBake::Bake(
 		}
 	}
 
-	// --- 5. 流向（D4）：选水位最低的邻居 ---
+	// --- 5. 流向（D8）：最陡下降 ---
 	//
-	// 4 邻接而不是 8：水文场每面 512 格，1 km 半径的行星上一格在厘米量级，
-	// 4 邻接的「锯齿」看不出来，而 8 邻接要把跨面邻接表翻一倍。
+	// 规格 §3 / §4.3 定的是 D8：8 个候选方向让流线贴着地形的真实走向，而不是被锁到
+	// 网格轴上（D4 只有四个方向，缓坡上的流域会被拉成「之」字形）。
+	//
+	// 选法用 D8 的标准定义：**单位格距的水位落差最大**的邻居（ΔW / Distance，轴向 1、
+	// 对角 √2），且要求水位严格更低。不能只比「谁的水位低」：半径 ~1e3 体素时 float32
+	// 的 1 ULP ≈ 6e-5 体素，与缓坡上轴向/对角之间的真实落差同量级，对角只要在舍入上
+	// 占一个 ULP 的便宜就能翻盘，流线因此逐格抖动、汇流量攒不起来 —— 实测（见修复报告
+	// 的变异实验）整条干流消失，BakeRiver 的「谷底必须有下切」直接变红。
+	// 除以格距后轴向的坡度天然比对角陡一倍多，判定不再受舍入支配。
+	//
+	// 严格更低仍然成立（坡度为正 ⇒ 水位严格下降）⇒ 不会成环。
+	// 坡度完全相等（湖面 ε 阶梯上常见）时取格下标最小的邻居，保证确定性。
 	TArray<int32> FlowTarget;
 	FlowTarget.Init(INDEX_NONE, CellCount);
 	for (int32 Cell = 0; Cell < CellCount; ++Cell)
 	{
-		if (InteriorMask[Cell] == 0 || Height[Cell] < SeaLevelRadius)
+		if (InteriorMask[Cell] == 0 || OceanMask[Cell] != 0)
 		{
 			continue;  // 海洋格是水体本身，不产生河流
 		}
 		int32 Best = INDEX_NONE;
-		float BestWater = Water[Cell];
-		for (int32 Side = 0; Side < 4; ++Side)
+		double BestSlope = 0.0;
+		for (int32 Side = 0; Side < NumNeighbors; ++Side)
 		{
-			const int32 Next = Neighbors[Cell * 4 + Side];
-			if (Next != INDEX_NONE && InteriorMask[Next] != 0 && Water[Next] < BestWater)
+			const int32 Next = Neighbors[Cell * NumNeighbors + Side];
+			if (Next == INDEX_NONE || InteriorMask[Next] == 0 || Water[Next] >= Water[Cell])
 			{
-				BestWater = Water[Next];
+				continue;
+			}
+			const double Slope =
+				(double(Water[Cell]) - double(Water[Next])) / NeighborSteps[Side].Distance;
+			if (Best == INDEX_NONE || Slope > BestSlope || (Slope == BestSlope && Next < Best))
+			{
+				BestSlope = Slope;
 				Best = Next;
 			}
 		}
-		FlowTarget[Cell] = Best;  // 严格小于 ⇒ 不会成环
+		FlowTarget[Cell] = Best;
 	}
 
 	// --- 6. 汇流量：按水位降序累加 ---
@@ -412,9 +454,9 @@ TSharedPtr<FPlanetHydrologyField> FPlanetHydrologyBake::Bake(
 			continue;
 		}
 		int32 Source = INDEX_NONE;
-		for (int32 Side = 0; Side < 4; ++Side)
+		for (int32 Side = 0; Side < NumNeighbors; ++Side)
 		{
-			const int32 Next = Neighbors[Cell * 4 + Side];
+			const int32 Next = Neighbors[Cell * NumNeighbors + Side];
 			if (Next != INDEX_NONE && InteriorMask[Next] != 0)
 			{
 				Source = Next;
@@ -431,7 +473,7 @@ TSharedPtr<FPlanetHydrologyField> FPlanetHydrologyBake::Bake(
 	// --- 9. 湖泊连通块 → FPlanetLakeBasin ---
 	//
 	// 「湖」= 水位高于地形的连通块，海被排除在外（海的水位严格等于海面）。
-	// 每片湖记三个量：湖心方向（各格方向的平均）、水位（块内最大水位）、角半径
+	// 每片湖记三个量：湖心方向（各格方向的平均）、水位（块内最小水位 = 溢出高度）、角半径
 	// （格到湖心的最大夹角 + 2 格余量 —— 水面片刻意探进岸线，见设计 §6.1）。
 	TArray<uint8> LakeVisited;
 	LakeVisited.Init(0, CellCount);
@@ -470,9 +512,9 @@ TSharedPtr<FPlanetHydrologyField> FPlanetHydrologyBake::Bake(
 			const int32 Cell = Stack.Pop(EAllowShrinking::No);
 			MemberCells.Add(Cell);
 
-			for (int32 Side = 0; Side < 4; ++Side)
+			for (int32 Side = 0; Side < NumNeighbors; ++Side)
 			{
-				const int32 Next = Neighbors[Cell * 4 + Side];
+				const int32 Next = Neighbors[Cell * NumNeighbors + Side];
 				if (Next == INDEX_NONE || InteriorMask[Next] == 0
 					|| LakeVisited[Next] != 0 || !IsLakeCell(Next))
 				{
@@ -491,12 +533,17 @@ TSharedPtr<FPlanetHydrologyField> FPlanetHydrologyBake::Bake(
 		}
 
 		// 第一趟：湖心与水位。
+		//
+		// 水位取块内**最小**水位 = 洪水进入这片洼地时的水位（≈ 溢出高度 + ε），
+		// 而取最大会拿到 ε 阶梯在湖水最深处累积出来的顶点：每向湖心一步抬 ε，
+		// 大湖上能比出水口高好几体素，水面几何会浮在碗缘之上（设计 §6.1 要的是
+		// 一片平的水面，§9.1 要的是溢出高度）。
 		FVector DirSum = FVector::ZeroVector;
-		double MaxWater = -TNumericLimits<double>::Max();
+		double LakeLevel = TNumericLimits<double>::Max();
 		for (const int32 Cell : MemberCells)
 		{
 			DirSum += CellDirectionAt(Cell);
-			MaxWater = FMath::Max(MaxWater, double(Water[Cell]));
+			LakeLevel = FMath::Min(LakeLevel, double(Water[Cell]));
 		}
 		const FVector Centroid = DirSum.GetSafeNormal();
 		if (Centroid.IsNearlyZero())
@@ -515,7 +562,7 @@ TSharedPtr<FPlanetHydrologyField> FPlanetHydrologyBake::Bake(
 
 		FPlanetLakeBasin Basin;
 		Basin.CentroidDir = Centroid;
-		Basin.WaterLevelRadius = float(MaxWater);
+		Basin.WaterLevelRadius = float(LakeLevel);
 		Basin.AngularRadius = float(MaxAngle + 2.0 * CellAngle);
 		Lakes.Add(Basin);
 	}
@@ -541,10 +588,11 @@ TSharedPtr<FPlanetHydrologyField> FPlanetHydrologyBake::Bake(
 			continue;
 		}
 
+		// 不设长度上限：FlowTarget 指向**严格更低**的水位，走一趟必然终止
+		// （每步至少降一个 ε 或一段地形落差），截断只会让干流在半山腰断头。
 		Path.Reset();
 		int32 Cell = Start;
-		constexpr int32 MaxCellsPerRiver = 256;
-		while (Cell != INDEX_NONE && IsRiver[Cell] != 0 && Path.Num() < MaxCellsPerRiver)
+		while (Cell != INDEX_NONE && IsRiver[Cell] != 0)
 		{
 			Path.Add(Cell);
 			Cell = FlowTarget[Cell];
@@ -573,7 +621,9 @@ TSharedPtr<FPlanetHydrologyField> FPlanetHydrologyBake::Bake(
 	return FPlanetHydrologyField::Create(
 		Resolution,
 		SeaLevelRadius,
-		Params.MaxCarveDepth,
+		// 交给场的是**夹过**的上限：下切循环用的就是 MaxCarve，两边必须同一个数，
+		// 否则 MaxCarveDepth < 1 时场的包络会偏小 —— Task 5 的地形值域上界直接吃它。
+		MaxCarve,
 		MoveTemp(Water),
 		MoveTemp(CarveDepth),
 		MoveTemp(RiverStrength),

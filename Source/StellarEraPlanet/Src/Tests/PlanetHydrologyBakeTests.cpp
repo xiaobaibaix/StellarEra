@@ -170,6 +170,79 @@ bool FStellarEraHydrologyRiverTest::RunTest(const FString& Parameters)
 	TestTrue(FString::Printf(TEXT("河流强度必须在 (0, 1] 内（实测 %.3f）"), Sample.RiverStrength),
 		Sample.RiverStrength > 0.f && Sample.RiverStrength <= 1.f);
 
+	// --- 下切的**幅度**：把公式钉死，而不是只钉「有下切」 ---
+	//
+	// 旧断言 `CarveDepth > 0.5` 是公式下界（1.0）就满足的，常量实现照样能过。
+	// 河宽是汇流量的公开代理：WidthVoxels = clamp(√(Accum / MinRiverFlow) × RiverWidthScale, 1, 8)，
+	// 本测试用默认的 RiverWidthScale = 1。取一个没被夹住的河宽就能反算出该格的汇流量，
+	// 进而算出**应有**的下切深度，再与场里采样到的值对齐 —— 常量 1.0 与常量 4.0 都会露馅。
+	// 采样点就是格心方向，双线性权重为 0，所以这里比的是精确值。
+	const auto ExpectedCarve = [&](float WidthVoxels)
+	{
+		return FMath::Clamp(1.f + 2.f * WidthVoxels, 1.f, Field->GetMaxCarveDepth());
+	};
+
+	int32 NumCarveProbes = 0;
+	double WorstCarveError = 0.0;
+	for (const FPlanetRiverPolyline& River : Rivers)
+	{
+		for (const FPlanetRiverPoint& Point : River.Points)
+		{
+			// 贴着上下夹取边界的点反算不可靠，只挑中间的。
+			if (Point.WidthVoxels <= 1.2f || Point.WidthVoxels >= 7.8f)
+			{
+				continue;
+			}
+			WorstCarveError = FMath::Max(WorstCarveError, double(FMath::Abs(
+				Field->Sample(Point.Dir).CarveDepth - ExpectedCarve(Point.WidthVoxels))));
+			++NumCarveProbes;
+		}
+	}
+	TestTrue(FString::Printf(TEXT("必须有未被夹住的河宽可反算下切（实测 %d 个点）"), NumCarveProbes),
+		NumCarveProbes > 0);
+	TestTrue(FString::Printf(TEXT("下切必须等于 clamp(1 + 2·√(Accum/MinRiverFlow), 1, Max)（最大误差 %.4f）"),
+		WorstCarveError), WorstCarveError < 0.01);
+
+	// --- 河网最终汇入海（或湖） ---
+	//
+	// 折线终点必须是「最后一道河格」：再往前一步就是水面。沿终点切向扫一圈，
+	// 只要有一个方向的水位贴着海面、或高于该方向的地形（湖面），就说明河确实到了水里。
+	const double CellAngle = (PI * 0.5) / double(Params.Resolution);
+	const auto HasWaterAround = [&](const FVector& Dir)
+	{
+		const FVector Axis = (FMath::Abs(Dir.Z) < 0.9) ? FVector::UpVector : FVector::RightVector;
+		const FVector Tangent1 = FVector::CrossProduct(Dir, Axis).GetSafeNormal();
+		const FVector Tangent2 = FVector::CrossProduct(Dir, Tangent1).GetSafeNormal();
+		for (int32 Step = 0; Step < 8; ++Step)
+		{
+			const double Angle = double(Step) * PI / 4.0;
+			const FVector Probe = (Dir
+				+ (Tangent1 * FMath::Cos(Angle) + Tangent2 * FMath::Sin(Angle)) * (0.75 * CellAngle))
+				.GetSafeNormal();
+			const FPlanetHydrologyField::FSample Neighbor = Field->Sample(Probe);
+			const float TerrainRadius =
+				float(TestRadius + double(Params.Amplitude) * double(ValleyHeight(Probe)));
+			const bool bOcean = FMath::Abs(Neighbor.WaterLevelRadius - Field->GetSeaLevelRadius()) < 0.5f;
+			const bool bLake = Neighbor.WaterLevelRadius > TerrainRadius + 0.5f;
+			if (bOcean || bLake)
+			{
+				return true;
+			}
+		}
+		return false;
+	};
+
+	int32 NumEndsInWater = 0;
+	for (const FPlanetRiverPolyline& River : Rivers)
+	{
+		if (River.Points.Num() > 0 && HasWaterAround(River.Points.Last().Dir))
+		{
+			++NumEndsInWater;
+		}
+	}
+	TestTrue(FString::Printf(TEXT("河网必须汇入海或湖（%d / %d 条河的终点贴着水面）"),
+		NumEndsInWater, Rivers.Num()), NumEndsInWater > 0);
+
 	// --- 跨面连续：水面在 cubemap 接缝两侧不得跳变 ---
 	// 地形是光滑解析函数，一格的角距约 (π/2)/128 ≈ 0.012 rad，坡度最多 3 体素/rad，
 	// 所以两侧的水位差应当在 0.1 体素以内。超过 2 体素就说明接缝映射错了。
