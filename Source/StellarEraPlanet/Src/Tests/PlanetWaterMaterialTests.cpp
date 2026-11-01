@@ -33,12 +33,18 @@ bool FStellarEraWaterMaterialTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("必须双面（水下要能看到水面）"), Material->IsTwoSided());
 
 	// 参数齐全只说明「名字在」，说明不了「接到哪个插槽」。下面钉住实际接线。
+	//
+	// GetEditorOnlyData() 与 UMaterialEditorOnlyData 只在 WITH_EDITORONLY_DATA 下
+	// 存在，而本文件只被 WITH_DEV_AUTOMATION_TESTS 包着 —— Development 的 Game
+	// 目标里两个宏取值不同，不包这一层 Game 目标编不过。
+#if WITH_EDITORONLY_DATA
 	UMaterialEditorOnlyData* EditorData = Material->GetEditorOnlyData();
 	if (TestNotNull(TEXT("必须拿到 EditorOnlyData"), EditorData))
 	{
 		TestNotNull(TEXT("BaseColor 必须接线（水色）"), EditorData->BaseColor.Expression);
 		TestNotNull(TEXT("Opacity 必须接线（不透明度，否则水面不透明）"), EditorData->Opacity.Expression);
 	}
+#endif
 
 	TestTrue(TEXT("着色模型必须是 DefaultLit（走场景光照）"),
 		Material->GetShadingModels().HasOnlyShadingModel(MSM_DefaultLit));

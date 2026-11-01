@@ -79,13 +79,13 @@ void UPlanetWaterComponent::RebuildWater(
 
 	UE::Geometry::FDynamicMesh3 Mesh;
 	PlanetWaterSurfaceBuilder::BuildOcean(*Field, BuildParams, Mesh);
-	AddWaterMesh(Mesh, Config, VoxelSize);
+	AddWaterMesh(Mesh, Config, VoxelSize, TEXT("Water_Ocean"));
 
 	PlanetWaterSurfaceBuilder::BuildLakes(*Field, BuildParams, Mesh);
-	AddWaterMesh(Mesh, Config, VoxelSize);
+	AddWaterMesh(Mesh, Config, VoxelSize, TEXT("Water_Lakes"));
 
 	PlanetWaterSurfaceBuilder::BuildRivers(*Field, BuildParams, Mesh);
-	AddWaterMesh(Mesh, Config, VoxelSize);
+	AddWaterMesh(Mesh, Config, VoxelSize, TEXT("Water_Rivers"));
 }
 
 void UPlanetWaterComponent::ClearWaterMeshes()
@@ -94,6 +94,13 @@ void UPlanetWaterComponent::ClearWaterMeshes()
 	{
 		if (IsValid(Mesh))
 		{
+			// 分量用的是固定名字（Water_Ocean 等）。销毁只是标脏，名字要到 GC 才
+			// 释放；下一次重建再 NewObject 同名对象会撞上旧名字槽位。先把旧的挪到
+			// 瞬态包并改成唯一名，把 Owner 下的名字腾出来。
+			const FName TrashName = MakeUniqueObjectName(
+				GetTransientPackage(), UDynamicMeshComponent::StaticClass(), TEXT("WaterMesh_Trash"));
+			Mesh->Rename(*TrashName.ToString(), GetTransientPackage(),
+				REN_DontCreateRedirectors | REN_NonTransactional | REN_DoNotDirty);
 			Mesh->DestroyComponent();
 		}
 	}
@@ -104,7 +111,8 @@ void UPlanetWaterComponent::ClearWaterMeshes()
 void UPlanetWaterComponent::AddWaterMesh(
 	UE::Geometry::FDynamicMesh3& Mesh,
 	const FPlanetWaterConfig& Config,
-	const double VoxelSize)
+	const double VoxelSize,
+	const TCHAR* MeshName)
 {
 	if (Mesh.TriangleCount() == 0)
 	{
@@ -115,7 +123,7 @@ void UPlanetWaterComponent::AddWaterMesh(
 	// 非 Transient 的 OwnedComponents 一起复制进 PIE 世界，而 ClearWaterMeshes
 	// 只认识本数组里的那些 —— 结果是两份水面叠在一起。
 	UDynamicMeshComponent* Component = NewObject<UDynamicMeshComponent>(
-		GetOwner(), NAME_None, RF_Transient);
+		GetOwner(), FName(MeshName), RF_Transient);
 	if (!Component)
 	{
 		return;

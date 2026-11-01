@@ -31,7 +31,11 @@ namespace PlanetWaterSurfaceBuilder
 		/** 行星基准半径（体素）。把厘米宽度换算成球面角的依据。 */
 		double PlanetRadiusVoxels = 1000.0;
 
-		/** 海洋球壳每面的格数。96 → 1 km 半径行星上三角边长约 3 m。 */
+		/**
+		 * 海洋球壳每面的格数。格弧长 ≈ (π/2 × 行星半径) / OceanResolution，
+		 * 96 在 1 km 半径上约 16 m。规格 §6.1 的 2–4 m 在 10 km 行星上需要
+		 * 每面约 10⁴ 格（≈ 6 亿三角形），当前预算下不可达；保持 96。
+		 */
 		int32 OceanResolution = 96;
 
 		/**

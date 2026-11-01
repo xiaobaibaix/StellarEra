@@ -602,15 +602,27 @@ TSharedPtr<FPlanetHydrologyField> FPlanetHydrologyBake::Bake(
 			continue;   // 太短的不算河
 		}
 
-		FPlanetRiverPolyline Polyline;
-		for (const int32 PathCell : Path)
+		// 入水口：while 退出时的 Cell 就是最后一个河格的流向目标 —— 湖格、海格，
+		// 或是一片没有汇流量、水面等于地形的干地。折线末点的水位必须取**它**的
+		// 水位（Sample().WaterLevelRadius 在格心就是 Water[Cell]），而不是最后
+		// 一个河格自身的水位：后者比接收水面高 1–3 体素，河带末端会悬在空中。
+		float EndWaterLevel = Water[Path.Last()];
+		if (Cell != INDEX_NONE && InteriorMask[Cell] != 0)
 		{
+			EndWaterLevel = Water[Cell];
+		}
+
+		FPlanetRiverPolyline Polyline;
+		for (int32 PathIndex = 0; PathIndex < Path.Num(); ++PathIndex)
+		{
+			const int32 PathCell = Path[PathIndex];
 			int32 Face = 0, X = 0, Y = 0;
 			PlanetHydrologyGrid::DecodeCell(PathCell, Resolution, Face, X, Y);
 
 			FPlanetRiverPoint Point;
 			Point.Dir = PlanetHydrologyGrid::CellDirection(Face, X, Y, Resolution);
-			Point.WaterLevelRadius = Water[PathCell];
+			Point.WaterLevelRadius =
+				(PathIndex + 1 == Path.Num()) ? EndWaterLevel : Water[PathCell];
 			Point.WidthVoxels = FMath::Clamp(
 				FMath::Sqrt(float(Accum[PathCell]) / MinFlow) * Params.RiverWidthScale, 1.f, 8.f);
 			Polyline.Points.Add(Point);

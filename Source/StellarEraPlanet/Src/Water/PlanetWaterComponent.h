@@ -56,13 +56,31 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "水体")
 	TObjectPtr<UMaterialInterface> WaterMaterial;
 
-	/** 海洋球壳每面的格数。96 在 1 km 半径行星上约 3 m 边长。 */
+	/**
+	 * 海洋球壳每面的格数。
+	 *
+	 * 每格弧长 ≈ (π/2 × 行星半径) / OceanResolution：96 在 1 km 半径上约 16 m，
+	 * 不是 3 m。规格 §6.1 的「2–4 m」在 10 km 行星上需要每面约 10⁴ 格（≈ 6 亿
+	 * 三角形），当前预算下不可达，所以保持 96 —— 海洋的观感靠半透明 + 菲涅尔，
+	 * 不靠几何密度。
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "水体", meta = (ClampMin = "8", ClampMax = "512"))
 	int32 OceanResolution = 96;
 
 private:
 	void ClearWaterMeshes();
-	void AddWaterMesh(UE::Geometry::FDynamicMesh3& Mesh, const FPlanetWaterConfig& Config, double VoxelSize);
+
+	/**
+	 * 建一个水面分量。
+	 *
+	 * @param MeshName 固定名字（Water_Ocean / Water_Lakes / Water_Rivers）。三块几何
+	 *                 各有固定身份，测试与探针按名字读，不再依赖创建顺序猜下标。
+	 */
+	void AddWaterMesh(
+		UE::Geometry::FDynamicMesh3& Mesh,
+		const FPlanetWaterConfig& Config,
+		double VoxelSize,
+		const TCHAR* MeshName);
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UDynamicMeshComponent>> WaterMeshes;

@@ -12,7 +12,9 @@
 #include "DynamicMesh/DynamicMeshAttributeSet.h"
 #include "Misc/AutomationTest.h"
 #include "PlanetHydrologyBake.h"
+#include "PlanetHydrologyGrid.h"
 #include "PlanetWaterSurfaceBuilder.h"
+#include "VoxelPlanetNoiseTerrain.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -399,6 +401,126 @@ bool FStellarEraWaterRiverTest::RunTest(const FString& Parameters)
 		TEXT("不得有重合的河带：任意两顶点距离必须 > 1%% 格长 %.2f cm（实测最小 %.3f cm）"),
 		CellArcCm * 0.01, MinimumVertexDistanceCm),
 		MinimumVertexDistanceCm > CellArcCm * 0.01);
+
+	return true;
+}
+
+/**
+ * 真实地形端到端：DA_Terrain_Earth 的参数 + HydrologyResolution = 128。
+ *
+ * 这是 F1 的回归门：海平面默认值若退回「削平阈值」时代的 −0.35，连通海洋只剩
+ * 0.01% 表面积，这里的「>= 25%」会立刻变红。合成地形（碗/谷/台）抓不到这个缺口，
+ * 因为它们的「海」是解析写死的 −0.5。
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraWaterEndToEndTest,
+	"StellarEra.Planet.Water.EndToEnd",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraWaterEndToEndTest::RunTest(const FString& Parameters)
+{
+	static const TCHAR* TerrainPath =
+		TEXT("/Game/Code/Planet/Geology/TerrainData/DA_Terrain_Earth.DA_Terrain_Earth");
+	UVoxelPlanetNoiseTerrain* Terrain = LoadObject<UVoxelPlanetNoiseTerrain>(nullptr, TerrainPath);
+	if (!TestNotNull(TEXT("DA_Terrain_Earth 必须能加载（真实地形参数）"), Terrain))
+	{
+		return false;
+	}
+
+	FPlanetWaterConfig Config;
+	Terrain->GetWaterConfig(Config);
+	Config.Params.Resolution = 128;
+
+	// UniverseMap 的行星半径（体素）。海面与格占比都按它算。
+	constexpr double PlanetRadiusVoxels = 10000.0;
+	const TSharedPtr<FPlanetHydrologyField> Field = FPlanetHydrologyBake::Bake(
+		[Terrain](const FVector& UnitDir) { return Terrain->GetRawOffset(UnitDir); },
+		Config.Params, PlanetRadiusVoxels);
+	if (!TestTrue(TEXT("真实地形必须烘焙成功"), Field.IsValid() && Field->IsValid()))
+	{
+		return false;
+	}
+
+	// 海洋格 = 水位贴着海面的格 = 烘焙选中的最大连通块（其他低于海面的闭塞
+	// 盆地会被填洼抬到溢出高度，成为湖）。
+	const int32 Resolution = Config.Params.Resolution;
+	const int32 CellCount = PlanetHydrologyGrid::CellCount(Resolution);
+	const TArray<float>& Water = Field->GetWaterLevelGrid();
+	const float SeaLevelRadius = Field->GetSeaLevelRadius();
+	int32 InteriorTotal = 0;
+	int32 OceanCells = 0;
+	for (int32 Cell = 0; Cell < CellCount; ++Cell)
+	{
+		int32 Face = 0, X = 0, Y = 0;
+		PlanetHydrologyGrid::DecodeCell(Cell, Resolution, Face, X, Y);
+		if (X < PlanetHydrologyGrid::Padding || X > Resolution
+			|| Y < PlanetHydrologyGrid::Padding || Y > Resolution)
+		{
+			continue;
+		}
+		++InteriorTotal;
+		if (Water[Cell] <= SeaLevelRadius + 1e-3f)
+		{
+			++OceanCells;
+		}
+	}
+	const double OceanFraction =
+		double(OceanCells) / double(FMath::Max(InteriorTotal, 1));
+
+	AddInfo(FString::Printf(
+		TEXT("端到端（res=%d）：SeaLevel=%.2f，海面 %.2f 体素，海洋格 %d/%d = %.2f%%，湖 %d"),
+		Resolution, Config.Params.SeaLevel, SeaLevelRadius, OceanCells, InteriorTotal,
+		OceanFraction * 100.0, Field->GetLakes().Num()));
+
+	// 实测 45.26%（final-fix-report 的 SeaLevel 扫描）。留足余量只钉下限，
+	// 同时钉上限防止「海吞掉全部陆地」这种反向调参。
+	TestTrue(FString::Printf(TEXT("连通海洋必须覆盖星球的 25%%–60%%（实测 %.2f%%）"),
+		OceanFraction * 100.0), OceanFraction >= 0.25 && OceanFraction <= 0.60);
+	TestTrue(FString::Printf(TEXT("必须仍有内陆湖（实测 %d 片）"), Field->GetLakes().Num()),
+		Field->GetLakes().Num() > 0);
+
+	// 河网必须在**生产分辨率**下验：128 下实测 0 条河（MinRiverFlow = 24 格、
+	// 最短河 4 格，格距翻倍后所有汇流路径都短于 4 格 —— 这是分辨率效应，不是缺陷）。
+	// 256 下 5 条（太脆），512 下 757 条。DA_Terrain_Earth 的 HydrologyResolution
+	// 就是 512，所以这也是水面真正运行的分辨率。
+	const int32 ProductionResolution = FMath::Max(Terrain->HydrologyResolution, 128);
+	FPlanetHydrologyParams ProductionParams = Config.Params;
+	ProductionParams.Resolution = ProductionResolution;
+	const TSharedPtr<FPlanetHydrologyField> ProductionField = FPlanetHydrologyBake::Bake(
+		[Terrain](const FVector& UnitDir) { return Terrain->GetRawOffset(UnitDir); },
+		ProductionParams, PlanetRadiusVoxels);
+	if (!TestTrue(TEXT("生产分辨率下必须烘焙成功"),
+		ProductionField.IsValid() && ProductionField->IsValid()))
+	{
+		return false;
+	}
+	TestTrue(FString::Printf(TEXT("必须仍有河（res=%d，实测 %d 条）"),
+		ProductionResolution, ProductionField->GetRivers().Num()),
+		ProductionField->GetRivers().Num() > 0);
+
+	// 三块几何都要真的出东西 —— 与组件生产路径同一套参数（VoxelSize 100，
+	// OceanResolution 96，湖冠带地形高度回调）。
+	PlanetWaterSurfaceBuilder::FBuildParams BuildParams;
+	BuildParams.VoxelSize = 100.0;
+	BuildParams.PlanetRadiusVoxels = PlanetRadiusVoxels;
+	BuildParams.OceanResolution = 96;
+	BuildParams.TerrainHeightFn =
+		[Terrain](const FVector& UnitDir) { return Terrain->GetRawOffset(UnitDir); };
+	BuildParams.TerrainAmplitude = Config.Params.Amplitude;
+
+	UE::Geometry::FDynamicMesh3 OceanMesh(true, false, false, false);
+	PlanetWaterSurfaceBuilder::BuildOcean(*Field, BuildParams, OceanMesh);
+	TestTrue(FString::Printf(TEXT("海洋网格必须有三角形（实际 %d）"), OceanMesh.TriangleCount()),
+		OceanMesh.TriangleCount() > 0);
+
+	UE::Geometry::FDynamicMesh3 LakeMesh(true, false, false, false);
+	PlanetWaterSurfaceBuilder::BuildLakes(*Field, BuildParams, LakeMesh);
+	TestTrue(FString::Printf(TEXT("湖泊网格必须有三角形（实际 %d）"), LakeMesh.TriangleCount()),
+		LakeMesh.TriangleCount() > 0);
+
+	UE::Geometry::FDynamicMesh3 RiverMesh(true, false, false, false);
+	PlanetWaterSurfaceBuilder::BuildRivers(*ProductionField, BuildParams, RiverMesh);
+	TestTrue(FString::Printf(TEXT("河流网格必须有三角形（实际 %d）"), RiverMesh.TriangleCount()),
+		RiverMesh.TriangleCount() > 0);
 
 	return true;
 }

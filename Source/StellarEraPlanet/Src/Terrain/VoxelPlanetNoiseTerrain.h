@@ -34,7 +34,17 @@ struct FPlanetNoiseParams
 	int32 Octaves = 4;
 	float Lacunarity = 2.f;
 	float Gain = 0.5f;
-	float SeaLevel = -0.35f;
+
+	/**
+	 * 海平面（归一化位移，0 = 基准球面）。
+	 *
+	 * **这个数换过语义**：删掉「FMath::Max(Noise, SeaLevel) 削平地形」之前，−0.35
+	 * 只是把最底部那 1% 压平，几乎无害；改成水位之后，同一个数只剩 1.2% 的零碎低洼，
+	 * 且其中最大的连通块只占 0.01% 表面积 —— 海变成一片水洼（实测见 final-fix-report）。
+	 * 所以默认值必须按「水位」重新定。0.0 在 DA_Terrain_Earth 的真实参数下给出约
+	 * 45% 的连通海洋，落在设计要的 30%–50% 区间内。
+	 */
+	float SeaLevel = 0.f;
 
 	/** 由 Seed 派生的采样偏移。Perlin 本身无种子，挪动采样起点即可换一套地貌。 */
 	FVector SeedOffset = FVector::ZeroVector;
@@ -154,10 +164,14 @@ public:
 	 * 海平面（归一化，0 = 基准球面）。
 	 *
 	 * **它不参与地形形状**：密度场不再在这里削平，海平面以下照常起伏。
-	 * 它只决定配色分带（水色/沙色的分界）与将来的水面高度。
+	 * 它只决定配色分带（水色/沙色的分界）与水面高度。
+	 *
+	 * 默认值 0.0 是「水位」语义下重新量的：−0.35 是当年「削平阈值」时代的数，
+	 * 直接沿用会让海只剩 0.01% 表面积的连通块（实测见 final-fix-report）。
+	 * 0.0 在 DA_Terrain_Earth 的参数下约 45% 连通海洋。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain|Ocean", meta = (ClampMin = "-1", ClampMax = "1"))
-	float SeaLevel = -0.35f;
+	float SeaLevel = 0.f;
 
 	/** 水色随深度过渡的下潜范围（归一化）。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain|Ocean", meta = (ClampMin = "0.001"))

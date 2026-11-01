@@ -21,8 +21,14 @@ constexpr int32 PlanetLakeCapMarginCells = 2;
  */
 struct FPlanetHydrologyParams
 {
-	/** 海平面（归一化，与地形模块的 SeaLevel 同源）。只在种子判据里用到。 */
-	float SeaLevel = -0.35f;
+	/**
+	 * 海平面（归一化，与地形模块的 SeaLevel 同源）。只在种子判据里用到。
+	 *
+	 * 必须与 `FPlanetNoiseParams::SeaLevel` / `UVoxelPlanetNoiseTerrain::SeaLevel`
+	 * 的默认值一致。−0.35 是「地形削平阈值」时代的遗留值，当水位用只剩 0.01%
+	 * 的连通海洋；0.0 在 DA_Terrain_Earth 的参数下约 45%。
+	 */
+	float SeaLevel = 0.f;
 
 	/** 归一化位移 → 体素的换算系数（= 地形模块的 Amplitude）。 */
 	float Amplitude = 8.f;

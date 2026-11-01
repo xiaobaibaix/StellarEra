@@ -7,6 +7,7 @@
 #include "Misc/AutomationTest.h"
 #include "PlanetHydrologyBake.h"
 #include "PlanetBiomeCubemap.h"
+#include "PlanetHydrologyGrid.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -95,6 +96,51 @@ bool FStellarEraHydrologyLakeTest::RunTest(const FString& Parameters)
 			Lakes[0].AngularRadius > 0.29f && Lakes[0].AngularRadius < 0.33f);
 		TestTrue(TEXT("湖水必须高于海面（它是湖，不是海的一部分）"),
 			Lakes[0].WaterLevelRadius > Field->GetSeaLevelRadius() + 1.f);
+	}
+
+	// --- 湖面必须取块内**最小**水位，而不是最大 ---
+	//
+	// 这是「湖面不得高于溢出高度」的唯一防线（设计 §9.1）。旧断言用 0.6 体素容差，
+	// 大于 ε 阶梯在本夹具里造成的 min/max 差，把 Min 改成 Max 也照样绿。这里独立
+	// 算一遍每个湖格的水位（判据与烘焙逐字相同），直接钉住「basin == 块内最小值」。
+	const int32 LakeResolution = Params.Resolution;
+	const int32 LakeCellCount = PlanetHydrologyGrid::CellCount(LakeResolution);
+	const TArray<float>& WaterGrid = Field->GetWaterLevelGrid();
+	const double Epsilon = double(Params.Epsilon);
+	double MinLakeWater = TNumericLimits<double>::Max();
+	double MaxLakeWater = -TNumericLimits<double>::Max();
+	for (int32 Cell = 0; Cell < LakeCellCount; ++Cell)
+	{
+		int32 Face = 0, X = 0, Y = 0;
+		PlanetHydrologyGrid::DecodeCell(Cell, LakeResolution, Face, X, Y);
+		if (X < PlanetHydrologyGrid::Padding || X > LakeResolution
+			|| Y < PlanetHydrologyGrid::Padding || Y > LakeResolution)
+		{
+			continue;
+		}
+
+		const FVector Dir = PlanetHydrologyGrid::CellDirection(Face, X, Y, LakeResolution);
+		const double TerrainRadius =
+			TestRadius + double(Params.Amplitude) * double(BowlHeight(Dir));
+		const bool bOcean = WaterGrid[Cell] <= Field->GetSeaLevelRadius() + 1e-3f;
+		const bool bLakeCell = !bOcean
+			&& double(WaterGrid[Cell]) > TerrainRadius + Epsilon * 1.5;
+		if (bLakeCell)
+		{
+			MinLakeWater = FMath::Min(MinLakeWater, double(WaterGrid[Cell]));
+			MaxLakeWater = FMath::Max(MaxLakeWater, double(WaterGrid[Cell]));
+		}
+	}
+	AddInfo(FString::Printf(TEXT("碗：湖格水位 min %.4f / max %.4f / 差 %.4f 体素"),
+		MinLakeWater, MaxLakeWater, MaxLakeWater - MinLakeWater));
+	TestTrue(TEXT("夹具里湖格水位必须有可分辨的 min/max 差（否则 Min→Max 变异无意义）"),
+		MaxLakeWater - MinLakeWater > 0.05);
+	if (Lakes.Num() == 1)
+	{
+		TestTrue(FString::Printf(TEXT("湖面 %.4f 必须等于块内最小水位 %.4f（差 %.4f）"),
+			Lakes[0].WaterLevelRadius, MinLakeWater,
+			FMath::Abs(double(Lakes[0].WaterLevelRadius) - MinLakeWater)),
+			FMath::Abs(double(Lakes[0].WaterLevelRadius) - MinLakeWater) < 1e-4);
 	}
 
 	// --- 点采样：碗心是水，碗外是海，岸边是陆地 ---
@@ -244,6 +290,94 @@ bool FStellarEraHydrologyRiverTest::RunTest(const FString& Parameters)
 	}
 	TestTrue(FString::Printf(TEXT("河网必须汇入海或湖（%d / %d 条河的终点贴着水面）"),
 		NumEndsInWater, Rivers.Num()), NumEndsInWater > 0);
+
+	// --- 折线末点必须落在接收水体的水位上（不能悬空） ---
+	//
+	// 旧实现给末点取的是最后一个河格自身的水位；它比汇入的湖面/海面高 1–3 体素，
+	// 河带末端因此悬空（规格 §6.1）。这里按烘焙的同一套规则重建 D8 流向（严格更低
+	// 水位、按格距归一化坡度、平地取下标最小者），要求末点水位与流向目标格的水位
+	// 完全一致 —— 把末点改回「末格自身水位」时这里必然变红。
+	const int32 FlowResolution = Field->GetResolution();
+	const TArray<float>& FlowWater = Field->GetWaterLevelGrid();
+	struct FScanStep { int32 DX; int32 DY; double Distance; };
+	const FScanStep ScanSteps[8] = {
+		{ -1, 0, 1.0 }, { 1, 0, 1.0 }, { 0, -1, 1.0 }, { 0, 1, 1.0 },
+		{ -1, -1, 1.4142135623730951 }, { -1, 1, 1.4142135623730951 },
+		{ 1, -1, 1.4142135623730951 }, { 1, 1, 1.4142135623730951 } };
+
+	const auto IsInteriorCell = [FlowResolution](int32 X, int32 Y)
+	{
+		return X >= PlanetHydrologyGrid::Padding && X <= FlowResolution
+			&& Y >= PlanetHydrologyGrid::Padding && Y <= FlowResolution;
+	};
+	const auto FlowTargetOf = [&](int32 Cell) -> int32
+	{
+		int32 Face = 0, X = 0, Y = 0;
+		PlanetHydrologyGrid::DecodeCell(Cell, FlowResolution, Face, X, Y);
+		int32 Best = INDEX_NONE;
+		double BestSlope = 0.0;
+		for (const FScanStep& Step : ScanSteps)
+		{
+			const FVector Dir = PlanetBiomeCubemap::FaceUVToDirection(
+				Face,
+				PlanetHydrologyGrid::CellToU(X + Step.DX, FlowResolution),
+				PlanetHydrologyGrid::CellToU(Y + Step.DY, FlowResolution));
+			const int32 Next = PlanetHydrologyGrid::DirectionToCell(Dir, FlowResolution);
+			if (Next == INDEX_NONE || Next == Cell)
+			{
+				continue;
+			}
+			int32 NextFace = 0, NextX = 0, NextY = 0;
+			PlanetHydrologyGrid::DecodeCell(Next, FlowResolution, NextFace, NextX, NextY);
+			if (!IsInteriorCell(NextX, NextY) || FlowWater[Next] >= FlowWater[Cell])
+			{
+				continue;
+			}
+			const double Slope =
+				(double(FlowWater[Cell]) - double(FlowWater[Next])) / Step.Distance;
+			if (Best == INDEX_NONE || Slope > BestSlope
+				|| (Slope == BestSlope && Next < Best))
+			{
+				BestSlope = Slope;
+				Best = Next;
+			}
+		}
+		return Best;
+	};
+
+	int32 EndpointsChecked = 0;
+	double WorstEndError = 0.0;
+	double MaxDropToReceiver = 0.0;
+	for (const FPlanetRiverPolyline& River : Rivers)
+	{
+		if (River.Points.Num() < 2)
+		{
+			continue;
+		}
+		const int32 LastCell = PlanetHydrologyGrid::DirectionToCell(
+			River.Points.Last().Dir, FlowResolution);
+		const int32 Receiver = FlowTargetOf(LastCell);
+		if (Receiver == INDEX_NONE)
+		{
+			continue;
+		}
+		++EndpointsChecked;
+		WorstEndError = FMath::Max(WorstEndError, double(FMath::Abs(
+			River.Points.Last().WaterLevelRadius - FlowWater[Receiver])));
+		MaxDropToReceiver = FMath::Max(MaxDropToReceiver,
+			double(FlowWater[LastCell]) - double(FlowWater[Receiver]));
+	}
+	AddInfo(FString::Printf(
+		TEXT("河流末点：检查 %d 条，最大水位误差 %.6f 体素，最大入水落差 %.3f 体素"),
+		EndpointsChecked, WorstEndError, MaxDropToReceiver));
+	TestTrue(TEXT("必须至少有一条河有可判定的接收格"), EndpointsChecked > 0);
+	TestTrue(FString::Printf(TEXT("末点水位必须等于接收水体水位（最大误差 %.6f）"), WorstEndError),
+		WorstEndError < 1e-3);
+	// 若接收落差本来就接近 0，上面那条断言就是空转 —— 先钉住「落差可分辨」。
+	// 阈值取 0.02 体素（2ε）：实测最大落差 0.053，而旧实现会把这段落差原样
+	// 变成末点误差（0.053 >> 1e-3），这条断言因此不是空转。
+	TestTrue(FString::Printf(TEXT("入水落差必须可分辨（否则断言无意义；实测最大 %.3f 体素）"),
+		MaxDropToReceiver), MaxDropToReceiver > 0.02);
 
 	// --- 跨面连续：水面在 cubemap 接缝两侧不得跳变 ---
 	// 地形是光滑解析函数，一格的角距约 (π/2)/128 ≈ 0.012 rad，坡度最多 3 体素/rad，

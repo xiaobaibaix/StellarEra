@@ -9,13 +9,19 @@
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
-#include "Animation/AnimData/IAnimationDataModel.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimSequence.h"
 #include "UObject/UObjectGlobals.h"
 #include "PlanetCharacter.h"
 
-#if WITH_DEV_AUTOMATION_TESTS
+// UAnimSequence::GetDataModel() 与 IAnimationDataModel 只在 WITH_EDITOR 下存在。
+// 本文件用 WITH_DEV_AUTOMATION_TESTS 包着，而 Development 的 Game 目标两个宏取值
+// 不同（测试宏为 1、编辑器宏为 0）—— 不把编辑器宏一起钉住，Game 目标编不过。
+#if WITH_EDITOR
+#include "Animation/AnimData/IAnimationDataModel.h"
+#endif
+
+#if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraPlanetCharacterAnimationAssetsTest,
 	"StellarEra.Character.AnimationAssets",

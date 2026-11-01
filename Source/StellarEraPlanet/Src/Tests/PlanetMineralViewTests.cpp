@@ -294,7 +294,9 @@ bool FPlanetMineralViewGeologyAssetMirrorTest::RunTest(const FString& Parameters
 	TestTrue(TEXT("写回成功"), View->ApplyGeologyAssetToPlanet());
 	TestTrue(TEXT("行星跟着变"), Planet->GetGeologyPresetAsset() == PresetB);
 
-	// 细节面板改槽：走 PostEditChangeProperty 那条胶水，而不是直接调 Apply
+	// 细节面板改槽：走 PostEditChangeProperty 那条胶水，而不是直接调 Apply。
+	// PostEditChangeProperty 是 WITH_EDITOR-only 的重载，Game 目标里不存在。
+#if WITH_EDITOR
 	View->GeologyAsset = PresetA;
 	if (FProperty* SlotProperty = FindFProperty<FProperty>(
 		UPlanetMineralViewComponent::StaticClass(), TEXT("GeologyAsset")))
@@ -307,6 +309,7 @@ bool FPlanetMineralViewGeologyAssetMirrorTest::RunTest(const FString& Parameters
 	{
 		AddError(TEXT("找不到 GeologyAsset 属性：转发没有被接上"));
 	}
+#endif
 
 	// 宿主不是行星：不转发、不崩、也不静默留一个假值
 	AActor* PlainActor = NewObject<AActor>(GetTransientPackage());
@@ -325,6 +328,8 @@ bool FPlanetMineralViewGeologyAssetMirrorTest::RunTest(const FString& Parameters
 	return true;
 }
 
+// IsPreviewStale / MarkPreviewStale / RefreshMineralPreview 都是 WITH_EDITOR-only。
+#if WITH_EDITOR
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralViewPresetEditStaleTest,
 	"StellarEra.Planet.MineralView.PresetEditMarksStale",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -358,5 +363,6 @@ bool FPlanetMineralViewPresetEditStaleTest::RunTest(const FString& Parameters)
 
 	return true;
 }
+#endif // WITH_EDITOR
 
 #endif // WITH_DEV_AUTOMATION_TESTS
