@@ -19,7 +19,8 @@ struct FPlanetMineralVoxelParams
 {
 	/**
 	 * 该元素所有区域的 AABB，**归一化空间**（半径 1 = 行星基准球面）。
-	 * 来自 FPlanetGeologyField::EnumerateRegions。空数组 = 这个元素没有矿。
+	 * 由 FPlanetGeologyField::EnumerateRegions 从 FPlanetGeologyRegion::Bounds 汇总。
+	 * 空数组 = 这个元素没有矿。
 	 */
 	TArray<FBox> RegionBoxes;
 
@@ -38,8 +39,11 @@ struct FPlanetMineralVoxelParams
 	/** 行星基准半径（体素数）。≤ 0 时求值恒返回空气。 */
 	double RadiusVoxels = 0.0;
 
-	/** 等值线，调用方传 GetAppearance().ColorThreshold。 */
-	double IsoValue = 0.0;
+	/**
+	 * 等值线，调用方传 GetAppearance().ColorThreshold。
+	 * 默认值**不能是 0**：地质场在矿体之外恒返回 0，没填就整颗星都贴在等值面上。
+	 */
+	double IsoValue = 0.22;
 
 	/** 软化带宽，调用方传 GetAppearance().FadeRange。≤ 0 时按 1e-4 处理。 */
 	double FadeRange = 0.15;

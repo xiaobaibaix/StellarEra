@@ -52,8 +52,9 @@ double PlanetMineralVoxel::EvaluateVoxel(
 
 	// 负 = 实心。Norm 越大越负 = 越是矿。
 	//
-	// 夹到 FVoxelValue 的 int16 量程：Fade 被钳到 1e-4 时这个除法能给出 1e4
-	// 量级，而插件把 v_flt 写进 FVoxelValue 时溢出就是坏数据。
+	// 夹到 FVoxelValue 的量程是纵深防御，不是在挡当前就会发生的溢出：
+	// 按现在 Fade 的 1e-4 下限与 |Iso - Norm| ≤ 1，量级上限是 1e4，插件那边
+	// 也先把 v_flt 夹到 ±10 再换算。夹子只防以后有人放宽 Fade 下限。
 	const double Value = (Params.IsoValue - Norm) / Fade;
 	return FMath::Clamp(Value, -double(FVoxelValue::MAX_VOXELVALUE), double(FVoxelValue::MAX_VOXELVALUE));
 }

@@ -45,8 +45,8 @@ bool FPlanetMineralVoxelRegionEarlyOutTest::RunTest(const FString& Parameters)
 	const FPlanetMineralVoxelParams Params = Sampler.MakeParams();
 
 	// 区域盒是归一化空间的 [-10, 10]，半径 100 体素 → 体素 [-1000, 1000]。
-	TestEqual(TEXT("盒内：Norm 1 > 阈值 → 负值（实心）"),
-		PlanetMineralVoxel::EvaluateVoxel(Params, FIntVector(0, 0, 0)) < 0.0, true);
+	TestTrue(TEXT("盒内：Norm 1 > 阈值 → 负值（实心）"),
+		PlanetMineralVoxel::EvaluateVoxel(Params, FIntVector(0, 0, 0)) < 0.0);
 	TestTrue(TEXT("盒内确实调了地质场"), Sampler.Calls > 0);
 
 	Sampler.Calls = 0;
@@ -128,14 +128,28 @@ bool FPlanetMineralVoxelThresholdTest::RunTest(const FString& Parameters)
 	const double Guarded = PlanetMineralVoxel::EvaluateVoxel(ZeroFade, FIntVector(0, 0, 0));
 	TestTrue(TEXT("FadeRange 0 时结果仍然有限"), FMath::IsFinite(Guarded));
 	TestTrue(TEXT("FadeRange 0 时符号仍然正确"), Guarded < 0.0);
-	TestTrue(TEXT("结果不超过 FVoxelValue 的 int16 量程"),
-		FMath::Abs(Guarded) <= double(FVoxelValue::MAX_VOXELVALUE));
+
+	// Fade 下限 1e-4 与 |Iso - Norm| ≤ 1 一起给出的可达边界就是 ±1e4。
+	// 这里钉的是这个边界本身，不是 int16 夹子（夹子按当前 Fade 下限取不到）。
+	FPlanetMineralVoxelParams Bounds = Params;
+	Bounds.FadeRange = 0.0;
+	Bounds.IsoValue = 0.0;
+	Sampler.Norm = 1.0f;
+	TestEqual(TEXT("Fade 下限 + 最大差值 → -1e4"),
+		PlanetMineralVoxel::EvaluateVoxel(Bounds, FIntVector(0, 0, 0)), -10000.0, 1e-6);
 
 	// 地质场为空 → 到处空气
 	FPlanetMineralVoxelParams NoSampler = Params;
 	NoSampler.SampleElementNorm = nullptr;
 	TestEqual(TEXT("没有采样回调时恒为空气"),
 		PlanetMineralVoxel::EvaluateVoxel(NoSampler, FIntVector(0, 0, 0)),
+		PlanetMineralVoxel::AirValue);
+
+	// 半径没填（0）→ 归一化点无从谈起，到处空气
+	FPlanetMineralVoxelParams NoRadius = Params;
+	NoRadius.RadiusVoxels = 0.0;
+	TestEqual(TEXT("RadiusVoxels 0 时恒为空气"),
+		PlanetMineralVoxel::EvaluateVoxel(NoRadius, FIntVector(0, 0, 0)),
 		PlanetMineralVoxel::AirValue);
 
 	return true;
