@@ -37,6 +37,7 @@
 | `CloudDetailScale` | `24.0` | 无量纲 | 细节侵蚀频率 |
 | `CloudDetailStrength` | `0.35` | 0..1 | 细节侵蚀强度 |
 | `CloudDriftPerSecond` | `0.02` | 噪声坐标/秒 | 云随时间漂移；0 = 静止 |
+| `CloudBrightness` | `1.0` | 倍率 | 云的亮度补偿。云与大气共用 `SunIntensity`（14，为单次散射的大气补的），直接照搬会把云顶推到溢出白；补偿只加在云项上，不改 `SunIntensity` |
 
 **光学厚度而非消光系数**：`β_cloud = CloudOpticalDepth / (CloudTopCm - CloudBaseCm)`。
 这样换一颗更小/更大的行星时云的浓淡不变 —— 与 `PlanetAtmosphere::ComputeShellScatteringParams` 用 τ 反推 β 是同一个理由。
@@ -85,8 +86,8 @@ density  = d * β_cloud
 | 文件 | 改动 |
 |---|---|
 | `Source/StellarEraPlanet/Src/Atmosphere/PlanetCloudParams.h/.cpp` | **新建**。`FCloudLayerRadii`、`ComputeCloudLayerRadiiCm`、`CoverageToNoiseThreshold`。纯函数，不含 UObject |
-| `Source/StellarEraPlanet/Src/Atmosphere/PlanetAtmosphereComponent.h/.cpp` | 加 9 个 UPROPERTY；`RefreshAtmosphereGeometry` 里推新参数；`TickComponent` 里每帧写 `CloudDrift`；应用参数前钳制比例 |
-| `Source/StellarEraPlanet/Src/Atmosphere/PlanetAtmosphereMaterialBuilder.cpp` | HLSL 加噪声/密度/相位；加 8 个标量参数节点；`ATMO_STEPS` → 32 |
+| `Source/StellarEraPlanet/Src/Atmosphere/PlanetAtmosphereComponent.h/.cpp` | 加 10 个 UPROPERTY（1 个开关 + 9 个数值）；`RefreshAtmosphereGeometry` 里推新参数；`TickComponent` 里每帧写 `CloudDrift`；应用参数前钳制比例 |
+| `Source/StellarEraPlanet/Src/Atmosphere/PlanetAtmosphereMaterialBuilder.cpp` | HLSL 加噪声/密度/相位；加 9 个标量参数节点；`ATMO_STEPS` → 32 |
 | `Source/StellarEraPlanet/Src/Tests/PlanetCloudParamsTests.cpp` | **新建**。纯函数测试 |
 | `Source/StellarEraPlanet/Src/Tests/PlanetAtmosphereMaterialTests.cpp` | 扩展既有两条测试：新增参数存在、HLSL 含云关键字 |
 
@@ -104,8 +105,8 @@ density  = d * β_cloud
 |---|---|
 | `StellarEra.Planet.CloudParams.Radii` | 云底/顶 = 表面半径 × 比例；Top < 壳半径；比例倒挂时钳成 Top = Base |
 | `StellarEra.Planet.CloudParams.Coverage` | `Coverage=0` → 阈值 1（永不超阈）；`=1` → 0；越界钳制 |
-| `StellarEra.Planet.AtmosphereMaterial.Structure`（扩展） | `CloudBaseRadius`/`CloudTopRadius`/`CloudCoverage`/`CloudExtinction`/`CloudNoiseScale`/`CloudDetailScale`/`CloudDetailStrength`/`CloudDrift` 八个标量参数存在 |
-| `StellarEra.Planet.AtmosphereMaterial.Hlsl`（扩展） | HLSL 含 `CloudDensity`、`fbm3`、`CLOUD_SHADOW_STEPS`、`CloudBaseRadius` |
+| `StellarEra.Planet.AtmosphereMaterial.Structure`（扩展） | `CloudBaseRadius`/`CloudTopRadius`/`CloudCoverage`/`CloudExtinction`/`CloudNoiseScale`/`CloudDetailScale`/`CloudDetailStrength`/`CloudDrift`/`CloudBrightness` 九个标量参数存在 |
+| `StellarEra.Planet.AtmosphereMaterial.Hlsl`（扩展） | HLSL 含 `CloudDensity`、`CloudFbm`、`CLOUD_SHADOW_STEPS`、`CloudBaseRadius` |
 
 材质测试必须跑在重建过材质之后 —— 与既有约定一致（`BuildAtmosphereMaterial` 没重跑就红）。
 
