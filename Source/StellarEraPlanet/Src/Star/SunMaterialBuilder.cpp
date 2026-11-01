@@ -83,7 +83,7 @@ return Col * Brightness;
 )");
 
 /** 建一个标量参数节点并登记到材质。 */
-UMaterialExpressionScalarParameter* AddScalarParam(UMaterial* Material, const TCHAR* Name,
+UMaterialExpressionScalarParameter* AddSunScalarParam(UMaterial* Material, const TCHAR* Name,
 	float Default, int32 PosX, int32 PosY)
 {
 	UMaterialExpressionScalarParameter* Expr = NewObject<UMaterialExpressionScalarParameter>(Material);
@@ -97,7 +97,7 @@ UMaterialExpressionScalarParameter* AddScalarParam(UMaterial* Material, const TC
 }
 
 /** 建一个向量参数节点并登记到材质。 */
-UMaterialExpressionVectorParameter* AddVectorParam(UMaterial* Material, const TCHAR* Name,
+UMaterialExpressionVectorParameter* AddSunVectorParam(UMaterial* Material, const TCHAR* Name,
 	FLinearColor Default, int32 PosX, int32 PosY)
 {
 	UMaterialExpressionVectorParameter* Expr = NewObject<UMaterialExpressionVectorParameter>(Material);
@@ -171,7 +171,7 @@ UMaterialExpressionAdd* AddAdd(UMaterial* Material, UMaterialExpression* A,
 }
 
 /** 给 Custom 节点加一个命名输入。InputName 就是 HLSL 里的变量名。 */
-void AddCustomInput(UMaterialExpressionCustom* Custom, const TCHAR* InputName, UMaterialExpression* Source)
+void AddSunCustomInput(UMaterialExpressionCustom* Custom, const TCHAR* InputName, UMaterialExpression* Source)
 {
 	FCustomInput& In = Custom->Inputs.AddDefaulted_GetRef();
 	In.InputName = InputName;
@@ -242,8 +242,8 @@ UMaterial* BuildSunMaterial(FString& OutError)
 	// --- 尺度 ---
 	// BodyRadius 必须等于恒星网格的实际半径（uu）。噪声坐标 = 物体空间 / 半径，
 	// 于是 SurfaceScale 的含义就变成「每半径几团湍流」，换网格尺寸只要改一个数。
-	UMaterialExpressionScalarParameter* BodyRadius = AddScalarParam(Material, TEXT("BodyRadius"), 100.0f, -1600, -700);
-	UMaterialExpressionScalarParameter* SurfaceScale = AddScalarParam(Material, TEXT("SurfaceScale"), 8.0f, -1600, -600);
+	UMaterialExpressionScalarParameter* BodyRadius = AddSunScalarParam(Material, TEXT("BodyRadius"), 100.0f, -1600, -700);
+	UMaterialExpressionScalarParameter* SurfaceScale = AddSunScalarParam(Material, TEXT("SurfaceScale"), 8.0f, -1600, -600);
 
 	UMaterialExpressionMultiply* ScaledXY = AddMultiply(Material, ObjPos, SurfaceScale, -1200, -850);
 	UMaterialExpressionDivide* Scaled = AddDivide(Material, ScaledXY, BodyRadius, -1050, -850);
@@ -256,8 +256,8 @@ UMaterial* BuildSunMaterial(FString& OutError)
 	Time->MaterialExpressionEditorY = -500;
 	Material->GetExpressionCollection().AddExpression(Time);
 
-	UMaterialExpressionScalarParameter* FlowSpeed = AddScalarParam(Material, TEXT("FlowSpeed"), 0.35f, -1600, -400);
-	UMaterialExpressionVectorParameter* FlowDirection = AddVectorParam(Material, TEXT("FlowDirection"),
+	UMaterialExpressionScalarParameter* FlowSpeed = AddSunScalarParam(Material, TEXT("FlowSpeed"), 0.35f, -1600, -400);
+	UMaterialExpressionVectorParameter* FlowDirection = AddSunVectorParam(Material, TEXT("FlowDirection"),
 		FLinearColor(0.31f, 0.17f, 0.93f, 1.0f), -1600, -300);
 
 	UMaterialExpressionMultiply* FlowT = AddMultiply(Material, Time, FlowSpeed, -1300, -500);
@@ -307,7 +307,7 @@ UMaterial* BuildSunMaterial(FString& OutError)
 	Material->GetExpressionCollection().AddExpression(NoiseB);
 
 	// --- 米粒组织：Voronoi 细胞，频率单独给参数 ---
-	UMaterialExpressionScalarParameter* GranuleScale = AddScalarParam(Material, TEXT("GranuleScale"), 34.0f, -1600, -200);
+	UMaterialExpressionScalarParameter* GranuleScale = AddSunScalarParam(Material, TEXT("GranuleScale"), 34.0f, -1600, -200);
 	UMaterialExpressionMultiply* ScaledG = AddMultiply(Material, Scaled, GranuleScale, -1050, -250);
 
 	UMaterialExpressionNoise* NoiseG = NewObject<UMaterialExpressionNoise>(Material);
@@ -341,18 +341,18 @@ UMaterial* BuildSunMaterial(FString& OutError)
 	Material->GetExpressionCollection().AddExpression(CameraPos);
 
 	// --- 颜色与强度参数 ---
-	UMaterialExpressionVectorParameter* CoolColor = AddVectorParam(Material, TEXT("CoolColor"),
+	UMaterialExpressionVectorParameter* CoolColor = AddSunVectorParam(Material, TEXT("CoolColor"),
 		FLinearColor(1.0f, 0.18f, 0.02f, 1.0f), -1600, 400);
-	UMaterialExpressionVectorParameter* MidColor = AddVectorParam(Material, TEXT("MidColor"),
+	UMaterialExpressionVectorParameter* MidColor = AddSunVectorParam(Material, TEXT("MidColor"),
 		FLinearColor(1.0f, 0.55f, 0.10f, 1.0f), -1600, 500);
-	UMaterialExpressionVectorParameter* HotColor = AddVectorParam(Material, TEXT("HotColor"),
+	UMaterialExpressionVectorParameter* HotColor = AddSunVectorParam(Material, TEXT("HotColor"),
 		FLinearColor(1.0f, 0.94f, 0.78f, 1.0f), -1600, 600);
-	UMaterialExpressionScalarParameter* GranuleContrast = AddScalarParam(Material, TEXT("GranuleContrast"), 0.35f, -1600, 700);
-	UMaterialExpressionScalarParameter* ColorPower = AddScalarParam(Material, TEXT("ColorPower"), 1.5f, -1600, 800);
-	UMaterialExpressionScalarParameter* CoronaPower = AddScalarParam(Material, TEXT("CoronaPower"), 2.5f, -1600, 900);
-	UMaterialExpressionScalarParameter* CoronaIntensity = AddScalarParam(Material, TEXT("CoronaIntensity"), 1.1f, -1600, 1000);
-	UMaterialExpressionScalarParameter* LimbDarkening = AddScalarParam(Material, TEXT("LimbDarkening"), 0.35f, -1600, 1100);
-	UMaterialExpressionScalarParameter* Brightness = AddScalarParam(Material, TEXT("Brightness"), 40000.0f, -1600, 1200);
+	UMaterialExpressionScalarParameter* GranuleContrast = AddSunScalarParam(Material, TEXT("GranuleContrast"), 0.35f, -1600, 700);
+	UMaterialExpressionScalarParameter* ColorPower = AddSunScalarParam(Material, TEXT("ColorPower"), 1.5f, -1600, 800);
+	UMaterialExpressionScalarParameter* CoronaPower = AddSunScalarParam(Material, TEXT("CoronaPower"), 2.5f, -1600, 900);
+	UMaterialExpressionScalarParameter* CoronaIntensity = AddSunScalarParam(Material, TEXT("CoronaIntensity"), 1.1f, -1600, 1000);
+	UMaterialExpressionScalarParameter* LimbDarkening = AddSunScalarParam(Material, TEXT("LimbDarkening"), 0.35f, -1600, 1100);
+	UMaterialExpressionScalarParameter* Brightness = AddSunScalarParam(Material, TEXT("Brightness"), 40000.0f, -1600, 1200);
 
 	// --- Custom：色带 + 临边 ---
 	UMaterialExpressionCustom* Custom = NewObject<UMaterialExpressionCustom>(Material);
@@ -365,21 +365,21 @@ UMaterial* BuildSunMaterial(FString& OutError)
 	Material->GetExpressionCollection().AddExpression(Custom);
 
 	// 名字必须与 HLSL 里的引用完全一致。
-	AddCustomInput(Custom, TEXT("N1"), NoiseA);
-	AddCustomInput(Custom, TEXT("N2"), NoiseB);
-	AddCustomInput(Custom, TEXT("G"), NoiseG);
-	AddCustomInput(Custom, TEXT("WorldPos"), WorldPos);
-	AddCustomInput(Custom, TEXT("NormalWS"), NormalWS);
-	AddCustomInput(Custom, TEXT("CameraPos"), CameraPos);
-	AddCustomInput(Custom, TEXT("CoolColor"), CoolColor);
-	AddCustomInput(Custom, TEXT("MidColor"), MidColor);
-	AddCustomInput(Custom, TEXT("HotColor"), HotColor);
-	AddCustomInput(Custom, TEXT("GranuleContrast"), GranuleContrast);
-	AddCustomInput(Custom, TEXT("ColorPower"), ColorPower);
-	AddCustomInput(Custom, TEXT("CoronaPower"), CoronaPower);
-	AddCustomInput(Custom, TEXT("CoronaIntensity"), CoronaIntensity);
-	AddCustomInput(Custom, TEXT("LimbDarkening"), LimbDarkening);
-	AddCustomInput(Custom, TEXT("Brightness"), Brightness);
+	AddSunCustomInput(Custom, TEXT("N1"), NoiseA);
+	AddSunCustomInput(Custom, TEXT("N2"), NoiseB);
+	AddSunCustomInput(Custom, TEXT("G"), NoiseG);
+	AddSunCustomInput(Custom, TEXT("WorldPos"), WorldPos);
+	AddSunCustomInput(Custom, TEXT("NormalWS"), NormalWS);
+	AddSunCustomInput(Custom, TEXT("CameraPos"), CameraPos);
+	AddSunCustomInput(Custom, TEXT("CoolColor"), CoolColor);
+	AddSunCustomInput(Custom, TEXT("MidColor"), MidColor);
+	AddSunCustomInput(Custom, TEXT("HotColor"), HotColor);
+	AddSunCustomInput(Custom, TEXT("GranuleContrast"), GranuleContrast);
+	AddSunCustomInput(Custom, TEXT("ColorPower"), ColorPower);
+	AddSunCustomInput(Custom, TEXT("CoronaPower"), CoronaPower);
+	AddSunCustomInput(Custom, TEXT("CoronaIntensity"), CoronaIntensity);
+	AddSunCustomInput(Custom, TEXT("LimbDarkening"), LimbDarkening);
+	AddSunCustomInput(Custom, TEXT("Brightness"), Brightness);
 
 	Custom->RebuildOutputs();
 
