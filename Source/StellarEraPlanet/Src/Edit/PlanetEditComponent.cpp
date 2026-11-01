@@ -157,7 +157,14 @@ void UPlanetEditComponent::FlushPendingRenderUpdate()
 	const FPlanetEditVoxelBox Bounds = PendingRenderBounds;
 	PendingRenderBounds = FPlanetEditVoxelBox();
 
-	if (!IsValid(Planet) || !PlanetEditBrush::IsValidVoxelBox(Bounds))
+	// IsValid 只说明 Actor 还活着，不说明体素世界还在：AVoxelWorld::EndPlay
+	//（VoxelWorld.cpp:480）会 DestroyWorld，而 DestroyWorldInternal 里的
+	// DeleteTickable 会把 LODManager 置空（VoxelThreadingUtilities.h:46）。
+	// PIE 拆除时行星的 EndPlay 常常先于本组件（VoxelPlanetActor.cpp:993 记过
+	// 同一个坑），此时 GetLODManager() 解引用的就是空指针 —— 必须在这里挡住，
+	// 与 FPlanetProgressiveEdit::ApplyNextChunk / RequestSaveEdits 的 IsCreated
+	// 守卫同一条判据。
+	if (!IsValid(Planet) || !Planet->IsCreated() || !PlanetEditBrush::IsValidVoxelBox(Bounds))
 	{
 		return;
 	}
