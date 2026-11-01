@@ -442,9 +442,13 @@ bool APlanetMineralViewActor::SetElementColor(int32 Index, const FLinearColor& C
 
 void APlanetMineralViewActor::Destroyed()
 {
-	// Destroy() 与关卡卸载：这是**编辑器世界里唯一会触发的钩子**（编辑器世界不跑
-	// BeginPlay，EndPlay 会被跳过）。体素世界不 attach、不随本 Actor 级联销毁，
-	// 必须在这里显式销毁。
+	// Destroy()：UWorld::DestroyActor 是 Destroyed() 的**唯一**触发点
+	// （LevelActor.cpp:926），编辑器世界与游戏世界都会走。编辑器预览不跑 BeginPlay、
+	// EndPlay 会被跳过，所以这是那条路径上唯一的钩子。体素世界不 attach、不随本
+	// Actor 级联销毁，必须在这里显式销毁。
+	//
+	// 关卡卸载与整世界拆解**不**经过这里（前者的流送移除走 EndPlay，
+	// Level.cpp:3931-3948；后者走 BeginDestroy）。
 	ReleaseAllFields();
 	Super::Destroyed();
 }

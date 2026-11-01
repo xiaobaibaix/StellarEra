@@ -78,9 +78,13 @@ public:
 	void SetAllElementsVisible(bool bVisible);
 
 	/**
-	 * 兜底之一：Destroy() 与关卡卸载。UWorld::DestroyActor 会调 Destroyed()
-	 * （LevelActor.cpp:926），**编辑器世界与游戏世界都会触发** —— 编辑器预览是
-	 * 本功能的主路径，靠的就是这个钩子。
+	 * 兜底之一：`Destroy()`。`Destroyed()` 的**唯一**触发点是 `UWorld::DestroyActor`
+	 * （LevelActor.cpp:926），而它编辑器世界与游戏世界都会走 —— 编辑器预览是本功能
+	 * 的主路径，靠的就是这个钩子。
+	 *
+	 * 关卡卸载**不**走这里：流送移除走 `RouteActorEndPlayForRemoveFromWorld` →
+	 * `EndPlay`（Level.cpp:3931-3948），整世界拆解走 `BeginDestroy`。那两条归下面
+	 * 那个覆写与基类的 `AVoxelWorld::BeginDestroy`。
 	 */
 	virtual void Destroyed() override;
 
