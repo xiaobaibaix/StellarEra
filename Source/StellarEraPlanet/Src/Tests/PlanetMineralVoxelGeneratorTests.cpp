@@ -10,16 +10,20 @@
 
 namespace
 {
-	UPlanetMineralVoxelGenerator* MakeConfiguredGenerator(bool& bOutNormCalled)
+	UPlanetMineralVoxelGenerator* MakeConfiguredGenerator(
+		bool& bOutNormCalled,
+		double IsoValue = 0.22,
+		double FadeRange = 0.15,
+		const TArray<FBox>& RegionBoxes = { FBox(FVector(-0.2), FVector(0.2)) })
 	{
 		UPlanetMineralVoxelGenerator* Generator =
 			NewObject<UPlanetMineralVoxelGenerator>(GetTransientPackage());
 
 		FPlanetMineralVoxelParams Params;
 		Params.RadiusVoxels = 100.0;
-		Params.IsoValue = 0.22;
-		Params.FadeRange = 0.15;
-		Params.RegionBoxes.Add(FBox(FVector(-0.2), FVector(0.2)));
+		Params.IsoValue = IsoValue;
+		Params.FadeRange = FadeRange;
+		Params.RegionBoxes = RegionBoxes;
 		Params.SampleElementNorm = [&bOutNormCalled](const FVector&) -> float
 		{
 			bOutNormCalled = true;
@@ -99,6 +103,103 @@ bool FPlanetMineralVoxelGeneratorRangeTest::RunTest(const FString& Parameters)
 		/*LOD=*/0, FVoxelItemStack::Empty);
 	TestTrue(TEXT("区域块的区间跨过 0"),
 		NearRange.Min < 0.0f && NearRange.Max > 0.0f);
+
+	// 一个元素没有区域（RegionBoxes 为空）= 这颗星球上没有这种矿。
+	// 此时任何块都必须是**单值**纯空气区间，插件才会整块跳过。
+	bool bUnusedNormCalled = false;
+	UPlanetMineralVoxelGenerator* EmptyGenerator = MakeConfiguredGenerator(
+		bUnusedNormCalled, /*IsoValue=*/0.05, /*FadeRange=*/0.12, TArray<FBox>());
+	if (!TestNotNull(TEXT("无区域的生成器"), EmptyGenerator))
+	{
+		return false;
+	}
+	const TVoxelSharedRef<FVoxelGeneratorInstance> EmptyInstance = EmptyGenerator->GetInstance();
+	// 故意用与区域盒相交的那一块 —— 判空只应看 RegionBoxes，不看块的坐标。
+	const TVoxelRange<v_flt> EmptyRange = EmptyInstance->GetValueRange(
+		FVoxelIntBox(FIntVector(-15, -15, -15), FIntVector(15, 15, 15)),
+		/*LOD=*/0, FVoxelItemStack::Empty);
+	TestEqual(TEXT("没有区域时区间下界 = 空气值"),
+		float(EmptyRange.Min), float(PlanetMineralVoxel::AirValue));
+	TestEqual(TEXT("没有区域时区间上界 = 空气值"),
+		float(EmptyRange.Max), float(PlanetMineralVoxel::AirValue));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralVoxelGeneratorRangeCoversValuesTest,
+	"StellarEra.Planet.MineralView.VoxelGenerator.RangeCoversValues",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPlanetMineralVoxelGeneratorRangeCoversValuesTest::RunTest(const FString& Parameters)
+{
+	// 契约的暴力验证：块内每个体素的真实取值都必须落在本块报出的区间内。
+	//
+	// 用的是**主预设的真实参数**（ColorThreshold = 0.05、FadeRange = 0.12，
+	// 见 PlanetGeologyPreset.cpp:206-207）。这组值正是上界最容易被估窄的一支：
+	// Iso / Fade = 0.4167 < AirValue，区间若只按「矿」的值域算，块里那些落在
+	// 区域外、恒返回 AirValue 的体素就被排除在区间之外了。
+	bool bNormCalled = false;
+	UPlanetMineralVoxelGenerator* Generator = MakeConfiguredGenerator(
+		bNormCalled, /*IsoValue=*/0.05, /*FadeRange=*/0.12);
+	if (!TestNotNull(TEXT("生成器"), Generator))
+	{
+		return false;
+	}
+	const TVoxelSharedRef<FVoxelGeneratorInstance> Instance = Generator->GetInstance();
+
+	// 区域盒是 [-0.2, 0.2] 归一化 = [-20, 20] 体素。8³ 的块放在 [16, 24]，
+	// 于是它一半在盒内（矿）、一半在盒外（空气）—— 两种体素都在同一块里。
+	const FVoxelIntBox Block(FIntVector(16, 16, 16), FIntVector(24, 24, 24));
+	const TVoxelRange<v_flt> Range = Instance->GetValueRange(
+		Block, /*LOD=*/0, FVoxelItemStack::Empty);
+
+	int32 Violations = 0;
+	int32 SolidCount = 0;
+	int32 AirCount = 0;
+	FString FirstViolation;
+	for (int32 X = Block.Min.X; X <= Block.Max.X; ++X)
+	{
+		for (int32 Y = Block.Min.Y; Y <= Block.Max.Y; ++Y)
+		{
+			for (int32 Z = Block.Min.Z; Z <= Block.Max.Z; ++Z)
+			{
+				const v_flt Value = Instance->GetValue(
+					X, Y, Z, /*LOD=*/0, FVoxelItemStack::Empty);
+
+				if (Value < 0.0f)
+				{
+					++SolidCount;
+				}
+				else if (Value == v_flt(PlanetMineralVoxel::AirValue))
+				{
+					++AirCount;
+				}
+
+				// 含端点：区间是闭区间。
+				if (Value < Range.Min || Value > Range.Max)
+				{
+					++Violations;
+					if (FirstViolation.IsEmpty())
+					{
+						FirstViolation = FString::Printf(
+							TEXT("首个越界体素 (%d,%d,%d)：value=%f，区间=[%f, %f]"),
+							X, Y, Z, double(Value), double(Range.Min), double(Range.Max));
+					}
+				}
+			}
+		}
+	}
+
+	TestEqual(TEXT("块内每个体素的取值都落在本块报出的区间内（含端点）"),
+		Violations, 0);
+	if (!FirstViolation.IsEmpty())
+	{
+		AddError(FirstViolation);
+	}
+
+	// 没有这一条，「区间覆盖取值」在块只有一种体素时会退化成恒等式。
+	TestTrue(TEXT("这一块里确实既有矿（负值）也有空气（AirValue）"),
+		SolidCount > 0 && AirCount > 0);
 
 	return true;
 }

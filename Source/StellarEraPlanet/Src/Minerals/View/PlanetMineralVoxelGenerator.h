@@ -50,12 +50,18 @@ private:
 	FLinearColor Color;
 
 	/**
-	 * 区域盒换算到体素索引空间后的并集 AABB。GetValueRangeImpl 用它做整块判空。
+	 * 区域盒换算到体素索引空间后的**逐个**盒子。GetValueRangeImpl 用它做整块判空。
 	 *
-	 * 单独存一份而不是每次重算：区间查询按块调用，重建 AABB 在块数量级上是纯浪费。
+	 * 存逐个盒子而不是并集 AABB：一个元素的区域可能散得很开（地球预设的铀是 140 颗
+	 * 半径 0.0015 的浸染颗粒、铺满整个壳层），并集会退化成整个壳层的包围盒，
+	 * 于是壳内几乎每个块都被判成「相交」、被完整求值 —— 性能杠杆全丢。
+	 * 每块做 N 次 AABB 求交，相对被跳过那块的 32³ = 32768 次体素求值可以忽略。
+	 *
+	 * 这也让区间判空与 EvaluateVoxel 里的 IsInsideAnyRegion 完全等价。
+	 *
+	 * 构造期换一次就够：区间查询按块调用，逐次重建在块数量级上是纯浪费。
 	 */
-	FBox3d RegionBoundsVoxels;
-	bool bHasRegionBounds = false;
+	TArray<FBox3d> RegionBoxesVoxels;
 };
 
 /**

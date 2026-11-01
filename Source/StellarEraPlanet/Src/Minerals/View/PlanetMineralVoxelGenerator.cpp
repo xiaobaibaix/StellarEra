@@ -26,25 +26,17 @@ FPlanetMineralVoxelInstance::FPlanetMineralVoxelInstance(
 	, Params(InParams)
 	, Color(InColor)
 {
-	// 区域盒从归一化空间换到体素索引空间，取并集。
+	// 区域盒从归一化空间换到体素索引空间。逐个保存，不取并集（理由见头文件）。
+	RegionBoxesVoxels.Reserve(Params.RegionBoxes.Num());
 	for (const FBox& Box : Params.RegionBoxes)
 	{
 		if (!Box.IsValid)
 		{
 			continue;
 		}
-		const FBox3d VoxelBox(
+		RegionBoxesVoxels.Emplace(
 			FVector3d(Box.Min) * Params.RadiusVoxels,
 			FVector3d(Box.Max) * Params.RadiusVoxels);
-		if (!bHasRegionBounds)
-		{
-			RegionBoundsVoxels = VoxelBox;
-			bHasRegionBounds = true;
-		}
-		else
-		{
-			RegionBoundsVoxels += VoxelBox;
-		}
 	}
 }
 
@@ -75,8 +67,16 @@ TVoxelRange<v_flt> FPlanetMineralVoxelInstance::GetValueRangeImpl(
 	const FVoxelIntBox& Bounds, int32 LOD, const FVoxelItemStack& Items) const
 {
 	// 纯空气块：插件整块跳过，一个体素都不求。矿物体素世界的性能全靠这一条。
-	if (!bHasRegionBounds
-		|| !FBox3d(FVector3d(Bounds.Min), FVector3d(Bounds.Max)).Intersect(RegionBoundsVoxels))
+	//
+	// 逐盒求交，与 EvaluateVoxel 的 IsInsideAnyRegion 等价：区域散开时并集 AABB
+	// 会把整片壳层都算成「相交」，性能杠杆就没了。
+	const FBox3d Bounds3d(FVector3d(Bounds.Min), FVector3d(Bounds.Max));
+	const bool bIntersectsAnyRegion = RegionBoxesVoxels.ContainsByPredicate(
+		[&Bounds3d](const FBox3d& RegionBox)
+		{
+			return RegionBox.Intersect(Bounds3d);
+		});
+	if (!bIntersectsAnyRegion)
 	{
 		return TVoxelRange<v_flt>(v_flt(PlanetMineralVoxel::AirValue));
 	}
@@ -84,9 +84,16 @@ TVoxelRange<v_flt> FPlanetMineralVoxelInstance::GetValueRangeImpl(
 	// 与区域相交的块：给一个保守但紧的区间。契约要求它必须覆盖块内可能出现的
 	// 所有取值，估窄了矿上会出洞。
 	//
-	// Norm ∈ [0, 1] → (Iso - Norm) / Fade ∈ [(Iso - 1) / Fade, Iso / Fade]。
+	// 块里同时有两种体素：
+	//   ① 区域内的矿：Norm ∈ [0, 1] → (Iso - Norm) / Fade ∈ [(Iso - 1) / Fade, Iso / Fade]
+	//   ② 区域外的空气：恒为 AirValue（EvaluateVoxel 的第一条早退）
+	// 所以上界必须**同时**盖住 Iso / Fade 和 AirValue —— 主预设 ColorThreshold = 0.05、
+	// FadeRange = 0.12 时 Iso / Fade 只有 0.4167，光用它当上界会把 1.0 排除在区间外。
+	//
+	// 下界不用同样处理：Iso ≤ 1 时 (Iso - 1) / Fade ≤ 0 < AirValue，本来就盖住了。
 	const double Fade = FMath::Max(Params.FadeRange, 1e-4);
-	const double MaxValue = Params.IsoValue / Fade;
+	const double MaxValue = FMath::Max(
+		Params.IsoValue / Fade, double(PlanetMineralVoxel::AirValue));
 	const double MinValue = (Params.IsoValue - 1.0) / Fade;
 	return TVoxelRange<v_flt>(v_flt(MinValue), v_flt(MaxValue));
 }
