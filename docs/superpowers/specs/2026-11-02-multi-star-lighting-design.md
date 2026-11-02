@@ -160,7 +160,9 @@ struct FPlanetSun
     UStarBodyComponent* Star = nullptr;  // 回退太阳时为 nullptr
 };
 
-void CollectSuns(TArray<FPlanetSun>& OutSuns);
+/** 静态：不碰材质、不碰 MID，便于自动化测试直接喂一个世界和探针点。 */
+static void CollectSunsFor(UWorld* World, const FVector& PlanetCenter,
+    TArray<FPlanetSun>& OutSuns);
 ```
 
 规则：
@@ -298,8 +300,11 @@ if (DC > 0.0)
    槽位 0 只按距离排，它可能被显式关掉了灯）。
 3. 对每颗 `bDrivesDirectionalLight == true` 的恒星调用
    `Star->DriveSunLight(PlanetCenter, BaseLightIntensity, /*bIsPrimary=*/Star == PrimaryStar)`。
-4. **主光切换是边沿事件**：内部记 `TWeakObjectPtr<ADirectionalLight> LastPrimaryLight`，
-   与本次的主灯不同时，才把旧灯降级（`0` / `false`）、新灯升级（`1` / `true`）。
+4. **主光切换是边沿事件**：边沿状态记在**每颗恒星自己**的
+   `UStarBodyComponent` 里（上次写进自己那盏灯的 priority / `bAtmosphereSunLight`），
+   与本次 `bIsPrimary` 不同才写。谁变成主星，谁的组件发现 `false → true` 就升级；
+   谁掉出主星，它的组件发现 `true → false` 就降级。不需要再维护一份
+   `LastPrimaryLight`，也就不存在"两份状态不同步"。
 
 新增字段：
 
