@@ -103,7 +103,8 @@ public:
 	FLinearColor SunIntensity = FLinearColor(14.0f, 14.0f, 14.0f, 1.0f);
 
 	/**
-	 * 驱动定向光时的基础强度。主星实际强度 = 本值 × 该恒星的相对亮度。
+	 * 驱动定向光时的基础强度。每颗接管灯的恒星，其灯的实际强度 =
+	 * 本值 × 该恒星自己的相对亮度（G2V = 1.0，B3V ≈ 2.67，M2V ≈ 0.4）。
 	 * 10 与关卡现值一致；三颗星同时照到受光面时调这里。
 	 */
 	UPROPERTY(EditAnywhere, Category = "StellarEra|Atmosphere", meta = (ClampMin = "0.0"))

@@ -37,13 +37,14 @@ public:
 	UStarBodyComponent();
 
 	/**
-	 * 这颗恒星是否接管关卡主光（第一盏 ADirectionalLight）的朝向。
+	 * 这颗恒星是否驱动自己那盏定向光（SunLight）。
 	 *
-	 * 只对该行星**最近**的那颗恒星有意义：大气按"最近的恒星"算明暗分界，
-	 * 地形若还按另一盏灯的朝向算，两边会打架。多颗恒星时只有最近那颗生效，
-	 * 所以同时只有一个写者。
+	 * 多恒星下**每颗**开启该标志的恒星都驱动各自的灯：灯从这颗星指向行星，
+	 * 照亮它该照亮的那一面。独占的只有「主光名额」（ForwardShadingPriority = 1
+	 * 与 bAtmosphereSunLight）——那一个由离行星最近、且开启该标志的恒星占用，
+	 * 因为引擎只允许一盏灯参与前向着色与大气太阳光。
 	 *
-	 * 关掉它就退回纯装饰的恒星：天空照得到它，但它不转灯。
+	 * 关掉它就退回纯装饰的恒星：天空照得到它，但它不转灯、也不参与补光。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "StellarEra|Star")
 	bool bDrivesDirectionalLight = true;
