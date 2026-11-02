@@ -55,7 +55,7 @@ UPlanetAtmosphereComponent::UPlanetAtmosphereComponent()
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.bStartWithTickEnabled = true;
 
-	// 编辑器视图也要 Tick：PlanetCenter / SunDirection 与行星半径变化全靠它更新。
+	// 编辑器视图也要 Tick：PlanetCenter / 太阳参数与行星半径变化全靠它更新。
 	// 引擎只在 LEVELTICK_ViewportsOnly 下 tick 带这个标记的组件
 	// （Actor.h 的 FActorComponentTickFunction::ExecuteTickHelper）。
 	bTickInEditor = true;
@@ -173,8 +173,9 @@ void UPlanetAtmosphereComponent::PostEditChangeProperty(FPropertyChangedEvent& P
 
 	if (EnsureAtmosphereMaterial())
 	{
-		// 厚度比之类的参数改了要重算缩放与 7 个材质参数；bGeometryApplied 先清假，
-		// 让 Refresh 的边沿语义保持一致（这次是显式调用，清不清都会算）。
+		// 厚度比之类的参数改了要重算缩放与整批材质参数（几何 / 太阳槽位 / 云）；
+		// bGeometryApplied 先清假，让 Refresh 的边沿语义保持一致
+		// （这次是显式调用，清不清都会算）。
 		bGeometryApplied = false;
 		RefreshAtmosphereGeometry();
 	}
@@ -303,6 +304,39 @@ FVector UPlanetAtmosphereComponent::ComputeSunDirection(const AActor* StarActor,
 	return FVector::ZeroVector;
 }
 
+UStarBodyComponent* UPlanetAtmosphereComponent::SelectPrimaryStar(const TArray<FPlanetSun>& Suns)
+{
+	for (const FPlanetSun& Sun : Suns)
+	{
+		if (Sun.Star && Sun.Star->bDrivesDirectionalLight)
+		{
+			return Sun.Star;
+		}
+	}
+	return nullptr;
+}
+
+bool UPlanetAtmosphereComponent::MakeFallbackSun(const ADirectionalLight* Light,
+	const FVector& FromLocation, FPlanetSun& OutSun)
+{
+	OutSun = FPlanetSun();
+	if (!Light)
+	{
+		return false;
+	}
+
+	const FVector Direction = ComputeSunDirection(nullptr, Light, FromLocation);
+	if (Direction.IsNearlyZero())
+	{
+		return false;
+	}
+
+	OutSun.Direction = Direction;
+	OutSun.Radiance = FLinearColor::White;
+	OutSun.Star = nullptr;
+	return true;
+}
+
 void UPlanetAtmosphereComponent::CollectSunsFor(UWorld* World, const FVector& PlanetCenter,
 	TArray<FPlanetSun>& OutSuns)
 {
@@ -364,15 +398,11 @@ void UPlanetAtmosphereComponent::CollectSunsFor(UWorld* World, const FVector& Pl
 		for (TActorIterator<ADirectionalLight> It(World); It; ++It)
 		{
 			FPlanetSun Sun;
-			Sun.Direction = ComputeSunDirection(nullptr, *It, PlanetCenter);
-			if (Sun.Direction.IsNearlyZero())
+			if (MakeFallbackSun(*It, PlanetCenter, Sun))
 			{
-				continue;
+				OutSuns.Add(Sun);
+				return;
 			}
-			Sun.Radiance = FLinearColor::White;
-			Sun.Star = nullptr;
-			OutSuns.Add(Sun);
-			return;
 		}
 	}
 
@@ -416,15 +446,7 @@ void UPlanetAtmosphereComponent::DriveSunLights(const TArray<FPlanetSun>& Suns)
 		return;
 	}
 
-	UStarBodyComponent* PrimaryStar = nullptr;
-	for (const FPlanetSun& Sun : Suns)
-	{
-		if (Sun.Star && Sun.Star->bDrivesDirectionalLight)
-		{
-			PrimaryStar = Sun.Star;
-			break;
-		}
-	}
+	UStarBodyComponent* PrimaryStar = SelectPrimaryStar(Suns);
 
 	const FVector PlanetCenter = GetComponentLocation();
 	for (const FPlanetSun& Sun : Suns)
@@ -441,6 +463,14 @@ void UPlanetAtmosphereComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+	// 恒星灯与大气渲染解耦：关掉大气壳 ≠ 恒星不再照亮行星。
+	// 每帧重算（恒星在 N 体里会动），成本是几次 Actor 遍历 + 至多 4 次参数写入。
+	{
+		const FVector LightPlanetCenter = GetComponentLocation();
+		CollectSunsFor(GetWorld(), LightPlanetCenter, CachedSuns);
+		DriveSunLights(CachedSuns);
+	}
 
 	if (!bAtmosphereEnabled)
 	{
@@ -462,7 +492,8 @@ void UPlanetAtmosphereComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	}
 
 	// 重新开启的边沿：只在这里重算一次。
-	// 不能每帧无条件调 —— RefreshAtmosphereGeometry 会写世界缩放和 7 个材质参数；
+	// 不能每帧无条件调 —— RefreshAtmosphereGeometry 会写世界缩放和整批材质参数
+	// （几何 / 太阳槽位 / 云）；
 	// 也不能拿 IsVisible() 当判据 —— 它的三条失败分支本来就以"不可见"收场，
 	// 那样会每帧重试、每帧刷日志。判据只能是"这个启用状态算过没有"。
 	if (!bGeometryApplied)
@@ -497,9 +528,5 @@ void UPlanetAtmosphereComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	// 早先这里每帧写 MID 参数，但编辑器里组件 Tick 早于视口 Tick，写进去的相机位置
 	// 总是慢一帧 —— 快速移动视口时壳的边缘会被算成过亮的暖白硬边。
 
-	// 太阳每帧重算：恒星在 N 体里会动，方向逐帧变化，缓存没有意义。
-	// 9 次 MID 参数写入的成本可以忽略。
-	CollectSunsFor(GetWorld(), PlanetCenter, CachedSuns);
 	ApplySuns(CachedSuns);
-	DriveSunLights(CachedSuns);
 }

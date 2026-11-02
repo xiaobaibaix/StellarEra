@@ -24,9 +24,11 @@ class UWorld;
  * 与 UCosmosOrbitComponent 同样的取舍：**不 Tick，组件自己不存位置**。
  * 恒星位置就是 Owner 的位置，每帧现取 —— 恒星在 N 体里是会动的。
  *
- * 恒星的颜色与相对亮度**不在本组件上冗余字段**，每帧从 Owner 网格的材质实例
- * （MI_Sun_*）的 HotColor / Brightness 读出来并缓存 —— 改动只在材质实例上做，
- * 组件侧不需要同步任何数值。
+ * 恒星的颜色与相对亮度**不在本组件上冗余字段**，从 Owner 网格的材质实例
+ * （MI_Sun_*）的 HotColor / Brightness 读出来并缓存。缓存的失效条件只有一个：
+ * **材质接口指针变了**（见 RefreshSunParameters）—— 所以先在编辑器里改 MI 的值、
+ * 或者运行期换掉材质实例，才会刷新；直接对同一个 MI 调 SetVectorParameterValue
+ * 不会重读。
  */
 UCLASS(ClassGroup = (StellarEra), meta = (BlueprintSpawnableComponent))
 class STELLARERAPLANET_API UStarBodyComponent : public UActorComponent
@@ -44,7 +46,8 @@ public:
 	 * 与 bAtmosphereSunLight）——那一个由离行星最近、且开启该标志的恒星占用，
 	 * 因为引擎只允许一盏灯参与前向着色与大气太阳光。
 	 *
-	 * 关掉它就退回纯装饰的恒星：天空照得到它，但它不转灯、也不参与补光。
+	 * 关掉它只是不再驱动它那盏定向光：这颗星**仍然**作为大气/云的光源参与着色
+	 * （`CollectSunsFor` 不按该标志过滤），只是不转灯、不改色、也不占主光名额。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "StellarEra|Star")
 	bool bDrivesDirectionalLight = true;

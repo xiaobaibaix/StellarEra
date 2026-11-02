@@ -287,4 +287,87 @@ bool FStellarEraSunListBuildTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// 主星选择：列表里第一颗「开着灯」的恒星；Star 为空的回退太阳永远不算。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraPrimaryStarSelectionTest,
+	"StellarEra.Planet.Atmosphere.SunLight.PrimarySelection",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FStellarEraPrimaryStarSelectionTest::RunTest(const FString& Parameters)
+{
+	auto MakeStar = [](bool bDrives)
+	{
+		UStarBodyComponent* Star = NewObject<UStarBodyComponent>(GetTransientPackage());
+		Star->bDrivesDirectionalLight = bDrives;
+		return Star;
+	};
+
+	TArray<FPlanetSun> Empty;
+	TestNull(TEXT("空列表没有主星"), UPlanetAtmosphereComponent::SelectPrimaryStar(Empty));
+
+	TArray<FPlanetSun> AllOff;
+	AllOff.AddDefaulted(3);
+	AllOff[0].Star = MakeStar(false);
+	AllOff[1].Star = MakeStar(false);
+	AllOff[2].Star = MakeStar(false);
+	TestNull(TEXT("全部关掉时没有主星"), UPlanetAtmosphereComponent::SelectPrimaryStar(AllOff));
+
+	TArray<FPlanetSun> Mixed;
+	Mixed.AddDefaulted(3);
+	Mixed[0].Star = MakeStar(false);
+	Mixed[1].Star = MakeStar(true);
+	Mixed[2].Star = MakeStar(true);
+	TestSamePtr(TEXT("跳过关掉的那颗，取第一颗开着的"),
+		UPlanetAtmosphereComponent::SelectPrimaryStar(Mixed), Mixed[1].Star);
+
+	TArray<FPlanetSun> WithFallback;
+	WithFallback.AddDefaulted(2);
+	WithFallback[0].Star = nullptr;   // 回退太阳
+	WithFallback[1].Star = MakeStar(true);
+	TestSamePtr(TEXT("回退太阳（Star 为空）不占主光名额"),
+		UPlanetAtmosphereComponent::SelectPrimaryStar(WithFallback), WithFallback[1].Star);
+
+	return true;
+}
+
+// 回退太阳：方向是 −forward、辐射为白、Star 为空；空灯不产出。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraFallbackSunTest,
+	"StellarEra.Planet.Atmosphere.SunList.Fallback",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FStellarEraFallbackSunTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = StellarEraMultiSunTests::GetTestWorld();
+	if (!TestNotNull(TEXT("编辑器世界"), World))
+	{
+		return false;
+	}
+
+	FPlanetSun Sun;
+	TestFalse(TEXT("空灯不产出回退太阳"),
+		UPlanetAtmosphereComponent::MakeFallbackSun(nullptr, FVector::ZeroVector, Sun));
+
+	// 注意：ADirectionalLight 的组件带一个写死的 −46° 相对旋转，所以断言只跟
+	// Light->GetActorForwardVector() 比，不要写死某个世界轴。
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ADirectionalLight* Light = World->SpawnActor<ADirectionalLight>(
+		ADirectionalLight::StaticClass(), FTransform(FVector(1.0e8, 0.0, 0.0)), Params);
+	if (!TestNotNull(TEXT("定向光"), Light))
+	{
+		return false;
+	}
+
+	const FVector From(3.0e8, 0.0, 0.0);
+	TestTrue(TEXT("有灯时产出回退太阳"),
+		UPlanetAtmosphereComponent::MakeFallbackSun(Light, From, Sun));
+	TestNull(TEXT("回退太阳没有恒星组件"), Sun.Star);
+	TestEqual(TEXT("辐射为白 R"), Sun.Radiance.R, 1.0f, 1e-6f);
+	TestEqual(TEXT("辐射为白 G"), Sun.Radiance.G, 1.0f, 1e-6f);
+	TestEqual(TEXT("辐射为白 B"), Sun.Radiance.B, 1.0f, 1e-6f);
+	// 指向太阳的方向 = 定向光 forward 的反向（forward 是光的传播方向）。
+	TestTrue(TEXT("方向等于 −forward"),
+		Sun.Direction.Equals(-Light->GetActorForwardVector(), 1e-6));
+
+	World->DestroyActor(Light);
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

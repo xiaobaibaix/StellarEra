@@ -14,11 +14,19 @@ namespace PlanetClouds
 	/**
 	 * 同时参与着色的太阳槽位数。
 	 *
-	 * **这是唯一来源**：C++ 侧按它截断恒星列表，`Shaders/PlanetClouds.ush` 里的
-	 * `#define PLANET_MAX_SUNS 4` 必须与它一致（测试会断言）。
-	 * 两者不一致的症状是"第 4 颗星在材质里根本不存在"。
+	 * 与 `Shaders/PlanetClouds.ush` 的 `#define PLANET_MAX_SUNS 4` 是**两份字面量**，
+	 * 靠测试钉住（`PlanetAtmosphereMaterialTests` 断言 .ush 文本里写的是 4）。
+	 * 两者不一致的症状是「第 4 颗星在材质里根本不存在」。
 	 *
-	 * 降级旋钮：想省 GPU 就把这里和 .ush 一起改成 3（关卡正好 3 颗）。
+	 * 改这个值要同时动四处，少一处就编译失败或测试变红：
+	 *   1. 这里；
+	 *   2. `Shaders/PlanetClouds.ush` 的 `PLANET_MAX_SUNS`；
+	 *   3. `PlanetAtmosphereComponent.cpp` 顶部 `ParamSunDirections` /
+	 *      `ParamSunRadiances` 的 4 项初始化列表；
+	 *   4. `Source/StellarEraPlanet/Src/Tests/PlanetAtmosphereMaterialTests.cpp`
+	 *      里三处对 4 的断言（`MaxSuns`、`.ush` 文本、`SunDirection3` 参数存在）。
+	 *
+	 * 降级旋钮：想省 GPU 就按下调小（关卡正好 3 颗）。
 	 */
 	constexpr int32 MaxSuns = 4;
 

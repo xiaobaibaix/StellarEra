@@ -229,6 +229,25 @@ public:
 	 */
 	static void CollectSunsFor(UWorld* World, const FVector& PlanetCenter, TArray<FPlanetSun>& OutSuns);
 
+	/**
+	 * 从已排好序的太阳列表里挑主星：第一颗 Star 非空且 bDrivesDirectionalLight 的。
+	 *
+	 * 主星独占「主光名额」（ForwardShadingPriority = 1 + bAtmosphereSunLight），
+	 * 因为引擎只允许一盏灯参与前向着色与大气太阳光。没有符合条件的返回 nullptr。
+	 * 纯函数，不碰世界 —— `DriveSunLights` 与测试共用。
+	 */
+	static UStarBodyComponent* SelectPrimaryStar(const TArray<FPlanetSun>& Suns);
+
+	/**
+	 * 没有恒星时的回退：拿关卡里一盏 ADirectionalLight 当太阳。
+	 *
+	 * Direction = −forward（定向光的 forward 是光的**传播**方向，太阳在它的反向），
+	 * Radiance 为白，Star 为空。Light 为空、或算出的方向是零向量时返回 false。
+	 * 纯函数 —— `CollectSunsFor` 与测试共用。
+	 */
+	static bool MakeFallbackSun(const ADirectionalLight* Light, const FVector& FromLocation,
+		FPlanetSun& OutSun);
+
 private:
 	/**
 	 * 确保 AtmosphereMID 已创建（OnRegister / BeginPlay / 编辑器改参数都会调）。
@@ -258,7 +277,7 @@ private:
 	 * （**包括它的三条失败分支**）；`TickComponent` 观察到关掉时清假。
 	 *
 	 * 用来做边沿触发：`TickComponent` 只在它为假时重算一次。
-	 *   - 不能每帧无条件调 —— 那会每帧写一次世界缩放和 7 个材质参数；
+	 *   - 不能每帧无条件调 —— 那会每帧写一次世界缩放和整批材质参数（几何 / 太阳槽位 / 云）；
 	 *   - 不能拿 `IsVisible()` 当判据 —— 三条失败分支本来就以"不可见"收场，
 	 *     那样会每帧重试、每帧刷同一条日志。
 	 * 失败分支也置真，正是为了不让它们每帧重试。
