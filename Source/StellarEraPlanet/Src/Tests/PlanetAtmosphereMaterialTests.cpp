@@ -3,6 +3,8 @@
 #include "Materials/MaterialExpressionCustom.h"
 #include "Materials/MaterialParameters.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -53,7 +55,10 @@ bool FStellarEraAtmosphereMaterialStructureTest::RunTest(const FString& Paramete
 
 	const TCHAR* const ScalarNames[] = {
 		TEXT("PlanetRadius"), TEXT("ShellRadius"),
-		TEXT("RayleighScaleHeight"), TEXT("MieScaleHeight")
+		TEXT("RayleighScaleHeight"), TEXT("MieScaleHeight"),
+		TEXT("CloudBaseRadius"), TEXT("CloudTopRadius"), TEXT("CloudCoverage"),
+		TEXT("CloudExtinction"), TEXT("CloudNoiseScale"), TEXT("CloudDetailScale"),
+		TEXT("CloudDetailStrength"), TEXT("CloudDrift"), TEXT("CloudBrightness")
 	};
 	for (const TCHAR* Name : ScalarNames)
 	{
@@ -109,8 +114,45 @@ bool FStellarEraAtmosphereMaterialHlslTest::RunTest(const FString& Parameters)
 
 	TestTrue(TEXT("HLSL 含面剔除"), Custom->Code.Contains(TEXT("TwoSidedSign")));
 	TestTrue(TEXT("HLSL 含场景深度截断"), Custom->Code.Contains(TEXT("SceneDepthCm")));
+
+	// 云：Code 是 CustomExpressionN 的**函数体**，不能定义函数，所以函数体里只能有
+	// 调用点；函数本体必须在 .ush，靠 IncludeFilePaths 在全局作用域展开。
+	// 这条断言就是"生成器真的把 .ush 挂上了"的证据 —— 如果虚拟目录没映射，
+	// MaterialCachedData::Validate 会把这一项删掉，资产里就查不到了。
+	TestTrue(TEXT("Custom 节点引了 PlanetClouds.ush"),
+		Custom->IncludeFilePaths.Contains(TEXT("/Project/PlanetClouds.ush")));
+
+	TestTrue(TEXT("Code 调用云 march"), Custom->Code.Contains(TEXT("CloudAtmosphereRaymarch(")));
+	TestTrue(TEXT("Code 含云层底半径"), Custom->Code.Contains(TEXT("CloudBaseRadius")));
+
+	// 磁盘上的 .ush 也要有内容：只挂了路径但文件是空的，编译期才会炸。
+	const FString CloudUshPath =
+		FPaths::Combine(FPaths::ProjectDir(), TEXT("Shaders/PlanetClouds.ush"));
+	FString CloudUsh;
+	TestTrue(TEXT("能读 Shaders/PlanetClouds.ush"), FFileHelper::LoadFileToString(CloudUsh, *CloudUshPath));
+	TestTrue(TEXT("ush 含噪声函数"), CloudUsh.Contains(TEXT("CloudFbm")));
+	TestTrue(TEXT("ush 含云密度函数"), CloudUsh.Contains(TEXT("float CloudDensity(")));
+	TestTrue(TEXT("ush 含云相位函数"), CloudUsh.Contains(TEXT("float CloudPhase(")));
+	TestTrue(TEXT("ush 含分段积分"), CloudUsh.Contains(TEXT("CloudAtmoSegment(")));
+	TestTrue(TEXT("ush 含云段加密步数"), CloudUsh.Contains(TEXT("CLOUD_STEPS")));
 	// 夜面不该有辉光：没有这一段，本影里照样散射，暗面会挂一圈蓝边。
-	TestTrue(TEXT("HLSL 含太阳遮挡"), Custom->Code.Contains(TEXT("sunVis")));
+	// 积分搬进 .ush 之后这条也跟着搬了。
+	TestTrue(TEXT("ush 含太阳遮挡"), CloudUsh.Contains(TEXT("SunVis")));
+	TestTrue(TEXT("ush 含云自遮挡步数"), CloudUsh.Contains(TEXT("CLOUD_SHADOW_STEPS")));
+
+	// 下面两条是踩过的坑，删掉任何一条画面都不会报错、只会变坏。
+	//
+	// 1) 覆盖率必须映射到噪声的实际取值区间。用教科书的 Thresh = 1-Coverage
+	//    时，CloudFbm 的分布（均值 0.497、标准差 0.050）让 Coverage=0.45 落在
+	//    +1σ，只有三分之一穿过阈值且平均密度 0.07，画出来是一层灰雾而不是云。
+	TestTrue(TEXT("ush 覆盖率映射到噪声取值范围"),
+		CloudUsh.Contains(TEXT("CLOUD_THRESHOLD_AT_ZERO")) &&
+		CloudUsh.Contains(TEXT("CLOUD_THRESHOLD_AT_ONE")));
+
+	// 2) 云细节只能乘到密度上，不能从密度里减。减会以 3 倍频率重新做一次阈值，
+	//    而 12~48 步的 march 把这个硬边场重建成满屏的三角格。
+	TestFalse(TEXT("ush 不用减法做云细节（会出三角格）"),
+		CloudUsh.Contains(TEXT("d -= DetailStrength")));
 
 	return true;
 }
