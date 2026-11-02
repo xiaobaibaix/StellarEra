@@ -121,6 +121,21 @@ protected:
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
 
+public:
+	/**
+	 * 太阳方向（单位向量，从 FromLocation 指向太阳）。
+	 *
+	 * 两级：
+	 *   1. StarActor 非空 → 从探针点指向它的方向（多颗恒星时由调用方挑最近的那颗）；
+	 *   2. 否则回退到 FallbackLight：DirectionalLight 的 forward 是光的**传播**方向
+	 *      （天上→地上），太阳在它的反向。这是本组件在此次改动前的唯一行为。
+	 * 两者都没有 → 零向量。
+	 *
+	 * 做成 static 纯函数是为了能被自动化测试覆盖：不碰世界、不碰材质。
+	 */
+	static FVector ComputeSunDirection(const AActor* StarActor, const ADirectionalLight* FallbackLight,
+		const FVector& FromLocation);
+
 private:
 	/**
 	 * 确保 AtmosphereMID 已创建（OnRegister / BeginPlay / 编辑器改参数都会调）。
@@ -128,7 +143,12 @@ private:
 	 */
 	bool EnsureAtmosphereMaterial();
 
-	/** 解析太阳方向：取关卡里第一盏 ADirectionalLight 的朝向取反。找不到就保持上一次的值。 */
+	/**
+	 * 解析太阳方向：优先离本行星最近的 UStarBodyComponent，没有则回退到关卡里第一盏
+	 * ADirectionalLight。都没有就返回零并只警告一次。
+	 *
+	 * 在游戏世界里还会顺带把缓存的灯转到 −方向。
+	 */
 	FVector ResolveSunDirection();
 
 	UPROPERTY(Transient)
