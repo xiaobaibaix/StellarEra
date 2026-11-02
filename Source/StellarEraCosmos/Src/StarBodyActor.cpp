@@ -23,9 +23,13 @@ AStarBodyActor::AStarBodyActor()
 		StarMesh->SetStaticMesh(SphereMesh.Object);
 	}
 
-	// BasicShapes/Sphere 半径 50cm。×10000 = 5e5cm = 5 公里半径，
-	// 在 1e8cm（100 AU）处张角 0.57°，与真太阳的 0.53° 基本一致。
-	StarMesh->SetRelativeScale3D(FVector(10000.0f));
+	// BasicShapes/Sphere 半径 50cm。×200000 = 1e7cm = 100 公里半径。
+	//
+	// 关卡里行星轨道半径就是 1e8cm（100 公里），所以日面正好穿过行星球心 ——
+	// 这是 2026-11-02 明确选定的观感（"恒星应该很大"），不是笔误：行星有半个
+	// 身子埋在日面里。恒星材质是单面的，从行星上看不到日面内侧。
+	// 想退回"真太阳"视角（0.57°）就把这里和 BP_Star 的 StarMesh 缩放一起改回 10000。
+	StarMesh->SetRelativeScale3D(FVector(200000.0f));
 
 	// 恒星不参与碰撞，也不投阴影：它是自发光体，阴影只由 DirectionalLight 产生。
 	StarMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
