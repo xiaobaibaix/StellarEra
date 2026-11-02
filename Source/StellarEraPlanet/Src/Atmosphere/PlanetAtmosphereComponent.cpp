@@ -30,7 +30,14 @@ namespace
 	const FName ParamRayleighBeta(TEXT("RayleighBeta"));
 	const FName ParamMieBeta(TEXT("MieBeta"));
 	const FName ParamPlanetCenter(TEXT("PlanetCenter"));
-	const FName ParamSunDirection(TEXT("SunDirection"));
+	// 太阳槽位。数组下标即槽位号，必须与 PlanetClouds::MaxSuns 一致。
+	const FName ParamSunDirections[PlanetClouds::MaxSuns] = {
+		FName(TEXT("SunDirection0")), FName(TEXT("SunDirection1")),
+		FName(TEXT("SunDirection2")), FName(TEXT("SunDirection3")) };
+	const FName ParamSunRadiances[PlanetClouds::MaxSuns] = {
+		FName(TEXT("SunRadiance0")), FName(TEXT("SunRadiance1")),
+		FName(TEXT("SunRadiance2")), FName(TEXT("SunRadiance3")) };
+	const FName ParamSunCount(TEXT("SunCount"));
 	const FName ParamSunIntensity(TEXT("SunIntensity"));
 	const FName ParamCloudBaseRadius(TEXT("CloudBaseRadius"));
 	const FName ParamCloudTopRadius(TEXT("CloudTopRadius"));
@@ -248,13 +255,10 @@ void UPlanetAtmosphereComponent::RefreshAtmosphereGeometry()
 	AtmosphereMID->SetVectorParameterValue(ParamPlanetCenter,
 		FLinearColor(PlanetCenter.X, PlanetCenter.Y, PlanetCenter.Z, 1.0f));
 
-	const FVector InitialSunDirection = ResolveSunDirection();
-	if (!InitialSunDirection.IsNearlyZero())
-	{
-		LastSunDirection = InitialSunDirection;
-		AtmosphereMID->SetVectorParameterValue(ParamSunDirection,
-			FLinearColor(InitialSunDirection.X, InitialSunDirection.Y, InitialSunDirection.Z, 0.0f));
-	}
+	// 太阳列表必须在这里也写一次，理由与 PlanetCenter 完全相同：
+	// 编辑器视口不保证 tick 本组件，只靠 TickComponent 会让天空停在初值。
+	CollectSunsFor(GetWorld(), PlanetCenter, CachedSuns);
+	ApplySuns(CachedSuns);
 
 	// ---- 云 ----
 	// 先钳比例：云必须留在壳内，否则射线求交会把整层裁掉，而且不会有任何报错。
@@ -299,69 +303,138 @@ FVector UPlanetAtmosphereComponent::ComputeSunDirection(const AActor* StarActor,
 	return FVector::ZeroVector;
 }
 
-FVector UPlanetAtmosphereComponent::ResolveSunDirection()
+void UPlanetAtmosphereComponent::CollectSunsFor(UWorld* World, const FVector& PlanetCenter,
+	TArray<FPlanetSun>& OutSuns)
 {
-	UWorld* World = GetWorld();
-	if (!World)
+	OutSuns.Reset();
+
+	TArray<UStarBodyComponent*> Stars;
+	UStarBodyComponent::FindAll(World, Stars);
+
+	// 距离升序。槽位 0 必须是最近的恒星：shader 里只有 s == 0 做云自遮挡。
+	// TArray 的指针排序会把元素解引用后再交给谓词，所以谓词收引用。
+	Stars.Sort([&PlanetCenter](const UStarBodyComponent& A, const UStarBodyComponent& B)
 	{
-		return FVector::ZeroVector;
+		const AActor* OwnerA = A.GetOwner();
+		const AActor* OwnerB = B.GetOwner();
+		const FVector LocationA = OwnerA ? OwnerA->GetActorLocation() : FVector::ZeroVector;
+		const FVector LocationB = OwnerB ? OwnerB->GetActorLocation() : FVector::ZeroVector;
+		return FVector::DistSquared(LocationA, PlanetCenter) < FVector::DistSquared(LocationB, PlanetCenter);
+	});
+
+	static bool bLoggedTooManySuns = false;
+	if (Stars.Num() > PlanetClouds::MaxSuns && !bLoggedTooManySuns)
+	{
+		bLoggedTooManySuns = true;
+		UE_LOG(LogTemp, Warning,
+			TEXT("[大气] 关卡里有 %d 颗恒星，材质只支持 %d 颗，只取最近的 %d 颗。"),
+			Stars.Num(), PlanetClouds::MaxSuns, PlanetClouds::MaxSuns);
 	}
 
-	// 恒星优先。每帧完整遍历：关卡里天体是个位数，成本可忽略，
-	// 换来的是恒星移动、增删时不需要任何失效通知。
-	UStarBodyComponent* Star = UStarBodyComponent::FindNearest(World, GetComponentLocation());
-
-	// 缓存的灯没了（关卡重载、actor 被删）就重新找。
-	if (!IsValid(CachedSunLight))
+	const int32 Count = FMath::Min(Stars.Num(), PlanetClouds::MaxSuns);
+	for (int32 Index = 0; Index < Count; ++Index)
 	{
-		CachedSunLight = nullptr;
+		UStarBodyComponent* Star = Stars[Index];
+		const AActor* StarActor = Star ? Star->GetOwner() : nullptr;
+		if (!StarActor)
+		{
+			continue;
+		}
+
+		FPlanetSun Sun;
+		Sun.Direction = (StarActor->GetActorLocation() - PlanetCenter).GetSafeNormal();
+		if (Sun.Direction.IsNearlyZero())
+		{
+			// 恒星与行星重合：没有方向可言，跳过而不是塞一个零方向。
+			continue;
+		}
+		Sun.Radiance = Star->GetSunColor() * Star->GetRelativeBrightness();
+		Sun.Star = Star;
+		OutSuns.Add(Sun);
+	}
+
+	if (OutSuns.Num() > 0)
+	{
+		return;
+	}
+
+	// 回退：没有恒星的世界（NewMap / TestMap）沿用改动前的单一光源行为。
+	if (World)
+	{
 		for (TActorIterator<ADirectionalLight> It(World); It; ++It)
 		{
-			CachedSunLight = *It;
+			FPlanetSun Sun;
+			Sun.Direction = ComputeSunDirection(nullptr, *It, PlanetCenter);
+			if (Sun.Direction.IsNearlyZero())
+			{
+				continue;
+			}
+			Sun.Radiance = FLinearColor::White;
+			Sun.Star = nullptr;
+			OutSuns.Add(Sun);
+			return;
+		}
+	}
+
+	static bool bLoggedMissingSun = false;
+	if (!bLoggedMissingSun)
+	{
+		bLoggedMissingSun = true;
+		UE_LOG(LogTemp, Warning,
+			TEXT("[大气] 关卡里既没有 UStarBodyComponent 也没有 ADirectionalLight，"
+				"大气与云不会发光。"));
+	}
+}
+
+void UPlanetAtmosphereComponent::ApplySuns(const TArray<FPlanetSun>& Suns)
+{
+	if (!AtmosphereMID)
+	{
+		return;
+	}
+
+	for (int32 Index = 0; Index < PlanetClouds::MaxSuns; ++Index)
+	{
+		const FPlanetSun* Sun = Suns.IsValidIndex(Index) ? &Suns[Index] : nullptr;
+		const FVector Direction = Sun ? Sun->Direction : FVector::ForwardVector;
+		const FLinearColor Radiance = Sun ? Sun->Radiance : FLinearColor::Black;
+
+		AtmosphereMID->SetVectorParameterValue(ParamSunDirections[Index],
+			FLinearColor(Direction.X, Direction.Y, Direction.Z, 0.0f));
+		AtmosphereMID->SetVectorParameterValue(ParamSunRadiances[Index],
+			FLinearColor(Radiance.R, Radiance.G, Radiance.B, 1.0f));
+	}
+	AtmosphereMID->SetScalarParameterValue(ParamSunCount, static_cast<float>(Suns.Num()));
+}
+
+void UPlanetAtmosphereComponent::DriveSunLights(const TArray<FPlanetSun>& Suns)
+{
+	UWorld* World = GetWorld();
+	if (!World || !World->IsGameWorld())
+	{
+		// 编辑器视口不转灯：每帧转灯会把关卡一直标脏。
+		return;
+	}
+
+	UStarBodyComponent* PrimaryStar = nullptr;
+	for (const FPlanetSun& Sun : Suns)
+	{
+		if (Sun.Star && Sun.Star->bDrivesDirectionalLight)
+		{
+			PrimaryStar = Sun.Star;
 			break;
 		}
-
-		// 关卡里这盏灯是 Static（摆放时没人会想到它要动）。但它的朝向由恒星驱动、
-		// 每帧都要转，Static 组件会拒绝 SetActorRotation 并逐帧刷
-		// "Mobility must be 'Movable'"。这里在找到它的当口切一次。
-		//
-		// 只在游戏世界切：编辑器世界里改组件移动性会把关卡一直标脏。编辑器态本来
-		// 也不转灯（见下方 IsGameWorld 守卫），所以不会退回到静态光。
-		if (CachedSunLight && World->IsGameWorld())
-		{
-			if (USceneComponent* LightRoot = CachedSunLight->GetRootComponent())
-			{
-				if (LightRoot->Mobility != EComponentMobility::Movable)
-				{
-					LightRoot->SetMobility(EComponentMobility::Movable);
-				}
-			}
-		}
 	}
 
-	const AActor* StarActor = Star ? Star->GetOwner() : nullptr;
-	if (!StarActor && !CachedSunLight)
+	const FVector PlanetCenter = GetComponentLocation();
+	for (const FPlanetSun& Sun : Suns)
 	{
-		if (!bLoggedMissingSun)
+		if (!Sun.Star || !Sun.Star->bDrivesDirectionalLight)
 		{
-			UE_LOG(LogTemp, Warning,
-				TEXT("[大气] 关卡里既没有 UStarBodyComponent 也没有 ADirectionalLight，"
-					"壳的太阳方向无从确定，明暗分界会停在初值。"));
-			bLoggedMissingSun = true;
+			continue;
 		}
-		return FVector::ZeroVector;
+		Sun.Star->DriveSunLight(PlanetCenter, BaseLightIntensity, Sun.Star == PrimaryStar);
 	}
-
-	const FVector SunDirection = ComputeSunDirection(StarActor, CachedSunLight, GetComponentLocation());
-
-	// 主光同步：只在游戏世界里转灯 —— 编辑器世界里每帧转灯会把关卡一直标脏。
-	// 多恒星时只有最近那颗生效（见 UStarBodyComponent::bDrivesDirectionalLight 的说明）。
-	if (Star && Star->bDrivesDirectionalLight && CachedSunLight && World->IsGameWorld())
-	{
-		CachedSunLight->SetActorRotation((-SunDirection).Rotation());
-	}
-
-	return SunDirection;
 }
 
 void UPlanetAtmosphereComponent::TickComponent(float DeltaTime, ELevelTick TickType,
@@ -424,11 +497,9 @@ void UPlanetAtmosphereComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	// 早先这里每帧写 MID 参数，但编辑器里组件 Tick 早于视口 Tick，写进去的相机位置
 	// 总是慢一帧 —— 快速移动视口时壳的边缘会被算成过亮的暖白硬边。
 
-	const FVector SunDirection = ResolveSunDirection();
-	if (!SunDirection.IsNearlyZero() && !SunDirection.Equals(LastSunDirection, 1e-4f))
-	{
-		LastSunDirection = SunDirection;
-		AtmosphereMID->SetVectorParameterValue(ParamSunDirection,
-			FLinearColor(SunDirection.X, SunDirection.Y, SunDirection.Z, 0.0f));
-	}
+	// 太阳每帧重算：恒星在 N 体里会动，方向逐帧变化，缓存没有意义。
+	// 9 次 MID 参数写入的成本可以忽略。
+	CollectSunsFor(GetWorld(), PlanetCenter, CachedSuns);
+	ApplySuns(CachedSuns);
+	DriveSunLights(CachedSuns);
 }

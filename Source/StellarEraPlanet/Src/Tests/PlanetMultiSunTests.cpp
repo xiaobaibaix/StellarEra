@@ -8,6 +8,8 @@
 #include "GameFramework/Actor.h"
 #include "Materials/MaterialInterface.h"
 #include "Misc/AutomationTest.h"
+#include "PlanetAtmosphereComponent.h"
+#include "PlanetCloudParams.h"
 #include "StarBodyComponent.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -223,6 +225,63 @@ bool FStellarEraSunLightBindTest::RunTest(const FString& Parameters)
 	TestNotNull(TEXT("A 自动认领到一盏灯"), AutoA);
 	TestNotNull(TEXT("B 自动认领到一盏灯"), AutoB);
 	TestFalse(TEXT("两颗星不共用同一盏灯"), AutoA == AutoB);
+
+	StellarEraMultiSunTests::DestroyAll(Spawned);
+	return true;
+}
+
+// 太阳列表：按距离升序、截断到 MaxSuns、Direction 是单位向量。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSunListBuildTest,
+	"StellarEra.Planet.Atmosphere.SunList.Build",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FStellarEraSunListBuildTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = StellarEraMultiSunTests::GetTestWorld();
+	if (!TestNotNull(TEXT("编辑器世界"), World))
+	{
+		return false;
+	}
+
+	// 探针点放在离关卡内容极远的地方，保证最近的是下面这几颗。
+	const FVector Probe(5.0e13, 0.0, 0.0);
+	TArray<AActor*> Spawned;
+
+	// 距离 1e6 / 2e6 / 3e6，方向 +X / +Y / +Z。
+	TArray<UStarBodyComponent*> Stars;
+	Stars.Add(StellarEraMultiSunTests::AddStarComponent(
+		StellarEraMultiSunTests::SpawnRootedActor(World, Probe + FVector(1.0e6, 0, 0), Spawned)));
+	Stars.Add(StellarEraMultiSunTests::AddStarComponent(
+		StellarEraMultiSunTests::SpawnRootedActor(World, Probe + FVector(0, 2.0e6, 0), Spawned)));
+	Stars.Add(StellarEraMultiSunTests::AddStarComponent(
+		StellarEraMultiSunTests::SpawnRootedActor(World, Probe + FVector(0, 0, 3.0e6), Spawned)));
+
+	TArray<FPlanetSun> Suns;
+	UPlanetAtmosphereComponent::CollectSunsFor(World, Probe, Suns);
+
+	// 编辑器世界加载的是 UniverseMap，关卡自己带了恒星，所以不能断言总数恰为 3；
+	// 能断言的是"测试放的这三颗比关卡里的都近，因此占据前三个槽位"。
+	if (TestTrue(TEXT("至少收进三颗恒星"), Suns.Num() >= 3))
+	{
+		TestTrue(TEXT("槽位 0 是最近的星（+X）"), Suns[0].Direction.Equals(FVector(1, 0, 0), 1e-3f));
+		TestTrue(TEXT("槽位 1 是第二近（+Y）"), Suns[1].Direction.Equals(FVector(0, 1, 0), 1e-3f));
+		TestTrue(TEXT("槽位 2 是第三近（+Z）"), Suns[2].Direction.Equals(FVector(0, 0, 1), 1e-3f));
+		TestEqual(TEXT("Direction 是单位向量"), Suns[0].Direction.Size(), 1.0, 1e-3);
+		TestSamePtr(TEXT("Star 指回组件"), Suns[0].Star, Stars[0]);
+		TestTrue(TEXT("Radiance 非负"), Suns[0].Radiance.R >= 0.0f && Suns[0].Radiance.G >= 0.0f);
+	}
+
+	StellarEraMultiSunTests::DestroyAll(Spawned);
+
+	// 截断：5 颗星只留最近的 MaxSuns 颗。
+	for (int32 Index = 0; Index < 5; ++Index)
+	{
+		StellarEraMultiSunTests::AddStarComponent(StellarEraMultiSunTests::SpawnRootedActor(
+			World, Probe + FVector(1.0e6 * (Index + 1), 0, 0), Spawned));
+	}
+	UPlanetAtmosphereComponent::CollectSunsFor(World, Probe, Suns);
+	TestEqual(TEXT("超过 MaxSuns 时截断"), Suns.Num(), PlanetClouds::MaxSuns);
+	TestTrue(TEXT("截断保留最近的那颗（距离 1e6，+X）"),
+		Suns.IsValidIndex(0) && Suns[0].Direction.Equals(FVector(1, 0, 0), 1e-3f));
 
 	StellarEraMultiSunTests::DestroyAll(Spawned);
 	return true;

@@ -5,6 +5,25 @@
 #include "PlanetAtmosphereComponent.generated.h"
 
 class ADirectionalLight;
+class UStarBodyComponent;
+
+/**
+ * 一颗照亮本行星的光源快照。
+ *
+ * 通常来自关卡里的 UStarBodyComponent；若世界里一颗恒星都没有，则回退成
+ * 关卡里第一盏 ADirectionalLight（此时 Star 为空，Radiance 为白）。
+ */
+struct FPlanetSun
+{
+	/** 单位向量：行星 → 光源。 */
+	FVector Direction = FVector::ForwardVector;
+
+	/** 颜色 × 相对亮度。 */
+	FLinearColor Radiance = FLinearColor::White;
+
+	/** 回退太阳时为 nullptr。 */
+	UStarBodyComponent* Star = nullptr;
+};
 
 /**
  * 行星大气壳。
@@ -82,6 +101,13 @@ public:
 	 */
 	UPROPERTY(EditAnywhere, Category = "StellarEra|Atmosphere")
 	FLinearColor SunIntensity = FLinearColor(14.0f, 14.0f, 14.0f, 1.0f);
+
+	/**
+	 * 驱动定向光时的基础强度。主星实际强度 = 本值 × 该恒星的相对亮度。
+	 * 10 与关卡现值一致；三颗星同时照到受光面时调这里。
+	 */
+	UPROPERTY(EditAnywhere, Category = "StellarEra|Atmosphere", meta = (ClampMin = "0.0"))
+	float BaseLightIntensity = 10.0f;
 
 	/**
 	 * 大气总开关：关掉 = 这颗行星没有大气。
@@ -181,7 +207,7 @@ public:
 	 * 太阳方向（单位向量，从 FromLocation 指向太阳）。
 	 *
 	 * 两级：
-	 *   1. StarActor 非空 → 从探针点指向它的方向（多颗恒星时由调用方挑最近的那颗）；
+	 *   1. StarActor 非空 → 从探针点指向它的方向；
 	 *   2. 否则回退到 FallbackLight：DirectionalLight 的 forward 是光的**传播**方向
 	 *      （天上→地上），太阳在它的反向。这是本组件在此次改动前的唯一行为。
 	 * 两者都没有 → 零向量。
@@ -191,6 +217,17 @@ public:
 	static FVector ComputeSunDirection(const AActor* StarActor, const ADirectionalLight* FallbackLight,
 		const FVector& FromLocation);
 
+	/**
+	 * 收集照亮 PlanetCenter 的太阳列表，按距离升序，最多 PlanetClouds::MaxSuns 个。
+	 *
+	 * **只读世界，不碰材质**：材质参数写入在 ApplySuns 里，灯驱动在 DriveSunLights 里。
+	 * 做成 static 是为了能被自动化测试直接喂一个世界和一个探针点。
+	 *
+	 * 回退：世界里一颗恒星都没有时，取第一盏 ADirectionalLight
+	 * （Direction 由它的 forward 反推，Star 为空，Radiance 为白）。
+	 */
+	static void CollectSunsFor(UWorld* World, const FVector& PlanetCenter, TArray<FPlanetSun>& OutSuns);
+
 private:
 	/**
 	 * 确保 AtmosphereMID 已创建（OnRegister / BeginPlay / 编辑器改参数都会调）。
@@ -198,32 +235,20 @@ private:
 	 */
 	bool EnsureAtmosphereMaterial();
 
+	/** 把太阳列表写进 MID（SunDirection0..3 / SunRadiance0..3 / SunCount）。 */
+	void ApplySuns(const TArray<FPlanetSun>& Suns);
+
 	/**
-	 * 解析太阳方向：优先离本行星最近的 UStarBodyComponent，没有则回退到关卡里第一盏
-	 * ADirectionalLight。都没有就返回零并只警告一次。
-	 *
-	 * 在游戏世界里还会顺带把缓存的灯转到 −方向。
+	 * 逐颗驱动灯（仅游戏世界）。主星 = 列表里第一颗 bDrivesDirectionalLight 的恒星，
+	 * 它可能不是槽位 0 —— 槽位 0 只按距离排，可能被显式关掉了灯。
 	 */
-	FVector ResolveSunDirection();
+	void DriveSunLights(const TArray<FPlanetSun>& Suns);
+
+	/** 每帧复用的缓冲，避免 CollectSunsFor 每帧重新分配。 */
+	TArray<FPlanetSun> CachedSuns;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> AtmosphereMID;
-
-	UPROPERTY(Transient)
-	TObjectPtr<ADirectionalLight> CachedSunLight;
-
-	/**
-	 * SunDirection 的上一次值，用来判断"这一帧变了没有"。
-	 *
-	 * 只有它走门控。PlanetCenter 在 TickComponent 里**每帧无条件写**，
-	 * 不经过这里，所以这里没有它的缓存。
-	 *
-	 * **相机位置不在这里，也不再有缓存**：材质用 CameraPositionWS 视图 uniform
-	 * 逐帧自取。曾经由 C++ 写 MID，但编辑器里组件 Tick 早于视口 Tick，
-	 * 写进去的相机位置慢一帧，快速移动视口时壳边缘会被算成过亮的暖白硬边。
-	 */
-	FVector LastSunDirection = FVector(UE_BIG_NUMBER);
-	bool bLoggedMissingSun = false;
 
 	/**
 	 * 几何与材质参数是否已经按**当前**启用状态算过一遍。
