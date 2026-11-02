@@ -1,5 +1,6 @@
 ﻿#include "StarBodyActor.h"
 
+#include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Materials/MaterialInterface.h"
 #include "UObject/ConstructorHelpers.h"
@@ -10,8 +11,14 @@ AStarBodyActor::AStarBodyActor()
 {
 	PrimaryActorTick.bCanEverTick = false;
 
+	// 根是空场景组件而不是网格：下面的 ×200000 视觉缩放会沿层级传给挂在根下的
+	// 星图相机（BP_Star 的 ChildActor）与轨迹线，把相机和轨迹一起放大 200000 倍。
+	// 缩放只让 StarMesh 自己吃，其余组件挂在根上保持 1 倍。
+	StarRoot = CreateDefaultSubobject<USceneComponent>(TEXT("StarRoot"));
+	SetRootComponent(StarRoot);
+
 	StarMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("StarMesh"));
-	SetRootComponent(StarMesh);
+	StarMesh->SetupAttachment(StarRoot);
 
 	// 必须是 Movable：N 体子系统每帧把位置写回 Actor，Static 会拒绝移动并刷警告。
 	StarMesh->SetMobility(EComponentMobility::Movable);

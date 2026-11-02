@@ -4,6 +4,7 @@
 #include "GameFramework/Actor.h"
 #include "StarBodyActor.generated.h"
 
+class USceneComponent;
 class UStaticMeshComponent;
 class UCosmosOrbitComponent;
 class UStarBodyComponent;
@@ -35,7 +36,17 @@ class STELLARERACOSMOS_API AStarBodyActor : public AActor
 public:
 	AStarBodyActor();
 
-	/** 恒星本体。根组件，缩放决定恒星的物理外观大小。 */
+	/**
+	 * 空场景根。
+	 *
+	 * 根不能是网格：恒星的视觉缩放（见构造函数，×200000）会沿层级传给挂在根下的
+	 * 星图相机（BP 的 ChildActor）与轨迹线组件，把相机和轨迹一起放大。缩放只让
+	 * StarMesh 吃，其余组件挂在根上保持 1 倍。
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "StellarEra|Star")
+	TObjectPtr<USceneComponent> StarRoot;
+
+	/** 恒星本体。挂在 StarRoot 下，相对缩放决定恒星的物理外观大小。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "StellarEra|Star")
 	TObjectPtr<UStaticMeshComponent> StarMesh;
 
