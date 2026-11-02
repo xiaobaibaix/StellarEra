@@ -465,7 +465,8 @@ void UPlanetAtmosphereComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
 	// 恒星灯与大气渲染解耦：关掉大气壳 ≠ 恒星不再照亮行星。
-	// 每帧重算（恒星在 N 体里会动），成本是几次 Actor 遍历 + 至多 4 次参数写入。
+	// 每帧重算（恒星在 N 体里会动），成本是几次 Actor 遍历 + 至多 4 盏灯的
+	// 旋转 / 颜色 / 强度写入（优先级与大气太阳光走边沿触发，不逐帧写）。
 	{
 		const FVector LightPlanetCenter = GetComponentLocation();
 		CollectSunsFor(GetWorld(), LightPlanetCenter, CachedSuns);

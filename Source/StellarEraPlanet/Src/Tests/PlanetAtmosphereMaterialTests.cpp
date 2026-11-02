@@ -87,7 +87,8 @@ bool FStellarEraAtmosphereMaterialStructureTest::RunTest(const FString& Paramete
 	TestFalse(TEXT("旧的单数 SunDirection 已删除"),
 		StellarEraAtmosphereMaterialTests::HasParameter(VectorInfos, FName(TEXT("SunDirection"))));
 
-	// 槽位数只有一个来源：C++ 的 MaxSuns 与 HLSL 的 PLANET_MAX_SUNS 必须一致。
+	// 槽位数是两份字面量（不是单一来源，耦合点见 PlanetCloudParams.h）：
+	// C++ 的 MaxSuns 与 HLSL 的 PLANET_MAX_SUNS 必须一致。
 	TestEqual(TEXT("PlanetClouds::MaxSuns"), PlanetClouds::MaxSuns, 4);
 
 	return true;

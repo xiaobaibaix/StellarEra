@@ -18,13 +18,18 @@ namespace PlanetClouds
 	 * 靠测试钉住（`PlanetAtmosphereMaterialTests` 断言 .ush 文本里写的是 4）。
 	 * 两者不一致的症状是「第 4 颗星在材质里根本不存在」。
 	 *
-	 * 改这个值要同时动四处，少一处就编译失败或测试变红：
+	 * 改这个值要同时动六处，少一处就编译失败、测试变红、或静默沿用旧 shader：
 	 *   1. 这里；
 	 *   2. `Shaders/PlanetClouds.ush` 的 `PLANET_MAX_SUNS`；
 	 *   3. `PlanetAtmosphereComponent.cpp` 顶部 `ParamSunDirections` /
 	 *      `ParamSunRadiances` 的 4 项初始化列表；
-	 *   4. `Source/StellarEraPlanet/Src/Tests/PlanetAtmosphereMaterialTests.cpp`
-	 *      里三处对 4 的断言（`MaxSuns`、`.ush` 文本、`SunDirection3` 参数存在）。
+	 *   4. `PlanetAtmosphereMaterialBuilder.cpp` 的 Custom 节点 Code 里
+	 *      `CloudAtmosphereRaymarch` 那 4 组 `SunDirection3` / `SunRadiance3` 实参；
+	 *   5. 同文件顶部的 `PLANET_CLOUDS_VERSION`（不 +1 材质不重编，测试抓不到，
+	 *      现象是静默沿用旧 shader）；
+	 *   6. 改完重跑 `StellarEra.BuildAtmosphereMaterial` 重建材质资产；
+	 *      测试里 `PlanetAtmosphereMaterialTests.cpp` 三处对 4 的断言
+	 *      （`MaxSuns`、`.ush` 文本、`SunDirection3` 参数存在）也要跟着改。
 	 *
 	 * 降级旋钮：想省 GPU 就按下调小（关卡正好 3 颗）。
 	 */
