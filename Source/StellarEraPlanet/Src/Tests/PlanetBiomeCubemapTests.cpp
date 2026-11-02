@@ -136,7 +136,7 @@ bool FStellarEraBiomeCubeBakeMatchesColorTest::RunTest(const FString& Parameters
 
 	TArray<FColor> Colors;
 	PlanetBiomeCubemap::BakeFaceColors(
-		Params, /*Geology=*/nullptr, Radius, /*Face=*/0, Resolution, Colors);
+		Params, /*Geology=*/nullptr, /*Hydrology=*/nullptr, Radius, /*Face=*/0, Resolution, Colors);
 
 	TestEqual(TEXT("像素数 = 分辨率²"), Colors.Num(), Resolution * Resolution);
 	if (Colors.Num() != Resolution * Resolution)
@@ -144,7 +144,7 @@ bool FStellarEraBiomeCubeBakeMatchesColorTest::RunTest(const FString& Parameters
 		return false;
 	}
 
-	// 至少两种颜色：参数里海平面把一部分地形削平，配色必然分岔。
+	// 至少两种颜色：噪声起伏跨过海平面，配色必然分岔（水域色 / 陆地各带）。
 	// 全同色的烘焙图意味着参数没生效（例如颜色字段被漏拷），但那条路径
 	// 不会报错，只会让整颗星变成一片纯色。
 	TSet<uint32> UniqueColors;
@@ -166,9 +166,9 @@ bool FStellarEraBiomeCubeBakeMatchesColorTest::RunTest(const FString& Parameters
 				(float(Y) + 0.5f) / float(Resolution));
 
 			const double SurfaceRadius =
-				Radius + double(Params.Amplitude) * double(ComputePlanetOffset(Params, Direction));
+				Radius + double(Params.Amplitude) * double(ComputeRawPlanetOffset(Params, Direction));
 			const FColor Expected = ComputePlanetSurfaceColor(
-				Params, nullptr, Radius, Direction, SurfaceRadius).ToFColor(true);
+				Params, nullptr, nullptr, Radius, Direction, SurfaceRadius).ToFColor(true);
 
 			if (Colors[Y * Resolution + X].ToPackedARGB() != Expected.ToPackedARGB())
 			{
@@ -198,7 +198,7 @@ bool FStellarEraBiomeCubeZeroResolutionTest::RunTest(const FString& Parameters)
 
 	TArray<FColor> Colors;
 	Colors.Add(FColor::Red);
-	PlanetBiomeCubemap::BakeFaceColors(Params, nullptr, 100.0, 0, 0, Colors);
+	PlanetBiomeCubemap::BakeFaceColors(Params, nullptr, nullptr, 100.0, 0, 0, Colors);
 
 	TestEqual(TEXT("分辨率 0 → 空数组"), Colors.Num(), 0);
 	return true;

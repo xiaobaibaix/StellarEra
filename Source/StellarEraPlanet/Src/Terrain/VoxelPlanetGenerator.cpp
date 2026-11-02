@@ -3,8 +3,11 @@
 
 #include "VoxelPlanetGenerator.h"
 
+#include "HAL/PlatformTime.h"
 #include "PlanetGeologyField.h"
 #include "PlanetGeologyPreset.h"
+#include "PlanetHydrologyBake.h"
+#include "PlanetHydrologyGrid.h"
 #include "VoxelPlanetTerrainModule.h"
 #include "VoxelPlanetSphereTerrain.h"
 
@@ -34,6 +37,7 @@ FVoxelPlanetTerrainContext UVoxelPlanetGenerator::MakeTerrainContext()
 	Context.Center = Center;
 	Context.BaseColor = SurfaceColor;
 	Context.Geology = GetGeology();
+	Context.Hydrology = GetHydrology();
 	return Context;
 }
 
@@ -73,4 +77,68 @@ void UVoxelPlanetGenerator::InvalidateGeology()
 	GeologyCachePreset.Reset();
 	GeologyCacheRadius = 0.0;
 	GeologyCacheRevision = 0;
+}
+
+TSharedPtr<const FPlanetHydrologyField> UVoxelPlanetGenerator::GetHydrology() const
+{
+	return HydrologyCache;
+}
+
+void UVoxelPlanetGenerator::RefreshHydrology()
+{
+	UVoxelPlanetTerrainModule* EffectiveTerrain = Terrain;
+	FPlanetWaterConfig Config;
+	if (!EffectiveTerrain || !EffectiveTerrain->GetWaterConfig(Config))
+	{
+		InvalidateHydrology();
+		return;
+	}
+
+	const double CacheRadius = double(Radius);
+	if (HydrologyCache.IsValid()
+		&& HydrologyCacheTerrain.Get() == EffectiveTerrain
+		&& HydrologyCacheRadius == CacheRadius
+		&& HydrologyCacheParams == Config.Params)
+	{
+		return;
+	}
+
+	HydrologyCacheTerrain = EffectiveTerrain;
+	HydrologyCacheRadius = CacheRadius;
+	HydrologyCacheParams = Config.Params;
+
+	// HeightFn 在烘焙里被并行调用：GetRawOffset 是 const、无副作用，可以安全共享。
+	// 但**必须是 const 调用** —— 任何内部缓存（比如「上一次的噪声参数」）都会
+	// 变成数据竞争。
+	const double StartSeconds = FPlatformTime::Seconds();
+	HydrologyCache = FPlanetHydrologyBake::Bake(
+		[EffectiveTerrain](const FVector& UnitDir)
+		{
+			return EffectiveTerrain->GetRawOffset(UnitDir);
+		},
+		Config.Params,
+		CacheRadius);
+	const double ElapsedSeconds = FPlatformTime::Seconds() - StartSeconds;
+
+	if (!HydrologyCache.IsValid())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("行星水文烘焙失败：分辨率 %d"), Config.Params.Resolution);
+		return;
+	}
+
+	UE_LOG(LogTemp, Log,
+		TEXT("行星水文烘焙完成：%d 面 × %d² 格，%d 片湖，%d 条河，耗时 %.2f s"),
+		PlanetHydrologyGrid::FaceCount,
+		Config.Params.Resolution,
+		HydrologyCache->GetLakes().Num(),
+		HydrologyCache->GetRivers().Num(),
+		ElapsedSeconds);
+}
+
+void UVoxelPlanetGenerator::InvalidateHydrology()
+{
+	HydrologyCache.Reset();
+	HydrologyCacheTerrain.Reset();
+	HydrologyCacheRadius = 0.0;
+	HydrologyCacheParams = FPlanetHydrologyParams();
 }

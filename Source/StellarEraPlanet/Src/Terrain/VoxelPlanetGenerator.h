@@ -46,6 +46,25 @@ public:
 	FVoxelPlanetTerrainContext MakeTerrainContext();
 
 	/**
+	 * 当前水文场；为空 = 这颗星不要水。
+	 *
+	 * 只在 RefreshHydrology() 之后有效。**不要**在 GetInstance 里懒构建 ——
+	 * 那个调用点会在体素线程的上下文里触发一次秒级烘焙。
+	 */
+	TSharedPtr<const FPlanetHydrologyField> GetHydrology() const;
+
+	/**
+	 * 需要时重新烘焙。行星在把 Radius / Terrain 推完之后、取样实例之前调用。
+	 *
+	 * 缓存键 = 地形模块指针 + 半径 + 水体配置。配置整个参与比较，所以即使有人
+	 * 忘了调 InvalidateHydrology，改海平面也会重烘。
+	 */
+	void RefreshHydrology();
+
+	/** 丢弃缓存；下一次 RefreshHydrology 一定重烘。 */
+	void InvalidateHydrology();
+
+	/**
 	 * 按 GeologyPreset 资产 + Radius 懒加载并缓存。
 	 * - 预设为空 → 返回 nullptr；
 	 * - 预设没有任何元素 → 返回**有效空场**（IsValid() 且 IsEmpty()），并打 Warning；
@@ -95,6 +114,11 @@ private:
 	double GeologyCacheRadius = 0.0;
 	/** 建缓存时的预设修订号：资产内容变了就重建。 */
 	int32 GeologyCacheRevision = 0;
+
+	TSharedPtr<FPlanetHydrologyField> HydrologyCache;
+	TWeakObjectPtr<UVoxelPlanetTerrainModule> HydrologyCacheTerrain;
+	double HydrologyCacheRadius = 0.0;
+	FPlanetHydrologyParams HydrologyCacheParams;
 
 	/**
 	 * Terrain 为空时代理的那个纯球模块。

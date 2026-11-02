@@ -64,12 +64,13 @@ namespace PlanetBiomeCubemap
 	 * 贴图采样后解回线性 —— 顶点色那边存的就是线性值，两端必须都落在线性上。
 	 *
 	 * 纯计算，不碰 RHI —— 自动化测试直接调这个，不需要图形设备。
-	 * 深度取该方向的基准地表（Radius + Amplitude * Offset），与生成器在
+	 * 深度取该方向的真实地表（Radius + Amplitude × Offset − CarveDepth），与生成器在
 	 * 地表采样点上算出的深度同阶，地质元素色因此不会偏。
 	 */
 	STELLARERAPLANET_API void BakeFaceColors(
 		const FPlanetNoiseParams& Params,
 		const FPlanetGeologyField* Geology,
+		const FPlanetHydrologyField* Hydrology,
 		double Radius,
 		int32 Face,
 		int32 Resolution,
@@ -84,6 +85,7 @@ namespace PlanetBiomeCubemap
 	STELLARERAPLANET_API UTextureCube* BakeTexture(
 		const FPlanetNoiseParams& Params,
 		const FPlanetGeologyField* Geology,
+		const FPlanetHydrologyField* Hydrology,
 		double Radius,
 		int32 Resolution);
 }

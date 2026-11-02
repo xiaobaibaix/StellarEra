@@ -55,6 +55,11 @@ public class StellarEraPlanet : ModuleRules
 			// Pawns 的三个 Pawn 与 UI 的星图相机，它们都已 Public 依赖本模块，
 			// 而本模块的 AlwaysLocalVoxelInvokerComponent 提供配套的工具函数。
 			// （原 StellarEraCore 在 2026-10 拆掉，接口随体素接线层落到这里。）
+
+			// GeometryCore 必须是 Public：PlanetWaterSurfaceBuilder.h 在公开 include
+			// 路径上，API 里直接暴露 UE::Geometry::FDynamicMesh3。声明成 Private 时
+			// 本模块自己编得过，第一个跨模块消费者会找不到这个头。
+			"GeometryCore",
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]
@@ -64,8 +69,8 @@ public class StellarEraPlanet : ModuleRules
 			// 否则内容浏览器里看不到。
 			"AssetRegistry",
 
-			// 矿物等值面用到的几何库（原 StellarEraMinerals 的依赖）。
-			"GeometryCore",
+			// 矿物等值面用到的动态网格组件（原 StellarEraMinerals 的依赖）。
+			// 只在 .cpp 里用，不需要向下游传递。
 			"GeometryFramework",
 		});
 	}

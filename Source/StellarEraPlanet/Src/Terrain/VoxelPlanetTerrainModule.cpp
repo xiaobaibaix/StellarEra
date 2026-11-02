@@ -17,6 +17,17 @@ TVoxelSharedRef<FVoxelGeneratorInstance> UVoxelPlanetTerrainModule::GetInstance(
 	return MakeVoxelShared<FVoxelPlanetSphereTerrainInstance>(Context);
 }
 
+float UVoxelPlanetTerrainModule::GetRawOffset(const FVector& UnitDir) const
+{
+	return 0.f;
+}
+
+bool UVoxelPlanetTerrainModule::GetWaterConfig(FPlanetWaterConfig& OutConfig) const
+{
+	OutConfig = FPlanetWaterConfig();
+	return false;
+}
+
 #if WITH_EDITOR
 void UVoxelPlanetTerrainModule::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {

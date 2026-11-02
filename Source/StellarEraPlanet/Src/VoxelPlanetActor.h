@@ -15,6 +15,7 @@
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
 class UPlanetSurfaceGridComponent;
+class UPlanetWaterComponent;
 class UVoxelPlanetGenerator;
 class UVoxelPlanetTerrainModule;
 class UVoxelSimpleInvokerComponent;
@@ -302,6 +303,10 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet")
 	TObjectPtr<UVoxelSimpleInvokerComponent> LODInvoker;
 
+	/** 行星水面。构造函数里创建，挂在根组件下面。 */
+	UPROPERTY(Transient, VisibleAnywhere, Category = "水体")
+	TObjectPtr<UPlanetWaterComponent> WaterComponent;
+
 	/** 运行期烘焙的 biome cubemap（瞬态：每次重建重烘，不落盘）。 */
 	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "Planet|Color")
 	TObjectPtr<UTextureCube> BiomeCubemap;
@@ -414,6 +419,9 @@ private:
 	 */
 	bool InstallBiomeMaterial(bool bForceBake);
 
+	/** 按当前水文场重建水面。没有水的行星会拆掉全部分量。 */
+	void RebuildWater();
+
 	/** 上次烘焙用的分辨率。-1 = 从没烘过。 */
 	int32 BakedCubemapResolution = -1;
 
@@ -425,6 +433,15 @@ private:
 
 	/** 上次 RebuildPlanet 构建世界所用的哈希。哈希不变则跳过重建。 */
 	uint64 LastParamsHash = 0;
+
+	/**
+	 * 上次重建水面用的 VoxelSize（cm）；-1 = 从没建过。
+	 *
+	 * VoxelSize 刻意不进 ComputeParamsHash（见 .cpp），但水面几何要用它把体素半径
+	 * 折成厘米。所以 RebuildPlanet 在哈希守卫**之前**单独比较一次，值变了就刷新水面
+	 * —— 否则只改 VoxelSize 时守卫会早退，水面停在旧尺寸、与体素地形错位。
+	 */
+	float LastWaterVoxelSize = -1.f;
 
 	/**
 	 * 后台存档任务；无效 = 没有在跑。

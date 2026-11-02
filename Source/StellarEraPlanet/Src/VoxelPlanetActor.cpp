@@ -15,6 +15,7 @@
 #include "PlanetSurfaceGridComponent.h"
 #include "PlanetGeologyField.h"
 #include "PlanetGeologyPreset.h"
+#include "PlanetWaterComponent.h"
 // biome cubemap：配色按方向烘成贴图，材质逐像素查表 —— 颜色与网格密度解耦。
 #include "PlanetBiomeCubemap.h"
 #include "VoxelPlanetNoiseTerrain.h"
@@ -212,6 +213,10 @@ AVoxelPlanetActor::AVoxelPlanetActor()
 	// 占位值，RebuildPlanet 会按半径重算。
 	LODInvoker->LODToSet = 6;
 	LODInvoker->LODRange = 150000.f;
+
+	// 水面组件。内部的分量（海洋 / 湖泊 / 河流）由它自己在重建时创建；
+	// 这里只建宿主组件，让它随行星的变换走。
+	WaterComponent = CreateDefaultSubobject<UPlanetWaterComponent>(TEXT("PlanetWater"));
 
 	// 大气壳、矿物观察组件与表面编辑网格都不在这里创建：它们由 BP_VoxelPlanet
 	// 挂载。原生 AVoxelPlanetActor 实例因此不带这三个组件，本项目只用 BP。
@@ -614,6 +619,20 @@ void AVoxelPlanetActor::RebuildPlanet()
 	// 所以拖动星球这条热路径上它是廉价的。
 	RefreshLODInvoker();
 
+	// 水面也有自己的一条刷新路径，同样排在哈希守卫**之前**。
+	//
+	// VoxelSize 不进 ComputeParamsHash（见那里的注释），它只触发基类自己的体素世界
+	// 重建（meta=(Recreate)），IsCreated() 仍为真 —— 随后的哈希守卫会直接返回。
+	// 但水面几何正是用 VoxelSize 把体素半径折成厘米的（见 UPlanetWaterComponent），
+	// 不在这里补一次，改 VoxelSize 后水面就停在旧尺寸、与体素地形错位。
+	//
+	// 水文场以体素为单位、与 VoxelSize 无关，所以这里不需要先 RefreshHydrology()。
+	// 首次重建时生成器还没建，跳过这里，由下面的 3.6 统一建水面。
+	if (PlanetGenerator && !FMath::IsNearlyEqual(LastWaterVoxelSize, VoxelSize))
+	{
+		RebuildWater();
+	}
+
 	// 细节面板的一次编辑会同时触发 PostEditChangeProperty 和重新执行
 	// OnConstruction：没有这道守卫，改一个参数就会把世界重建两次，生成时间
 	// 翻倍，流送重置还会再次打开背面的空洞。这里复查 IsCreated()，保证全新
@@ -650,6 +669,12 @@ void AVoxelPlanetActor::RebuildPlanet()
 	PlanetGenerator->Terrain = Terrain;
 	// 地质预设与地形模块一样，是「这颗行星」的参数。
 	PlanetGenerator->GeologyPreset = GeologyAsset;
+
+	// --- 1.5 水文场 ---
+	// 必须在 FVoxelGeneratorPicker 之前：GetInstance 会走 MakeTerrainContext，
+	// 而密度场要读 Context.Hydrology 才知道哪里下切。烘焙是同步的（512 分辨率
+	// 0.5–1 s），所以只在缓存键变化时发生 —— 拖动星球不会重烘。
+	PlanetGenerator->RefreshHydrology();
 
 	// --- 2. 把世界边长收到刚好裹住星球 ---
 	// AVoxelWorld 的 RenderOctreeDepth 默认是 10，即世界边长 32768 体素，
@@ -703,6 +728,13 @@ void AVoxelPlanetActor::RebuildPlanet()
 	// 分形噪声和整张地质场），而 RebuildPlanet 在拖动星球时每帧都会被
 	// OnConstruction 调到；摆在这里就只在真正重建时发生一次。
 	InstallBiomeMaterial(/*bForceBake=*/true);
+
+	// --- 3.6 水面 ---
+	//
+	// 排在 CreateWorld **之前**：编辑器世界在上面那个 Toggle() 早退里就 return 了，
+	// 而水面与体素世界无关（它只依赖水文场），所以它必须在这之前装好，
+	// 否则编辑器视口里永远看不到水，只有 PIE 里才有。
+	RebuildWater();
 
 	// --- 4. 重建世界，让新生成器生效 ---
 	// CreateWorld 会报 "already created" 并保留旧生成器实例（它在创建时把
@@ -843,6 +875,7 @@ bool AVoxelPlanetActor::InstallBiomeMaterial(bool bForceBake)
 		UTextureCube* Cube = PlanetBiomeCubemap::BakeTexture(
 			NoiseTerrain->MakeParams(),
 			PlanetGenerator->GetGeology().Get(),
+			PlanetGenerator->GetHydrology().Get(),
 			double(GetScaledRadiusVoxels()),
 			BiomeCubemapResolution);
 
@@ -900,6 +933,41 @@ bool AVoxelPlanetActor::InstallBiomeMaterial(bool bForceBake)
 	return bSwitched;
 }
 
+void AVoxelPlanetActor::RebuildWater()
+{
+	// 记下这次用的尺寸：RebuildPlanet 在哈希守卫之前拿它做「值变了就刷新」的比较。
+	// 放在组件判空之前 —— 不管有没有组件，尺寸都是这次请求的输入。
+	LastWaterVoxelSize = VoxelSize;
+
+	if (!WaterComponent)
+	{
+		return;
+	}
+
+	// 组件由 C++ 创建，但根组件可能晚于它出现（RepairLegacyRootComponent），
+	// 所以附着放在这里做一次，而不是构造函数里。
+	if (!WaterComponent->GetAttachParent() && GetRootComponent())
+	{
+		WaterComponent->AttachToComponent(
+			GetRootComponent(), FAttachmentTransformRules::KeepRelativeTransform);
+	}
+
+	FPlanetWaterConfig Config;
+	const bool bHasWater = PlanetGenerator
+		&& PlanetGenerator->Terrain
+		&& PlanetGenerator->Terrain->GetWaterConfig(Config)
+		&& PlanetGenerator->GetHydrology().IsValid();
+
+	// 地形模块也传下去：湖泊的 2 格余量要靠它采样地表高度，水面才不会悬在岸外。
+	// 没有水时传空 → 组件会拆掉全部分量。
+	WaterComponent->RebuildWater(
+		bHasWater ? PlanetGenerator->GetHydrology().Get() : nullptr,
+		Config,
+		double(VoxelSize),
+		double(GetScaledRadiusVoxels()),
+		bHasWater ? PlanetGenerator->Terrain.Get() : nullptr);
+}
+
 void AVoxelPlanetActor::PreSave(FObjectPreSaveContext ObjectSaveContext)
 {
 	// 运行期的 VoxelMaterial 指向一张瞬态 MID（见 InstallBiomeMaterial）。瞬态对象
@@ -935,6 +1003,13 @@ void AVoxelPlanetActor::PostSaveRoot(FObjectPostSaveRootContext ObjectSaveContex
 
 void AVoxelPlanetActor::InvalidateAndRebuild()
 {
+	// 地形资产变了，水文场也过期了。RefreshHydrology 自己会比较配置，
+	// 这里显式丢弃是为了让「先失效、后重建」的顺序在调用点上就看得见。
+	if (PlanetGenerator)
+	{
+		PlanetGenerator->InvalidateHydrology();
+	}
+
 	// 把上次的哈希抹掉再重建。
 	//
 	// RebuildPlanet 顶部有一道「哈希没变且世界已建好就跳过」的守卫，而触发这次
@@ -1582,9 +1657,12 @@ uint64 AVoxelPlanetActor::ComputeParamsHash() const
 	// 每个字段单独混合，结构体填充字节就不会把未初始化的数据漏进哈希。
 	//
 	// 这里刻意**不含**基类的 VoxelSize / MaxLOD / NumberOfThreads / VoxelMaterial：
-	// 它们是本 Actor 自己的属性，改动由基类的 PostEditChangeProperty 直接走
+	// 它们是本 Actor 自己的属性，世界几何的改动由基类的 PostEditChangeProperty 直接走
 	// meta=(Recreate) 重建，我们再哈希一遍只会让同一次编辑重建两次。
 	// 也不含 OrbitLOD —— 它只喂 LOD Invoker，由 RefreshLODInvoker 单独处理。
+	// VoxelSize 还有一条例外：它不进哈希，但**水面几何**要用它把体素半径折成厘米，
+	// 所以 RebuildPlanet 在守卫之前单独比较一次并刷新水面（基类的重建只重建体素世界，
+	// IsCreated() 仍为真，守卫会把水面刷新一并吞掉）。
 	uint64 Hash = 1469598103934665603ULL;
 	// 形参名别叫 Data：基类有一个私有成员 AVoxelWorld::Data（TVoxelSharedPtr<FVoxelData>），
 	// 遮蔽它会触发 C4458，而本项目按「警告即错误」编译。

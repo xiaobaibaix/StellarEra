@@ -13,6 +13,11 @@ namespace
 	// （那会让网格化器出问题）。区间查询必须用同一个球心。
 	constexpr double PlanetCenterEpsilon = 0.001;
 
+	// ComputeRawPlanetOffset 的解析输出包络。写成常量而不是在两处手抄 ±1：
+	// 这个值错了，地表会静默出洞（估小）或整颗星卡死（估大）。
+	constexpr double MinNormalizedOffset = -1.0;
+	constexpr double MaxNormalizedOffset = 1.0;
+
 	// 与纯球模块一致：密度除以的常数。两边必须相同，否则换地形时着色法线的
 	// 梯度会变、光照观感会跳。
 	constexpr double DensityScale = 5.0;
@@ -37,7 +42,7 @@ namespace
 	}
 }
 
-float ComputePlanetOffset(const FPlanetNoiseParams& Params, const FVector& UnitDir)
+float ComputeRawPlanetOffset(const FPlanetNoiseParams& Params, const FVector& UnitDir)
 {
 	// 采在单位方向上而不是 UV 上：球面因此天然无缝，也没有极点奇点。
 	const FVector SamplePos = UnitDir * Params.Frequency + Params.SeedOffset;
@@ -58,13 +63,12 @@ float ComputePlanetOffset(const FPlanetNoiseParams& Params, const FVector& UnitD
 	// 除以权重和，把结果夹回 [-1, 1]。
 	//
 	// 这一步是**区间正确性的全部依据**：每层 Perlin 的输出都在 [-1, 1]，权重和
-	// 恰为 AmplitudeSum，所以归一化后的值必然在范围内。实例的 GetValueRangeImpl
-	// 直接把 1 当作位移上界用，不再复核 —— 改这里必须同步改那里。
-	const float Noise = (AmplitudeSum > 0.f) ? Sum / AmplitudeSum : 0.f;
-
-	// 海平面：低于它的地形被削平。Max 同时把位移的下界抬到 SeaLevel，
-	// 区间那边同样直接用这个值。
-	return FMath::Max(Noise, Params.SeaLevel);
+	// 恰为 AmplitudeSum，所以归一化后的值必然在范围内。实例的区间查询直接把
+	// ±1 当作位移包络用，不再复核 —— 改这里必须同步改那里。
+	//
+	// 旧版本末尾还有一道 FMath::Max(Noise, SeaLevel)（海平面削平）。删掉它是
+	// 水体功能的前提：海平面以下必须是真实起伏的海底，否则水面之下一片平。
+	return (AmplitudeSum > 0.f) ? Sum / AmplitudeSum : 0.f;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -117,24 +121,69 @@ float UVoxelPlanetNoiseTerrain::GetSurfaceRadiusVoxels(const FVoxelPlanetTerrain
 		return Context.Radius;
 	}
 
-	// 与密度场调用同一个 ComputePlanetOffset 和同一个 SampleGeometryDelta。
+	// 与密度场调用同一个 ComputeRawPlanetOffset 和同一个 SampleGeometryDelta。
 	// 角色脚下的地面和眼睛看到的地面必须是同一个面。
 	const FPlanetNoiseParams Params = MakeParams();
 	const double BaseSurface =
-		double(Context.Radius) + double(Params.Amplitude) * double(ComputePlanetOffset(Params, Direction));
+		double(Context.Radius) + double(Params.Amplitude) * double(ComputeRawPlanetOffset(Params, Direction));
+
+	// 河床也算地表：角色站在河里（视觉上没过脚踝），而不是浮在水面上 ——
+	// 本期不做浮力。水面几何是独立的一张壳，不参与碰撞。
+	double CarveDepth = 0.0;
+	if (Context.Hydrology.IsValid())
+	{
+		CarveDepth = double(Context.Hydrology->Sample(Direction).CarveDepth);
+	}
 
 	double GeometryDelta = 0.0;
 	if (Context.Geology.IsValid())
 	{
-		// 真实地表满足 R_s = Base + delta(R - R_s)。用不动点迭代一次，
+		// 真实地表满足 R_s = Base − Carve + delta(R − R_s)。用不动点迭代一次，
 		// 把 delta 自身的 1~2 体素偏移也收进来。
-		const double Depth0 = double(Context.Radius) - BaseSurface;
+		//
+		// 深度必须以**下切后**的地表为基准：矿脉与河道重叠时，漏掉 CarveDepth
+		// 会让脚下与眼睛看到的地面差最多 MaxCarveDepth 个体素。
+		const double Depth0 = double(Context.Radius) - (BaseSurface - CarveDepth);
 		GeometryDelta = double(Context.Geology->SampleGeometryDelta(Direction, Depth0));
 		GeometryDelta = double(Context.Geology->SampleGeometryDelta(
 			Direction, Depth0 - GeometryDelta));
 	}
 
-	return float(BaseSurface + GeometryDelta);
+	return float(BaseSurface - CarveDepth + GeometryDelta);
+}
+
+float UVoxelPlanetNoiseTerrain::GetRawOffset(const FVector& UnitDir) const
+{
+	const FVector Direction = UnitDir.GetSafeNormal();
+	if (Direction.IsNearlyZero())
+	{
+		return 0.f;
+	}
+
+	// 每次调用都重建一次 Params（含 3 次 FRandomStream 取样）。512 分辨率下
+	// 约 157 万次调用、每次 6 次乘法移位，总量在几十毫秒量级。
+	//
+	// **不要**为此加一个 mutable 缓存：烘焙在 ParallelFor 里并发调这个函数，
+	// 缓存就是一个数据竞争。MakeParams() 每次返回新值反而是线程安全的根据。
+	return ComputeRawPlanetOffset(MakeParams(), Direction);
+}
+
+bool UVoxelPlanetNoiseTerrain::GetWaterConfig(FPlanetWaterConfig& OutConfig) const
+{
+	// 先填满再返回：返回 false 时调用方也拿得到一份合法配置，不必分支初始化。
+	FPlanetWaterConfig Config;
+	Config.Params.SeaLevel = SeaLevel;
+	Config.Params.Amplitude = Amplitude;
+	Config.Params.MinRiverFlow = MinRiverFlow;
+	Config.Params.MaxCarveDepth = MaxCarveDepth;
+	Config.Params.RiverWidthScale = RiverWidthScale;
+	Config.Params.Resolution = HydrologyResolution;
+
+	Config.ShallowColor = ShallowWaterColor;
+	Config.DeepColor = DeepWaterColor;
+
+	OutConfig = Config;
+	return bEnableWater;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -146,11 +195,15 @@ FVoxelPlanetNoiseTerrainInstance::FVoxelPlanetNoiseTerrainInstance(const FVoxelP
 	, Center(Context.Center)
 	, Params(InParams)
 	, Geology(Context.Geology)
-	// 与 GetValueRangeImpl 完全相同的包络，只是在这里一次算好。SeaLevel 再夹
-	// 一次到 ≤ 1：两者都是区间正确性的前提（下界不能高于上界）。
+	, Hydrology(Context.Hydrology)
+	// 与 GetValueRangeImpl 完全相同的包络，只是在这里一次算好。
+	// 下界 = Radius + Amplitude × (−1) − MaxCarveDepth：海平面削平去掉之后，
+	// 位移下界从 SeaLevel 变成 −1（见 ComputeRawPlanetOffset 的注释），
+	// 河床还要再往下挖。GeoDelta 只往外推，所以只影响上界。
 	, MinSurfaceRadius(double(Radius)
-		+ double(Params.Amplitude) * FMath::Min(double(Params.SeaLevel), 1.0))
-	, MaxSurfaceRadius(double(Radius) + double(Params.Amplitude)
+		+ double(Params.Amplitude) * MinNormalizedOffset
+		- (Context.Hydrology.IsValid() ? double(Context.Hydrology->GetMaxCarveDepth()) : 0.0))
+	, MaxSurfaceRadius(double(Radius) + double(Params.Amplitude) * MaxNormalizedOffset
 		+ (Context.Geology.IsValid() ? double(Context.Geology->GetMaxGeometryDelta()) : 0.0))
 {
 }
@@ -206,14 +259,19 @@ v_flt FVoxelPlanetNoiseTerrainInstance::GetValueImpl(v_flt X, v_flt Y, v_flt Z, 
 
 	const FVector UnitDir = GetUnitDirection(Relative);
 	const double BaseSurface =
-		double(Radius) + double(Params.Amplitude) * double(ComputePlanetOffset(Params, UnitDir));
+		double(Radius) + double(Params.Amplitude) * double(ComputeRawPlanetOffset(Params, UnitDir));
+
+	// 河床下切：只往下挖，不动横向。没有水文场时恒为 0。
+	const double CarveDepth = Hydrology.IsValid()
+		? double(Hydrology->Sample(UnitDir).CarveDepth)
+		: 0.0;
 
 	// 深度以基准球面为 0、向内为正。几何增量只往外推，不挖坑。
 	const double GeometryDelta = Geology.IsValid()
 		? double(Geology->SampleGeometryDelta(UnitDir, double(Radius) - Distance))
 		: 0.0;
 
-	const double Value = (Distance - BaseSurface - GeometryDelta) / DensityScale;
+	const double Value = (Distance - BaseSurface + CarveDepth - GeometryDelta) / DensityScale;
 
 	// 不夹到 [-1, 1]。存储层（FVoxelValue）本来就会按 ±1 饱和，表面抽取只看
 	// 符号，夹不夹对几何没有影响；但 LOD > 0 的着色法线是插件用**生成器浮点值**
@@ -227,22 +285,25 @@ v_flt FVoxelPlanetNoiseTerrainInstance::GetValueImpl(v_flt X, v_flt Y, v_flt Z, 
 FLinearColor ComputePlanetSurfaceColor(
 	const FPlanetNoiseParams& Params,
 	const FPlanetGeologyField* Geology,
+	const FPlanetHydrologyField* Hydrology,
 	double Radius,
 	const FVector& UnitDir,
 	double Distance)
 {
-	const float Offset = ComputePlanetOffset(Params, UnitDir);
+	const float Offset = ComputeRawPlanetOffset(Params, UnitDir);
 
 	FLinearColor Color;
 
-	// 海平面判定带一点容差：正好等于海平面的体素算水面而不是陆地，否则海岸线
-	// 上会出现一圈闪烁的沙色。
-	if (Offset <= Params.SeaLevel + UE_KINDA_SMALL_NUMBER)
+	if (Offset < Params.SeaLevel)
 	{
-		// 越往下越深，由浅水过渡到深水。
+		// 海床：浅处是沙，越深越接近 DeepWaterColor。
+		//
+		// **这里不再是蓝色水面本身** —— 水的蓝色、透明度与高光归水面材质
+		// （见 Water/PlanetWaterMaterialBuilder）。地形只如实记录海底的颜色，
+		// 于是透过半透明的水看到的是真的沙和真的岩，而不是又一层蓝。
 		const float Depth = FMath::Clamp(
 			(Params.SeaLevel - Offset) / FMath::Max(Params.WaterDepthRange, 1e-4f), 0.f, 1.f);
-		Color = MixColor(Params.ShallowWaterColor, Params.DeepWaterColor, Depth);
+		Color = MixColor(Params.SandColor, Params.DeepWaterColor, Depth);
 	}
 	else
 	{
@@ -277,7 +338,25 @@ FLinearColor ComputePlanetSurfaceColor(
 		}
 	}
 
-	if (Geology && Offset > Params.SeaLevel + UE_KINDA_SMALL_NUMBER)
+	// 河床：湿岩 / 湿沙，比周围地面暗一档。只在陆地上做 —— 海底的河道已经
+	// 被上面那段深度插值盖住了。
+	if (Hydrology && Offset >= Params.SeaLevel)
+	{
+		const float RiverStrength = Hydrology->Sample(UnitDir).RiverStrength;
+		if (RiverStrength > 0.f)
+		{
+			// 0.35 是「看得出是河」与「不像铺了柏油」之间的折中。
+			// 只压暗 RGB，A 保持 1：顶点色与 cubemap 都会把 A 一起存下来，
+			// 让河床顺带变成半透明会把「湿岩」画成一个能看穿的坑。
+			FLinearColor RiverbedColor = Color * 0.35f;
+			RiverbedColor.A = 1.f;
+			Color = MixColor(Color, RiverbedColor, RiverStrength);
+		}
+	}
+
+	// 矿色：**海底也叠**（本期改动）。海底是真实岩层，透过半透明的水看会自然
+	// 混色 —— 旧逻辑「必须高于海平面」会让海床变成一片纯沙。
+	if (Geology)
 	{
 		const double Depth = Radius - Distance;
 		const FPlanetGeologySample GeologySample = Geology->Sample(UnitDir, Depth);
@@ -312,7 +391,7 @@ FVoxelMaterial FVoxelPlanetNoiseTerrainInstance::GetMaterialImpl(v_flt X, v_flt 
 	const FVector UnitDir = GetUnitDirection(Relative);
 
 	return MakeVoxelMaterial(ComputePlanetSurfaceColor(
-		Params, Geology.Get(), double(Radius), UnitDir, Relative.Size()));
+		Params, Geology.Get(), Hydrology.Get(), double(Radius), UnitDir, Relative.Size()));
 }
 
 TVoxelRange<v_flt> FVoxelPlanetNoiseTerrainInstance::GetValueRangeImpl(const FVoxelIntBox& Bounds, int32 LOD, const FVoxelItemStack& Items) const
@@ -344,30 +423,35 @@ TVoxelRange<v_flt> FVoxelPlanetNoiseTerrainInstance::GetValueRangeImpl(const FVo
 	const double FarZ = FarthestDelta(Bounds.Min.Z, Bounds.Max.Z, CZ);
 	const double MaxDistance = FMath::Sqrt(FarX * FarX + FarY * FarY + FarZ * FarZ);
 
-	// 位移的确定包络。它由 ComputePlanetOffset 的两条性质直接给出，不是估的：
-	//   上界 1 —— 归一化除以了权重和，而每层 Perlin 都在 [-1, 1]。
-	//   下界 SeaLevel —— 末尾那道 Max 就是它。
+	// 位移的确定包络，由 ComputeRawPlanetOffset 的归一化直接给出（见上）。
 	//
 	// 这个区间是保守的（真实 fbm 极少同时触到两端），但保守是**安全**的方向：
 	// 估高了只是多算一些区块，估低了地表会出洞。想要更紧就调小 Amplitude。
-	const double MaxOffset = 1.0;
-	const double MinOffset = FMath::Min(double(Params.SeaLevel), MaxOffset);
+	const double MaxOffset = MaxNormalizedOffset;
+	const double MinOffset = MinNormalizedOffset;
 
-	// 最小密度 ← 最近的距离 + 最大的地表半径；最大密度 ← 最远的距离 + 最小的。
+	// 最小密度 ← 最近的距离 − 最大的地表半径；最大密度 ← 最远的距离 − 最小的。
 	//
 	// 与 GetValueImpl 一样不夹到 ±1：契约要求区间**覆盖**取值，而取值已不再
 	// 夹断。下游把它换算成 FVoxelValue 时会自己饱和，只消费端点的符号，所以
 	// 这里放宽不影响空/实区块的判定。
-	// 地质增量只增大表面半径，因此只压缩最小密度那一侧。
-	// 漏掉这一项会在矿脉处出洞，而且是静默的 —— RangeCoverage 测试兜底。
+	//
+	// 最大地表半径 = Radius + Amplitude × MaxOffset + 最大地质增量（矿脉只外凸）；
+	// 最小地表半径 = Radius + Amplitude × MinOffset − 最大下切量（河床只往下挖）。
+	// 两项各自只压一侧，方向**不能写反** —— 写反的表现是河床出洞或冒出实体块，
+	// 而且不会崩，只会静默出错。Terrain.EarlyOut 与 Terrain.HydrologyCarveRange
+	// 两条用例兜底（后者在删掉 + MaxCarveDepth 时必须变红）。
 	const double MaxGeometryDelta =
 		Geology.IsValid() ? double(Geology->GetMaxGeometryDelta()) : 0.0;
+	const double MaxCarveDepth =
+		Hydrology.IsValid() ? double(Hydrology->GetMaxCarveDepth()) : 0.0;
 
 	const double MinValue =
-		(MinDistance - double(Radius) - double(Params.Amplitude) * MaxOffset - MaxGeometryDelta)
-		/ DensityScale;
+		(MinDistance - double(Radius) - double(Params.Amplitude) * MaxOffset
+			- MaxGeometryDelta) / DensityScale;
 	const double MaxValue =
-		(MaxDistance - double(Radius) - double(Params.Amplitude) * MinOffset) / DensityScale;
+		(MaxDistance - double(Radius) - double(Params.Amplitude) * MinOffset
+			+ MaxCarveDepth) / DensityScale;
 
 	return TVoxelRange<v_flt>(v_flt(MinValue), v_flt(MaxValue));
 }

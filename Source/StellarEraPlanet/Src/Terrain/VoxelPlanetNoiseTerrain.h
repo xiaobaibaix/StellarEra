@@ -5,6 +5,9 @@
 
 #include "CoreMinimal.h"
 #include "VoxelPlanetTerrainModule.h"
+// FPlanetHydrologyField：GetWaterConfig 的配置与实例成员都指向它。
+// （FPlanetWaterConfig 本身由 VoxelPlanetTerrainModule.h 带入。）
+#include "PlanetHydrologyField.h"
 // 实例的宿主类型。理由见 VoxelPlanetSphereTerrain.h 里同名实例的说明 ——
 // 两份实例的模板参数是同一个理由，不是巧合。
 #include "VoxelPlanetGenerator.h"
@@ -19,8 +22,8 @@
  * 否则角色会站到与眼睛看到的不同的地面上。共用结构 + 共用自由函数是唯一能保证
  * 这一点的写法。
  *
- * 它同时是**区间正确性的来源**：ComputePlanetOffset 的输出必然落在
- * [SeaLevel, 1]，而这个包络完全由本结构里的字段决定，见实例的 GetValueRangeImpl。
+ * 它同时是**区间正确性的来源**：ComputeRawPlanetOffset 的输出必然落在
+ * [-1, 1]，而这个包络完全由本结构里的字段决定，见实例的 GetValueRangeImpl。
  */
 struct FPlanetNoiseParams
 {
@@ -31,7 +34,17 @@ struct FPlanetNoiseParams
 	int32 Octaves = 4;
 	float Lacunarity = 2.f;
 	float Gain = 0.5f;
-	float SeaLevel = -0.35f;
+
+	/**
+	 * 海平面（归一化位移，0 = 基准球面）。
+	 *
+	 * **这个数换过语义**：删掉「FMath::Max(Noise, SeaLevel) 削平地形」之前，−0.35
+	 * 只是把最底部那 1% 压平，几乎无害；改成水位之后，同一个数只剩 1.2% 的零碎低洼，
+	 * 且其中最大的连通块只占 0.01% 表面积 —— 海变成一片水洼（实测见 final-fix-report）。
+	 * 所以默认值必须按「水位」重新定。0.0 在 DA_Terrain_Earth 的真实参数下给出约
+	 * 45% 的连通海洋，落在设计要的 30%–50% 区间内。
+	 */
+	float SeaLevel = 0.f;
 
 	/** 由 Seed 派生的采样偏移。Perlin 本身无种子，挪动采样起点即可换一套地貌。 */
 	FVector SeedOffset = FVector::ZeroVector;
@@ -51,8 +64,13 @@ struct FPlanetNoiseParams
 	float PolarStart = 0.72f;
 };
 
-/** 归一化位移，输出必然落在 [SeaLevel, 1]。模块与实例共用的唯一实现。 */
-float ComputePlanetOffset(const FPlanetNoiseParams& Params, const FVector& UnitDir);
+/**
+ * 归一化位移，输出必然落在 [-1, 1]。模块与实例共用的唯一实现。
+ *
+ * **海平面不参与形状**：低于海平面的地形照常起伏，是海底而不是一块平地。
+ * 海平面只在两处出现：水文烘焙的种子判据（哪里是海洋），与水面几何的高度。
+ */
+float ComputeRawPlanetOffset(const FPlanetNoiseParams& Params, const FVector& UnitDir);
 
 class FPlanetGeologyField;
 
@@ -63,6 +81,7 @@ class FPlanetGeologyField;
  * 取色（材质查表），两条路必须逐字走同一段代码 —— 否则近处的顶点色和远处的
  * 查表色会在 LOD 边界上对不上，接缝从「采样密度差」变成「两套配色」。
  *
+ * @param Hydrology 这颗星的水文场；空 = 没有水。河床按它的 RiverStrength 压暗。
  * @param UnitDir  相对球心的单位方向
  * @param Distance 采样点到球心的距离（体素）。只用于地质采样深度；
  *                 烘焙时传该方向的基准地表半径。
@@ -70,12 +89,13 @@ class FPlanetGeologyField;
 FLinearColor ComputePlanetSurfaceColor(
 	const FPlanetNoiseParams& Params,
 	const FPlanetGeologyField* Geology,
+	const FPlanetHydrologyField* Hydrology,
 	double Radius,
 	const FVector& UnitDir,
 	double Distance);
 
 /**
- * 噪声地形：球面被一个三维噪声场推高推低，低于海平面的部分被削平成海。
+ * 噪声地形：球面被一个三维噪声场推高推低，海平面以下照常起伏（是海底，不是平面）。
  *
  * 噪声采在**单位方向**上，不是 UV 上 —— 球面因此天然无缝，等距圆柱投影那套
  * 极点奇点问题在这里不存在，也不需要处理经线接缝。
@@ -91,6 +111,8 @@ public:
 	//~ Begin UVoxelPlanetTerrainModule Interface
 	virtual TVoxelSharedRef<FVoxelGeneratorInstance> GetInstance(const FVoxelPlanetTerrainContext& Context) override;
 	virtual float GetSurfaceRadiusVoxels(const FVoxelPlanetTerrainContext& Context, const FVector& UnitDir) const override;
+	virtual float GetRawOffset(const FVector& UnitDir) const override;
+	virtual bool GetWaterConfig(FPlanetWaterConfig& OutConfig) const override;
 	//~ End UVoxelPlanetTerrainModule Interface
 
 	/** 把当前属性打包成参数快照。实例与查询共用它，保证两边算法一致。 */
@@ -141,15 +163,51 @@ public:
 	/**
 	 * 海平面（归一化，0 = 基准球面）。
 	 *
-	 * 低于它的地形在密度场里被**削平** —— 海是一片实心的平面，角色走在水面上。
-	 * 真·可下潜的水体（游泳、透明、单独的水面网格）是另一件事，不在这里。
+	 * **它不参与地形形状**：密度场不再在这里削平，海平面以下照常起伏。
+	 * 它只决定配色分带（水色/沙色的分界）与水面高度。
+	 *
+	 * 默认值 0.0 是「水位」语义下重新量的：−0.35 是当年「削平阈值」时代的数，
+	 * 直接沿用会让海只剩 0.01% 表面积的连通块（实测见 final-fix-report）。
+	 * 0.0 在 DA_Terrain_Earth 的参数下约 45% 连通海洋。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain|Ocean", meta = (ClampMin = "-1", ClampMax = "1"))
-	float SeaLevel = -0.35f;
+	float SeaLevel = 0.f;
 
 	/** 水色随深度过渡的下潜范围（归一化）。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain|Ocean", meta = (ClampMin = "0.001"))
 	float WaterDepthRange = 0.25f;
+
+	//////////////////////////////////////////////////////////////////////////
+	// 水体
+
+	/** 关掉 = 回到「一颗没水的星」：不烘焙、不出水面、地形也没有河床。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain|Water")
+	bool bEnableWater = true;
+
+	/**
+	 * 水文栅格每面的分辨率。256 快预览、512 默认、1024 最终画面。
+	 *
+	 * 它同时决定水面几何的精度上限：湖泊的角半径与河流的折线都来自这张栅格，
+	 * 调低它水边会变得方块状。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain|Water", meta = (ClampMin = "32", ClampMax = "2048"))
+	int32 HydrologyResolution = 512;
+
+	/** 汇流量超过它才算河（格数）。越小河越多、越细。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain|Water", meta = (ClampMin = "2"))
+	float MinRiverFlow = 24.f;
+
+	/**
+	 * 河道最大下切深度（体素）。
+	 *
+	 * 它同时是密度不确定带的加宽量：调大 1，插件就少跳过一圈区块。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain|Water", meta = (ClampMin = "1", ClampMax = "32"))
+	float MaxCarveDepth = 4.f;
+
+	/** 河宽的全局缩放。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain|Water", meta = (ClampMin = "0.1"))
+	float RiverWidthScale = 1.f;
 
 	//////////////////////////////////////////////////////////////////////////
 	// 配色
@@ -212,13 +270,18 @@ private:
 	/** 与 Context.Geology 同一份只读场；为空 = 没有矿。 */
 	const TSharedPtr<const FPlanetGeologyField> Geology;
 
+	/** 与 Context.Hydrology 同一份只读场；为空 = 没有水（也就没有河床下切）。 */
+	const TSharedPtr<const FPlanetHydrologyField> Hydrology;
+
 	/**
 	 * 地表可能落在的径向区间，构造时按区间查询用的同一套包络算好。
 	 *
-	 * 下界 = Radius + Amplitude × SeaLevel（位移的下界就是 SeaLevel，见
-	 * ComputePlanetOffset 末尾的 Max）；上界 = Radius + Amplitude × 1 +
-	 * 最大几何外凸量。GetValueImpl 靠这两个数做**内外早退**：比下界还深的
-	 * 点必然是实体，比上界还高的点必然是空气，两者都不必算噪声和地质场。
+	 * 下界 = Radius + Amplitude × (−1) − 最大下切量；上界 = Radius + Amplitude × 1 +
+	 * 最大几何外凸量。**SeaLevel 已经不参与距离包络** —— 它不再削平地形，
+	 * 位移的上下界就是 ComputeRawPlanetOffset 归一化给出的 ±1；河床会再往下挖，
+	 * 所以下界还要减去水文场的 MaxCarveDepth。
+	 * GetValueImpl 靠这两个数做**内外早退**：比下界还深的点必然是实体，
+	 * 比上界还高的点必然是空气，两者都不必算噪声和地质场。
 	 *
 	 * 缓存而不是每次现算：这两个数要在每次采样时用，而 GetValueImpl 是
 	 * 被调用次数最多的函数（一次 1280 体素的挖掘 ≈ 2×10⁹ 次）。
