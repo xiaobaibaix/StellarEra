@@ -238,6 +238,24 @@ void UPlanetAtmosphereComponent::RefreshAtmosphereGeometry()
 		FLinearColor(Scattering.MieBeta.X, Scattering.MieBeta.Y, Scattering.MieBeta.Z, 1.0f));
 	AtmosphereMID->SetVectorParameterValue(ParamSunIntensity, SunIntensity);
 
+	// 行星中心与太阳方向必须在这里写一次，不能只靠 TickComponent。
+	// 编辑器视口不保证 tick 这个组件（实测：组件只挂了个 bTickInEditor，
+	// 行星摆在 y = 1e8 时 PlanetCenter 仍停在 (0,0,0)、CloudDrift 停在 0）。
+	// 材质整条射线以 PlanetCenter 为原点，原点错到行星之外时球面求交全部落空，
+	// 大气与云整层不画、**且不报任何错** —— 表现为"壳明明在、就是看不见"。
+	// 几何重算是唯一必然发生的时机（OnRegister / BeginPlay / 半径变化都走这里）。
+	const FVector PlanetCenter = GetComponentLocation();
+	AtmosphereMID->SetVectorParameterValue(ParamPlanetCenter,
+		FLinearColor(PlanetCenter.X, PlanetCenter.Y, PlanetCenter.Z, 1.0f));
+
+	const FVector InitialSunDirection = ResolveSunDirection();
+	if (!InitialSunDirection.IsNearlyZero())
+	{
+		LastSunDirection = InitialSunDirection;
+		AtmosphereMID->SetVectorParameterValue(ParamSunDirection,
+			FLinearColor(InitialSunDirection.X, InitialSunDirection.Y, InitialSunDirection.Z, 0.0f));
+	}
+
 	// ---- 云 ----
 	// 先钳比例：云必须留在壳内，否则射线求交会把整层裁掉，而且不会有任何报错。
 	const float ClampedTopRatio = FMath::Min(CloudTopRatio, AtmosphereHeightRatio);
