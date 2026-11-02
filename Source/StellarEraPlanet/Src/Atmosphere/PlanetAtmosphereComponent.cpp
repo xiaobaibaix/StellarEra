@@ -1,5 +1,6 @@
 ﻿#include "PlanetAtmosphereComponent.h"
 
+#include "Components/SceneComponent.h"
 #include "Engine/DirectionalLight.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
@@ -269,6 +270,23 @@ FVector UPlanetAtmosphereComponent::ResolveSunDirection()
 		{
 			CachedSunLight = *It;
 			break;
+		}
+
+		// 关卡里这盏灯是 Static（摆放时没人会想到它要动）。但它的朝向由恒星驱动、
+		// 每帧都要转，Static 组件会拒绝 SetActorRotation 并逐帧刷
+		// "Mobility must be 'Movable'"。这里在找到它的当口切一次。
+		//
+		// 只在游戏世界切：编辑器世界里改组件移动性会把关卡一直标脏。编辑器态本来
+		// 也不转灯（见下方 IsGameWorld 守卫），所以不会退回到静态光。
+		if (CachedSunLight && World->IsGameWorld())
+		{
+			if (USceneComponent* LightRoot = CachedSunLight->GetRootComponent())
+			{
+				if (LightRoot->Mobility != EComponentMobility::Movable)
+				{
+					LightRoot->SetMobility(EComponentMobility::Movable);
+				}
+			}
 		}
 	}
 

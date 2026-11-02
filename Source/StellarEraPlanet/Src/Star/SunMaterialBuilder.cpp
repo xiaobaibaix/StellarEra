@@ -439,13 +439,17 @@ struct FSunPreset
 
 const FSunPreset SunPresets[] =
 {
+	// Brightness / CoronaIntensity 跟着「日面在屏幕上占多大」走，不是恒星的物理亮度：
+	// 2026-11-02 恒星半径从 5 km 放大到 100 km，而行星轨道才 100 km，日面直接铺满
+	// 视野。原来几千到十几万的自发光会把整屏连同 Bloom 焊成一片白，所以整体压了
+	// 两个数量级。以后改恒星大小时，这两个数要跟着调。
 	// 红矮星（M2V）：暗、偏红、对流胞大而少 → 米粒组织弱
 	{
 		TEXT("MI_Sun_M2V"), TEXT("红矮星 M2V"),
 		FLinearColor(0.62f, 0.08f, 0.01f, 1.0f),
 		FLinearColor(1.0f, 0.28f, 0.04f, 1.0f),
 		FLinearColor(1.0f, 0.62f, 0.26f, 1.0f),
-		14000.0f, 0.85f, 0.22f
+		60.0f, 0.35f, 0.22f
 	},
 	// 类太阳（G2V）：默认配色
 	{
@@ -453,7 +457,7 @@ const FSunPreset SunPresets[] =
 		FLinearColor(1.0f, 0.18f, 0.02f, 1.0f),
 		FLinearColor(1.0f, 0.55f, 0.10f, 1.0f),
 		FLinearColor(1.0f, 0.94f, 0.78f, 1.0f),
-		40000.0f, 1.10f, 0.35f
+		150.0f, 0.45f, 0.35f
 	},
 	// 蓝巨星（B3V）：高色温，边缘辉光更强
 	{
@@ -461,7 +465,7 @@ const FSunPreset SunPresets[] =
 		FLinearColor(0.30f, 0.42f, 0.95f, 1.0f),
 		FLinearColor(0.62f, 0.78f, 1.0f, 1.0f),
 		FLinearColor(0.92f, 0.96f, 1.0f, 1.0f),
-		140000.0f, 1.8f, 0.30f
+		400.0f, 0.70f, 0.30f
 	},
 };
 
