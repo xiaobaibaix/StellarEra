@@ -14,6 +14,7 @@
 #include "Materials/MaterialExpressionVectorParameter.h"
 #include "Materials/MaterialExpressionWorldPosition.h"
 #include "Misc/PackageName.h"
+#include "PlanetCloudParams.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
 
@@ -55,7 +56,7 @@ const TCHAR* const AtmosphereHLSL = TEXT(R"(
 // .ush 的内容不进哈希（实测：改完 .ush 重跑 BuildAtmosphereMaterial、
 // 再 RecompileMaterial，连亮度参数 1→4 都逐像素相同，说明拿到的还是旧编译产物）。
 // 这个常量本身不参与运算，只用来改 Code 字符串 → 改哈希 → 强制重编译。
-#define PLANET_CLOUDS_VERSION 6
+#define PLANET_CLOUDS_VERSION 7
 
 float3 ro = CameraPos;
 float3 rd = normalize(WorldPos - CameraPos);
@@ -122,7 +123,10 @@ if (tExit <= tEnter)
 // 上面求出来的 tEnter / tExit 已经是"撞地或撞场景深度"之后的区间，
 // 函数内部再按云层切成三段有序积分，所以这里只负责一件事：把输入摊平成参数表。
 float4 march = CloudAtmosphereRaymarch(
-    ro, rd, PlanetCenter, SunDirection.rgb,
+    ro, rd, PlanetCenter,
+    SunDirection0.rgb, SunDirection1.rgb, SunDirection2.rgb, SunDirection3.rgb,
+    SunRadiance0.rgb, SunRadiance1.rgb, SunRadiance2.rgb, SunRadiance3.rgb,
+    SunCount,
     tEnter, tExit, PlanetRadius,
     RayleighScaleHeight, MieScaleHeight,
     RayleighBeta.rgb, MieBeta.rgb,
@@ -235,10 +239,23 @@ bool BuildPlanetAtmosphereMaterial(FString& OutError)
 	Material->GetExpressionCollection().AddExpression(CameraPos);
 	UMaterialExpressionVectorParameter* PlanetCenter = AddAtmoVectorParam(Material, TEXT("PlanetCenter"),
 		FLinearColor::Black, -800, 300);
-	UMaterialExpressionVectorParameter* SunDirection = AddAtmoVectorParam(Material, TEXT("SunDirection"),
-		FLinearColor(1.0f, 0.0f, 0.0f, 1.0f), -800, 400);
+	// 太阳槽位 0..MaxSuns-1。0 号默认白（无恒星时的回退太阳就是这个值），其余默认黑。
+	UMaterialExpressionVectorParameter* SunDirection[PlanetClouds::MaxSuns];
+	UMaterialExpressionVectorParameter* SunRadiance[PlanetClouds::MaxSuns];
+	for (int32 Index = 0; Index < PlanetClouds::MaxSuns; ++Index)
+	{
+		const FString DirectionName = FString::Printf(TEXT("SunDirection%d"), Index);
+		SunDirection[Index] = AddAtmoVectorParam(Material, *DirectionName,
+			FLinearColor(1.0f, 0.0f, 0.0f, 0.0f), -800, 400 + Index * 40);
+
+		const FString RadianceName = FString::Printf(TEXT("SunRadiance%d"), Index);
+		SunRadiance[Index] = AddAtmoVectorParam(Material, *RadianceName,
+			Index == 0 ? FLinearColor::White : FLinearColor::Black, -800, 600 + Index * 40);
+	}
+	UMaterialExpressionScalarParameter* SunCount =
+		AddAtmoScalarParam(Material, TEXT("SunCount"), 1.0f, -800, 800);
 	UMaterialExpressionVectorParameter* SunIntensity = AddAtmoVectorParam(Material, TEXT("SunIntensity"),
-		FLinearColor(1.0f, 1.0f, 1.0f, 1.0f), -800, 500);
+		FLinearColor(1.0f, 1.0f, 1.0f, 1.0f), -800, 900);
 
 	// ---- 云 ----
 	// 初值按 20 km 行星（表面半径 2e6 cm）的默认比例算：云底 0.02、云顶 0.07、
@@ -303,7 +320,12 @@ bool BuildPlanetAtmosphereMaterial(FString& OutError)
 	AddAtmoCustomInput(Custom, TEXT("PlanetRadius"), PlanetRadius);
 	AddAtmoCustomInput(Custom, TEXT("ShellRadius"), ShellRadius);
 	AddAtmoCustomInput(Custom, TEXT("PlanetCenter"), PlanetCenter);
-	AddAtmoCustomInput(Custom, TEXT("SunDirection"), SunDirection);
+	for (int32 Index = 0; Index < PlanetClouds::MaxSuns; ++Index)
+	{
+		AddAtmoCustomInput(Custom, *FString::Printf(TEXT("SunDirection%d"), Index), SunDirection[Index]);
+		AddAtmoCustomInput(Custom, *FString::Printf(TEXT("SunRadiance%d"), Index), SunRadiance[Index]);
+	}
+	AddAtmoCustomInput(Custom, TEXT("SunCount"), SunCount);
 	AddAtmoCustomInput(Custom, TEXT("RayleighScaleHeight"), RayleighScaleHeight);
 	AddAtmoCustomInput(Custom, TEXT("MieScaleHeight"), MieScaleHeight);
 	AddAtmoCustomInput(Custom, TEXT("RayleighBeta"), RayleighBeta);

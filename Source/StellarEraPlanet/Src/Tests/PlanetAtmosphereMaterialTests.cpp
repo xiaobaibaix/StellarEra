@@ -5,6 +5,7 @@
 #include "Misc/AutomationTest.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "PlanetCloudParams.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -58,7 +59,8 @@ bool FStellarEraAtmosphereMaterialStructureTest::RunTest(const FString& Paramete
 		TEXT("RayleighScaleHeight"), TEXT("MieScaleHeight"),
 		TEXT("CloudBaseRadius"), TEXT("CloudTopRadius"), TEXT("CloudCoverage"),
 		TEXT("CloudExtinction"), TEXT("CloudNoiseScale"), TEXT("CloudDetailScale"),
-		TEXT("CloudDetailStrength"), TEXT("CloudDrift"), TEXT("CloudBrightness")
+		TEXT("CloudDetailStrength"), TEXT("CloudDrift"), TEXT("CloudBrightness"),
+		TEXT("SunCount")
 	};
 	for (const TCHAR* Name : ScalarNames)
 	{
@@ -71,14 +73,22 @@ bool FStellarEraAtmosphereMaterialStructureTest::RunTest(const FString& Paramete
 	Material->GetAllVectorParameterInfo(VectorInfos, VectorIds);
 
 	const TCHAR* const VectorNames[] = {
-		TEXT("RayleighBeta"), TEXT("MieBeta"), TEXT("PlanetCenter"),
-		TEXT("SunDirection"), TEXT("SunIntensity")
+		TEXT("RayleighBeta"), TEXT("MieBeta"), TEXT("PlanetCenter"), TEXT("SunIntensity"),
+		TEXT("SunDirection0"), TEXT("SunDirection1"), TEXT("SunDirection2"), TEXT("SunDirection3"),
+		TEXT("SunRadiance0"), TEXT("SunRadiance1"), TEXT("SunRadiance2"), TEXT("SunRadiance3")
 	};
 	for (const TCHAR* Name : VectorNames)
 	{
 		TestTrue(FString::Printf(TEXT("向量参数 %s"), Name),
 			StellarEraAtmosphereMaterialTests::HasParameter(VectorInfos, FName(Name)));
 	}
+
+	// 单数形式必须已经消失：留着它等于两套太阳方向，HLSL 只认其中一套。
+	TestFalse(TEXT("旧的单数 SunDirection 已删除"),
+		StellarEraAtmosphereMaterialTests::HasParameter(VectorInfos, FName(TEXT("SunDirection"))));
+
+	// 槽位数只有一个来源：C++ 的 MaxSuns 与 HLSL 的 PLANET_MAX_SUNS 必须一致。
+	TestEqual(TEXT("PlanetClouds::MaxSuns"), PlanetClouds::MaxSuns, 4);
 
 	return true;
 }
@@ -124,6 +134,8 @@ bool FStellarEraAtmosphereMaterialHlslTest::RunTest(const FString& Parameters)
 
 	TestTrue(TEXT("Code 调用云 march"), Custom->Code.Contains(TEXT("CloudAtmosphereRaymarch(")));
 	TestTrue(TEXT("Code 含云层底半径"), Custom->Code.Contains(TEXT("CloudBaseRadius")));
+	TestTrue(TEXT("Code 传第 4 个太阳方向"), Custom->Code.Contains(TEXT("SunDirection3")));
+	TestTrue(TEXT("Code 传太阳数量"), Custom->Code.Contains(TEXT("SunCount")));
 
 	// 磁盘上的 .ush 也要有内容：只挂了路径但文件是空的，编译期才会炸。
 	const FString CloudUshPath =
@@ -138,6 +150,10 @@ bool FStellarEraAtmosphereMaterialHlslTest::RunTest(const FString& Parameters)
 	// 夜面不该有辉光：没有这一段，本影里照样散射，暗面会挂一圈蓝边。
 	// 积分搬进 .ush 之后这条也跟着搬了。
 	TestTrue(TEXT("ush 含太阳遮挡"), CloudUsh.Contains(TEXT("SunVis")));
+	TestTrue(TEXT("ush 含太阳集合结构"), CloudUsh.Contains(TEXT("FPlanetSunSet")));
+	TestTrue(TEXT("ush 含固定槽位数"), CloudUsh.Contains(TEXT("PLANET_MAX_SUNS 4")));
+	TestTrue(TEXT("ush 的太阳循环被展开"), CloudUsh.Contains(TEXT("[unroll]")));
+	TestTrue(TEXT("ush 含太阳集合构造函数"), CloudUsh.Contains(TEXT("CloudBuildSunSet(")));
 	TestTrue(TEXT("ush 含云自遮挡步数"), CloudUsh.Contains(TEXT("CLOUD_SHADOW_STEPS")));
 
 	// 下面两条是踩过的坑，删掉任何一条画面都不会报错、只会变坏。

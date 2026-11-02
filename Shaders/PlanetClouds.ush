@@ -51,6 +51,22 @@
 // stands in for both and is the only reason the night side stays readable.
 #define CLOUD_AMBIENT 0.25
 
+// Suns shaded per sample. Must match PlanetClouds::MaxSuns in
+// Source/StellarEraPlanet/Src/Atmosphere/PlanetCloudParams.h - an automation
+// test asserts the two agree. Slot 0 is the star nearest the planet and is the
+// only one that marches the cloud self-shadow term below.
+#define PLANET_MAX_SUNS 4
+
+struct FPlanetSunSet
+{
+    int    Count;
+    float3 Dir[PLANET_MAX_SUNS];       // unit, planet -> star
+    float3 Radiance[PLANET_MAX_SUNS];  // colour * relative brightness
+    float  PhaseR[PLANET_MAX_SUNS];
+    float  PhaseM[PLANET_MAX_SUNS];
+    float  PhaseC[PLANET_MAX_SUNS];
+};
+
 #define CLOUD_WEATHER_OCTAVES 3
 #define CLOUD_DETAIL_OCTAVES 2
 
@@ -188,6 +204,33 @@ float CloudPhase(float cosTheta)
     return 0.7 * pF + 0.3 * pB;
 }
 
+// Precomputes the per-pixel phases for every slot. The Custom node cannot
+// define functions, so the four directions/radiances arrive as flat scalars.
+FPlanetSunSet CloudBuildSunSet(float3 Rd,
+    float3 D0, float3 D1, float3 D2, float3 D3,
+    float3 R0, float3 R1, float3 R2, float3 R3,
+    int Count)
+{
+    FPlanetSunSet Suns;
+    Suns.Count = clamp(Count, 0, PLANET_MAX_SUNS);
+    Suns.Dir[0] = D0; Suns.Dir[1] = D1; Suns.Dir[2] = D2; Suns.Dir[3] = D3;
+    Suns.Radiance[0] = R0; Suns.Radiance[1] = R1;
+    Suns.Radiance[2] = R2; Suns.Radiance[3] = R3;
+
+    const float G = 0.8;
+    const float G2 = G * G;
+    [unroll]
+    for (int s = 0; s < PLANET_MAX_SUNS; ++s)
+    {
+        float CosTheta = dot(Rd, Suns.Dir[s]);
+        Suns.PhaseR[s] = 3.0 / (16.0 * CLOUD_PI) * (1.0 + CosTheta * CosTheta);
+        Suns.PhaseM[s] = (1.0 - G2)
+            / (4.0 * CLOUD_PI * pow(max(1.0 + G2 - 2.0 * G * CosTheta, 1e-4), 1.5));
+        Suns.PhaseC[s] = CloudPhase(CosTheta);
+    }
+    return Suns;
+}
+
 // One ordered integration segment of the single-scatter march.
 //
 // Acc / Tr are carried across segments so the three calls below are
@@ -195,14 +238,13 @@ float CloudPhase(float cosTheta)
 // what makes inside-the-atmosphere and outside-the-atmosphere views both
 // correct with a single translucent shell.
 void CloudAtmoSegment(
-    float3 Ro, float3 Rd, float3 Center, float3 SunDir,
+    float3 Ro, float3 Rd, float3 Center, FPlanetSunSet Suns,
     float T0, float T1, int Steps,
     float PlanetRadius, float RayleighScaleHeight, float MieScaleHeight,
-    float3 RayleighBeta, float3 MieBeta, float PhaseR, float PhaseM,
+    float3 RayleighBeta, float3 MieBeta,
     float CloudBaseRadius, float CloudTopRadius, float CloudExtinction,
     float CloudNoiseScale, float CloudDetailScale, float CloudCoverage,
     float CloudDetailStrength, float CloudDrift, float CloudBrightness,
-    float PhaseC,
     inout float3 Acc, inout float3 Tr)
 {
     if (T1 <= T0)
@@ -217,16 +259,6 @@ void CloudAtmoSegment(
         float3 Ops = P - Center;
         float RLen = length(Ops);
 
-        // Sun occluded by the planet body: perpendicular distance from P to the
-        // sun ray smaller than the planet radius means P is in the umbra.
-        float BS = dot(Ops, SunDir);
-        float SunVis = 1.0;
-        if (BS < 0.0)
-        {
-            float DPerp = length(Ops - BS * SunDir);
-            SunVis = smoothstep(PlanetRadius * 0.99, PlanetRadius * 1.01, DPerp);
-        }
-
         float H = max(RLen - PlanetRadius, 0.0);
         float DR = exp(-H / RayleighScaleHeight);
         float DM = exp(-H / MieScaleHeight);
@@ -237,25 +269,67 @@ void CloudAtmoSegment(
         float3 Extinction = RayleighBeta * DR + MieBeta * DM + float3(DC, DC, DC);
         float3 TrSeg = exp(-Extinction * Ds);
 
-        Acc += (RayleighBeta * DR * PhaseR + MieBeta * DM * PhaseM) * Tr * TrSeg * SunVis * Ds;
+        float3 Scatter = 0.0;
+        float3 CloudLit = 0.0;
+
+        // [unroll] keeps Suns.Dir[s] a constant index. A dynamic index turns the
+        // array into local memory on some platforms.
+        [unroll]
+        for (int s = 0; s < PLANET_MAX_SUNS; ++s)
+        {
+            if (s >= Suns.Count)
+            {
+                continue;
+            }
+
+            float3 SunDir = Suns.Dir[s];
+
+            // Sun occluded by the planet body: perpendicular distance from P to
+            // the sun ray smaller than the planet radius means P is in the umbra.
+            float BS = dot(Ops, SunDir);
+            float SunVis = 1.0;
+            if (BS < 0.0)
+            {
+                float DPerp = length(Ops - BS * SunDir);
+                SunVis = smoothstep(PlanetRadius * 0.99, PlanetRadius * 1.01, DPerp);
+            }
+
+            Scatter += Suns.Radiance[s] * SunVis
+                     * (RayleighBeta * DR * Suns.PhaseR[s] + MieBeta * DM * Suns.PhaseM[s]);
+
+            if (DC > 0.0)
+            {
+                float CloudLight = SunVis;
+                // Self-shadowing marches sun-ward through the layer. Only slot 0
+                // does it: these CLOUD_SHADOW_STEPS extra CloudDensity taps are
+                // the most expensive part of the march, and the structural
+                // shadow that reads is the dominant star's.
+                if (s == 0)
+                {
+                    float ShadowStep = (CloudTopRadius - CloudBaseRadius) * (1.0 / float(CLOUD_SHADOW_STEPS));
+                    [unroll]
+                    for (int j = 1; j <= CLOUD_SHADOW_STEPS; ++j)
+                    {
+                        float3 SP = P + SunDir * (float(j) * ShadowStep);
+                        float3 SOps = SP - Center;
+                        CloudLight *= exp(-CloudDensity(SOps, length(SOps),
+                            CloudBaseRadius, CloudTopRadius, CloudExtinction,
+                            CloudNoiseScale, CloudDetailScale, CloudCoverage,
+                            CloudDetailStrength, CloudDrift) * ShadowStep * CLOUD_SHADOW_EXTINCTION_SCALE);
+                    }
+                    // The ambient floor is applied once, not per sun: applying it
+                    // per sun would triple the night-side fill with three stars.
+                    CloudLight = max(CloudLight, CLOUD_AMBIENT);
+                }
+                CloudLit += Suns.Radiance[s] * Suns.PhaseC[s] * CloudLight;
+            }
+        }
+
+        Acc += Scatter * Tr * TrSeg * Ds;
 
         if (DC > 0.0)
         {
-            // Cloud self-shadowing: march sun-ward through the layer. The top
-            // of a cloud sees less of the layer than its base, which is what
-            // gives the vertical light gradient.
-            float CloudLight = SunVis;
-            float ShadowStep = (CloudTopRadius - CloudBaseRadius) * (1.0 / float(CLOUD_SHADOW_STEPS));
-            for (int j = 1; j <= CLOUD_SHADOW_STEPS; ++j)
-            {
-                float3 SP = P + SunDir * (float(j) * ShadowStep);
-                float3 SOps = SP - Center;
-                CloudLight *= exp(-CloudDensity(SOps, length(SOps),
-                    CloudBaseRadius, CloudTopRadius, CloudExtinction,
-                    CloudNoiseScale, CloudDetailScale, CloudCoverage,
-                    CloudDetailStrength, CloudDrift) * ShadowStep * CLOUD_SHADOW_EXTINCTION_SCALE);
-            }
-            Acc += CloudBrightness * DC * PhaseC * max(CloudLight, CLOUD_AMBIENT) * Tr * TrSeg * Ds;
+            Acc += CloudBrightness * DC * CloudLit * Tr * TrSeg * Ds;
         }
 
         Tr *= TrSeg;
@@ -265,7 +339,10 @@ void CloudAtmoSegment(
 // Full march: [tEnter, tExit] split into atmosphere-only / cloud / atmosphere-only.
 // Returns RGB = single-scattered radiance (before SunIntensity), A = coverage.
 float4 CloudAtmosphereRaymarch(
-    float3 Ro, float3 Rd, float3 Center, float3 SunDir,
+    float3 Ro, float3 Rd, float3 Center,
+    float3 SunDir0, float3 SunDir1, float3 SunDir2, float3 SunDir3,
+    float3 SunRadiance0, float3 SunRadiance1, float3 SunRadiance2, float3 SunRadiance3,
+    float SunCount,
     float TEnter, float TExit, float PlanetRadius,
     float RayleighScaleHeight, float MieScaleHeight,
     float3 RayleighBeta, float3 MieBeta,
@@ -273,12 +350,17 @@ float4 CloudAtmosphereRaymarch(
     float CloudNoiseScale, float CloudDetailScale, float CloudCoverage,
     float CloudDetailStrength, float CloudDrift, float CloudBrightness)
 {
-    float CosTheta = dot(Rd, SunDir);
-    float PhaseR = 3.0 / (16.0 * CLOUD_PI) * (1.0 + CosTheta * CosTheta);
-    float G = 0.8;
-    float G2 = G * G;
-    float PhaseM = (1.0 - G2) / (4.0 * CLOUD_PI * pow(max(1.0 + G2 - 2.0 * G * CosTheta, 1e-4), 1.5));
-    float PhaseC = CloudPhase(CosTheta);
+    // No sun at all: returning black here rather than shading with a zero
+    // direction, which would light every pixel as if the sun were straight up.
+    if (SunCount <= 0.5)
+    {
+        return float4(0.0, 0.0, 0.0, 0.0);
+    }
+
+    FPlanetSunSet Suns = CloudBuildSunSet(Rd,
+        SunDir0, SunDir1, SunDir2, SunDir3,
+        SunRadiance0, SunRadiance1, SunRadiance2, SunRadiance3,
+        (int)SunCount);
 
     // Where the ray crosses the cloud layer, clamped to the atmosphere chord.
     // Intersecting the *base* sphere is enough: the top is clamped inside the
@@ -309,26 +391,26 @@ float4 CloudAtmosphereRaymarch(
         float CloudStepTarget = max((CloudTopRadius - CloudBaseRadius) * 0.4, 1.0);
         int CloudSteps = (int)clamp(ceil((COut - CIn) / CloudStepTarget),
             (float)CLOUD_MIN_STEPS, (float)CLOUD_STEPS);
-        CloudAtmoSegment(Ro, Rd, Center, SunDir, TEnter, CIn, ATMO_STEPS,
-            PlanetRadius, RayleighScaleHeight, MieScaleHeight, RayleighBeta, MieBeta, PhaseR, PhaseM,
+        CloudAtmoSegment(Ro, Rd, Center, Suns, TEnter, CIn, ATMO_STEPS,
+            PlanetRadius, RayleighScaleHeight, MieScaleHeight, RayleighBeta, MieBeta,
             CloudBaseRadius, CloudTopRadius, CloudExtinction, CloudNoiseScale, CloudDetailScale,
-            CloudCoverage, CloudDetailStrength, CloudDrift, CloudBrightness, PhaseC, Acc, Tr);
-        CloudAtmoSegment(Ro, Rd, Center, SunDir, CIn, COut, CloudSteps,
-            PlanetRadius, RayleighScaleHeight, MieScaleHeight, RayleighBeta, MieBeta, PhaseR, PhaseM,
+            CloudCoverage, CloudDetailStrength, CloudDrift, CloudBrightness, Acc, Tr);
+        CloudAtmoSegment(Ro, Rd, Center, Suns, CIn, COut, CloudSteps,
+            PlanetRadius, RayleighScaleHeight, MieScaleHeight, RayleighBeta, MieBeta,
             CloudBaseRadius, CloudTopRadius, CloudExtinction, CloudNoiseScale, CloudDetailScale,
-            CloudCoverage, CloudDetailStrength, CloudDrift, CloudBrightness, PhaseC, Acc, Tr);
-        CloudAtmoSegment(Ro, Rd, Center, SunDir, COut, TExit, ATMO_STEPS,
-            PlanetRadius, RayleighScaleHeight, MieScaleHeight, RayleighBeta, MieBeta, PhaseR, PhaseM,
+            CloudCoverage, CloudDetailStrength, CloudDrift, CloudBrightness, Acc, Tr);
+        CloudAtmoSegment(Ro, Rd, Center, Suns, COut, TExit, ATMO_STEPS,
+            PlanetRadius, RayleighScaleHeight, MieScaleHeight, RayleighBeta, MieBeta,
             CloudBaseRadius, CloudTopRadius, CloudExtinction, CloudNoiseScale, CloudDetailScale,
-            CloudCoverage, CloudDetailStrength, CloudDrift, CloudBrightness, PhaseC, Acc, Tr);
+            CloudCoverage, CloudDetailStrength, CloudDrift, CloudBrightness, Acc, Tr);
     }
     else
     {
         // No cloud layer on this ray (looking away, or clouds disabled).
-        CloudAtmoSegment(Ro, Rd, Center, SunDir, TEnter, TExit, ATMO_STEPS * 2,
-            PlanetRadius, RayleighScaleHeight, MieScaleHeight, RayleighBeta, MieBeta, PhaseR, PhaseM,
+        CloudAtmoSegment(Ro, Rd, Center, Suns, TEnter, TExit, ATMO_STEPS * 2,
+            PlanetRadius, RayleighScaleHeight, MieScaleHeight, RayleighBeta, MieBeta,
             CloudBaseRadius, CloudTopRadius, CloudExtinction, CloudNoiseScale, CloudDetailScale,
-            CloudCoverage, CloudDetailStrength, CloudDrift, CloudBrightness, PhaseC, Acc, Tr);
+            CloudCoverage, CloudDetailStrength, CloudDrift, CloudBrightness, Acc, Tr);
     }
 
     float Coverage = saturate(1.0 - dot(Tr, float3(1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0)));

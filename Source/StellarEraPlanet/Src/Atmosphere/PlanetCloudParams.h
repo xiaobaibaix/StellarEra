@@ -11,6 +11,17 @@
  */
 namespace PlanetClouds
 {
+	/**
+	 * 同时参与着色的太阳槽位数。
+	 *
+	 * **这是唯一来源**：C++ 侧按它截断恒星列表，`Shaders/PlanetClouds.ush` 里的
+	 * `#define PLANET_MAX_SUNS 4` 必须与它一致（测试会断言）。
+	 * 两者不一致的症状是"第 4 颗星在材质里根本不存在"。
+	 *
+	 * 降级旋钮：想省 GPU 就把这里和 .ush 一起改成 3（关卡正好 3 颗）。
+	 */
+	constexpr int32 MaxSuns = 4;
+
 	/** 云层的内外半径（cm），以行星中心为原点。 */
 	struct FCloudLayerRadii
 	{
