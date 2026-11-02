@@ -1,4 +1,4 @@
-#include "CoreMinimal.h"
+﻿#include "CoreMinimal.h"
 
 #if WITH_EDITOR
 
@@ -49,8 +49,8 @@
 namespace StellarEraSunMaterialBuilder
 {
 
-const TCHAR* const SunMaterialDir = TEXT("/Game/Code/Star/Materials");
-const TCHAR* const SunMaterialPath = TEXT("/Game/Code/Star/Materials/M_Sun");
+const TCHAR* const SunMaterialDir = TEXT("/Game/Code/Res/Star/Materials");
+const TCHAR* const SunMaterialPath = TEXT("/Game/Code/Res/Star/Materials/M_Sun");
 const TCHAR* const SunMaterialName = TEXT("M_Sun");
 
 // ---------------------------------------------------------------------------
@@ -531,7 +531,7 @@ void BuildAllSunAssets()
 
 FAutoConsoleCommand GBuildSunMaterialCommand(
 	TEXT("StellarEra.BuildSunMaterial"),
-	TEXT("重建 /Game/Code/Star/Materials/M_Sun 与三个恒星预设（M2V / G2V / B3V）。改完 HLSL 或参数后跑一次。"),
+	TEXT("重建 /Game/Code/Res/Star/Materials/M_Sun 与三个恒星预设（M2V / G2V / B3V）。改完 HLSL 或参数后跑一次。"),
 	FConsoleCommandDelegate::CreateStatic(&BuildAllSunAssets));
 
 } // namespace StellarEraSunMaterialBuilder

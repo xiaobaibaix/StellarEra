@@ -70,7 +70,7 @@
   - `static UStarBodyComponent* FindNearest(const UWorld* World, const FVector& FromLocation)`
   - 恒星位置一律取 `GetOwner()->GetActorLocation()`，组件自己不存位置。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 新建 `Source/StellarEraPlanet/Src/Tests/PlanetStarBodyComponentTests.cpp`（**UTF-8 with BOM**）：
 
@@ -192,12 +192,12 @@ bool FStellarEraStarBodyFindNearestTest::RunTest(const FString& Parameters)
 #endif // WITH_DEV_AUTOMATION_TESTS
 ```
 
-- [ ] **Step 2: 跑测试确认它失败**
+- [x] **Step 2: 跑测试确认它失败**
 
 Run: 用 Global Constraints 里的测试命令，把 `StellarEra` 换成 `StellarEra.Planet.Atmosphere.StarBody.FindNearest`。
 Expected: 编译失败 —— `StarBodyComponent.h` 不存在。这是预期的（先有测试，后有实现）。
 
-- [ ] **Step 3: 写最小实现**
+- [x] **Step 3: 写最小实现**
 
 新建 `Source/StellarEraPlanet/Src/Atmosphere/StarBodyComponent.h`（**UTF-8 with BOM**）：
 
@@ -303,17 +303,17 @@ UStarBodyComponent* UStarBodyComponent::FindNearest(const UWorld* World, const F
 }
 ```
 
-- [ ] **Step 4: 构建**
+- [x] **Step 4: 构建**
 
 Run: Global Constraints 里的构建命令（先关编辑器）。
 Expected: `Result: Succeeded`。
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 Run: `Automation RunTests StellarEra.Planet.Atmosphere.StarBody.FindNearest`
 Expected: 1 条测试通过，退出码 0。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git commit -m "feat(恒星): 新增 UStarBodyComponent 与最近恒星查找" -- \
@@ -337,7 +337,7 @@ git commit -m "feat(恒星): 新增 UStarBodyComponent 与最近恒星查找" --
   - `static FVector UPlanetAtmosphereComponent::ComputeSunDirection(const AActor* StarActor, const ADirectionalLight* FallbackLight, const FVector& FromLocation)`（public static，纯函数，可单测）
   - `ResolveSunDirection()` 行为：恒星优先，其次 `ADirectionalLight`，都没有则返回零向量并只警告一次。
 
-- [ ] **Step 1: 追加失败的测试**
+- [x] **Step 1: 追加失败的测试**
 
 在 `PlanetStarBodyComponentTests.cpp` 的 `#endif` **之前**追加（该文件已 include 了 `Engine/DirectionalLight.h`）：
 
@@ -395,12 +395,12 @@ bool FStellarEraSunDirectionComputeTest::RunTest(const FString& Parameters)
 #include "PlanetAtmosphereComponent.h"
 ```
 
-- [ ] **Step 2: 跑测试确认它失败**
+- [x] **Step 2: 跑测试确认它失败**
 
 Run: `Automation RunTests StellarEra.Planet.Atmosphere.SunDirection.Compute`
 Expected: 编译失败 —— `ComputeSunDirection` 不是 `UPlanetAtmosphereComponent` 的成员。
 
-- [ ] **Step 3: 改头文件**
+- [x] **Step 3: 改头文件**
 
 在 `PlanetAtmosphereComponent.h` 里，把第 131-132 行的两行替换成：
 
@@ -432,7 +432,7 @@ private:
 
 > 注意：`ResolveSunDirection` 原来就在 `private:` 段里，替换时不要留下重复的 `private:`。改完检查该段落只有一个 `public:` 和一个 `private:`。
 
-- [ ] **Step 4: 改实现**
+- [x] **Step 4: 改实现**
 
 用下面这段整体替换 `PlanetAtmosphereComponent.cpp` 第 232-265 行的 `ResolveSunDirection()`：
 
@@ -509,17 +509,17 @@ FVector UPlanetAtmosphereComponent::ResolveSunDirection()
 #include "StarBodyComponent.h"
 ```
 
-- [ ] **Step 5: 构建**
+- [x] **Step 5: 构建**
 
 Run: 构建命令。
 Expected: `Result: Succeeded`。
 
-- [ ] **Step 6: 跑测试确认通过**
+- [x] **Step 6: 跑测试确认通过**
 
 Run: `Automation RunTests StellarEra.Planet.Atmosphere`
 Expected: 两条新测试通过；`AtmosphereParams.*` 与 `AtmosphereMaterial.*` 既有测试不回归。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git commit -m "feat(大气): 太阳方向优先取最近恒星，并在游戏世界同步主光朝向" -- \
@@ -541,7 +541,7 @@ git commit -m "feat(大气): 太阳方向优先取最近恒星，并在游戏世
 
 **背景：** 提交 `eefaaac` 把恒星材质迁到了 `/Game/Code/Res/Star/Materials`，但构建器里的三个常量还是旧路径。现在跑 `StellarEra.BuildSunMaterial` 会在旧路径**另建一套**，与关卡里引用的不是同一份。
 
-- [ ] **Step 1: 改三处常量**
+- [x] **Step 1: 改三处常量**
 
 `SunMaterialBuilder.cpp:52-53`：
 
@@ -556,17 +556,17 @@ const TCHAR* const SunMaterialPath = TEXT("/Game/Code/Res/Star/Materials/M_Sun")
 	TEXT("重建 /Game/Code/Res/Star/Materials/M_Sun 与三个恒星预设（M2V / G2V / B3V）。改完 HLSL 或参数后跑一次。"),
 ```
 
-- [ ] **Step 2: 确认没有漏网的旧路径**
+- [x] **Step 2: 确认没有漏网的旧路径**
 
 Run: `grep -rn "Game/Code/Star/Materials" Source/`
 Expected: 无输出（退出码 1）。
 
-- [ ] **Step 3: 构建**
+- [x] **Step 3: 构建**
 
 Run: 构建命令。
 Expected: `Result: Succeeded`。
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git commit -m "fix(恒星): 材质构建器路径改到 Res/Star，避免另建一套材质" -- \
@@ -594,7 +594,7 @@ git commit -m "fix(恒星): 材质构建器路径改到 Res/Star，避免另建�
 
 **为什么放在 Cosmos：** 恒星要同时挂 Cosmos 与 Planet 的组件，而 Planet 不能依赖 Cosmos。Cosmos 对 Planet 是 Private 依赖，所以**头文件里只能前置声明 `UStarBodyComponent`**，完整类型只在 `.cpp` 里 include —— 这与该模块 Build.cs 顶部「公开头不 include 它们」的约定一致。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 新建 `Source/StellarEraCosmos/Src/Tests/StarBodyActorTests.cpp`（**UTF-8 with BOM**）：
 
@@ -683,12 +683,12 @@ bool FStellarEraStarBodyActorSkeletonTest::RunTest(const FString& Parameters)
 #endif // WITH_DEV_AUTOMATION_TESTS
 ```
 
-- [ ] **Step 2: 跑测试确认它失败**
+- [x] **Step 2: 跑测试确认它失败**
 
 Run: `Automation RunTests StellarEra.Cosmos.StarBodyActor.Skeleton`
 Expected: 编译失败 —— `StarBodyActor.h` 不存在。
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 新建 `Source/StellarEraCosmos/Src/StarBodyActor.h`（**UTF-8 with BOM**）：
 
@@ -792,7 +792,7 @@ AStarBodyActor::AStarBodyActor()
 }
 ```
 
-- [ ] **Step 4: 更新 `CosmosOrbitComponent.h` 里已过时的注释**
+- [x] **Step 4: 更新 `CosmosOrbitComponent.h` 里已过时的注释**
 
 第 14-17 行现在写着「恒星不需要新类 —— 一个 StaticMeshActor 挂上它就是天体」。恒星现在有了 `AStarBodyActor`，改成：
 
@@ -804,17 +804,17 @@ AStarBodyActor::AStarBodyActor()
  *     摆在一起（见 StarBodyActor.h），不是为了让本组件变成基类。
 ```
 
-- [ ] **Step 5: 构建**
+- [x] **Step 5: 构建**
 
 Run: 构建命令。
 Expected: `Result: Succeeded`。
 
-- [ ] **Step 6: 跑测试确认通过**
+- [x] **Step 6: 跑测试确认通过**
 
 Run: `Automation RunTests StellarEra.Cosmos`
 Expected: `StarBodyActor.Skeleton` 通过；`Simulator.*`、`OrbitComponent.*`、`Trajectory.*` 不回归。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git commit -m "feat(恒星): 新增 AStarBodyActor，把 N 体与恒星身份两个组件绑在一起" -- \
@@ -856,7 +856,7 @@ git commit -m "feat(恒星): 新增 AStarBodyActor，把 N 体与恒星身份两
   远大于行星半径 2e6 cm、也远大于飞船离行星中心 2.39e6 cm（比值 0.25，低于被剥离的 0.36 经验阈值）。
   若用 1 M⊕，`r_H ≈ 2.15e4 cm` 比行星半径还小，飞船在**地表**就会被恒星剥走。
 
-- [ ] **Step 1: 写测试**
+- [x] **Step 1: 写测试**
 
 新建 `Source/StellarEraCosmos/Src/Tests/FourBodyStabilityTests.cpp`（**UTF-8 with BOM**）：
 
@@ -970,7 +970,7 @@ bool FStellarEraFourBodyVelocitiesTest::RunTest(const FString& Parameters)
 #endif // WITH_DEV_AUTOMATION_TESTS
 ```
 
-- [ ] **Step 2: 构建并跑，记录实际漂移**
+- [x] **Step 2: 构建并跑，记录实际漂移**
 
 Run: 构建 + `Automation RunTests StellarEra.Cosmos.Simulator`
 Expected: 三条模拟器测试通过。**把日志里打印的实际漂移值记下来**，写进提交信息。
@@ -978,7 +978,7 @@ Expected: 三条模拟器测试通过。**把日志里打印的实际漂移值�
 把日志里的实际数值报给用户，按 spec §8 的退路调数据（降行星质量 / 拉大 B、C 间距），
 改完重跑，直到通过或确认这套构型不可用。
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git commit -m "test(恒星): 三恒星 + 一行星 10 模拟年的能量漂移守门测试" -- \
@@ -1016,7 +1016,7 @@ git commit -m "test(恒星): 三恒星 + 一行星 10 模拟年的能量漂移�
 >    `InitialVelocityKmPerSecond` 的写入会被静默还原。
 > 2. **每个属性写完立刻读回并打日志**，不读回等于没写。
 
-- [ ] **Step 1: 写脚本（第一轮：删两行星 + 加三恒星）**
+- [x] **Step 1: 写脚本（第一轮：删两行星 + 加三恒星）**
 
 新建 `C:/Users/23080/ue_scratch/build_sun_system.py`：
 
@@ -1196,7 +1196,7 @@ finally:
 `_round` 的默认值每一轮手动改：第一轮保持 `"one"`，跑完改成 `"two"` 再跑一次
 （`UnrealEditor-Cmd` 会把不认识的命令行参数吃掉，别指望 `--round` 能透传）。
 
-- [ ] **Step 2: 跑第一轮**
+- [x] **Step 2: 跑第一轮**
 
 ```bash
 MSYS2_ARG_CONV_EXCL='*' "D:/Application/Epic Games/UE_5.8/Engine/Binaries/Win64/UnrealEditor-Cmd.exe" \
@@ -1209,13 +1209,13 @@ MSYS2_ARG_CONV_EXCL='*' "D:/Application/Epic Games/UE_5.8/Engine/Binaries/Win64/
 Expected: 日志里 `删除行星 BP_VoxelPlanet*` 两条、`生成 Star_A/B/C` 三条、`DONE round=one`。
 若出现 `EXC`，按 traceback 修脚本，**不要**手工在编辑器里补。
 
-- [ ] **Step 3: 跑第二轮**
+- [x] **Step 3: 跑第二轮**
 
 把脚本里的 `_round = "one"` 改成 `"two"`，用同样的命令行再跑一次（日志换 `sun_round2.log`）。
 
 Expected: 五行 `mass=... vel=(...)`，数值与 Task 5 的表格一致；`DONE round=two`。
 
-- [ ] **Step 4: 独立复核关卡**
+- [x] **Step 4: 独立复核关卡**
 
 跑 `C:/Users/23080/ue_scratch/dump_sun.py`（本次会话已有的 dump 脚本），
 Expected：
@@ -1225,7 +1225,7 @@ Expected：
 - `BP_VoxelPlanet3` 在 (0,1e8,0)，质量 `8.3236520936e7`，初速 `(1021.2,0,0)`
 - `BP_VoxelPlanet` / `BP_VoxelPlanet2` 已不存在
 
-- [ ] **Step 5: 提交关卡资产**
+- [x] **Step 5: 提交关卡资产**
 
 ```bash
 git status -- Content/Code/Maps
@@ -1242,19 +1242,19 @@ git commit -m "feat(关卡): UniverseMap 改成三恒星 + 一行星，恒星参
 
 **Files:** 无改动
 
-- [ ] **Step 1: 构建通过**
+- [x] **Step 1: 构建通过**
 
 Run: 构建命令。
 Expected: `Result: Succeeded`，无新增 warning。
 
-- [ ] **Step 2: 全量测试**
+- [x] **Step 2: 全量测试**
 
 Run: `Automation RunTests StellarEra`
 Expected: **全部通过**（改动前是 173 条）。新增 5 条：`StarBody.FindNearest`、
 `SunDirection.Compute`、`StarBodyActor.Skeleton`、`Simulator.FourBodyStability`、
 `Simulator.FourBodyInitialVelocities`。若有既有测试回归，先修回归再继续。
 
-- [ ] **Step 3: 关卡能无头加载**
+- [x] **Step 3: 关卡能无头加载**
 
 跑 `dump_sun.py` 再确认一次关卡数据没被后续步骤破坏。
 
@@ -1283,3 +1283,19 @@ Expected: **全部通过**（改动前是 173 条）。新增 5 条：`StarBody.
   清理要单独确认，别和这次改动混在一起。
 - **`Content/Code/Planet/BP_Star.uasset`** 现在是完全无用的空壳（恒星改用 `AStarBodyActor`）。
   留着还是删掉由用户决定。
+
+---
+
+## 实施结果（2026-11-02）
+
+- **Task 1–5**：代码与测试已提交（`aa6dbbf` / `ba35838` / `984ef6b` / `d4aafaa`）。
+- **Task 6**：关卡已改为 3 恒星 + 1 行星并单独提交（`e4fcfb8`）。最终 11 个 Actor：
+  `Star_A/B/C` 在 X 轴 0/±2e8，各 1e5 M☉、初速 −2.55/±745.1 km/s；
+  `BP_VoxelPlanet3` 在 (0,1e8,0)、250 M☉、初速 1021.2 km/s；`PlayerStart` 与飞船随行星搬到 +Y。
+  实施中新踩到一条：**`save_current_level()` 不会把「同一轮里 spawn 过 Actor 之后」写入的组件属性
+  落盘**（质量存住了、初速没存住）。修法是再跑一轮只写属性、不增删 Actor 的脚本，并显式
+  `EditorAssetLibrary.save_loaded_asset(actor, False)`；与计划里「增删与写属性分两轮」的纪律吻合，
+  只是失败点不在写入而在落盘。
+- **Task 7**：构建 `Result: Succeeded`；`Automation RunTests StellarEra` **192 条全过、0 失败**
+  （计划里的基线 173 已过时 —— 仓库当前基线 187 条 + 新增 5 条）；无头 `load_map` 复核 11 个 Actor，
+  轨道参数与上表一致。画面验证（Step 4）留给用户。

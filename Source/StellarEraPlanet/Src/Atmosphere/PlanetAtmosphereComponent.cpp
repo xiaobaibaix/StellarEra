@@ -7,6 +7,7 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "PlanetAtmosphereParams.h"
+#include "StarBodyComponent.h"
 #include "UObject/ConstructorHelpers.h"
 #include "VoxelPlanetActor.h"
 
@@ -229,6 +230,25 @@ void UPlanetAtmosphereComponent::RefreshAtmosphereGeometry()
 	SetVisibility(true);
 }
 
+FVector UPlanetAtmosphereComponent::ComputeSunDirection(const AActor* StarActor,
+	const ADirectionalLight* FallbackLight, const FVector& FromLocation)
+{
+	if (StarActor)
+	{
+		// 恒星在 N 体里会动（位置每帧被写回），所以方向每帧现算，不缓存。
+		return (StarActor->GetActorLocation() - FromLocation).GetSafeNormal();
+	}
+
+	if (FallbackLight)
+	{
+		// DirectionalLight 的 forward 是光**传播**的方向（天上→地上）。
+		// 从行星指向太阳是它的反向。
+		return -FallbackLight->GetActorForwardVector();
+	}
+
+	return FVector::ZeroVector;
+}
+
 FVector UPlanetAtmosphereComponent::ResolveSunDirection()
 {
 	UWorld* World = GetWorld();
@@ -236,6 +256,10 @@ FVector UPlanetAtmosphereComponent::ResolveSunDirection()
 	{
 		return FVector::ZeroVector;
 	}
+
+	// 恒星优先。每帧完整遍历：关卡里天体是个位数，成本可忽略，
+	// 换来的是恒星移动、增删时不需要任何失效通知。
+	UStarBodyComponent* Star = UStarBodyComponent::FindNearest(World, GetComponentLocation());
 
 	// 缓存的灯没了（关卡重载、actor 被删）就重新找。
 	if (!IsValid(CachedSunLight))
@@ -248,20 +272,29 @@ FVector UPlanetAtmosphereComponent::ResolveSunDirection()
 		}
 	}
 
-	if (!CachedSunLight)
+	const AActor* StarActor = Star ? Star->GetOwner() : nullptr;
+	if (!StarActor && !CachedSunLight)
 	{
 		if (!bLoggedMissingSun)
 		{
 			UE_LOG(LogTemp, Warning,
-				TEXT("[大气] 关卡里没有 ADirectionalLight，壳的太阳方向无从确定，明暗分界会停在初值。"));
+				TEXT("[大气] 关卡里既没有 UStarBodyComponent 也没有 ADirectionalLight，"
+					"壳的太阳方向无从确定，明暗分界会停在初值。"));
 			bLoggedMissingSun = true;
 		}
 		return FVector::ZeroVector;
 	}
 
-	// DirectionalLight 的 forward 是光**传播**的方向（天上→地上）。
-	// 从行星指向太阳是它的反向。
-	return -CachedSunLight->GetActorForwardVector();
+	const FVector SunDirection = ComputeSunDirection(StarActor, CachedSunLight, GetComponentLocation());
+
+	// 主光同步：只在游戏世界里转灯 —— 编辑器世界里每帧转灯会把关卡一直标脏。
+	// 多恒星时只有最近那颗生效（见 UStarBodyComponent::bDrivesDirectionalLight 的说明）。
+	if (Star && Star->bDrivesDirectionalLight && CachedSunLight && World->IsGameWorld())
+	{
+		CachedSunLight->SetActorRotation((-SunDirection).Rotation());
+	}
+
+	return SunDirection;
 }
 
 void UPlanetAtmosphereComponent::TickComponent(float DeltaTime, ELevelTick TickType,

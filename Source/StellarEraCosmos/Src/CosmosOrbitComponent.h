@@ -11,10 +11,10 @@
  * 天体组件：挂在任意 Actor 上，它就参与 N 体引力。
  *
  * 刻意做成「组件」而不是「Actor 基类」：
- *   - 恒星不需要新类 —— 一个 StaticMeshActor 挂上它就是天体，不必为它写一个
- *     只有网格的恒星 Actor；
- *   - 行星也不需要 —— AVoxelPlanetActor 挂上它就是天体，不必让体素星球去继承
- *     一个 N 体的基类。
+ *   - 行星不需要新类 —— AVoxelPlanetActor 挂上它就是天体，不必让体素星球去继承
+ *     一个 N 体的基类；
+ *   - 恒星需要一个 Actor 类，但那是为了把本组件与 Planet 模块的 UStarBodyComponent
+ *     摆在一起（见 StarBodyActor.h），不是为了让本组件变成基类。
  *
  * 组件本身**不推进物理**，也不 Tick：它只存参数。注册、推进、写回位置全在
  * UCosmosSimulationSubsystem 里 —— N 体是耦合系统（A 受 B 的力，B 也受 A 的力），
