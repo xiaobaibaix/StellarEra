@@ -195,7 +195,12 @@ public:
 	/** 取一份状态快照，供 HUD 之类的显示层读取。 */
 	FSpaceshipStatus GetStatus() const;
 
-	/** 速度低于阈值且机身下方命中地面时为真。 */
+	/**
+	 * 相对参考行星的速度低于阈值、且机身检测球命中地面时为真。
+	 *
+	 * 速度门比的是相对速度而不是绝对速度：飞船是 N 体天体，停在一颗公转中的
+	 * 行星上时绝对速度就是行星的轨道速度（本关卡约 7.3 km/s），远大于阈值。
+	 */
 	UFUNCTION(BlueprintPure, Category = "Spaceship")
 	bool IsLanded() const;
 
@@ -748,7 +753,12 @@ protected:
 		meta = (ClampMin = "0"))
 	float VoxelInvokerToggleCooldownSeconds = 0.5f;
 
-	/** 判定“已落地”的速度阈值（厘米/秒）。 */
+	/**
+	 * 判定「已落地」的速度阈值（厘米/秒），比的是**相对参考行星**的速度。
+	 *
+	 * 不能比绝对速度：飞船停在一颗公转中的行星上时，绝对速度就是行星的轨道速度
+	 * （本关卡约 7.3 km/s = 7.3e5 cm/s），任何合理的阈值都会让 IsLanded 恒为假。
+	 */
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Landing")
 	float LandingSpeedThreshold = 200.f;
 

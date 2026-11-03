@@ -810,7 +810,15 @@ float ASpaceshipPawn::GetLandingQueryRadiusCm() const
 
 bool ASpaceshipPawn::IsLanded() const
 {
-	if (GetVelocity().Size() > LandingSpeedThreshold)
+	// 速度门比的是**相对参考行星**的速度，不是绝对速度。
+	//
+	// 飞船现在是求解器里的 N 体天体：停在一颗公转中的行星上时，它的绝对速度
+	// 就是行星的轨道速度（本关卡 7.3 km/s = 7.3e5 cm/s），而阈值只有 200 cm/s。
+	// 用绝对速度比，落地后 IsLanded 永远为假 —— HUD 一直显示「落地 否」，
+	// 按 E 下不了船。相对速度在停稳时恰好被接触解算抹到 0（求解器把飞船速度
+	// 钉到行星速度上），只有真的还在动才会超阈值。
+	// 没有参考行星（深空）时 GetRelativeVelocity() 退化为绝对速度，行为不变。
+	if (GetRelativeVelocity().Size() > LandingSpeedThreshold)
 	{
 		return false;
 	}

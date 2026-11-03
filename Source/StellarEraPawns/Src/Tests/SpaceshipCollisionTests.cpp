@@ -373,4 +373,94 @@ bool FStellarEraShipLandingDetectionTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraShipLandingUsesRelativeSpeedTest,
+	"StellarEra.Spaceship.LandedUsesRelativeSpeed",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraShipLandingUsesRelativeSpeedTest::RunTest(const FString& Parameters)
+{
+	// 回归测试：飞船是 N 体天体，停在一颗公转中的行星上时，它的**绝对**速度
+	// 就是行星的轨道速度（本关卡约 7.3 km/s = 7.3e5 cm/s）。IsLanded 的 200 cm/s
+	// 速度门若比绝对速度，落地后永远为假 —— HUD 一直显示「落地 否」，按 E 也
+	// 下不了船。判据必须是**相对参考行星**的速度。
+
+	UWorld* World = UWorld::CreateWorld(EWorldType::Editor, false);
+	if (!TestNotNull(TEXT("测试世界"), World))
+	{
+		return false;
+	}
+	FWorldContext& WorldContext = GEngine->CreateNewWorldContext(EWorldType::Editor);
+	WorldContext.SetCurrentWorld(World);
+	World->InitializeActorsForPlay(FURL());
+
+	ON_SCOPE_EXIT
+	{
+		GEngine->DestroyWorldContext(World);
+		World->DestroyWorld(false);
+	};
+
+	UClass* ShipClass = LoadClass<ASpaceshipPawn>(
+		nullptr, TEXT("/Game/Code/Pawns/BP_SpaceshipPawn.BP_SpaceshipPawn_C"));
+	TestNotNull(TEXT("BP_SpaceshipPawn_C 可加载"), ShipClass);
+	if (!ShipClass)
+	{
+		return false;
+	}
+
+	const FVector ShipLocation(0.0, 0.0, 1.0e7);
+	ASpaceshipPawn* Ship = World->SpawnActor<ASpaceshipPawn>(
+		ShipClass, FTransform(FRotator::ZeroRotator, ShipLocation));
+	TestNotNull(TEXT("能生成飞船"), Ship);
+	if (!Ship)
+	{
+		return false;
+	}
+
+	Ship->RebuildContactProbes();
+
+	// 平台放在检测球内 10 cm：几何上确实「船底贴地」。
+	const float RadiusCm = Ship->GetLandingQueryRadiusCm();
+	AStaticMeshActor* Platform = World->SpawnActor<AStaticMeshActor>();
+	TestNotNull(TEXT("平台生成"), Platform);
+	if (!Platform)
+	{
+		return false;
+	}
+	{
+		UStaticMeshComponent* Mesh = Platform->GetStaticMeshComponent();
+		Mesh->SetMobility(EComponentMobility::Movable);
+		Mesh->SetStaticMesh(LoadObject<UStaticMesh>(
+			nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")));
+		Mesh->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+		Mesh->SetCollisionObjectType(ECC_WorldStatic);
+		Mesh->SetCollisionResponseToAllChannels(ECR_Block);
+		Platform->SetActorScale3D(FVector(20.f, 20.f, 1.f));
+		Platform->SetActorLocation(
+			FVector(ShipLocation.X, ShipLocation.Y, ShipLocation.Z - RadiusCm + 10.0 - 50.0));
+	}
+
+	// 行星轨道速度（世界厘米/秒）：7.17 km/s，远高于 200 cm/s 的阈值。
+	const FVector PlanetVelocityCmPerSecond(717354.0, 0.0, 0.0);
+
+	// ① 贴着行星停稳：相对速度为零，必须判为落地。
+	Ship->SetCosmosVelocity(PlanetVelocityCmPerSecond);
+	Ship->SetReferencePlanetVelocity(PlanetVelocityCmPerSecond);
+	TestTrue(TEXT("相对速度为 0 时，落在平台上必须判为已落地"), Ship->IsLanded());
+
+	// ② 同样的几何，但相对速度 10 m/s（1000 cm/s）超过阈值：必须判为未落地。
+	// 这一条守住的是速度门本身 —— 不能为了修 ① 把门整个拆掉。
+	Ship->SetCosmosVelocity(PlanetVelocityCmPerSecond + FVector(1000.0, 0.0, 0.0));
+	TestFalse(TEXT("相对速度超过阈值时必须判为未落地"), Ship->IsLanded());
+
+	// ③ 没有参考行星（深空）：相对速度退化为绝对速度，同样受阈值约束。
+	Ship->SetCosmosVelocity(FVector(1000.0, 0.0, 0.0));
+	Ship->SetReferencePlanetVelocity(FVector::ZeroVector);
+	TestFalse(TEXT("没有参考行星时按绝对速度判断"), Ship->IsLanded());
+
+	Ship->SetCosmosVelocity(FVector::ZeroVector);
+	TestTrue(TEXT("没有参考行星且速度为零时仍判为已落地"), Ship->IsLanded());
+
+	return true;
+}
+
 #endif
