@@ -214,66 +214,30 @@ TSharedPtr<FPlanetHydrologyField> FPlanetHydrologyBake::Bake(
 		}
 	}
 
-	// --- 3. 海洋 = 海平面以下的**最大连通块** ---
+	// --- 3. 海洋 = **所有**低于海平面的格 ---
 	//
-	// 为什么不是「所有低于海平面的格都当种子」：被碗缘围住的洼地底部同样可以低于
-	// 海平面，却不与外海连通。全当种子会让它抬到海面高度，而正确的水位是它的
-	// **溢出高度**（碗缘）—— 湖泊因此永远长不出来。只把与外海连通的那一块当海，
-	// 其余低于海平面的闭塞盆地交给填洼抬到溢出高度，成为内陆湖（见设计 §9.1）。
+	// 旧规则是「只把低于海平面区域里最大的连通块当海」，其余低于海面的闭塞盆地交给
+	// 填洼抬到溢出高度、成为内陆湖（死海那种）。它的水文推导没错，但在程序化地形上
+	// 产出的东西不是湖：DA_Terrain_Earth 的真实参数下（res 512、Amplitude 200）是
+	// 1131 片湖、占内部格 11.7%，其中 779 片、90% 的湖格盆底都在海面以下，湖面只比
+	// 海面高零点几体素 —— 分隔它们与海的「碗缘」只是噪声级别的一道坎。这些水体在海面
+	// 附近渲成几百片孤立的球冠，观感就是陆地上糊了一块块亮蓝补丁。
 	//
-	// 取最大块而不是「全部」也保证了确定性：地形给定时连通块的大小是确定的。
-	TArray<uint8> BelowSea;
-	BelowSea.SetNumUninitialized(CellCount);
-	for (int32 Cell = 0; Cell < CellCount; ++Cell)
-	{
-		BelowSea[Cell] = (InteriorMask[Cell] != 0 && Height[Cell] < SeaLevelRadius) ? 1 : 0;
-	}
-
-	TArray<uint8> ComponentSeen;
-	ComponentSeen.Init(0, CellCount);
+	// 所以判据回到最朴素的一条：**低于海平面就是海**。一颗星只有一个海面。真正的湖
+	// （盆底高于海面的洼地）不受影响 —— 它们不参与种子，仍由 Priority-Flood 抬到
+	// 溢出高度（见设计 §9.1）。代价是死海式「盆底低于海面却不与海连通」的水体被当成
+	// 海；程序化行星上这是可接受的取舍，且更符合直觉（往下走到底就是海）。
 	TArray<int32> SeedCells;
-	TArray<int32> ComponentCells;
-	TArray<int32> ComponentStack;
-	for (int32 Start = 0; Start < CellCount; ++Start)
-	{
-		if (BelowSea[Start] == 0 || ComponentSeen[Start] != 0)
-		{
-			continue;
-		}
-		ComponentCells.Reset();
-		ComponentStack.Reset();
-		ComponentStack.Add(Start);
-		ComponentSeen[Start] = 1;
-
-		while (ComponentStack.Num() > 0)
-		{
-			const int32 Cell = ComponentStack.Pop(EAllowShrinking::No);
-			ComponentCells.Add(Cell);
-			for (int32 Side = 0; Side < NumNeighbors; ++Side)
-			{
-				const int32 Next = Neighbors[Cell * NumNeighbors + Side];
-				if (Next == INDEX_NONE || BelowSea[Next] == 0 || ComponentSeen[Next] != 0)
-				{
-					continue;
-				}
-				ComponentSeen[Next] = 1;
-				ComponentStack.Add(Next);
-			}
-		}
-
-		if (ComponentCells.Num() > SeedCells.Num())
-		{
-			Swap(SeedCells, ComponentCells);
-		}
-	}
-
-	// 海洋掩码。流向那一步必须用它、而不是「低于海平面」：闭塞盆地的湖底同样可以
-	// 低于海平面，但它不是海，仍要参与汇流（否则它上游的汇流量凭空消失）。
+	SeedCells.Reserve(CellCount / 4);
 	TArray<uint8> OceanMask;
 	OceanMask.Init(0, CellCount);
-	for (const int32 Cell : SeedCells)
+	for (int32 Cell = 0; Cell < CellCount; ++Cell)
 	{
-		OceanMask[Cell] = 1;
+		if (InteriorMask[Cell] != 0 && Height[Cell] < SeaLevelRadius)
+		{
+			SeedCells.Add(Cell);
+			OceanMask[Cell] = 1;
+		}
 	}
 
 	// --- 4. Priority-Flood + ε ---
@@ -285,7 +249,8 @@ TSharedPtr<FPlanetHydrologyField> FPlanetHydrologyBake::Bake(
 	PopOrder.Reserve(CellCount);
 	FFloodHeap Heap;
 
-	// 种子：外海。海面本身作为它们的起始水位 —— 海是平的。
+	// 种子：全部低于海面的格。海面本身作为它们的起始水位 —— 海是平的，
+	// 所以它们直接以 SeaLevelRadius 入队，不参与 ε 阶梯（否则同是海面却高低不平）。
 	for (const int32 Cell : SeedCells)
 	{
 		Heap.Push(double(SeaLevelRadius), Cell);
@@ -424,7 +389,9 @@ TSharedPtr<FPlanetHydrologyField> FPlanetHydrologyBake::Bake(
 		{
 			continue;
 		}
-		const bool bOcean = Water[Cell] <= SeaLevelRadius + 1e-3f;
+		// 用掩码而不是「水位贴着海面」：海的地位由「地形低于海面」定义，与填洼
+		// 解出来的水位数值无关（两者本应一致，但掩码是唯一事实来源）。
+		const bool bOcean = OceanMask[Cell] != 0;
 		const bool bLake = !bOcean && double(Water[Cell]) > double(Height[Cell]) + double(Params.Epsilon) * 1.5;
 		if (bOcean || bLake || Accum[Cell] < double(MinFlow))
 		{
@@ -482,6 +449,13 @@ TSharedPtr<FPlanetHydrologyField> FPlanetHydrologyBake::Bake(
 	TArray<int32> MemberCells;
 	const double CellAngle = (PI * 0.5) / double(Resolution);   // 一格的角距（近似）
 
+	// 诊断用：每片湖的格数与「湖面 − 海面」（体素）。观感上的「大片蓝色补丁」到底
+	// 是贴着海面的内陆海还是山间的真湖，必须能从日志判断，不能只靠截图猜。
+	TArray<int32> LakeCellCounts;
+	TArray<float> LakeLevelOffsets;
+	TArray<float> LakeMaxDepths;   // 湖面 − 块内最低地形（体素）
+	TArray<uint8> LakeFloorBelowSea;
+
 	const auto CellDirectionAt = [&](int32 Cell)
 	{
 		int32 Face = 0, X = 0, Y = 0;
@@ -490,8 +464,7 @@ TSharedPtr<FPlanetHydrologyField> FPlanetHydrologyBake::Bake(
 	};
 	const auto IsLakeCell = [&](int32 Cell)
 	{
-		const bool bOcean = Water[Cell] <= SeaLevelRadius + 1e-3f;
-		return !bOcean
+		return OceanMask[Cell] == 0
 			&& double(Water[Cell]) > double(Height[Cell]) + double(Params.Epsilon) * 1.5;
 	};
 
@@ -540,10 +513,12 @@ TSharedPtr<FPlanetHydrologyField> FPlanetHydrologyBake::Bake(
 		// 一片平的水面，§9.1 要的是溢出高度）。
 		FVector DirSum = FVector::ZeroVector;
 		double LakeLevel = TNumericLimits<double>::Max();
+		double LakeFloor = TNumericLimits<double>::Max();
 		for (const int32 Cell : MemberCells)
 		{
 			DirSum += CellDirectionAt(Cell);
 			LakeLevel = FMath::Min(LakeLevel, double(Water[Cell]));
+			LakeFloor = FMath::Min(LakeFloor, double(Height[Cell]));
 		}
 		const FVector Centroid = DirSum.GetSafeNormal();
 		if (Centroid.IsNearlyZero())
@@ -565,6 +540,92 @@ TSharedPtr<FPlanetHydrologyField> FPlanetHydrologyBake::Bake(
 		Basin.WaterLevelRadius = float(LakeLevel);
 		Basin.AngularRadius = float(MaxAngle + double(PlanetLakeCapMarginCells) * CellAngle);
 		Lakes.Add(Basin);
+
+		LakeCellCounts.Add(MemberCells.Num());
+		LakeLevelOffsets.Add(float(LakeLevel - double(SeaLevelRadius)));
+		LakeMaxDepths.Add(float(LakeLevel - LakeFloor));
+		LakeFloorBelowSea.Add(LakeFloor < double(SeaLevelRadius) ? 1 : 0);
+	}
+
+	// --- 9b. 诊断：海 / 湖的规模与水位分布 ---
+	//
+	// 一行日志回答两个问题：水面里海占多少、湖占多少；以及每片湖的湖面比海面高多少
+	// —— 「贴着海面的大片内陆湖」与「山间的真湖」在观感上是两回事。
+	{
+		int32 InteriorCount = 0;
+		int32 OceanCount = 0;
+		int32 LakeCellCount = 0;
+		for (int32 Cell = 0; Cell < CellCount; ++Cell)
+		{
+			if (InteriorMask[Cell] == 0)
+			{
+				continue;
+			}
+			++InteriorCount;
+			if (OceanMask[Cell] != 0)
+			{
+				++OceanCount;
+			}
+			else if (IsLakeCell(Cell))
+			{
+				++LakeCellCount;
+			}
+		}
+
+		const float NearTolerance = FMath::Max(1.f, Params.Amplitude * 0.05f);
+		int32 NearSea = 0;
+		int32 MidSea = 0;
+		for (const float Offset : LakeLevelOffsets)
+		{
+			if (Offset <= NearTolerance)
+			{
+				++NearSea;
+			}
+			else if (Offset <= NearTolerance * 4.f)
+			{
+				++MidSea;
+			}
+		}
+		int32 Biggest = INDEX_NONE;
+		int32 BelowSeaLakes = 0;
+		int32 BelowSeaLakeCells = 0;
+		int32 VeryShallowLakes = 0;
+		int32 ShallowLakes = 0;
+		for (int32 Index = 0; Index < LakeCellCounts.Num(); ++Index)
+		{
+			if (Biggest == INDEX_NONE || LakeCellCounts[Index] > LakeCellCounts[Biggest])
+			{
+				Biggest = Index;
+			}
+			if (LakeFloorBelowSea[Index] != 0)
+			{
+				++BelowSeaLakes;
+				BelowSeaLakeCells += LakeCellCounts[Index];
+			}
+			if (LakeMaxDepths[Index] < 5.f)
+			{
+				++VeryShallowLakes;
+			}
+			else if (LakeMaxDepths[Index] < 15.f)
+			{
+				++ShallowLakes;
+			}
+		}
+
+		UE_LOG(LogTemp, Display,
+			TEXT("[水文] res=%d Amplitude=%.1f SeaLevel=%.2f 海面 %.1f 体素：内部 %d 格，"
+				"海洋 %d 格（%.1f%%），湖 %d 格（%.1f%%），湖 %d 片"
+				"（观感阈值 %.1f 体素：贴海面 %d 片 / %.1f 体素内 %d 片 / 更高 %d 片），"
+				"最大湖 %d 格、高出海面 %.1f 体素；盆底低于海面的湖 %d 片 / %d 格，"
+			"最大水深 < 5 体素 %d 片、5–15 体素 %d 片"),
+			Resolution, Params.Amplitude, Params.SeaLevel, SeaLevelRadius, InteriorCount,
+			OceanCount, 100.0 * double(OceanCount) / double(FMath::Max(InteriorCount, 1)),
+			LakeCellCount, 100.0 * double(LakeCellCount) / double(FMath::Max(InteriorCount, 1)),
+			Lakes.Num(), NearTolerance, NearSea, NearTolerance * 4.f, NearSea + MidSea,
+			LakeLevelOffsets.Num() - NearSea - MidSea,
+			Biggest == INDEX_NONE ? 0 : LakeCellCounts[Biggest],
+			Biggest == INDEX_NONE ? 0.f : LakeLevelOffsets[Biggest],
+			BelowSeaLakes, BelowSeaLakeCells, VeryShallowLakes, ShallowLakes);
 	}
 
 	// --- 10. 河流折线 ---

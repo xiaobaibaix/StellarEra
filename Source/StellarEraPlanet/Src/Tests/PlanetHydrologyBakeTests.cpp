@@ -32,8 +32,31 @@ namespace
 	/**
 	 * 碗：角半径 0.3 的二次凹坑，碗缘 −0.05（高于海面 −0.3），碗外一律 −0.5（全是海）。
 	 * 于是碗里必然蓄成一片湖，水位 ≈ 碗缘，且不与海连通。
+	 *
+	 * **盆底必须高于海面**（碗心 −0.22 ⇒ 高出海面 0.64 体素）：烘焙的判据是「地形低于
+	 * 海面就是海」，盆底一旦低于海面，这片洼地里的水会被当成海而不是湖。旧夹具的碗心
+	 * 是 −0.5，恰好是「死海」那种水体 —— 它现在归海，见 BelowSeaBowlHeight 的回归测试。
 	 */
 	float BowlHeight(const FVector& Dir)
+	{
+		const float Angle = FMath::Acos(FMath::Clamp(float(Dir.Z), -1.f, 1.f));
+		constexpr float BowlAngle = 0.3f;
+		if (Angle > BowlAngle)
+		{
+			return -0.5f;
+		}
+		const float T = Angle / BowlAngle;
+		return -0.22f + 0.17f * T * T;
+	}
+
+	/**
+	 * 死海式洼地：碗缘 −0.05 高于海面 −0.3，碗心 −0.5 低于海面。
+	 *
+	 * 它是「01-planet-water」最早想保留成湖的形状。实测量产地形后改判成海（见
+	 * FStellarEraHydrologyBelowSeaBasinTest）：这类洼地占真实行星湖面格子的 90%，
+	 * 湖面只比海面高零点几体素，分隔它们的「碗缘」是噪声级的坎。
+	 */
+	float BelowSeaBowlHeight(const FVector& Dir)
 	{
 		const float Angle = FMath::Acos(FMath::Clamp(float(Dir.Z), -1.f, 1.f));
 		constexpr float BowlAngle = 0.3f;
@@ -122,7 +145,8 @@ bool FStellarEraHydrologyLakeTest::RunTest(const FString& Parameters)
 		const FVector Dir = PlanetHydrologyGrid::CellDirection(Face, X, Y, LakeResolution);
 		const double TerrainRadius =
 			TestRadius + double(Params.Amplitude) * double(BowlHeight(Dir));
-		const bool bOcean = WaterGrid[Cell] <= Field->GetSeaLevelRadius() + 1e-3f;
+		// 与烘焙逐字相同：低于海面的地形就是海（掩码判据），不是「水位贴着海面」。
+		const bool bOcean = TerrainRadius < double(Field->GetSeaLevelRadius());
 		const bool bLakeCell = !bOcean
 			&& double(WaterGrid[Cell]) > TerrainRadius + Epsilon * 1.5;
 		if (bLakeCell)
@@ -155,6 +179,48 @@ bool FStellarEraHydrologyLakeTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("碗外必须是海面高度"),
 		FMath::Abs(SampleAt(OpenOcean).WaterLevelRadius - Field->GetSeaLevelRadius()) < 0.5f);
 	TestEqual(TEXT("海里的下切必须为 0"), SampleAt(OpenOcean).CarveDepth, 0.f);
+
+	return true;
+}
+
+/**
+ * 回归：盆底低于海面的洼地归海，不是湖。
+ *
+ * 这是「行星表面出现大片亮蓝补丁」的根因守卫。旧规则只把低于海面区域里最大的连通块
+ * 当海，其余闭塞盆地被填到溢出高度当成湖 —— 在 DA_Terrain_Earth 上量到 1131 片湖，
+ * 其中 90% 的湖格盆底低于海面、湖面只比海面高零点几体素。这里用最小的夹具把判据钉住：
+ * 死海式洼地里一滴湖都不许剩，水面必须正好是海面。
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraHydrologyBelowSeaBasinTest,
+	"StellarEra.Planet.Hydrology.BelowSeaBasinIsOcean",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraHydrologyBelowSeaBasinTest::RunTest(const FString& Parameters)
+{
+	const FPlanetHydrologyParams Params = MakeBakeTestParams();
+	const TSharedPtr<FPlanetHydrologyField> Field =
+		FPlanetHydrologyBake::Bake(&BelowSeaBowlHeight, Params, TestRadius);
+	if (!TestTrue(TEXT("烘焙必须返回有效的场"), Field.IsValid() && Field->IsValid()))
+	{
+		return false;
+	}
+
+	TestEqual(TEXT("盆底低于海面的洼地不许再变成湖"), Field->GetLakes().Num(), 0);
+
+	const float SeaLevelRadius = Field->GetSeaLevelRadius();
+	const FVector BowlCenter = FVector::UpVector;
+	const float CenterWater = Field->Sample(BowlCenter).WaterLevelRadius;
+	TestTrue(FString::Printf(TEXT("碗心的水面必须是海面高度（实测 %.2f，海面 %.2f）"),
+		CenterWater, SeaLevelRadius),
+		FMath::Abs(CenterWater - SeaLevelRadius) < 0.5f);
+
+	// 夹具有效性：碗底确实低于海面。否则「归海」这条测试可能在碗底本来就没水的情况下
+	// 空转通过 —— 那不是判据生效，是夹具没构造出死海。
+	const double CenterTerrain =
+		TestRadius + double(Params.Amplitude) * double(BelowSeaBowlHeight(BowlCenter));
+	TestTrue(FString::Printf(TEXT("夹具有效性：碗底 %.2f 必须低于海面 %.2f"),
+		CenterTerrain, double(SeaLevelRadius)),
+		CenterTerrain < double(SeaLevelRadius) - 1.0);
 
 	return true;
 }

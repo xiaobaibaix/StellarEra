@@ -50,7 +50,12 @@ namespace
 		return (Angle < 0.4f) ? 0.5f : -0.5f;
 	}
 
-	/** 与 Task 3 的碗一致：碗里蓄湖、碗外是海。 */
+	/**
+	 * 与 Task 3 的碗一致：碗里蓄湖、碗外是海。
+	 *
+	 * 碗心 −0.22 高于海面 −0.3：盆底低于海面的洼地现在归海（判据是「地形低于海面就是
+	 * 海」），拿原来的 −0.5 碗心当夹具会直接烘焙出零片湖。
+	 */
 	float WaterTestBowlHeight(const FVector& Dir)
 	{
 		const float Angle = FMath::Acos(FMath::Clamp(float(Dir.Z), -1.f, 1.f));
@@ -60,7 +65,7 @@ namespace
 			return -0.5f;
 		}
 		const float T = Angle / BowlAngle;
-		return -0.5f + 0.45f * T * T;
+		return -0.22f + 0.17f * T * T;
 	}
 
 	/** 与 Task 3 的谷一致：谷底长河。 */
@@ -442,8 +447,8 @@ bool FStellarEraWaterEndToEndTest::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	// 海洋格 = 水位贴着海面的格 = 烘焙选中的最大连通块（其他低于海面的闭塞
-	// 盆地会被填洼抬到溢出高度，成为湖）。
+	// 海洋格 = 水位贴着海面的格 = 烘焙里「地形低于海面」的那些格（现在**全部**低于
+	// 海面的格都是海，不再只取最大连通块；盆底高于海面的洼地才填洼成湖）。
 	const int32 Resolution = Config.Params.Resolution;
 	const int32 CellCount = PlanetHydrologyGrid::CellCount(Resolution);
 	const TArray<float>& Water = Field->GetWaterLevelGrid();
@@ -473,12 +478,10 @@ bool FStellarEraWaterEndToEndTest::RunTest(const FString& Parameters)
 		Resolution, Config.Params.SeaLevel, SeaLevelRadius, OceanCells, InteriorTotal,
 		OceanFraction * 100.0, Field->GetLakes().Num()));
 
-	// 实测 45.26%（final-fix-report 的 SeaLevel 扫描）。留足余量只钉下限，
-	// 同时钉上限防止「海吞掉全部陆地」这种反向调参。
+	// 实测 49.6%（「地形低于海面就是海」之后；旧的最大连通块规则是 40.5%）。
+	// 留足余量只钉下限，同时钉上限防止「海吞掉全部陆地」这种反向调参。
 	TestTrue(FString::Printf(TEXT("连通海洋必须覆盖星球的 25%%–60%%（实测 %.2f%%）"),
 		OceanFraction * 100.0), OceanFraction >= 0.25 && OceanFraction <= 0.60);
-	TestTrue(FString::Printf(TEXT("必须仍有内陆湖（实测 %d 片）"), Field->GetLakes().Num()),
-		Field->GetLakes().Num() > 0);
 
 	// 河网必须在**生产分辨率**下验：128 下实测 0 条河（MinRiverFlow = 24 格、
 	// 最短河 4 格，格距翻倍后所有汇流路径都短于 4 格 —— 这是分辨率效应，不是缺陷）。
@@ -499,6 +502,13 @@ bool FStellarEraWaterEndToEndTest::RunTest(const FString& Parameters)
 		ProductionResolution, ProductionField->GetRivers().Num()),
 		ProductionField->GetRivers().Num() > 0);
 
+	// 湖同理只能在生产分辨率下验：128 的预览栅格把地形抹平，低于海面的洼地连成一片，
+	// 一片湖都不剩（实测 res=128 → 0 片、res=512 → 365 片）。拿预览栅格断言「必须
+	// 有湖」，测的就是分辨率效应而不是水文规则。
+	TestTrue(FString::Printf(TEXT("必须仍有内陆湖（res=%d，实测 %d 片）"),
+		ProductionResolution, ProductionField->GetLakes().Num()),
+		ProductionField->GetLakes().Num() > 0);
+
 	// 三块几何都要真的出东西 —— 与组件生产路径同一套参数（VoxelSize 100，
 	// OceanResolution 96，湖冠带地形高度回调）。
 	PlanetWaterSurfaceBuilder::FBuildParams BuildParams;
@@ -514,8 +524,9 @@ bool FStellarEraWaterEndToEndTest::RunTest(const FString& Parameters)
 	TestTrue(FString::Printf(TEXT("海洋网格必须有三角形（实际 %d）"), OceanMesh.TriangleCount()),
 		OceanMesh.TriangleCount() > 0);
 
+	// 湖冠用生产分辨率的场：预览栅格里没有湖，建出来的网格是空的。
 	UE::Geometry::FDynamicMesh3 LakeMesh(true, false, false, false);
-	PlanetWaterSurfaceBuilder::BuildLakes(*Field, BuildParams, LakeMesh);
+	PlanetWaterSurfaceBuilder::BuildLakes(*ProductionField, BuildParams, LakeMesh);
 	TestTrue(FString::Printf(TEXT("湖泊网格必须有三角形（实际 %d）"), LakeMesh.TriangleCount()),
 		LakeMesh.TriangleCount() > 0);
 
