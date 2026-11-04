@@ -284,15 +284,26 @@ void CloudAtmoSegment(
 
             float3 SunDir = Suns.Dir[s];
 
-            // Sun occluded by the planet body: perpendicular distance from P to
-            // the sun ray smaller than the planet radius means P is in the umbra.
+            // Sun visibility for this sample.
+            //
+            // This used to be the exact geometric umbra: perpendicular distance
+            // from P to the planet->sun ray smaller than PlanetRadius means P is
+            // shadowed. That test is correct but it is a knife edge, and on a
+            // multi-star planet each star's edge crossed the lit face as its own
+            // visible crease - one per extra star, gone the moment SunCount
+            // dropped from 3 to 2. Real skies keep glowing ~15 deg after the sun
+            // reaches the horizon because of multiple scattering; single
+            // scattering cannot, so the transition has to be put in by hand.
+            //
+            // Fading on the sun's elevation instead of cutting on the umbra costs
+            // nothing geometrically: a sample with the sun above its own local
+            // horizon can never be occluded by the planet body, so the umbra only
+            // ever fired on the half the elevation fade already covers.
+            //
+            // SinSunElevation is +1 with the sun overhead, 0 on the horizon.
             float BS = dot(Ops, SunDir);
-            float SunVis = 1.0;
-            if (BS < 0.0)
-            {
-                float DPerp = length(Ops - BS * SunDir);
-                SunVis = smoothstep(PlanetRadius * 0.99, PlanetRadius * 1.01, DPerp);
-            }
+            float SinSunElevation = BS / max(RLen, 1.0);
+            float SunVis = smoothstep(-0.26, 0.02, SinSunElevation);   // ~ -15 .. +1 deg
 
             Scatter += Suns.Radiance[s] * SunVis
                      * (RayleighBeta * DR * Suns.PhaseR[s] + MieBeta * DM * Suns.PhaseM[s]);

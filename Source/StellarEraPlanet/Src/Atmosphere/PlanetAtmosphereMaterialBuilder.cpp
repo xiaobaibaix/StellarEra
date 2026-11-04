@@ -59,7 +59,7 @@ const TCHAR* const AtmosphereHLSL = TEXT(R"(
 // .ush 的内容不进哈希（实测：改完 .ush 重跑 BuildAtmosphereMaterial、
 // 再 RecompileMaterial，连亮度参数 1→4 都逐像素相同，说明拿到的还是旧编译产物）。
 // 这个常量本身不参与运算，只用来改 Code 字符串 → 改哈希 → 强制重编译。
-#define PLANET_CLOUDS_VERSION 7
+#define PLANET_CLOUDS_VERSION 9
 
 float3 ro = CameraPos;
 float3 rd = normalize(WorldPos - CameraPos);
