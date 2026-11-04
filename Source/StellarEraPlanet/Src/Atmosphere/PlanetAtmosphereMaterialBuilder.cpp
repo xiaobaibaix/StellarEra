@@ -8,6 +8,7 @@
 #include "Materials/MaterialExpressionCameraPositionWS.h"
 #include "Materials/MaterialExpressionComponentMask.h"
 #include "Materials/MaterialExpressionCustom.h"
+#include "Materials/MaterialExpressionObjectPositionWS.h"
 #include "Materials/MaterialExpressionScalarParameter.h"
 #include "Materials/MaterialExpressionSceneTexture.h"
 #include "Materials/MaterialExpressionTwoSidedSign.h"
@@ -46,7 +47,9 @@ const TCHAR* const AtmosphereAssetPath = TEXT("/Game/Code/Planet/Materials/M_Pla
 // 坐标空间（已从引擎源码钉死，见计划「与规格的偏差」第 4 条）：
 //   WorldPos / CameraPos / PlanetCenter 全是**绝对世界坐标（cm）**。
 //   WorldPosition 节点 WPT_Default 的标题字面就是 "Absolute World Position"；
-//   CameraPos 是视图 uniform（CameraPositionWS），同样在绝对世界坐标下。
+//   CameraPos 是视图 uniform（CameraPositionWS），同样在绝对世界坐标下；
+//   PlanetCenter 是 ObjectPositionWS（OriginType = Absolute），按图元变换取值。
+//   三者都从渲染侧取，所以同一帧内自洽，也与壳几何同源。
 //
 // 注意：因为函数体里有 return，UE 不会再自动包一层 return，末尾必须自己 return。
 // ---------------------------------------------------------------------------
@@ -237,8 +240,23 @@ bool BuildPlanetAtmosphereMaterial(FString& OutError)
 	CameraPos->MaterialExpressionEditorX = -800;
 	CameraPos->MaterialExpressionEditorY = 200;
 	Material->GetExpressionCollection().AddExpression(CameraPos);
-	UMaterialExpressionVectorParameter* PlanetCenter = AddAtmoVectorParam(Material, TEXT("PlanetCenter"),
-		FLinearColor::Black, -800, 300);
+	// 行星中心取壳自己的变换（绝对世界坐标），**不是** MID 参数。
+	//
+	// 这里踩过和 CameraPos 一模一样的坑，但后果严重得多：C++ 每帧往 MID 写
+	// GetComponentLocation()，而 UCosmosSimulationSubsystem 是 TickableWorldSubsystem，
+	// 在 UWorld::Tick 末尾才把求解器结果写回 Actor —— 组件 Tick 在它之前，
+	// 于是写进 MID 的中心永远等于**上一帧**的行星位置。行星在 N 体里约 7.8 km/s，
+	// 2.5 FPS 时一帧就走 3.1 km，超过大气层厚度（~1.8 km），整层大气每帧绕着
+	// 行星甩一次，肉眼就是"大气在抖"。
+	// ObjectPositionWS 来自本次绘制用的图元变换，与壳几何完全同源，与帧率无关。
+	// OriginType 显式钉成 Absolute（枚举零值，但别依赖默认值）：
+	// HLSL 里 WorldPos / CameraPos 都是绝对世界坐标，三者必须同一空间。
+	UMaterialExpressionObjectPositionWS* PlanetCenter = NewObject<UMaterialExpressionObjectPositionWS>(Material);
+	PlanetCenter->Material = Material;
+	PlanetCenter->OriginType = EPositionOrigin::Absolute;
+	PlanetCenter->MaterialExpressionEditorX = -800;
+	PlanetCenter->MaterialExpressionEditorY = 300;
+	Material->GetExpressionCollection().AddExpression(PlanetCenter);
 	// 太阳槽位 0..MaxSuns-1。0 号默认白（无恒星时的回退太阳就是这个值），其余默认黑。
 	UMaterialExpressionVectorParameter* SunDirection[PlanetClouds::MaxSuns];
 	UMaterialExpressionVectorParameter* SunRadiance[PlanetClouds::MaxSuns];

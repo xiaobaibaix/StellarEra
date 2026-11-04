@@ -21,15 +21,15 @@ namespace
 	const TCHAR* const AtmosphereMaterialPath = TEXT("/Game/Code/Planet/Materials/M_PlanetAtmosphere");
 
 	// 材质参数名。必须与 PlanetAtmosphereMaterialBuilder.cpp 里的一致。
-	// 这里没有 CameraPos：相机位置由材质的 CameraPositionWS 节点从视图 uniform 取，
-	// 不再经过 C++ / MID（原因见 PlanetAtmosphereMaterialBuilder.cpp 里的注释）。
+	// 这里没有 CameraPos 与 PlanetCenter：两者都由材质节点从渲染侧取
+	// （CameraPositionWS / ObjectPositionWS），不再经过 C++ / MID —— 否则慢一帧，
+	// 原因见 PlanetAtmosphereMaterialBuilder.cpp 与 TickComponent 末尾的注释。
 	const FName ParamPlanetRadius(TEXT("PlanetRadius"));
 	const FName ParamShellRadius(TEXT("ShellRadius"));
 	const FName ParamRayleighScaleHeight(TEXT("RayleighScaleHeight"));
 	const FName ParamMieScaleHeight(TEXT("MieScaleHeight"));
 	const FName ParamRayleighBeta(TEXT("RayleighBeta"));
 	const FName ParamMieBeta(TEXT("MieBeta"));
-	const FName ParamPlanetCenter(TEXT("PlanetCenter"));
 	// 太阳槽位。数组下标即槽位号，必须与 PlanetClouds::MaxSuns 一致。
 	const FName ParamSunDirections[PlanetClouds::MaxSuns] = {
 		FName(TEXT("SunDirection0")), FName(TEXT("SunDirection1")),
@@ -246,18 +246,10 @@ void UPlanetAtmosphereComponent::RefreshAtmosphereGeometry()
 		FLinearColor(Scattering.MieBeta.X, Scattering.MieBeta.Y, Scattering.MieBeta.Z, 1.0f));
 	AtmosphereMID->SetVectorParameterValue(ParamSunIntensity, SunIntensity);
 
-	// 行星中心与太阳方向必须在这里写一次，不能只靠 TickComponent。
-	// 编辑器视口不保证 tick 这个组件（实测：组件只挂了个 bTickInEditor，
-	// 行星摆在 y = 1e8 时 PlanetCenter 仍停在 (0,0,0)、CloudDrift 停在 0）。
-	// 材质整条射线以 PlanetCenter 为原点，原点错到行星之外时球面求交全部落空，
-	// 大气与云整层不画、**且不报任何错** —— 表现为"壳明明在、就是看不见"。
-	// 几何重算是唯一必然发生的时机（OnRegister / BeginPlay / 半径变化都走这里）。
+	// 行星中心**不在这里写**：材质用 ObjectPositionWS 节点直接取壳自己的变换
+	// （原因见 TickComponent 末尾的注释）。这里剩下的是太阳列表 —— 它不能只靠
+	// TickComponent：编辑器视口不保证 tick 这个组件，只靠那里会让天空停在初值。
 	const FVector PlanetCenter = GetComponentLocation();
-	AtmosphereMID->SetVectorParameterValue(ParamPlanetCenter,
-		FLinearColor(PlanetCenter.X, PlanetCenter.Y, PlanetCenter.Z, 1.0f));
-
-	// 太阳列表必须在这里也写一次，理由与 PlanetCenter 完全相同：
-	// 编辑器视口不保证 tick 本组件，只靠 TickComponent 会让天空停在初值。
 	CollectSunsFor(GetWorld(), PlanetCenter, CachedSuns);
 	ApplySuns(CachedSuns);
 
@@ -516,18 +508,20 @@ void UPlanetAtmosphereComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	}
 #endif
 
-	// 行星中心就是组件自己的世界位置（相对位置是零）。
-	const FVector PlanetCenter = GetComponentLocation();
-	AtmosphereMID->SetVectorParameterValue(ParamPlanetCenter,
-		FLinearColor(PlanetCenter.X, PlanetCenter.Y, PlanetCenter.Z, 1.0f));
-
 	// 云漂移：每帧一个标量，成本可忽略；CloudDriftPerSecond = 0 时写进去的是常数。
 	AtmosphereMID->SetScalarParameterValue(ParamCloudDrift,
 		GetWorld()->GetTimeSeconds() * CloudDriftPerSecond);
 
-	// 相机位置**不在这里**：材质用 CameraPositionWS 视图 uniform 自己取。
-	// 早先这里每帧写 MID 参数，但编辑器里组件 Tick 早于视口 Tick，写进去的相机位置
-	// 总是慢一帧 —— 快速移动视口时壳的边缘会被算成过亮的暖白硬边。
+	// 行星中心与相机位置**都不在这里**，材质各自从渲染侧取：
+	//   · 相机位置 → CameraPositionWS 视图 uniform。早先每帧写 MID 参数，但组件 Tick
+	//     早于视口 Tick，写进去的相机位置总慢一帧 —— 快速移动视口时壳的边缘会被
+	//     算成过亮的暖白硬边。
+	//   · 行星中心 → ObjectPositionWS（绝对世界坐标）。它是同一个毛病的重灾版本：
+	//     UCosmosSimulationSubsystem 是 TickableWorldSubsystem，在 UWorld::Tick 末尾
+	//     才把求解器结果写回 Actor，而组件 Tick 在这之前 —— 写进 MID 的中心永远等于
+	//     **上一帧**的行星位置。行星在 N 体里约 7.8 km/s，2.5 FPS 时一帧就走 3.1 km，
+	//     比大气层厚度（~1.8 km）还大，于是整层大气绕着行星来回甩 —— 肉眼即"大气在抖"。
+	//     改成 ObjectPositionWS 之后，着色用的中心与壳几何用的是同一份变换，与帧率无关。
 
 	ApplySuns(CachedSuns);
 }
