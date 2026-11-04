@@ -21,6 +21,8 @@
 class UCosmosOrbitComponent;
 class AActor;
 class UCosmosSimulationSubsystem;
+class UStaticMeshComponent;
+class UMaterialInstanceDynamic;
 
 /**
  * 把一颗天体的轨迹画出来。
@@ -164,6 +166,89 @@ public:
 	bool bShowOutsideStarMap = false;
 
 	//////////////////////////////////////////////////////////////////////////
+	// 引力合力箭头（实体：圆柱杆 + 圆锥头）
+	//
+	// 与上面那些**线**画出来的箭头是两回事：这一根是给**操控中的飞船**看的
+	// 常驻指示物，用两个 UStaticMeshComponent 拼出来，走 M_PlanetGhost（Unlit +
+	// 半透明），背光面也看得见。它只在「本地玩家正操控这艘船、且不在星图里」
+	// 时显示 —— 与 bShowOutsideStarMap 解耦，那个开关会把预测线和速度箭头
+	// 一起拖进游戏画面，这里不要。
+
+	/** 操控飞船时是否显示引力合力箭头。默认开。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory|NetForceArrow")
+	bool bDrawNetForceArrow = true;
+
+	/**
+	 * 箭头总长（厘米）。**固定长度**，只表达方向。
+	 *
+	 * 不按合力大小缩放：本关卡的引力加速度都在 10~20 厘米/秒² 量级，深空与
+	 * 贴地差不了几倍，但一旦按比例画，滑行时箭头就缩成一点，丢了「一直在」
+	 * 的意义。强弱交给颜色。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory|NetForceArrow",
+		meta = (ClampMin = "1.0"))
+	double NetForceArrowLengthCm = 2000.0;
+
+	/** 杆半径（厘米）。引擎圆柱底半径是 50 厘米，这里按实际半径填。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory|NetForceArrow",
+		meta = (ClampMin = "0.1"))
+	double NetForceArrowShaftRadiusCm = 40.0;
+
+	/** 锥头底半径（厘米）。比杆粗一圈才看得出是箭头。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory|NetForceArrow",
+		meta = (ClampMin = "0.1"))
+	double NetForceArrowHeadRadiusCm = 100.0;
+
+	/** 锥头占总长的比例。夹在 [0.05, 0.95]。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory|NetForceArrow",
+		meta = (ClampMin = "0.05", ClampMax = "0.95"))
+	double NetForceArrowHeadFraction = 0.3;
+
+	/**
+	 * 起点沿机身 up 的偏移（厘米）。
+	 *
+	 * 必须大于船体半高：飞船 55 × 83 米，20 米的箭头从 Actor 原点画会整根埋
+	 * 进船体里，玩家只看得到一个尖。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory|NetForceArrow",
+		meta = (ClampMin = "0.0"))
+	double NetForceArrowOffsetCm = 2500.0;
+
+	/** 合力最弱时的颜色（冷）。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory|NetForceArrow")
+	FLinearColor NetForceArrowColdColor = FLinearColor(0.15f, 0.55f, 1.0f);
+
+	/** 合力最强时的颜色（暖）。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory|NetForceArrow")
+	FLinearColor NetForceArrowHotColor = FLinearColor(1.0f, 0.3f, 0.1f);
+
+	/**
+	 * 颜色映射的下端：低于它恒为纯冷色（厘米/秒²）。
+	 *
+	 * 与 HotAt 一起构成**对数**刻度。必须是对数：本关卡里引力合力的实际跨度
+	 * 从深空的个位数厘米/秒² 到贴近行星时的 **27600**（HUD 那一栏 0.28 km/s²
+	 * 就是同一个数），线性刻度要么全程饱和、要么深空永远是冷色。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory|NetForceArrow",
+		meta = (ClampMin = "0.0001"))
+	double NetForceArrowColdAtCmPerS2 = 0.1;
+
+	/**
+	 * 颜色映射的上端：达到它（及以上）恒为纯暖色（厘米/秒²）。
+	 *
+	 * 默认 30000 ≈ 本关卡贴近行星时的量级（实测 27600），所以「被行星拽住」
+	 * 就是满暖色；行星际空间里会明显偏冷。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory|NetForceArrow",
+		meta = (ClampMin = "0.001"))
+	double NetForceArrowHotAtCmPerS2 = 30000.0;
+
+	/** 箭头的不透明度。M_PlanetGhost 是半透明材质，1 = 实心。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory|NetForceArrow",
+		meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float NetForceArrowOpacity = 1.0f;
+
+	//////////////////////////////////////////////////////////////////////////
 	// 颜色
 
 	/** 预测轨迹的颜色。浅色 —— 与深色的拖尾形成对比。 */
@@ -303,6 +388,37 @@ public:
 	static double ClampPredictionHorizonYears(
 		double RequestedYears, double OwnPeriodYears, double MaxPeriods);
 
+	/**
+	 * 引力合力箭头的颜色：按加速度大小在冷暖之间**对数**插值。
+	 *
+	 *     α = (ln|a| − ln ColdAt) / (ln HotAt − ln ColdAt)，夹在 [0, 1]
+	 *
+	 * 对数不是美化：本关卡的量级跨 5 个数量级（行星际 ~10，贴地 ~27600），
+	 * 线性刻度会让箭头在哪里都一样红。
+	 *
+	 * |a| ≤ ColdAt → 冷色；≥ HotAt → 暖色。ColdAt ≤ 0、HotAt ≤ ColdAt，或任一
+	 * 参数非有限时返回冷色 —— 宁可不表达强弱，也不要算出 NaN 染黑整根箭头。
+	 * 纯函数，自动化测试直接调用。
+	 */
+	static FLinearColor NetForceArrowColor(double MagnitudeCmPerS2,
+		double ColdAtCmPerS2, double HotAtCmPerS2,
+		const FLinearColor& Cold, const FLinearColor& Hot);
+
+	/**
+	 * 把「一根圆柱杆 + 一个圆锥头」的变换算出来。
+	 *
+	 * 两个引擎基础形状都是 100 厘米高、底半径 50 厘米、沿 +Z 朝上，所以缩放是
+	 * 「半径 / 50」「长度 / 100」，朝向用 MakeFromZ。杆从 Anchor 起、到总长的
+	 * (1 − HeadFraction) 处结束；锥头接在后面，两者各自以中点定位。
+	 *
+	 * 输入非法（长度 / 半径非正、方向近零、非有限）返回 false 并把两个变换置为
+	 * 单位变换。纯函数，自动化测试直接调用。
+	 */
+	static bool ComputeNetForceArrowTransforms(
+		const FVector& Anchor, const FVector& Direction, double TotalLengthCm,
+		double ShaftRadiusCm, double HeadRadiusCm, double HeadFraction,
+		FTransform& OutShaft, FTransform& OutHead);
+
 private:
 	/**
 	 * **有限**预测窗口（年）。闭合轨道成功时不会走到这里 —— 闭环长度由实测
@@ -327,6 +443,24 @@ private:
 
 	/** 引力箭头（运行期，读求解器当前纯引力）。 */
 	void AppendGravityArrow(const UCosmosSimulationSubsystem& Subsystem, const FLinearColor& Color);
+
+	/**
+	 * 更新实体合力箭头（圆柱杆 + 圆锥头）的位置、朝向与颜色。
+	 *
+	 * 只在「本地玩家正操控这艘飞船、且不在星图里」时被调用；条件不满足时由
+	 * 调用方隐藏。数据源是求解器里的**纯引力**（与星图那根橙箭头的同一个量），
+	 * 不含推力 —— 推力比引力大六个数量级，混进去箭头就只剩机头方向。
+	 */
+	void UpdateNetForceArrow(const UCosmosSimulationSubsystem& Subsystem);
+
+	/**
+	 * 惰性创建两个 UStaticMeshComponent。Outer 是飞船 Actor，跟着船一起销毁；
+	 * 只给飞船创建，行星永远不会走到这条路径。返回 false = 网格或材质加载失败。
+	 */
+	bool EnsureNetForceArrowMeshes();
+
+	/** 显示/隐藏两个箭头部件。状态没变时不碰组件，避免每帧触发渲染状态刷新。 */
+	void SetNetForceArrowVisible(bool bVisible);
 
 	/** 找对本天体引力最强的另一颗（max M/d²），算希尔半径。不产生引力的天体返回 false。 */
 	bool ResolveHillSphereRadiusCm(double& OutRadiusCm);
@@ -411,4 +545,23 @@ private:
 
 	/** 上一帧画过没有 —— 关掉时只清一次。 */
 	bool bDrewLastFrame = false;
+
+	/** 合力箭头的杆（圆柱）与头（圆锥）。惰性创建，Outer 是飞船 Actor。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UStaticMeshComponent> NetForceArrowShaft;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UStaticMeshComponent> NetForceArrowHead;
+
+	/**
+	 * 两个部件共用的动态材质实例。
+	 *
+	 * Outer 给瞬态包而不是组件：指示物不该把资产包拖成脏包，也不该在切图时
+	 * 被当成关卡内容收走。本组件持有强引用，生命周期由它兜住。
+	 */
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> NetForceArrowMID;
+
+	/** 箭头上一次是显示还是隐藏。 */
+	bool bNetForceArrowVisible = false;
 };

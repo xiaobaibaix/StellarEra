@@ -4,10 +4,15 @@
 
 #include "CosmosOrbitComponent.h"
 #include "CosmosSimulationSubsystem.h"
+#include "CosmosTypes.h"
 #include "SpaceshipPawn.h"
 #include "VoxelPlanetActor.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "UObject/Package.h"
 #include "UObject/UObjectGlobals.h"
 #include "UObject/UObjectIterator.h"
 
@@ -85,6 +90,9 @@ void UCosmosTrajectoryComponent::OnUnregister()
 		LineBatch->Flush();
 	}
 	bDrewLastFrame = false;
+
+	// 重注册期间不该留着上一帧的箭头；下次 Tick 会按需重新显示。
+	SetNetForceArrowVisible(false);
 
 	Super::OnUnregister();
 }
@@ -283,6 +291,26 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	const bool bWantGravityArrow = bInStarMapView && bDrawGravityArrow;
 	const bool bWantHillSphere = bInStarMapView && bDrawHillSphere;
 	const bool bWantDominance = bInStarMapView && bDrawDominancePartition;
+
+	// ── 实体合力箭头：独立的门控，与上面六条互不牵连 ──
+	//
+	// 它属于「操控飞船」这个状态，不属于星图：上船出现、下船走角色消失、进星图
+	// 也消失。所以**不**读 bInStarMapView，也不受 bShowOutsideStarMap 影响 ——
+	// 那个开关会把预测线和速度箭头一起拖进游戏画面，与本需求无关。
+	const ASpaceshipPawn* ControlledShip = Cast<ASpaceshipPawn>(OwnerActor);
+	const bool bWantsNetForceArrow = bDrawNetForceArrow
+		&& ControlledShip != nullptr
+		&& ControlledShip->IsLocallyControlled()
+		&& !Subsystem->IsStarMapActive();
+
+	if (bWantsNetForceArrow)
+	{
+		UpdateNetForceArrow(*Subsystem);
+	}
+	else
+	{
+		SetNetForceArrowVisible(false);
+	}
 
 	if (!bWantTrail && !bWantPrediction && !bWantArrow && !bWantGravityArrow
 		&& !bWantHillSphere && !bWantDominance)
@@ -550,6 +578,223 @@ void UCosmosTrajectoryComponent::AppendGravityArrow(const UCosmosSimulationSubsy
 		Color, 0.0f, LineThickness, LineDepthPriority);
 	Lines.Emplace(Tip, Tip + (Direction * HeadCos - Perp * HeadSin) * HeadLength,
 		Color, 0.0f, LineThickness, LineDepthPriority);
+}
+
+FLinearColor UCosmosTrajectoryComponent::NetForceArrowColor(double MagnitudeCmPerS2,
+	double ColdAtCmPerS2, double HotAtCmPerS2,
+	const FLinearColor& Cold, const FLinearColor& Hot)
+{
+	if (!FMath::IsFinite(MagnitudeCmPerS2) || !FMath::IsFinite(ColdAtCmPerS2)
+		|| !FMath::IsFinite(HotAtCmPerS2)
+		|| ColdAtCmPerS2 <= 0.0 || HotAtCmPerS2 <= ColdAtCmPerS2)
+	{
+		return Cold;
+	}
+
+	// 先夹到 [ColdAt, HotAt] 再取对数：M ≤ 0 时 ln 无定义，夹一次就顺带挡住了。
+	const double Clamped = FMath::Clamp(MagnitudeCmPerS2, ColdAtCmPerS2, HotAtCmPerS2);
+	const double Alpha = (FMath::Loge(Clamped) - FMath::Loge(ColdAtCmPerS2))
+		/ (FMath::Loge(HotAtCmPerS2) - FMath::Loge(ColdAtCmPerS2));
+
+	return FMath::Lerp(Cold, Hot, static_cast<float>(FMath::Clamp(Alpha, 0.0, 1.0)));
+}
+
+bool UCosmosTrajectoryComponent::ComputeNetForceArrowTransforms(
+	const FVector& Anchor, const FVector& Direction, double TotalLengthCm,
+	double ShaftRadiusCm, double HeadRadiusCm, double HeadFraction,
+	FTransform& OutShaft, FTransform& OutHead)
+{
+	OutShaft = FTransform::Identity;
+	OutHead = FTransform::Identity;
+
+	if (!FMath::IsFinite(TotalLengthCm) || TotalLengthCm <= 0.0
+		|| !FMath::IsFinite(ShaftRadiusCm) || ShaftRadiusCm <= 0.0
+		|| !FMath::IsFinite(HeadRadiusCm) || HeadRadiusCm <= 0.0
+		|| Direction.IsNearlyZero())
+	{
+		return false;
+	}
+
+	const FVector Dir = Direction.GetSafeNormal();
+	if (Dir.IsNearlyZero())
+	{
+		return false;
+	}
+
+	// 引擎基础形状（Cylinder / Cone）是 100 厘米高、底半径 50 厘米、+Z 朝上。
+	constexpr double BasicShapeHeight = 100.0;
+	constexpr double BasicShapeRadius = 50.0;
+
+	const double Fraction = FMath::Clamp(HeadFraction, 0.05, 0.95);
+	const double HeadLength = TotalLengthCm * Fraction;
+	const double ShaftLength = TotalLengthCm - HeadLength;
+
+	// 锥头是「底在下、尖在上」，所以要把它整体前移到杆的末端；两者都以自身
+	// 中点定位，缩放 Z 就是「实际长度 / 100」。
+	const FRotator Rotation = FRotationMatrix::MakeFromZ(Dir).Rotator();
+	const double RadialScale = 1.0 / BasicShapeRadius;
+
+	OutShaft = FTransform(Rotation,
+		Anchor + Dir * (ShaftLength * 0.5),
+		FVector(ShaftRadiusCm * RadialScale, ShaftRadiusCm * RadialScale,
+			ShaftLength / BasicShapeHeight));
+
+	OutHead = FTransform(Rotation,
+		Anchor + Dir * (ShaftLength + HeadLength * 0.5),
+		FVector(HeadRadiusCm * RadialScale, HeadRadiusCm * RadialScale,
+			HeadLength / BasicShapeHeight));
+
+	return true;
+}
+
+bool UCosmosTrajectoryComponent::EnsureNetForceArrowMeshes()
+{
+	if (IsValid(NetForceArrowShaft) && IsValid(NetForceArrowHead))
+	{
+		return true;
+	}
+
+	AActor* OwnerActor = GetOwner();
+	if (!OwnerActor || !OwnerActor->GetRootComponent())
+	{
+		return false;
+	}
+
+	UStaticMesh* CylinderMesh = LoadObject<UStaticMesh>(nullptr,
+		TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+	UStaticMesh* ConeMesh = LoadObject<UStaticMesh>(nullptr,
+		TEXT("/Engine/BasicShapes/Cone.Cone"));
+	UMaterialInterface* ArrowMaterial = LoadObject<UMaterialInterface>(nullptr,
+		TEXT("/Game/Code/Planet/Materials/M_PlanetGhost.M_PlanetGhost"));
+
+	if (!CylinderMesh || !ConeMesh || !ArrowMaterial)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Cosmos] 合力箭头缺少基础形状或材质，箭头不显示（Cylinder=%d Cone=%d Material=%d）。"),
+			CylinderMesh != nullptr, ConeMesh != nullptr, ArrowMaterial != nullptr);
+		return false;
+	}
+
+	auto CreatePart = [OwnerActor, ArrowMaterial](const TCHAR* Name, UStaticMesh* Mesh)
+		-> UStaticMeshComponent*
+	{
+		UStaticMeshComponent* Part = NewObject<UStaticMeshComponent>(OwnerActor, FName(Name));
+		if (!Part)
+		{
+			return nullptr;
+		}
+
+		Part->SetMobility(EComponentMobility::Movable);
+		Part->SetupAttachment(OwnerActor->GetRootComponent());
+		Part->SetStaticMesh(Mesh);
+		Part->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Part->SetGenerateOverlapEvents(false);
+		Part->SetCastShadow(false);
+		Part->SetReceivesDecals(false);
+		Part->SetMaterial(0, ArrowMaterial);
+		Part->RegisterComponent();
+		Part->SetVisibility(false);
+		return Part;
+	};
+
+	NetForceArrowShaft = CreatePart(TEXT("NetForceArrowShaft"), CylinderMesh);
+	NetForceArrowHead = CreatePart(TEXT("NetForceArrowHead"), ConeMesh);
+	if (!IsValid(NetForceArrowShaft) || !IsValid(NetForceArrowHead))
+	{
+		return false;
+	}
+
+	// MID 的 Outer 给瞬态包：指示物不该把资产包拖脏，也不该在切图时被旧世界
+	// 的引用链挂住（参见仓库里「给体素相关物建 MID / 纹理，Outer 一律给瞬态包」）。
+	NetForceArrowMID = UMaterialInstanceDynamic::Create(ArrowMaterial, GetTransientPackage());
+	if (NetForceArrowMID)
+	{
+		NetForceArrowShaft->SetMaterial(0, NetForceArrowMID);
+		NetForceArrowHead->SetMaterial(0, NetForceArrowMID);
+	}
+
+	return true;
+}
+
+void UCosmosTrajectoryComponent::SetNetForceArrowVisible(bool bVisible)
+{
+	if (bVisible == bNetForceArrowVisible)
+	{
+		return;
+	}
+	bNetForceArrowVisible = bVisible;
+
+	if (IsValid(NetForceArrowShaft))
+	{
+		NetForceArrowShaft->SetVisibility(bVisible, /*bPropagateToChildren=*/true);
+	}
+	if (IsValid(NetForceArrowHead))
+	{
+		NetForceArrowHead->SetVisibility(bVisible, /*bPropagateToChildren=*/true);
+	}
+}
+
+void UCosmosTrajectoryComponent::UpdateNetForceArrow(const UCosmosSimulationSubsystem& Subsystem)
+{
+	UCosmosOrbitComponent* OrbitComponent = GetOrbitComponent();
+	const AActor* OwnerActor = GetOwner();
+	if (!OrbitComponent || !OwnerActor || OrbitComponent->SimulatorIndex == INDEX_NONE)
+	{
+		SetNetForceArrowVisible(false);
+		return;
+	}
+
+	// 纯引力（AU/年²）→ 世界厘米/秒²，换算只走 CosmosUnits。
+	const FVector3d Gravity = Subsystem.GetBodyGravityGameUnits(OrbitComponent->SimulatorIndex);
+	const FVector3d GravityCmPerS2 = CosmosUnits::GameAccelerationToWorldCmPerS2(
+		Gravity, Subsystem.CentimetersPerAu, Subsystem.TimeScale);
+
+	const double Magnitude = GravityCmPerS2.Size();
+	if (!FMath::IsFinite(Magnitude) || Magnitude <= 0.0)
+	{
+		// 完全失重：方向无定义，宁可隐藏也不留一根指向随机方向的箭头。
+		SetNetForceArrowVisible(false);
+		return;
+	}
+
+	const FVector Direction(GravityCmPerS2 / Magnitude);
+	if (Direction.IsNearlyZero())
+	{
+		SetNetForceArrowVisible(false);
+		return;
+	}
+
+	// 锚点抬到船体上方，否则 20 米的箭头整根埋在 55 × 83 米的船里。
+	const FVector Anchor = OwnerActor->GetActorLocation()
+		+ OwnerActor->GetActorUpVector() * NetForceArrowOffsetCm;
+
+	FTransform ShaftTransform;
+	FTransform HeadTransform;
+	if (!ComputeNetForceArrowTransforms(Anchor, Direction, NetForceArrowLengthCm,
+		NetForceArrowShaftRadiusCm, NetForceArrowHeadRadiusCm, NetForceArrowHeadFraction,
+		ShaftTransform, HeadTransform))
+	{
+		SetNetForceArrowVisible(false);
+		return;
+	}
+
+	if (!EnsureNetForceArrowMeshes())
+	{
+		return;
+	}
+
+	NetForceArrowShaft->SetWorldTransform(ShaftTransform);
+	NetForceArrowHead->SetWorldTransform(HeadTransform);
+
+	if (NetForceArrowMID)
+	{
+		NetForceArrowMID->SetVectorParameterValue(TEXT("ShellColor"),
+			NetForceArrowColor(Magnitude, NetForceArrowColdAtCmPerS2,
+				NetForceArrowHotAtCmPerS2, NetForceArrowColdColor, NetForceArrowHotColor));
+		NetForceArrowMID->SetScalarParameterValue(TEXT("Opacity"), NetForceArrowOpacity);
+	}
+
+	SetNetForceArrowVisible(true);
 }
 
 bool UCosmosTrajectoryComponent::ComputeHillRadiusCm(double BodyMass, double PrimaryMass,
