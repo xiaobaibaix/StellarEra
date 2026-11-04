@@ -184,6 +184,10 @@ public:
 	 * 不按合力大小缩放：本关卡的引力加速度都在 10~20 厘米/秒² 量级，深空与
 	 * 贴地差不了几倍，但一旦按比例画，滑行时箭头就缩成一点，丢了「一直在」
 	 * 的意义。强弱交给颜色。
+	 *
+	 * 注意尾端钉在 Actor 原点时，这 20 米整根埋在舰体里（船体包围盒
+	 * ±27.5 × ±41.3 × ±10.0 米，而 Hull 的轴心就是船体几何中心），实测
+	 * PIE 截图上橙色像素为 0。要沿合力方向戳出船壳，长度得超过 41.3 米。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory|NetForceArrow",
 		meta = (ClampMin = "1.0"))
@@ -205,14 +209,14 @@ public:
 	double NetForceArrowHeadFraction = 0.3;
 
 	/**
-	 * 起点沿机身 up 的偏移（厘米）。
+	 * 起点沿机身 up 的偏移（厘米）。0 = 直接从飞船 Actor 原点长出来。
 	 *
-	 * 必须大于船体半高：飞船 55 × 83 米，20 米的箭头从 Actor 原点画会整根埋
-	 * 进船体里，玩家只看得到一个尖。
+	 * 默认 0：尾端钉在 Actor 原点，箭头看起来是从船体里伸出来的。调大会把
+	 * 整根箭头抬到船体上方，代价是尾端与船之间露出一段悬空的空隙。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory|NetForceArrow",
 		meta = (ClampMin = "0.0"))
-	double NetForceArrowOffsetCm = 2500.0;
+	double NetForceArrowOffsetCm = 0.0;
 
 	/** 合力最弱时的颜色（冷）。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory|NetForceArrow")

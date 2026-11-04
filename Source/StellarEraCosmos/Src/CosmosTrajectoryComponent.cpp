@@ -664,8 +664,20 @@ bool UCosmosTrajectoryComponent::EnsureNetForceArrowMeshes()
 		TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
 	UStaticMesh* ConeMesh = LoadObject<UStaticMesh>(nullptr,
 		TEXT("/Engine/BasicShapes/Cone.Cone"));
+
+	// 尾端钉在 Actor 原点（船体几何中心），整根箭头都在舰体内部，所以材质必须
+	// 关掉深度测试，像 HUD 一样画在船体之上 —— 否则玩家一个像素也看不到。
+	// 这是 M_PlanetGhost 的副本，只多勾了 Disable Depth Test。
 	UMaterialInterface* ArrowMaterial = LoadObject<UMaterialInterface>(nullptr,
-		TEXT("/Game/Code/Planet/Materials/M_PlanetGhost.M_PlanetGhost"));
+		TEXT("/Game/Code/Planet/Materials/M_PlanetGhostOverlay.M_PlanetGhostOverlay"));
+	if (!ArrowMaterial)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Cosmos] 找不到 M_PlanetGhostOverlay（关深度测试的箭头材质），退回 M_PlanetGhost；"
+				"箭头会被船体遮住，追尾视角看不见。"));
+		ArrowMaterial = LoadObject<UMaterialInterface>(nullptr,
+			TEXT("/Game/Code/Planet/Materials/M_PlanetGhost.M_PlanetGhost"));
+	}
 
 	if (!CylinderMesh || !ConeMesh || !ArrowMaterial)
 	{
@@ -718,10 +730,11 @@ bool UCosmosTrajectoryComponent::EnsureNetForceArrowMeshes()
 
 void UCosmosTrajectoryComponent::SetNetForceArrowVisible(bool bVisible)
 {
-	if (bVisible == bNetForceArrowVisible)
-	{
-		return;
-	}
+	// 不能按上次的状态早退：两个箭头部件挂在根组件（Hull）下，任何一处
+	// SetVisibility(..., bPropagateToChildren=true) 藏船体，都会把它们的
+	// bVisible 一并改成 false，而本类缓存的 bNetForceArrowVisible 仍是
+	// true —— 早退会让箭头永久消失。SetVisibility 自己会判等，重复调用
+	// 不产生额外开销。
 	bNetForceArrowVisible = bVisible;
 
 	if (IsValid(NetForceArrowShaft))
@@ -764,7 +777,8 @@ void UCosmosTrajectoryComponent::UpdateNetForceArrow(const UCosmosSimulationSubs
 		return;
 	}
 
-	// 锚点抬到船体上方，否则 20 米的箭头整根埋在 55 × 83 米的船里。
+	// 默认 Offset 为 0：尾端钉在 Actor 原点（需求就是「起点放在飞船的 0,0,0」）。
+	// 调大 Offset 会把整根箭头抬到船背上方，尾端与船之间会出现一段悬空空隙。
 	const FVector Anchor = OwnerActor->GetActorLocation()
 		+ OwnerActor->GetActorUpVector() * NetForceArrowOffsetCm;
 
