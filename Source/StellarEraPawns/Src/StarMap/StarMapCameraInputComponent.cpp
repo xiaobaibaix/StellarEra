@@ -68,6 +68,12 @@ EStarMapLookMode UStarMapCameraInputComponent::ResolveLookMode(
 
 void UStarMapCameraInputComponent::Bind(UInputComponent* PlayerInputComponent)
 {
+	// 每次 Possess 都会重绑。按着鼠标切进 / 切出星图时，松开事件会送到别的 Pawn
+	// 身上，标志就永远停在 true —— 一进星图没按键也在转视角。在这里清一次。
+	// 放在早退之前：绑失败时输入本来就全哑，但标志不该留着上一轮的旧值。
+	bLookHeld = false;
+	bMiddleHeld = false;
+
 	AStarMapCameraPawn* Pawn = GetPawn();
 	UEnhancedInputComponent* EnhancedInput = Cast<UEnhancedInputComponent>(PlayerInputComponent);
 	IStellarEraInputSource* Source = Pawn ? Cast<IStellarEraInputSource>(Pawn->GetController()) : nullptr;
@@ -81,11 +87,6 @@ void UStarMapCameraInputComponent::Bind(UInputComponent* PlayerInputComponent)
 			*GetNameSafe(Pawn ? Pawn->GetController() : nullptr));
 		return;
 	}
-
-	// 每次 Possess 都会重绑。按着鼠标切进 / 切出星图时，松开事件会送到别的 Pawn
-	// 身上，标志就永远停在 true —— 一进星图没按键也在转视角。在这里清一次。
-	bLookHeld = false;
-	bMiddleHeld = false;
 
 	const FStellarEraInputActions& Input = Source->GetStellarEraInputActions();
 

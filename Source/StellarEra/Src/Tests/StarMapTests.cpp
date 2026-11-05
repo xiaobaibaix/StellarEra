@@ -684,7 +684,7 @@ bool FStellarEraStarMapBlueprintPawnTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 星图里左 / 右 / 中三个键各管什么。纯函数，OnLook 调它，测试直接调它。
+// 星图里左 / 右 / 中三个键各管什么。纯函数，UStarMapCameraInputComponent::OnLookInput 调它，测试直接调它。
 //
 // 右键在本项目里是「转头」的通用键。星图里它改的是**视线朝向**而不是绕行位置
 // （见 AStarMapCameraPawn::AimLook）：锁定天体后画面不再死盯球心，但相机到焦点的

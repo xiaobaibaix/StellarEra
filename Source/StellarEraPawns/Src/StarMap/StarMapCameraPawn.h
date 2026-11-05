@@ -139,7 +139,7 @@ public:
 	void FocusOn(AActor* Body, double DistanceCm);
 
 	/**
-	 * 鼠标位移 → 绕焦点转视角。单位是度，来自控制器的 LookSensitivity。
+	 * 鼠标位移 → 绕焦点转视角。单位是度，来自 UStarMapCameraInputComponent::LookSensitivity。
 	 *
 	 * 实际转过的角度按 OrbitLookScale 缩放：贴着地表看细节时同样的鼠标位移只转
 	 * 一小点，拉到远处看整个星系时转得比基准快。
@@ -495,7 +495,7 @@ protected:
 	/**
 	 * 绕行视角的灵敏度下限（倍率），见 OrbitLookScale。
 	 *
-	 * 贴地表时实际灵敏度 = 控制器 LookSensitivity × 这个值。0.05 = 慢到二十分之一：
+	 * 贴地表时实际灵敏度 = UStarMapCameraInputComponent::LookSensitivity × 这个值。0.05 = 慢到二十分之一：
 	 * 调小更好对细节，但转身要多拖几倍；调大更好转身，但贴地容易「移过」。
 	 * 远处的灵敏度由 MaxOrbitLookScale 决定，不受这个值影响。
 	 */
@@ -505,7 +505,7 @@ protected:
 	/**
 	 * 绕行视角的灵敏度上限（倍率），见 OrbitLookScale。
 	 *
-	 * 拉到看整个星系时实际灵敏度 = 控制器 LookSensitivity × 这个值。8 = 远距离
+	 * 拉到看整个星系时实际灵敏度 = UStarMapCameraInputComponent::LookSensitivity × 这个值。8 = 远距离
 	 * 一拖就横扫过去；调小更好精确定位远处天体，调大更容易大范围扫视。
 	 * 2R–3R（整颗行星入画）那一段的倍率是 1–2，不受这个值影响。
 	 */

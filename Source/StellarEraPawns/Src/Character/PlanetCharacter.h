@@ -65,7 +65,7 @@ public:
 	 * 滚轮缩放相机臂长。Value 是滚轮轴值，上滚为正。
 	 *
 	 * 与 Look 分开是因为两者的输入门不同：Look 只在按住右键时才有值
-	 * （见 AStellarEraPlayerController::OnLook），缩放任何时候都响应。
+	 * （见 UPlanetCharacterInputComponent::OnLookInput），缩放任何时候都响应。
 	 */
 	void AddZoom(float Value);
 

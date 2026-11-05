@@ -115,7 +115,7 @@ struct STELLARERAPAWNS_API FStellarEraInputActions
 	/**
 	 * 星图里选中天体 / 拖拽绕行（鼠标左键）。按下与松开的位移区分两者。
 	 * 编辑模式与矿物透视下左键已被借走，那时拖拽是编辑 / 图例，绕行改由中键承担、
-	 * 转头仍是右键 —— 见 ResolveStarMapLookMode。
+	 * 转头仍是右键 —— 见 UStarMapCameraInputComponent::ResolveLookMode。
 	 */
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> StarMapSelect;
