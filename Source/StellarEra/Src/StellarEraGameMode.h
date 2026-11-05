@@ -16,8 +16,14 @@ class ASpaceshipPawn;
  * 没有它，PIE 会生成引擎默认的 ADefaultPawn（一个旁观球），角色类永远不会
  * 被实例化。DefaultEngine.ini 里的 GlobalDefaultGameMode 指向本类。
  *
- * 出生点只有一个来源：关卡里的 PlayerStart。飞船摆到那里，角色也出生在那里，
- * 代码里不写死任何坐标 —— 想换起点就在关卡里拖 PlayerStart。
+ * 出生点只有一个来源：关卡里的 PlayerStart。飞船摆到那里，代码里不写死任何坐标
+ * —— 想换起点就在关卡里拖 PlayerStart。
+ *
+ * 开局操控的是**飞船本身**：`DefaultPawnClass` 就是飞船类，`SpawnDefaultPawnFor`
+ * 再把关卡里手摆的那艘交出去（引擎的默认路径只会新生成一个实例，没有「复用关卡里
+ * 的 Actor」这种模式）。角色不在开局生成，而是第一次按 E 下船时才由
+ * `AStellarEraPlayerController` 生成。这样就不存在「默认 Pawn 必须找得到一格没被
+ * 船挡住的地面」这个约束 —— 它曾让角色落到世界原点。
  */
 UCLASS()
 class AStellarEraGameMode : public AGameModeBase
@@ -27,69 +33,39 @@ class AStellarEraGameMode : public AGameModeBase
 public:
 	AStellarEraGameMode();
 
-	/**
-	 * 是否自动把飞船摆到出生点。关卡里已经有一艘就把它摆过去，没有就在那里生成一艘。
-	 *
-	 * 关掉它 = 飞船完全由关卡里的手摆位置决定，GameMode 不插手。
-	 */
-	UPROPERTY(EditDefaultsOnly, Category = "StellarEra")
-	bool bAutoPlaceSpaceshipAtStart = true;
-
-	/**
-	 * 关卡里没有飞船时生成哪个类。
-	 *
-	 * 构造函数里默认指向蓝图子类 BP_SpaceshipPawn —— 模型与摆位都在那上面，
-	 * 直接生成原生 ASpaceshipPawn 只会得到一个占位立方体。蓝图缺失时退回原生类。
-	 */
-	UPROPERTY(EditDefaultsOnly, Category = "StellarEra")
-	TSubclassOf<ASpaceshipPawn> ShipClass;
-
-	/**
-	 * 开局直接把玩家放进最近的飞船，而不是先走角色。
-	 *
-	 * 走的是正常登船流程，因此角色会被登记为已登船（隐藏、附着在船上）：
-	 * 飞船停稳时屏幕上会出现「按 E 离船」，按 E 就能下车继续行走。
-	 *
-	 * GlobalDefaultGameMode 指向的是本原生类，没有蓝图实例可以勾选，
-	 * 所以这里的默认值就是最终生效值 —— 想改回「先走路」改这一行即可。
-	 */
-	UPROPERTY(EditDefaultsOnly, Category = "StellarEra")
-	bool bStartInSpaceship = true;
-
-	/**
-	 * 开局登船的重试间隔（秒）。第一次尝试在下一帧就发生（FirstDelay = 0）。
-	 */
-	UPROPERTY(EditDefaultsOnly, Category = "StellarEra", meta = (ClampMin = "0.01"))
-	float StartupShipRetryInterval = 0.1f;
-
-	/**
-	 * 开局登船最多重试多少次，超过就放弃并打日志。
-	 * 默认 50 次 × 0.1 秒 ≈ 5 秒的窗口。
-	 */
-	UPROPERTY(EditDefaultsOnly, Category = "StellarEra", meta = (ClampMin = "1"))
-	int32 StartupShipMaxAttempts = 50;
-
 protected:
 	virtual void BeginPlay() override;
 
-	/** 关卡里的 PlayerStart；没有则返回 nullptr。飞船的出生点由它决定。 */
+	/**
+	 * 选出生点。直接返回关卡里的 PlayerStart，不走超类。
+	 *
+	 * 超类会用角色胶囊在出生点上做 `EncroachingBlockingGeometry`：本工程的飞船就摆在
+	 * PlayerStart 上（`EnsureSpaceshipExists` 会把它摆过去），船体是 `ECC_Pawn` 且
+	 * Block 全通道，于是这个出生点被整条判掉、Pawn 落到世界原点。船不是障碍物，是我们
+	 * 故意摆在出生点的。
+	 */
+	virtual AActor* ChoosePlayerStart_Implementation(AController* Player) override;
+
+	/**
+	 * 开局交给玩家的 Pawn。
+	 *
+	 * 先去关卡里找飞船：找到就直接返回它（返回已存在的 Actor 是合法的 ——
+	 * `RestartPlayerAtPlayerStart` 只会 SetPawn + FinishRestartPlayer，不会再 spawn）；
+	 * 找不到才按 `DefaultPawnClass` 在出生点生成一艘。
+	 */
+	virtual APawn* SpawnDefaultPawnFor_Implementation(AController* NewPlayer, AActor* StartSpot) override;
+
+	/**
+	 * 关卡里的 PlayerStart；没有则返回 nullptr。飞船的出生点由它决定。
+	 *
+	 * 直接遍历 Actor，不走 `FindPlayerStart` —— 那条路会做遮挡检测，而飞船就压在
+	 * 出生点上。PIE 的「Play From Here」优先。
+	 */
 	APlayerStart* FindSpawnPlayerStart();
+
+	/** 关卡里手摆的那艘飞船；没有则返回 nullptr。 */
+	ASpaceshipPawn* FindExistingShip() const;
 
 	/** 把飞船摆到出生点；关卡里没有飞船就在那里生成一艘。 */
 	void EnsureSpaceshipExists();
-
-	/**
-	 * 开局登船：由定时器反复调用，直到本地玩家拿到角色 Pawn 并成功登船。
-	 *
-	 * 不能只等一帧：本地玩家登录并拿到 DefaultPawn 的时机由引擎决定，实测一帧后
-	 * GetPawn() 还不是 APlanetCharacter，登船会静默失败。
-	 */
-	void PossessStartupShip();
-
-private:
-	/** 开局登船轮询的定时器。 */
-	FTimerHandle StartupShipTimerHandle;
-
-	/** 已经尝试过多少次开局登船。 */
-	int32 StartupShipAttempts = 0;
 };

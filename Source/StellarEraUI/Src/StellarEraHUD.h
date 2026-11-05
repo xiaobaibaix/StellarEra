@@ -5,6 +5,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/HUD.h"
+#include "StellarEraNoticeSink.h"
 #include "StellarEraHUD.generated.h"
 
 class ASpaceshipPawn;
@@ -29,7 +30,7 @@ struct FSpaceshipStatus;
  * —— 若屏幕上的「按 E 登船」显示正常，这里就正常。
  */
 UCLASS()
-class STELLARERAUI_API AStellarEraHUD : public AHUD
+class STELLARERAUI_API AStellarEraHUD : public AHUD, public IStellarEraNoticeSink
 {
 	GENERATED_BODY()
 
@@ -39,8 +40,11 @@ public:
 	/**
 	 * 弹一条提示，NoticeDuration 秒后自动消失（末尾 NoticeFadeDuration 秒淡出）。
 	 * 重复调用会替换掉上一条，不排队。
+	 *
+	 * 同时是本类对 IStellarEraNoticeSink 的实现：飞船（Pawns 模块，本模块的下游）
+	 * 拿不到 AStellarEraHUD 的类型，只能通过接口调进来。
 	 */
-	void ShowNotice(const FString& Text);
+	virtual void ShowNotice(const FString& Text) override;
 
 	/** 当前画布尺寸（像素）；没有 Canvas 时返回零向量。 */
 	FVector2D GetViewportSize() const;

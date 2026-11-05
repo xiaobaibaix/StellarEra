@@ -157,7 +157,9 @@ UI 声明自己需要什么，Game 去实现，于是 UI 不需要 include 控�
 | 加一种天体类型/单位制 | `StellarEraCosmos/Src/CosmosTypes.h` |
 | 改 HUD 显示内容 | `StellarEraUI/Src/StellarEraHUD.cpp` |
 | 改星图交互 | `StellarEraUI/Src/StarMapUISystem.cpp` |
-| 改按键绑定 | `StellarEra/Src/StellarEraPlayerController.cpp` 的 `SetupInputComponent` |
+| 改按键映射（哪个键是哪个动作） | `StellarEraPawns/Src/StellarEraInputActions.cpp` 的 `Build` |
+| 改角色 / 飞船对输入的响应 | `StellarEraPawns/Src/{Character,Spaceship}/*.cpp` 的 `SetupPlayerInputComponent` |
+| 改星图 / 模式键（E M G H 数字键）的绑定 | `StellarEra/Src/StellarEraPlayerController.cpp` 的 `SetupInputComponent` |
 
 ---
 

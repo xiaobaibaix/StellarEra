@@ -7,13 +7,13 @@
 #include "GameFramework/PlayerController.h"
 #include "Templates/SubclassOf.h"
 #include "StarMapUIInputs.h"
+#include "StellarEraInputActions.h"
 #include "StellarEraPlayerController.generated.h"
 
+class APlanetCharacter;
 class AStarMapCameraPawn;
 class ASpaceshipPawn;
 class AVoxelPlanetActor;
-class UInputAction;
-class UInputMappingContext;
 class UPlanetMineralViewComponent;
 class UPlanetEditComponent;
 struct FInputActionValue;
@@ -43,11 +43,16 @@ enum class EStarMapLookMode : uint8
  * 不需要先在编辑器里点出一堆资产。代价是键位暂时不能在编辑器里改；等键位
  * 定稿后再换成 .uasset 是平滑的替换（数据结构一样，只是来源变了）。
  *
- * 所有动作都绑定在本控制器上，再按“当前 Possess 的是哪个 Pawn”分派。
- * 这样切换角色/飞船时不需要重新绑定输入。
+ * 输入绑定按「谁被操控谁绑」分：
+ *   - **角色 / 飞船**在自己的 `SetupPlayerInputComponent` 里绑移动、视角、推力等，
+ *     动作表由本类经 `IStellarEraInputSource` 提供 —— 所以这里没有按 Pawn 类型
+ *     分派的三路 `Cast`，新增一种可操控 Pawn 也不用改本类；
+ *   - **本类**只绑控制器级的东西：E 上下船、M 星图、G 编辑、H 矿物、数字键，
+ *     以及**星图模式**下的鼠标（星图是控制器的一个模式，不是某个 Pawn 的行为）。
  */
 UCLASS()
-class AStellarEraPlayerController : public APlayerController, public IStarMapUIInputs
+class AStellarEraPlayerController : public APlayerController, public IStarMapUIInputs,
+	public IStellarEraInputSource
 {
 	GENERATED_BODY()
 
@@ -57,17 +62,8 @@ public:
 	virtual void SetupInputComponent() override;
 	virtual void BeginPlay() override;
 
-	/**
-	 * 开局直接坐进最近的飞船。由 AStellarEraGameMode 在 BeginPlay 之后延迟一帧调用。
-	 *
-	 * 复用 BoardShip，所以角色会被登记为已登船：隐藏、附着在船上、MOVE_None。
-	 * 飞船停稳时按 E 就能正常离船 —— 这是与 DebugPossessShip 的关键差别，后者
-	 * 直接 Possess，不登记登船角色，因此永远不会出现离船提示。
-	 *
-	 * @return 找到飞船并完成登船为 true；当前 Pawn 不是角色、或关卡里没有
-	 *         飞船时为 false。
-	 */
-	bool EnterNearestShip();
+	/** 把运行时构造的动作表交给 Pawn 去绑定。实现见 .cpp（幂等 Build）。 */
+	virtual const FStellarEraInputActions& GetStellarEraInputActions() override;
 
 	/** 把一颗天体投到屏幕；成功时 OutCenter 为中心、OutRadiusPx 为轮廓半径（像素）。 */
 	virtual bool ProjectBodyToScreen(AActor* Body, FVector2D& OutCenter, float& OutRadiusPx) const override;
@@ -167,9 +163,6 @@ public:
 	virtual bool GetStarMapMousePositionPx(FVector2D& OutPosition) const override;
 
 protected:
-	/** 构造 IMC 与全部 IA。幂等：重复调用会直接返回。 */
-	void BuildInputAssets();
-
 	/**
 	 * 按当前 Possess 的 Pawn 切换鼠标模式。
 	 *
@@ -191,31 +184,21 @@ protected:
 	 */
 	UPlanetEditComponent* GetEditComponentInEditMode() const;
 
-	/**
-	 * 只认角色：当前 Possess 的是角色、且编辑模式开着时返回它的组件。
-	 *
-	 * 右键「点放」的按下/松开用它。**不能用通用版** —— 星图里右键是转视角，
-	 * 通用版会让松开右键变成 PlaceAtScreenPosition。
-	 */
-	UPlanetEditComponent* GetCharacterEditComponentInEditMode() const;
-
 	/** Pawn 上开着的编辑模式一律退出。上船 / 进出星图 / 调试换 Pawn 共用。 */
 	void ForceExitEditMode(APawn* InPawn);
 
-	// --- 角色输入回调 ---
-	void OnMove(const FInputActionValue& Value);
+	// --- 星图鼠标（角色 / 飞船的移动与视角由各自的 Pawn 自己绑定） ---
+
+	/** 鼠标位移。只有星图相机被 Possess 时才有实际动作。 */
 	void OnLook(const FInputActionValue& Value);
 
-	/** 右键按下 / 松开。只当角色视角的开关用，飞船的转向不看它。 */
+	/** 右键按住 / 松开。星图里它只当「转头」的开关用。 */
 	void OnLookActivateStarted(const FInputActionValue& Value);
 	void OnLookActivateCompleted(const FInputActionValue& Value);
 
-	/** 中键按下 / 松开。星图里它顶替被借走的左键做绕行，其它 Pawn 不看它。 */
+	/** 中键按住 / 松开。星图里它顶替被借走的左键做绕行。 */
 	void OnLookMiddleStarted(const FInputActionValue& Value);
 	void OnLookMiddleCompleted(const FInputActionValue& Value);
-	void OnJump(const FInputActionValue& Value);
-	void OnSprintStarted(const FInputActionValue& Value);
-	void OnSprintCompleted(const FInputActionValue& Value);
 
 	/** G 键：切换编辑模式。角色与星图相机都有编辑组件；飞船等没有，按 G 无反应。 */
 	void OnEditModeToggle(const FInputActionValue& Value);
@@ -223,20 +206,8 @@ protected:
 	/** `[` / `]`：编辑模式下调笔刷尺寸（±1）。星图里滚轮归缩放，所以尺寸另占一对键；角色编辑模式下滚轮也能调。 */
 	void OnBrushSize(const FInputActionValue& Value);
 
-	// --- 飞船输入回调 ---
-	void OnThrust(const FInputActionValue& Value);
-	void OnRoll(const FInputActionValue& Value);
-	void OnVertical(const FInputActionValue& Value);
-	void OnBoostStarted(const FInputActionValue& Value);
-	void OnBoostCompleted(const FInputActionValue& Value);
-	void OnCruise(const FInputActionValue& Value);
+	/** 滚轮。本类只负责星图那一路（角色 / 飞船在自己的 Pawn 里绑）。 */
 	void OnZoom(const FInputActionValue& Value);
-
-	/**
-	 * B 键：切换飞船调试视角（落地检测球 + 引力合力箭头）。
-	 * 只在当前 Pawn 是飞船时生效；角色 / 星图相机按 B 无反应。
-	 */
-	void OnDebugViewToggle(const FInputActionValue& Value);
 
 	/**
 	 * 进入 / 退出星图模式。
@@ -293,6 +264,15 @@ protected:
 	UFUNCTION(Exec)
 	void DebugPossessShip();
 
+	/**
+	 * 调试用：把当前飞船当成「已落地」直接走一遍下船流程（等价于按 E）。
+	 *
+	 * 与 DebugPossessShip 配对：它能让人进入「坐在船上但没有角色」的状态，
+	 * 这条能把角色补回来。也用于无头验证（`-ExecCmds="DebugDisembark"`）。
+	 */
+	UFUNCTION(Exec)
+	void DebugDisembark();
+
 	virtual void PlayerTick(float DeltaTime) override;
 
 	/** 按 E 时的分派：没在船上就尝试登船，在船上就尝试离船。 */
@@ -301,25 +281,45 @@ protected:
 	/** 尝试让角色登上指定飞船。 */
 	void BoardShip(ASpaceshipPawn* Ship);
 
-	/** 尝试从当前飞船下船。 */
+	/**
+	 * 从当前飞船下船。
+	 *
+	 * 舱里没有角色时**生成**一个（开局操控的是飞船，角色要等第一次下船才存在）：
+	 * 按 GameMode 的 DefaultPawnClass 生成在船侧，贴好球面，再 Possess。
+	 */
 	void LeaveShip(ASpaceshipPawn* Ship);
+
+	/**
+	 * 在飞船旁边生成一个角色（按 GameMode 的 DefaultPawnClass）。
+	 *
+	 * 生成位置就是离船的落脚点：船右侧 400 cm。之后的贴球面由 `LeaveShip` 统一做。
+	 * @return 生成失败（类不对 / 世界里生成不出来）时返回 nullptr。
+	 */
+	APlanetCharacter* SpawnCrewCharacter(ASpaceshipPawn* Ship);
 
 	/** 在屏幕上显示一行提示（每帧刷新，duration 0）。 */
 	void ShowPrompt(const FString& Text);
 
-	/** 鼠标灵敏度（度/像素）。 */
+	/**
+	 * 星图里右键是否按住。角色 / 飞船的视角开关由各自 Pawn 自己记，不在这里。
+	 *
+	 * 星图的鼠标位移只在按住鼠标（CaptureDuringMouseDown）时才有值，所以
+	 * 「现在按的是哪个键」只能靠各键的按住标志区分（见 ResolveStarMapLookMode）。
+	 */
+	bool bLookHeld = false;
+
+	/**
+	 * 星图相机的鼠标灵敏度（度/像素）。
+	 *
+	 * 角色与飞船各自有一份同样名字的字段（它们自己绑 Look），因为三者的手感
+	 * 本来就该能分开调。
+	 */
 	UPROPERTY(EditAnywhere, Category = "Input")
 	float LookSensitivity = 1.2f;
 
-	/** 上下视角反向。觉得鼠标上下颠倒时把它改成 true。 */
+	/** 星图相机的上下视角反向。 */
 	UPROPERTY(EditAnywhere, Category = "Input")
 	bool bInvertLookY = false;
-
-	/**
-	 * 右键是否按住。松开时角色的视角不响应鼠标 —— 鼠标划过屏幕不带画面，
-	 * 角色自己拐弯（A/D 横移时 bOrientRotationToMovement 转的身）也不会被拖走。
-	 */
-	bool bLookHeld = false;
 
 	/**
 	 * 星图里左键是否按住。与 bLookHeld 同理：换 Pawn 时必须清零，否则按着左键
@@ -335,12 +335,6 @@ protected:
 
 	/** 左键按下的屏幕位置（像素）。用 double 存 —— 与 GetMousePosition 的 double 重载对齐。 */
 	FVector2D StarMapPressPosition = FVector2D::ZeroVector;
-
-	/** 编辑模式右键按下的屏幕位置。松开时用它区分「点击放置」与「拖拽转视角」。 */
-	FVector2D EditRightPressPosition = FVector2D::ZeroVector;
-
-	/** 右键按下时是否记下了编辑位置（不是编辑模式 / 没拿到鼠标时为 false）。 */
-	bool bEditRightPressValid = false;
 
 	/**
 	 * 拾取的像素容差。20 像素保证远处的星球也点得中。
@@ -383,6 +377,16 @@ protected:
 	TSubclassOf<AStarMapCameraPawn> StarMapPawnClass;
 
 	/**
+	 * 按 E 下船时生成的角色类：优先蓝图子类 BP_PlanetCharacter。
+	 *
+	 * 和 StarMapPawnClass 同一类东西 —— 由本控制器负责"生成谁、操控谁"，
+	 * 所以配置也放在这里，不绕去 GameMode。蓝图缺失时退回原生
+	 * APlanetCharacter（移动、重力、相机都在 C++ 里，只是没有模型）。
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "StellarEra")
+	TSubclassOf<APlanetCharacter> CrewCharacterClass;
+
+	/**
 	 * 兜底星图相机 Pawn。懒创建并复用，不每次进出都 Spawn/Destroy。
 	 *
 	 * 2026-11-01 起**只是兜底**：进图优先用焦点行星自带的星图相机
@@ -407,96 +411,9 @@ protected:
 	/** 等待视点混合结束的定时器。还活着时再按 M 会被忽略。 */
 	FTimerHandle StarMapExitTimerHandle;
 
+	/** 全部输入动作与按键映射。定义见 StellarEraInputActions.h。 */
 	UPROPERTY(Transient)
-	TObjectPtr<UInputMappingContext> MappingContext;
-
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> IA_Move;
-
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> IA_Look;
-
-	/**
-	 * 视角开关（鼠标右键）。按住才让角色的视角跟鼠标动。
-	 *
-	 * 单独做成一个布尔动作，而不是在 OnLook 里直接查 EKeys::RightMouseButton 的
-	 * 键状态：键位以后要能在编辑器里改（IMC/IA 就是为此才在运行时构造的），
-	 * 写死键名去轮询等于把右键钉死在这一行上。
-	 */
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> IA_LookActivate;
-
-	/**
-	 * 星图的中键（绕行）。与 IA_LookActivate 同一个套路：IA_Look 只有鼠标位移，
-	 * 「按的是哪个键」得另有布尔动作来分辨。
-	 */
-	TObjectPtr<UInputAction> IA_LookMiddle;
-
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> IA_Jump;
-
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> IA_Sprint;
-
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> IA_Thrust;
-
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> IA_Roll;
-
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> IA_Vertical;
-
-	/** 飞船加速键（Shift）。与角色的 IA_Sprint 共用按键，靠 Pawn 类型分派。 */
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> IA_Boost;
-
-	/** 巡航开关（Tab）。切换飞船的速度保持状态，只绑 Started。 */
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> IA_Cruise;
-
-	/** 飞船调试视角开关（B）。只绑 Started，按一下切一次。 */
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> IA_DebugViewToggle;
-
-	/** 相机缩放（鼠标滚轮）。轴值，每格 ±1。 */
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> IA_Zoom;
-
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> IA_Interact;
-
-	/** 星图模式开关（M）。 */
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> IA_StarMapToggle;
-
-	/**
-	 * 星图里选中天体 / 拖拽绕行（鼠标左键）。按下与松开的位移区分两者。
-	 * 编辑模式与矿物透视下左键已被借走，那时拖拽是编辑 / 图例，绕行改由中键承担、
-	 * 转头仍是右键 —— 见 ResolveStarMapLookMode。
-	 */
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> IA_StarMapSelect;
-
-	/** 编辑模式开关（G）。 */
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> IA_EditModeToggle;
-
-	/** 笔刷尺寸（`[` / `]`）。Axis1D，只绑 Started，不随按住每帧刷。 */
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> IA_BrushSize;
-
-	/** 矿物透视开关（H）。 */
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> IA_MineralViewToggle;
-
-	/** 数字键 1..9：按下标切换元素显示。下标 = 运行期元素顺序。 */
-	UPROPERTY(Transient)
-	TArray<TObjectPtr<UInputAction>> IA_MineralFilter;
-
-	/** 数字键 0：全部打开。 */
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> IA_MineralShowAll;
+	FStellarEraInputActions Input;
 
 	/** 当前激活的矿物透视组件。行星销毁时 GC 会把它置空。 */
 	UPROPERTY(Transient)

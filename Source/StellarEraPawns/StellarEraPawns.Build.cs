@@ -52,5 +52,18 @@ public class StellarEraPawns : ModuleRules
 			// 下游 include 本模块的 Pawn 头时能找到它。（原 StellarEraCore 已拆除。）
 			"StellarEraPlanet",
 		});
+
+		PrivateDependencyModuleNames.AddRange(new string[]
+		{
+			// 角色 / 飞船自带输入绑定（SetupPlayerInputComponent）：从控制器给的
+			// FStellarEraInputActions 里取动作，再绑到自己的回调上。
+			// 只有 .cpp 用到 EnhancedInput 的类型，公开头只前置声明 UInputAction，
+			// 所以是私有依赖。
+			"EnhancedInput",
+
+			// EKeys（左 Ctrl 粗调笔刷）。EKeys 的静态成员是 dllimport，不链
+			// InputCore 会报 LNK2019 —— 以前这段代码在主模块，那边本来就有这条依赖。
+			"InputCore",
+		});
 	}
 }
