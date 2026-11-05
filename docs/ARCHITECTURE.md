@@ -1,22 +1,28 @@
 # StellarEra 架构
 
 > 本文描述**已经实施**的架构，不是提案。
-> 数字来自 2026-10-31 的源码统计，结构改动后请同步本文。
+> 数字来自 2026-11-06 的源码统计（口径见下），结构改动后请同步本文。
 > 体检：`python Tools/check_architecture.py`（加 `--tree` 看分层）。
 
 ---
 
 ## 一、一页速查
 
-5 个模块，5 层，131 个文件，37369 行，30 个自动化测试。
+5 个模块，5 层，187 个文件，51307 行，54 个自动化测试文件。
+
+> **统计口径**：文件与行数只数各模块 `Source/<模块>/Src/` 下的 `.h` / `.cpp`
+> （递归含子目录，含 `Tests/`），**不含**模块入口 `StellarEra<X>.h/.cpp` 与 `Build.cs`；
+> 行数是 `wc -l` 的物理行数。「测试」列只数 `Src/Tests/*Tests.cpp` 文件，
+> 同目录的辅助头（如 UI 的 `BlueprintComponentTestHelpers.h`）计入文件数、不计入测试数。
+> 汇总句的三个数字 = 下方五行的列合计。
 
 | 层 | 模块 | 文件 | 行数 | 测试 | 一句话 | 依赖（Public / Private） |
 |---:|---|---:|---:|---:|---|---|
-| L1 | `StellarEraPlanet` | 76 | 19076 | 30 | 一颗行星的全部：地形 / 大气 / 矿物（含地质场）/ 编辑 / 体素接线 | Public: Voxel, GeometryCore / Private: AssetRegistry, GeometryFramework |
-| L2 | `StellarEraPawns` | 17 | 4461 | 10 | 玩家能 possess 的：角色、飞船、星图相机 | Public: Cosmos, Planet, Voxel / Private: EnhancedInput, InputCore |
-| L3 | `StellarEraCosmos` | 14 | 6339 | 6 | N 体积分与编排、天体类型、轨迹 | Private: Planet |
-| L4 | `StellarEraUI` | 16 | 4344 | 4 | HUD、星图、图例 | Public: Planet / Private: Pawns, Cosmos, Voxel |
-| L5 | `StellarEra` | 8 | 3149 | 4 | GameMode、PlayerController（primary game module） | Public: UI / Private: Planet, Pawns, Cosmos, Voxel, InputCore, EnhancedInput |
+| L1 | `StellarEraPlanet` | 120 | 29190 | 30 | 一颗行星的全部：地形 / 大气 / 矿物（含地质场）/ 编辑 / 体素接线 | Public: Voxel, GeometryCore / Private: AssetRegistry, GeometryFramework |
+| L2 | `StellarEraPawns` | 29 | 7492 | 10 | 玩家能 possess 的：角色、飞船、星图相机 | Public: Cosmos, Planet, Voxel / Private: EnhancedInput, InputCore |
+| L3 | `StellarEraCosmos` | 18 | 7739 | 6 | N 体积分与编排、天体类型、轨迹 | Private: Planet |
+| L4 | `StellarEraUI` | 12 | 3133 | 4 | HUD、星图、图例 | Public: Planet / Private: Pawns, Cosmos, Voxel |
+| L5 | `StellarEra` | 8 | 3753 | 4 | GameMode、PlayerController（primary game module） | Public: UI / Private: Planet, Pawns, Cosmos, Voxel, InputCore, EnhancedInput |
 
 **没有 L0 了。** 只剩引擎与 `Voxel` 插件，项目自研代码分五层。
 
