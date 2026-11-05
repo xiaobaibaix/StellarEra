@@ -259,16 +259,48 @@ private:
 	void ApplySuns(const TArray<FPlanetSun>& Suns);
 
 	/**
+	 * 确保行星阴影光函数的基础材质已加载（失败只报一次日志，不影响大气壳）。
+	 *
+	 * 光函数材质由 `StellarEra.BuildPlanetShadowLightFunction` 生成
+	 * （`PlanetShadowLightFunctionBuilder.cpp`）。
+	 */
+	UMaterialInterface* EnsurePlanetShadowMaterialBase();
+
+	/** 取该灯对应的阴影 MID。每盏灯方向不同，参数不能共用一份。 */
+	UMaterialInstanceDynamic* GetPlanetShadowMID(ADirectionalLight* Light);
+
+	/**
 	 * 逐颗驱动灯（仅游戏世界）。主星 = 列表里第一颗 bDrivesDirectionalLight 的恒星，
 	 * 它可能不是槽位 0 —— 槽位 0 只按距离排，可能被显式关掉了灯。
 	 */
 	void DriveSunLights(const TArray<FPlanetSun>& Suns);
+
+	/**
+	 * 给世界里每盏定向光挂行星遮挡光函数（仅游戏世界）。
+	 *
+	 * **与 DriveSunLights 正交**：不读 `bDrivesDirectionalLight`，也不依赖恒星到灯的归属。
+	 * 方向取灯自己的 forward 反向 —— 定向光的 forward 是光的传播方向（恒星 → 行星），
+	 * 太阳在它的反向。这样无论灯由谁对准（C++ 驱动、蓝图 Tick、手工摆放），
+	 * 掩码都跟着这盏灯**实际**照向哪里。
+	 */
+	void ApplyPlanetShadow(UWorld* World);
 
 	/** 每帧复用的缓冲，避免 CollectSunsFor 每帧重新分配。 */
 	TArray<FPlanetSun> CachedSuns;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> AtmosphereMID;
+
+	/** 行星阴影光函数的基础材质（`M_PlanetShadowLightFunction`），缺失时为空。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInterface> PlanetShadowBaseMaterial;
+
+	/** 每盏被挂阴影的灯一份 MID —— SunDirection 不同，参数不能共用。 */
+	UPROPERTY(Transient)
+	TMap<TObjectPtr<ADirectionalLight>, TObjectPtr<UMaterialInstanceDynamic>> PlanetShadowMIDs;
+
+	/** 材质缺失只报一次，免得每帧刷同一条 Warning。 */
+	bool bLoggedMissingPlanetShadowMaterial = false;
 
 	/**
 	 * 几何与材质参数是否已经按**当前**启用状态算过一遍。

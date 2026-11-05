@@ -1,5 +1,6 @@
 ﻿#include "PlanetAtmosphereComponent.h"
 
+#include "Components/LightComponent.h"
 #include "Components/SceneComponent.h"
 #include "Engine/DirectionalLight.h"
 #include "Engine/StaticMesh.h"
@@ -19,6 +20,14 @@ namespace
 	constexpr float BasicSphereRadiusCm = 50.0f;
 
 	const TCHAR* const AtmosphereMaterialPath = TEXT("/Game/Code/Planet/Materials/M_PlanetAtmosphere");
+
+	const TCHAR* const PlanetShadowMaterialPath = TEXT("/Game/Code/Planet/Materials/M_PlanetShadowLightFunction");
+
+	// 行星阴影光函数的参数名，必须与 PlanetShadowLightFunctionBuilder.cpp 里的一致。
+	const FName ParamShadowSunDirection(TEXT("SunDirection"));
+	const FName ParamShadowPlanetCenter(TEXT("PlanetCenter"));
+	const FName ParamShadowPlanetRadius(TEXT("PlanetRadius"));
+	const FName ParamShadowPenumbra(TEXT("Penumbra"));
 
 	// 材质参数名。必须与 PlanetAtmosphereMaterialBuilder.cpp 里的一致。
 	// 这里没有 CameraPos 与 PlanetCenter：两者都由材质节点从渲染侧取
@@ -134,6 +143,55 @@ bool UPlanetAtmosphereComponent::EnsureAtmosphereMaterial()
 	}
 
 	return true;
+}
+
+UMaterialInterface* UPlanetAtmosphereComponent::EnsurePlanetShadowMaterialBase()
+{
+	if (PlanetShadowBaseMaterial)
+	{
+		return PlanetShadowBaseMaterial;
+	}
+	// 生成光函数材质的命令在编辑器里跑，PIE 中途不会出现 —— 缺一次就别每帧再试。
+	// LoadObject 失败会走包名解析，逐帧重试的代价远大于「重启 PIE 才有阴影」。
+	if (bLoggedMissingPlanetShadowMaterial)
+	{
+		return nullptr;
+	}
+
+	PlanetShadowBaseMaterial = LoadObject<UMaterialInterface>(nullptr, PlanetShadowMaterialPath);
+	if (!PlanetShadowBaseMaterial)
+	{
+		bLoggedMissingPlanetShadowMaterial = true;
+		UE_LOG(LogTemp, Warning,
+			TEXT("[行星阴影] 找不到 %s —— 在编辑器里跑一次 StellarEra.BuildPlanetShadowLightFunction。")
+			TEXT("夜面物体将被直射阳光照亮。"),
+			PlanetShadowMaterialPath);
+	}
+
+	return PlanetShadowBaseMaterial;
+}
+
+UMaterialInstanceDynamic* UPlanetAtmosphereComponent::GetPlanetShadowMID(ADirectionalLight* Light)
+{
+	if (!PlanetShadowBaseMaterial || !IsValid(Light))
+	{
+		return nullptr;
+	}
+
+	const TObjectPtr<ADirectionalLight> Key(Light);
+	if (const TObjectPtr<UMaterialInstanceDynamic>* Existing = PlanetShadowMIDs.Find(Key))
+	{
+		return *Existing;
+	}
+
+	UMaterialInstanceDynamic* MID = UMaterialInstanceDynamic::Create(PlanetShadowBaseMaterial, this);
+	if (!MID)
+	{
+		return nullptr;
+	}
+	PlanetShadowMIDs.Add(Key, MID);
+
+	return MID;
 }
 
 void UPlanetAtmosphereComponent::BeginPlay()
@@ -451,6 +509,75 @@ void UPlanetAtmosphereComponent::DriveSunLights(const TArray<FPlanetSun>& Suns)
 	}
 }
 
+void UPlanetAtmosphereComponent::ApplyPlanetShadow(UWorld* World)
+{
+	// 行星本体遮挡太阳。
+	//
+	// 定向光的阴影图只覆盖相机附近（本关卡 DynamicShadowDistanceMovableLight = 400 m），
+	// 而行星半径 20 km —— 挡住太阳的那块球体离被照点 17~20 km 远，永远进不了阴影图，
+	// 于是夜面（N·L < 0 的那半个球）上空飞行的飞船仍会被直射光照亮。
+	// 这里给每盏定向光挂一个解析求交的光函数材质，把「射线到球心的垂距 < 半径」的区域乘成 0。
+	// 详见 PlanetShadowLightFunctionBuilder.cpp 顶部注释。
+	//
+	// 为什么遍历「世界里所有定向光」而不是「被驱动的恒星的那盏灯」：
+	// 关卡里三颗恒星的 bDrivesDirectionalLight 是 false（灯由蓝图自己对准行星），
+	// 挂在驱动分支里就永远不会执行 —— 那正是「夜面飞船被照亮」的直接原因。
+	// 方向取灯自己的 forward 反向，因此不依赖恒星 → 灯的归属，也不会被
+	// ResolveSunLight() 的「自动认领」顺序影响。
+	if (!World || !World->IsGameWorld())
+	{
+		// 同 DriveSunLights：编辑器视口不挂光函数，每帧写灯属性会把关卡一直标脏。
+		// 编辑器里要看阴影就跑 PIE。
+		return;
+	}
+
+	UMaterialInterface* ShadowMaterial = EnsurePlanetShadowMaterialBase();
+	if (!ShadowMaterial)
+	{
+		return;
+	}
+
+	const AVoxelPlanetActor* PlanetActor = Cast<AVoxelPlanetActor>(GetOwner());
+	const float PlanetRadiusCm = PlanetActor ? PlanetActor->GetSurfaceRadiusCm() : 0.0f;
+	if (PlanetRadiusCm <= 0.0f)
+	{
+		return;
+	}
+	// 半影 = 半径的 1%（≈200 m / 0.57°）：球缘给一点软边，太窄会在地平线上出锯齿硬边。
+	const float PenumbraCm = PlanetRadiusCm * 0.01f;
+	const FVector PlanetCenter = GetComponentLocation();
+
+	for (TActorIterator<ADirectionalLight> It(World); It; ++It)
+	{
+		ADirectionalLight* Light = *It;
+		if (!IsValid(Light))
+		{
+			continue;
+		}
+		ULightComponent* LightComponent = Light->GetLightComponent();
+		if (!LightComponent)
+		{
+			continue;
+		}
+		UMaterialInstanceDynamic* ShadowMID = GetPlanetShadowMID(Light);
+		if (!ShadowMID)
+		{
+			continue;
+		}
+
+		// 定向光的 forward 是光的**传播**方向（恒星 → 行星），太阳在它的反向。
+		const FVector DirectionToSun = -Light->GetActorForwardVector();
+		ShadowMID->SetVectorParameterValue(ParamShadowSunDirection,
+			FLinearColor(DirectionToSun.X, DirectionToSun.Y, DirectionToSun.Z, 0.0f));
+		ShadowMID->SetVectorParameterValue(ParamShadowPlanetCenter,
+			FLinearColor(PlanetCenter.X, PlanetCenter.Y, PlanetCenter.Z, 0.0f));
+		ShadowMID->SetScalarParameterValue(ParamShadowPlanetRadius, PlanetRadiusCm);
+		ShadowMID->SetScalarParameterValue(ParamShadowPenumbra, PenumbraCm);
+
+		LightComponent->SetLightFunctionMaterial(ShadowMID);
+	}
+}
+
 void UPlanetAtmosphereComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	FActorComponentTickFunction* ThisTickFunction)
 {
@@ -463,6 +590,8 @@ void UPlanetAtmosphereComponent::TickComponent(float DeltaTime, ELevelTick TickT
 		const FVector LightPlanetCenter = GetComponentLocation();
 		CollectSunsFor(GetWorld(), LightPlanetCenter, CachedSuns);
 		DriveSunLights(CachedSuns);
+		// 阴影与「驱动灯」正交：灯不由 C++ 驱动时也必须挂上，否则夜面没有遮挡。
+		ApplyPlanetShadow(GetWorld());
 	}
 
 	if (!bAtmosphereEnabled)
