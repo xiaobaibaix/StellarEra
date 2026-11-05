@@ -64,7 +64,7 @@ struct FPlanetEditTarget;
  * 看得见、点得中。
  */
 UCLASS()
-class STELLARERAUI_API AStarMapCameraPawn : public APawn, public IVoxelViewpointInvokers
+class STELLARERAPAWNS_API AStarMapCameraPawn : public APawn, public IVoxelViewpointInvokers
 {
 	GENERATED_BODY()
 

@@ -3,7 +3,7 @@
 using System.IO;
 using UnrealBuildTool;
 
-// 界面层：HUD、星图面板、矿物图例、编辑按钮布局、星图相机。
+// 界面层：HUD、星图面板、矿物图例、编辑按钮布局。
 // .h 与 .cpp 同目录并列在 Src/ 下，测试在 Src/Tests。
 //
 // 这是唯一允许同时依赖多个功能模块的模块。反向依赖一律禁止：
@@ -12,11 +12,11 @@ using UnrealBuildTool;
 // 本模块**不能**依赖 StellarEra（primary game module）—— Game 依赖 UI，
 // UI 再依赖 Game 就成环。需要控制器数据的地方走 IStarMapUIInputs。
 //
-// ── 关于星图相机为何仍在本模块 ────────────────────────────────────────
-// 原计划把它搬进 StellarEraPawns（它确实是个被 possess 的 Pawn），但实测成环：
-// 它调 UCosmosSimulationSubsystem，而 Cosmos 内部有 4 处 Cast<ASpaceshipPawn>，
-// 即 Cosmos → Pawns。搬过去就是 Pawns → Cosmos → Pawns。
-// 等抽出 ICosmosBody 接口、Cosmos 不再认识具体 Pawn 类型后再搬。
+// ── 星图相机已经搬走 ────────────────────────────────────────────────
+// AStarMapCameraPawn 现在在 StellarEraPawns/Src/StarMap/。它依赖 Cosmos 的
+// ICosmosBody（飞船实现的接口）之后，Pawns → Cosmos 这条边才成立 ——
+// 之前搬不动是因为 Cosmos 内部 Cast<ASpaceshipPawn>，即 Cosmos → Pawns。
+// 本模块仍然依赖 Pawns：HUD 要 include 相机头来认「现在是不是星图视角」。
 //
 // ── 关于 Voxel 依赖 ───────────────────────────────────────────────────
 // 合并前本模块靠 StellarEraTerrain 的 **Public** 依赖传递拿到 Voxel 模块，
@@ -58,7 +58,7 @@ public class StellarEraUI : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			"StellarEraPawns",    // 角色 / 飞船（星图相机仍在 UI，见上）
+			"StellarEraPawns",    // 角色 / 飞船 / 星图相机
 			"StellarEraCosmos",   // 选中天体、轨迹、星图状态、CosmosTypes 的枚举
 			// 地质场与元素类型（StarMapUISystem.cpp 直接用）随矿物并入 Planet，
 			// 不再单独依赖 StellarEraGeology。
