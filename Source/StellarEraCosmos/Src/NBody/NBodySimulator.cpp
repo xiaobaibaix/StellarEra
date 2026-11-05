@@ -663,6 +663,10 @@ bool FNBodySimulator::PredictTrajectory(int32 BodyIndex, double Horizon, int32 N
 	{
 		Body.ExternalAcceleration = FVector3d::ZeroVector;
 		Body.LinearDamping = 0.0;
+
+		// 角方向的输入力矩与角阻尼同样是「松手就没了」，一并清零。
+		Body.ExternalAngularAcceleration = FVector3d::ZeroVector;
+		Body.AngularDamping = 0.0;
 	}
 
 	// 步长取 Horizon / (NumSamples - 1)，于是末点**恰好**落在 Horizon 上，
@@ -792,6 +796,10 @@ bool FNBodySimulator::PredictClosedOrbit(int32 BodyIndex, int32 NumSamplesPerOrb
 	{
 		CopyBody.ExternalAcceleration = FVector3d::ZeroVector;
 		CopyBody.LinearDamping = 0.0;
+
+		// 角方向的输入力矩与角阻尼同样是「松手就没了」，一并清零。
+		CopyBody.ExternalAngularAcceleration = FVector3d::ZeroVector;
+		CopyBody.AngularDamping = 0.0;
 	}
 
 	// ── 用「真正转满一圈后离起点最近」找闭合时刻，而不是照密切周期截断 ──
