@@ -16,6 +16,7 @@ class USpringArmComponent;
 class UStaticMesh;
 class UStaticMeshComponent;
 class UVoxelInvokerWithPredictionComponent;
+class USpaceshipInputComponent;
 class UInputComponent;
 struct FInputActionValue;
 
@@ -130,6 +131,10 @@ public:
 	 * （`IStellarEraInputSource`）取。
 	 */
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
+
+	/** 键鼠输入。回调与输入状态都在组件里，本类只负责转发绑定。 */
+	UPROPERTY(VisibleAnywhere, Category = "Input")
+	TObjectPtr<USpaceshipInputComponent> PlayerInput;
 
 	//~ Begin IVoxelViewpointInvokers Interface
 	virtual void SetViewpointInvokersActive(bool bActive) override;
@@ -430,35 +435,6 @@ public:
 	virtual FVector GetVelocity() const override { return CosmosVelocity; }
 
 protected:
-	// --- 输入回调（SetupPlayerInputComponent 里绑定） ---
-
-	/** 鼠标位移。不设「按住右键」的门：鼠标就是飞船的操纵杆。 */
-	void OnLookInput(const FInputActionValue& Value);
-
-	/** W / S。Completed 事件里值自动为 0，正好用来松手归零。 */
-	void OnThrustInput(const FInputActionValue& Value);
-
-	/** A / D 横滚。 */
-	void OnRollInput(const FInputActionValue& Value);
-
-	/** Space / LeftCtrl 升降。 */
-	void OnVerticalInput(const FInputActionValue& Value);
-
-	void OnBoostStarted(const FInputActionValue& Value);
-	void OnBoostCompleted(const FInputActionValue& Value);
-
-	/** Tab：巡航开关。只绑 Started，按住不会反复翻转。 */
-	void OnCruiseToggle(const FInputActionValue& Value);
-
-	/** B：调试视角开关。同样只绑 Started。 */
-	void OnDebugViewToggle(const FInputActionValue& Value);
-
-	/** 滚轮：相机臂长。 */
-	void OnZoomInput(const FInputActionValue& Value);
-
-	/** 通过 HUD 的 IStellarEraNoticeSink 弹一条提示；拿不到 HUD 时静默跳过。 */
-	void ShowNotice(const FString& Text) const;
-
 	/**
 	 * 凸包探针不可用时的兜底接触半径（厘米）。默认 300。
 	 *
@@ -756,14 +732,6 @@ protected:
 	 */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Spaceship|Debug")
 	bool bDebugViewMode = false;
-
-	/** 鼠标灵敏度（度/像素）。飞船与角色的手感可以不一样，所以各存一份。 */
-	UPROPERTY(EditAnywhere, Category = "Input")
-	float LookSensitivity = 1.2f;
-
-	/** 上下视角反向。觉得鼠标上下颠倒时把它改成 true。 */
-	UPROPERTY(EditAnywhere, Category = "Input")
-	bool bInvertLookY = false;
 
 	/**
 	 * 自动回正速率（度/秒）。只回正横滚，不动玩家给的俯仰。0 = 关闭。

@@ -8,6 +8,8 @@
 
 #include "PlanetCharacter.h"
 #include "PlanetCharacterInputComponent.h"
+#include "SpaceshipInputComponent.h"
+#include "SpaceshipPawn.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -30,6 +32,30 @@ bool FStellarEraCharacterInputComponentTest::RunTest(const FString& Parameters)
 	{
 		TestEqual(TEXT("默认灵敏度"), CharacterInput->LookSensitivity, 1.2f);
 		TestFalse(TEXT("默认不反 Y"), CharacterInput->bInvertLookY);
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSpaceshipInputComponentTest,
+	"StellarEra.Pawns.SpaceshipInputComponentWiring",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraSpaceshipInputComponentTest::RunTest(const FString& Parameters)
+{
+	const ASpaceshipPawn* ShipCDO = GetDefault<ASpaceshipPawn>();
+	if (!TestNotNull(TEXT("ASpaceshipPawn CDO"), ShipCDO))
+	{
+		return false;
+	}
+
+	const USpaceshipInputComponent* ShipInput =
+		ShipCDO->FindComponentByClass<USpaceshipInputComponent>();
+	TestNotNull(TEXT("飞船 CDO 上的 USpaceshipInputComponent"), ShipInput);
+	if (ShipInput)
+	{
+		TestEqual(TEXT("默认灵敏度"), ShipInput->LookSensitivity, 1.2f);
+		TestFalse(TEXT("默认不反 Y"), ShipInput->bInvertLookY);
 	}
 
 	return true;

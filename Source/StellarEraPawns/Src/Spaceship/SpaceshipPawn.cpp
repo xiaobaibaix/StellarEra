@@ -17,13 +17,8 @@
 #include "AlwaysLocalVoxelInvokerComponent.h"
 #include "VoxelViewpointInvokers.h"
 #include "VoxelViewpointInvokerUtils.h"
-#include "StellarEraInputActions.h"
-#include "StellarEraNoticeSink.h"
-#include "EnhancedInputComponent.h"
-#include "InputActionValue.h"
-#include "InputCoreTypes.h"
+#include "SpaceshipInputComponent.h"
 #include "GameFramework/PlayerController.h"
-#include "GameFramework/HUD.h"
 
 namespace
 {
@@ -260,6 +255,8 @@ ASpaceshipPawn::ASpaceshipPawn()
 	// B 键调试视角的检测球。tick 在 TG_PostUpdateWork —— 必须晚于 N 体子系统
 	// 写回位置，否则球会画在上一帧的船位（详见组件头文件）。
 	LandingDebugSphere = CreateDefaultSubobject<ULandingDebugSphereComponent>(TEXT("LandingDebugSphere"));
+
+	PlayerInput = CreateDefaultSubobject<USpaceshipInputComponent>(TEXT("PlayerInput"));
 }
 
 void ASpaceshipPawn::ApplyHullMesh()
@@ -786,113 +783,13 @@ void ASpaceshipPawn::ApplyFreeLookLookInput(
 		FMath::Min(MinPitch, MaxPitch), FMath::Max(MinPitch, MaxPitch));
 }
 
-// ---------------------------------------------------------------------------
-// 输入：由飞船自己绑定，只有被 Possess 时引擎才启用这个输入组件。
-// ---------------------------------------------------------------------------
-
 void ASpaceshipPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 
-	UEnhancedInputComponent* EnhancedInput = Cast<UEnhancedInputComponent>(PlayerInputComponent);
-	IStellarEraInputSource* Source = Cast<IStellarEraInputSource>(GetController());
-	if (!EnhancedInput || !Source)
+	if (PlayerInput)
 	{
-		// 静默解绑等于「飞船对键鼠完全没反应」——留一条 Error，别让它变成哑故障。
-		UE_LOG(LogTemp, Error, TEXT("[Input] ASpaceshipPawn 绑定失败：EnhancedInput=%s InputSource=%s Controller=%s"),
-			EnhancedInput ? TEXT("是") : TEXT("否"),
-			Source ? TEXT("是") : TEXT("否"),
-			*GetNameSafe(GetController()));
-		return;
-	}
-
-	const FStellarEraInputActions& Input = Source->GetStellarEraInputActions();
-
-	EnhancedInput->BindAction(Input.Look, ETriggerEvent::Triggered, this, &ASpaceshipPawn::OnLookInput);
-	EnhancedInput->BindAction(Input.Thrust, ETriggerEvent::Triggered, this, &ASpaceshipPawn::OnThrustInput);
-	EnhancedInput->BindAction(Input.Thrust, ETriggerEvent::Completed, this, &ASpaceshipPawn::OnThrustInput);
-	EnhancedInput->BindAction(Input.Roll, ETriggerEvent::Triggered, this, &ASpaceshipPawn::OnRollInput);
-	EnhancedInput->BindAction(Input.Roll, ETriggerEvent::Completed, this, &ASpaceshipPawn::OnRollInput);
-	EnhancedInput->BindAction(Input.Vertical, ETriggerEvent::Triggered, this, &ASpaceshipPawn::OnVerticalInput);
-	EnhancedInput->BindAction(Input.Vertical, ETriggerEvent::Completed, this, &ASpaceshipPawn::OnVerticalInput);
-
-	EnhancedInput->BindAction(Input.Boost, ETriggerEvent::Started, this, &ASpaceshipPawn::OnBoostStarted);
-	EnhancedInput->BindAction(Input.Boost, ETriggerEvent::Completed, this, &ASpaceshipPawn::OnBoostCompleted);
-
-	// 只绑 Started：按住 Tab 只切一次，不会随按键重复翻转状态。B 同理。
-	EnhancedInput->BindAction(Input.Cruise, ETriggerEvent::Started, this, &ASpaceshipPawn::OnCruiseToggle);
-	EnhancedInput->BindAction(Input.DebugViewToggle, ETriggerEvent::Started,
-		this, &ASpaceshipPawn::OnDebugViewToggle);
-
-	// 只绑 Triggered：滚轮每格是一次独立冲量，不滚就不产生值，没有 Completed 可收。
-	EnhancedInput->BindAction(Input.Zoom, ETriggerEvent::Triggered, this, &ASpaceshipPawn::OnZoomInput);
-
-	// 绑定成功也给一条 Verbose：「没报错」不等于「绑上了」，无头跑时用它当正证据。
-	UE_LOG(LogTemp, Verbose, TEXT("[Input] ASpaceshipPawn(%s) 已绑定飞船输入"), *GetName());
-}
-
-void ASpaceshipPawn::OnLookInput(const FInputActionValue& Value)
-{
-	// 飞船不设「按住右键」的门：鼠标就是它的操纵杆，要按住右键才能转向等于飞不动。
-	const FVector2D Axis = Value.Get<FVector2D>();
-	Look(Axis.X * LookSensitivity, (bInvertLookY ? -Axis.Y : Axis.Y) * LookSensitivity);
-}
-
-void ASpaceshipPawn::OnThrustInput(const FInputActionValue& Value)
-{
-	// Completed 事件里 Value 是 0，正好用来在松手时归零。
-	SetThrust(Value.Get<float>());
-}
-
-void ASpaceshipPawn::OnRollInput(const FInputActionValue& Value)
-{
-	SetRoll(Value.Get<float>());
-}
-
-void ASpaceshipPawn::OnVerticalInput(const FInputActionValue& Value)
-{
-	SetVertical(Value.Get<float>());
-}
-
-void ASpaceshipPawn::OnBoostStarted(const FInputActionValue& Value)
-{
-	SetBoost(true);
-}
-
-void ASpaceshipPawn::OnBoostCompleted(const FInputActionValue& Value)
-{
-	SetBoost(false);
-}
-
-void ASpaceshipPawn::OnCruiseToggle(const FInputActionValue& Value)
-{
-	TogglePreserveVelocity();
-
-	// 切换本身在画面上不留任何痕迹（速度保持与否要飞一段才感觉得到），所以弹一条
-	// 提示。没有它，玩家按了 Tab 只能靠"好像还在飞"来猜，按没按到都分不清。
-	ShowNotice(IsPreserveVelocity() ? TEXT("巡航：开") : TEXT("巡航：关"));
-}
-
-void ASpaceshipPawn::OnDebugViewToggle(const FInputActionValue& Value)
-{
-	ToggleDebugViewMode();
-
-	ShowNotice(IsDebugViewMode() ? TEXT("飞船调试视角：开") : TEXT("飞船调试视角：关"));
-}
-
-void ASpaceshipPawn::OnZoomInput(const FInputActionValue& Value)
-{
-	AddZoom(Value.Get<float>());
-}
-
-void ASpaceshipPawn::ShowNotice(const FString& Text) const
-{
-	// HUD 在 UI 模块（本模块的下游），只能走接口。没有 HUD 时静默跳过。
-	const APlayerController* PC = Cast<APlayerController>(GetController());
-	IStellarEraNoticeSink* Sink = PC ? Cast<IStellarEraNoticeSink>(PC->GetHUD()) : nullptr;
-	if (Sink)
-	{
-		Sink->ShowNotice(Text);
+		PlayerInput->Bind(PlayerInputComponent);
 	}
 }
 
