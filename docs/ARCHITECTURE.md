@@ -12,11 +12,11 @@
 
 | 层 | 模块 | 文件 | 行数 | 测试 | 一句话 | 依赖（Public / Private） |
 |---:|---|---:|---:|---:|---|---|
-| L1 | `StellarEraPlanet` | 76 | 19076 | 13 | 一颗行星的全部：地形 / 大气 / 矿物（含地质场）/ 编辑 / 体素接线 | Public: Voxel / Private: AssetRegistry, GeometryCore, GeometryFramework |
-| L2 | `StellarEraPawns` | 17 | 4461 | 7 | 玩家能 possess 的：角色、飞船、星图相机 | Public: Cosmos, Planet, Voxel |
+| L1 | `StellarEraPlanet` | 76 | 19076 | 13 | 一颗行星的全部：地形 / 大气 / 矿物（含地质场）/ 编辑 / 体素接线 | Public: Voxel, GeometryCore / Private: AssetRegistry, GeometryFramework |
+| L2 | `StellarEraPawns` | 17 | 4461 | 7 | 玩家能 possess 的：角色、飞船、星图相机 | Public: Cosmos, Planet, Voxel / Private: EnhancedInput, InputCore |
 | L3 | `StellarEraCosmos` | 14 | 6339 | 3 | N 体积分与编排、天体类型、轨迹 | Private: Planet |
 | L4 | `StellarEraUI` | 16 | 4344 | 5 | HUD、星图、图例 | Public: Planet / Private: Pawns, Cosmos, Voxel |
-| L5 | `StellarEra` | 8 | 3149 | 2 | GameMode、PlayerController（primary game module） | Public: UI / Private: 其余 |
+| L5 | `StellarEra` | 8 | 3149 | 2 | GameMode、PlayerController（primary game module） | Public: UI / Private: Planet, Pawns, Cosmos, Voxel, InputCore, EnhancedInput |
 
 **没有 L0 了。** 只剩引擎与 `Voxel` 插件，项目自研代码分五层。
 
@@ -150,7 +150,7 @@ foreach (string SubDir in Directory.GetDirectories(SrcDir, "*", SearchOption.All
 `Surface` 4、`Cosmos/Src` 9（+ `NBody` 3）、`UI/Src` 7、`Character` 8、`Spaceship` 6、
 `StarMap` 2、`StellarEra/Src` 4。
 `Minerals/` 拆成三个子目录，其中 `Geology/` 再分出 `Distributions/`：
-`Geology` 5（+ `Distributions` 10）、`Surface` 4、`View` 4。
+`Geology` 5（+ `Distributions` 10）、`Surface` 4、`View` 12。
 
 `Cosmos/Src/NBody/` 是个例外：只有 3 个文件（`NBodySimulator.h/.cpp` + `CosmosTypes.h`），
 够不上「每族 ≥4 个」的门槛，但它是一个 1300 行的独立计算单元，且与编排层没有代码交集 ——

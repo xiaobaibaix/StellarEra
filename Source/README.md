@@ -89,7 +89,7 @@ StellarEraPawns/Src/
 ├── Character/                 球面角色、移动组件、动画实例、输入组件
 ├── Spaceship/                 飞船 Pawn 及其输入组件
 ├── StarMap/                   星图相机（不 Tick，位置在 CalcCamera 现算）
-└── Tests/                     7 个测试
+└── Tests/                     10 个测试
 ```
 
 两者的共同点是「被 `AStellarEraPlayerController` 通过 Possess 切换」，
@@ -159,7 +159,7 @@ UI 声明自己需要什么，Game 去实现，于是 UI 不需要 include 控�
 | 改 HUD 显示内容 | `StellarEraUI/Src/StellarEraHUD.cpp` |
 | 改星图交互 | `StellarEraUI/Src/StarMapUISystem.cpp` |
 | 改按键映射（哪个键是哪个动作） | `StellarEraPawns/Src/StellarEraInputActions.cpp` 的 `Build` |
-| 改角色 / 飞船对输入的响应 | `StellarEraPawns/Src/Character/PlanetCharacterInputComponent.cpp` / `Src/Spaceship/SpaceshipInputComponent.cpp`（Pawn 的 `SetupPlayerInputComponent` 只建组件并调 `Bind`） |
+| 改角色 / 飞船对输入的响应 | `StellarEraPawns/Src/Character/PlanetCharacterInputComponent.cpp` / `Src/Spaceship/SpaceshipInputComponent.cpp`（两个输入组件都在 Pawn 的构造函数里 `CreateDefaultSubobject`，`SetupPlayerInputComponent` 只调 `Bind`） |
 | 改星图 / 模式键（E M G H 数字键）的绑定 | `StellarEra/Src/StellarEraPlayerController.cpp` 的 `SetupInputComponent` |
 
 ---
