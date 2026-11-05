@@ -79,7 +79,9 @@ public class StellarEra : ModuleRules
 			// UVoxelInvokerComponentBase 与 FVoxelMessages，链接期需要本模块。
 			"Voxel",
 			"InputCore",
-			"EnhancedInput",   // 只有 StellarEraPlayerController.cpp 用到
+			// 控制器 + StarMap 接线测试（StarMapInputWiringTests.cpp 直接构造
+			// UEnhancedInputComponent 并读 GetActionEventBindings）。
+			"EnhancedInput",
 		});
 	}
 }

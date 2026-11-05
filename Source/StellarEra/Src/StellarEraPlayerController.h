@@ -123,6 +123,13 @@ public:
 
 	virtual bool GetStarMapMousePositionPx(FVector2D& OutPosition) const override;
 
+	//~ Begin IStarMapLookContext Interface
+	// 与上面两个 IStarMapUIInputs 实现同规格放 public：这三个都是对别的模块的契约，
+	// 没必要一个 public 一个 protected。
+	virtual bool IsStarMapSelectHeld() const override;
+	virtual bool IsMineralViewActive() const override;
+	//~ End IStarMapLookContext Interface
+
 protected:
 	/**
 	 * 按当前 Possess 的 Pawn 切换鼠标模式。
@@ -144,11 +151,6 @@ protected:
 	 * 不能用来进入编辑模式：模式关着时它返回空。G 键的切换不看模式，直接找 Pawn 上的组件。
 	 */
 	UPlanetEditComponent* GetEditComponentInEditMode() const;
-
-	//~ Begin IStarMapLookContext Interface
-	virtual bool IsStarMapSelectHeld() const override;
-	virtual bool IsMineralViewActive() const override;
-	//~ End IStarMapLookContext Interface
 
 	/** Pawn 上开着的编辑模式一律退出。上船 / 进出星图 / 调试换 Pawn 共用。 */
 	void ForceExitEditMode(APawn* InPawn);

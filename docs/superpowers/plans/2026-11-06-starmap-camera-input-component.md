@@ -672,20 +672,19 @@ cd "F:/workspace/ue/StellarEra" && PYTHONIOENCODING=utf-8 python Tools/check_arc
 
 Expected：依赖环「无」；`StellarEraPawns` 依赖列仍是 `Cosmos, Planet`（没有新增 `StellarEra`）。
 
-- [ ] **Step 7: 无头验证（星图输入真的绑上了）**
+- [ ] **Step 7:【已作废】原「无头验证」**
 
-```bash
-cd /c && UE="D:/Application/Epic Games/UE_5.8/Engine/Binaries/Win64/UnrealEditor.exe"; \
-MSYS2_ARG_CONV_EXCL='*' timeout 150 "$UE" "F:/workspace/ue/StellarEra/StellarEra.uproject" \
-  /Game/Code/Maps/UniverseMap -game -nullrhi -nosplash -unattended -stdout \
-  -LogCmds="LogTemp Verbose" -ExecCmds="DebugDisembark,ToggleStarMap" \
-  -abslog="C:/Users/23080/AppData/Local/Temp/se_starmap_input.log" > /dev/null 2>&1; \
-grep -nE "\[Input\]|绑定失败|Failed to enter" "C:/Users/23080/AppData/Local/Temp/se_starmap_input.log" | head
-```
-
-Expected：出现 `[Input] AStarMapCameraPawn(...) 已绑定星图相机输入`；`绑定失败` 0 条；`Failed to enter` 0 条。
-
-> `-ExecCmds` 里的 `ToggleStarMap` 可能跑在控制器 Possess 之前。拿不到那条日志就如实记进报告，**不要**据此声称验证通过。
+> **这一步永远不可能成功，不要再照做。** 原因是 `AStellarEraPlayerController::ToggleStarMap()`
+> 是普通 C++ 方法，**不是 `UFUNCTION(exec)`** —— `-ExecCmds="ToggleStarMap"` 只会得到
+> 「命令不存在」，与执行时机无关（第一版计划把它误判成「时机不对」）。
+> 项目里也没有任何 console 命令 / CVar 能进星图，而相机 Pawn 只有进星图才会被 Possess，
+> 所以无头路径根本到不了 `SetupPlayerInputComponent`。
+>
+> **替代方案（已实施）**：自动化测试 `StellarEra.StarMap.InputWiring`
+> （`Source/StellarEra/Src/Tests/StarMapInputWiringTests.cpp`）——
+> `UWorld::CreateWorld` + `PossessedBy`（只设 Controller 指针）后真调
+> `AStarMapCameraPawn::SetupPlayerInputComponent`，断言 `GetActionEventBindings()` 里
+> 有 6 条且动作名分别对得上。红绿已验证：注释掉 `PlayerInput->Bind(...)` 该测试即红。
 
 - [ ] **Step 8: 提交**
 
@@ -719,12 +718,12 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>" \
 - `ResolveLookMode` 六参数顺序 `(右, 左, 中, 编辑, 连挖, 矿物)` 在定义、`OnLookInput` 调用、`StarMapTests.cpp` 的 lambda 三处一致。
 - `IStarMapLookContext` 两方法 ↔ 控制器两段实现逐条对应。
 - 组件成员名 `PlayerInput` 与 `APlanetCharacter` / `ASpaceshipPawn` 一致。
-- 日志串 `[Input] AStarMapCameraPawn(...) 已绑定星图相机输入` 在 Step 2 与 Task 2 Step 7 一致。
+- 日志串 `[Input] AStarMapCameraPawn(...) 已绑定星图相机输入` 只在 Step 2 出现（原 Task 2 Step 7 已作废，见该处说明）。
 
 **4. 已知风险**
 
 | 风险 | 处置 |
 |---|---|
 | `ResolveLookMode` 跨 DLL 调用需要导出 | 它是 `STELLARERAPAWNS_API` 类上的**静态成员**，导出由类宏覆盖（上一轮 Task 1 用自由函数时曾撞 `LNK2019`，改成静态成员即避开） |
-| `ToggleStarMap` 在无头 `-ExecCmds` 里时机不对 | Task 2 Step 7 已写明：拿不到就如实记录，不声称通过 |
+| 想用 `-ExecCmds="ToggleStarMap"` 无头验星图输入 | **走不通，且不是时机问题**：`ToggleStarMap` 不是 `UFUNCTION(exec)`，命令行里根本没有这个名字。已改为自动化测试 `StellarEra.StarMap.InputWiring`（见 Task 2 Step 7 的作废说明） |
 | 相机 Pawn 是 `BP_VoxelPlanet` 的 Child Actor，蓝图可能也挂了同名组件 | 构建与测试会暴露重复组件；`StarMapInputComponentWiring` 只断言 CDO 上找得到 |
