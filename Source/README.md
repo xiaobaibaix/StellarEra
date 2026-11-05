@@ -54,7 +54,7 @@ StellarEraPlanet/Src/
 ├── Atmosphere/                大气组件与参数
 ├── Minerals/                  矿物域：Geology（含 Distributions）/ Surface / View
 ├── Edit/                      编辑组件、笔刷、涂抹、渐进编辑、网格几何
-└── Tests/                     13 个测试
+└── Tests/                     30 个测试
 ```
 
 矿物域的四层，从数据到交互：

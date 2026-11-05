@@ -12,11 +12,11 @@
 
 | 层 | 模块 | 文件 | 行数 | 测试 | 一句话 | 依赖（Public / Private） |
 |---:|---|---:|---:|---:|---|---|
-| L1 | `StellarEraPlanet` | 76 | 19076 | 13 | 一颗行星的全部：地形 / 大气 / 矿物（含地质场）/ 编辑 / 体素接线 | Public: Voxel, GeometryCore / Private: AssetRegistry, GeometryFramework |
-| L2 | `StellarEraPawns` | 17 | 4461 | 7 | 玩家能 possess 的：角色、飞船、星图相机 | Public: Cosmos, Planet, Voxel / Private: EnhancedInput, InputCore |
-| L3 | `StellarEraCosmos` | 14 | 6339 | 3 | N 体积分与编排、天体类型、轨迹 | Private: Planet |
-| L4 | `StellarEraUI` | 16 | 4344 | 5 | HUD、星图、图例 | Public: Planet / Private: Pawns, Cosmos, Voxel |
-| L5 | `StellarEra` | 8 | 3149 | 2 | GameMode、PlayerController（primary game module） | Public: UI / Private: Planet, Pawns, Cosmos, Voxel, InputCore, EnhancedInput |
+| L1 | `StellarEraPlanet` | 76 | 19076 | 30 | 一颗行星的全部：地形 / 大气 / 矿物（含地质场）/ 编辑 / 体素接线 | Public: Voxel, GeometryCore / Private: AssetRegistry, GeometryFramework |
+| L2 | `StellarEraPawns` | 17 | 4461 | 10 | 玩家能 possess 的：角色、飞船、星图相机 | Public: Cosmos, Planet, Voxel / Private: EnhancedInput, InputCore |
+| L3 | `StellarEraCosmos` | 14 | 6339 | 6 | N 体积分与编排、天体类型、轨迹 | Private: Planet |
+| L4 | `StellarEraUI` | 16 | 4344 | 4 | HUD、星图、图例 | Public: Planet / Private: Pawns, Cosmos, Voxel |
+| L5 | `StellarEra` | 8 | 3149 | 4 | GameMode、PlayerController（primary game module） | Public: UI / Private: Planet, Pawns, Cosmos, Voxel, InputCore, EnhancedInput |
 
 **没有 L0 了。** 只剩引擎与 `Voxel` 插件，项目自研代码分五层。
 
