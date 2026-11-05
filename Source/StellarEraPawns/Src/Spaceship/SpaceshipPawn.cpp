@@ -235,8 +235,9 @@ ASpaceshipPawn::ASpaceshipPawn()
 	// 横滚是玩家唯一能直接看见的转弯反馈，剥掉它等于按 A/D 时画面纹丝不动。
 	//
 	// 另一个更隐蔽的问题：bInheritRoll 剥的是**世界坐标**的 roll 分量，而飞船的
-	// "水平"由 GetAutoLevelUp() 对齐到行星球面法线（见 Tick 第 3 段）。两者只在
-	// 赤道重合，于是飞船在赤道以外平飞、机身一点没滚时，相机的地平线却是歪的。
+	// "水平"由 GetAutoLevelUp() 对齐到行星球面法线（姿态现已整体归求解器，
+	// GetAutoLevelUp() 现在只用来定升降推力的"上"）。两者只在赤道重合，于是飞船在
+	// 赤道以外平飞、机身一点没滚时，相机的地平线却是歪的。
 	// 改成 true 后相机与机身完全一致，这个偏差自然消失。
 	//
 	// 横滚由玩家独占：AutoLevelSpeed 默认 0（关闭自动回正），按住 A/D 就是完整的
@@ -311,9 +312,9 @@ void ASpaceshipPawn::BeginPlay()
 	ApplyHullMesh();
 	RebuildContactProbes();
 
-	// 自动回正需要一个重力参考：贴着行星时对齐到球面法线，太空中对齐到世界 Z。
-	// 注意 AutoLevelSpeed 默认已为 0（自动回正关闭），这里查出来的 PlanetActor 因此
-	// 暂时没人用 —— 保留是为了把该属性调回正数时能立刻生效，不必改代码。
+	// 重力/参考坐标系需要一颗行星：贴着行星时对齐到球面法线，太空中退回世界 Z。
+	// PlanetActor 现在喂给升降推力的方向、大气阻力、参考速度（SetReferencePlanetVelocity）
+	// 与 GetAutoLevelUp()。
 	PlanetActor = FindNearestPlanet();
 
 	// 抄下基准臂长：Tick 里的相机后缩量全部在它之上叠加。不写死 1800，
@@ -503,7 +504,7 @@ void ASpaceshipPawn::Tick(float DeltaSeconds)
 	bFreeLookActive = ShouldUseFreeLook(bLandedNow, ThrustInput, VerticalInput);
 
 	// 刚进入：丢弃待发冲量。否则落地那一刻的最后一甩会在自由视角里继续带着船转，
-	// 与「落地即冻结」矛盾。
+	// 而自由视角的语义是「船不再响应鼠标」。
 	//
 	// 已经转起来的角速度归求解器管 —— 由它那份 AngularDamping 衰减，本类改不了。
 	if (bFreeLookActive && !bWasFreeLookActive)

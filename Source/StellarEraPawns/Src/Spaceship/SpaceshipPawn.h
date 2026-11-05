@@ -143,7 +143,11 @@ public:
 	 */
 	FVector GetAngularAccelerationWorldRadPerS2(float DeltaSeconds);
 
-	/** 子系统每帧写回的实际角速度（世界系 rad/s）。横滚到顶的衰减要读它。 */
+	/**
+	 * 求解器当前的实际角速度（世界系 rad/s），由子系统在**施加本帧角加速度之前**写入。
+	 * 横滚到顶的衰减要读它 —— 它描述的是这一帧开始时船已经在怎么转，
+	 * 不是本帧步进之后的值。
+	 */
 	void SetCosmosAngularVelocity(const FVector& InWorldRadPerSecond)
 	{
 		CosmosAngularVelocity = InWorldRadPerSecond;
@@ -810,7 +814,7 @@ protected:
 	 * 参考行星（控制飞船的那颗）。BeginPlay 时自动查找最近的一颗；找不到（纯太空
 	 * 关卡）时自动回正退回世界 Z、相对速度退化为绝对速度。软依赖：缺了它飞船照常飞。
 	 *
-	 * 它同时喂给：自动回正（AutoLevelSpeed > 0 时）、升降推力方向、大气密度/阻力，
+	 * 它同时喂给：升降推力方向、大气密度/阻力、GetAutoLevelUp()（定"上"用），
 	 * 以及子系统每帧写回的参考速度（SetReferencePlanetVelocity）。
 	 */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Spaceship")

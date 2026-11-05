@@ -113,8 +113,11 @@ double ContactRestitution = 0.0;
 放在 `ResolveContacts` 之前，是为了让接触解算看到的角速度已经是本子步积分后的值 ——
 接触修正的 ω 会在下一个子步继续参与积分。
 
-一帧 200 个子步，所以「机翼触地 → 角速度产生 → 下一个子步姿态改变 → 探针位置改变」
-在帧内就闭环了，不会攒一整帧。
+**探针在帧内是冻结的**：`ContactProbes` 每帧只按 Actor 变换旋转一次（见 §3.7 的
+`RefreshShipContactProbes`），整帧最多 200 个子步共用这一批世界系偏移。所以「机翼触地
+→ 角速度产生 → 下一个子步姿态改变」成立，但**第三步「探针位置改变」不发生** ——
+接触力臂最多滞后一帧的转角。这是 16 点 + 每帧快照这一设计固有的近似（高速翻滚时
+误差可达数米），不是实现缺陷；抖动/侧推的幅度只能在 PIE 里判（§6.3）。
 
 ### 3.3 单位
 
@@ -289,8 +292,9 @@ State.Orientation = FQuat4d(BodyActor->GetActorQuat());  // 初态 = 关卡摆�
 
 **`RefreshShipContactProbes`**：
 
-- 探针旋转改用 `State.Orientation`（原来读 `Ship->GetActorTransform()` 的旋转）。
-  缩放仍从 Actor 取。
+- 探针旋转**仍读 `Ship->GetActorTransform()`**（含上一帧写回的朝向），不直接读
+  `State.Orientation`。稳态下两者相等（写回就是写 Orientation），差别只有 float 精度
+  与一帧延迟，远小于一个探针间距。缩放同样从 Actor 取。
 - 顺手写惯性：探针 AABB → 长方体公式 → `State.InverseInertiaLocal`；
   无探针时球体惯性。每帧重算，成本是探针数的 min/max（与已有的旋转遍历同阶）。
 
@@ -324,8 +328,10 @@ else
 }
 ```
 
-`CarryRiders` 用的是位置差量，不受朝向影响。写回之后再
-`Ship->SetCosmosAngularVelocity(ω_sim · TimeScale)`。
+`CarryRiders` 用的是位置差量，不受朝向影响。
+`SetCosmosAngularVelocity` 实际在**本函数里、写 `ExternalAngularAcceleration` 之前**调用，
+拿到的是本帧步进**之前**的角速度 —— 它的唯一读者就是紧跟着的
+`GetAngularAccelerationWorldRadPerS2`，功能等价，且省掉一次跨帧时序依赖。
 
 ### 3.8 数据流一帧
 
@@ -353,7 +359,7 @@ Subsystem::Tick   ① RefreshPlanetContactRadii
 | 探针正好落在球心（方向无定义） | 跳过该点 | 法线无意义，位置修正也无方向 |
 | 飞船没有探针（Hull 没导 Simple Collision） | 走球-球分支，只平移不旋转 | 兜底球的接触点永远在球心连线上，`r × n == 0`，本来就没有力矩 |
 | 逐探针地表半径数量对不上 | 退回球面（现有逻辑） | 与 `2026-10-31` 的设计一致 |
-| 飞船质量或惯性非有限 | 该帧不施加角加速度，打一条 `Warning` | NaN 会让整船姿态静默失效，比不动更糟 |
+| 飞船质量或惯性非有限 | **注册期就挡掉**：`AddBodyToSimulator` 用 `!IsFinite(MassEarth)` 拒绝注册；惯量助手对非法边长/质量返回零；NaN 探针在接触收集期跳过。因此不在每帧热路径再加一层守卫 | 可达路径为零；每帧每天体多一次 `IsFinite` 不买任何东西 |
 | 自由视角激活 | 丢弃待发冲量，`α = 0` | 鼠标归相机 |
 | 高帧率（`DeltaSeconds` 很小） | `α = impulse / Δt` 自动变大 | 乘积 `α·Δt` 与帧率无关，注入的 ω 恒定 |
 

@@ -99,6 +99,11 @@ void UCosmosSimulationSubsystem::UnregisterBody(UCosmosOrbitComponent* Component
 		// 幽灵天体仍会带着最后一帧的角加速度自转。
 		Body.ExternalAngularAcceleration = FVector3d::ZeroVector;
 		Body.AngularDamping = 0.0;
+
+		// 角速度是这一支新增的，且**不会自己衰减**（阻尼刚被清零）。探针不清的话，
+		// 幽灵天体还会拿 134 个点继续和行星做接触求解 —— 结果既不写回也没人看，纯烧时间。
+		Body.AngularVelocity = FVector3d::ZeroVector;
+		Body.SetContactProbes({});
 	}
 }
 
@@ -247,8 +252,15 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 			State.SetContactProbes({});
 			State.Radius = double(Ship->GetContactRadiusCm()) / CentimetersPerAu;
 
-			// 没有探针就没有包围盒可用，退回球体惯量（Radius 刚写好，已是 AU）。
-			// 不写的话 InverseInertiaLocal 保持零 = 撞了也不转。
+			// 按 spec §3.4 退回球体惯量（Radius 刚写好，已是 AU）。
+			//
+			// 注意它当前是**空转**：这条分支清空了探针，接触会走球-球分支，而球-球
+			// 分支从不施加角冲量，惯量取什么都看不出差别。写它只为两件事 —— 与 spec
+			// 对齐，以及将来球-球分支若开始做旋转接触时不必回头再找。
+			//
+			// 这条兜底路径的**行为也变了**：旧的 bZeroVelocityOnContact 会让飞船撞上就
+			// 停，现在没人置位，球-球分支只抹法向、没有摩擦，飞船会贴着地表一直滑。
+			// 只在 Hull 没导 Simple Collision 时才会走到。
 			State.InverseInertiaLocal = FCosmosBodyState::InverseInertiaFromSphere(
 				State.Mass, FMath::Max(State.Radius, 1.0e-9));
 			continue;
@@ -685,8 +697,10 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 		// GetAngularAccelerationWorldRadPerS2 用 Δt 把「到目标转速还差多少」折成角
 		// 加速度，若除数仍是单帧 DeltaTime，Δω = (target−current)·T_c/DeltaTime 就是
 		// N 倍 —— 帧率越高甩得越狠。传 T_c 时 Δω = target−current，与帧率无关。
-		// （线性推力是真正的加速度、不除以 Δt，换 T_c 对它没有影响；横滚走真实角
-		// 加速度，也本来就按 T_c 施力。）
+		// （线性质推力是真正的加速度、不除以 Δt；但 S 制动 taper 要按「本帧满推力
+		// 能改变多少速度」收敛，它消费 DeltaSeconds，换 T_c 同样是对的 —— 旧版按
+		// 单帧时长估、按 T_c 施加，帧率突变那一下会过冲成反向。横滚走真实角加速度，
+		// 本来就按 T_c 施力。）
 		const double StepRealSeconds = double(StepsToRun) * BaseTimeStep / TimeScale;
 		ApplyControlledBodyForces(float(StepRealSeconds));
 

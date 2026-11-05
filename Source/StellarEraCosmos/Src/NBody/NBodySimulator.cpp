@@ -422,8 +422,11 @@ void FNBodySimulator::ResolveContacts()
 			const bool bZeroJ = Bodies[j].bZeroVelocityOnContact;
 
 			// 只有**一方**要求清零才走「撞上即停」特例。双方都要求清零是误配
-			// （没有可参照的速度），退回默认的法向抹除 —— 项目里已没有天体置位本
-			// 开关（飞船改走探针冲量），此分支目前不会进入。
+			// （没有可参照的速度），退回默认的法向抹除。
+			//
+			// 运行期已没有天体置位本开关（飞船改走探针冲量）。仍然置位的只有两处，
+			// 而且**确实会进入这里**：编辑器态的离线轨迹预览（CosmosTrajectoryComponent
+			// 重建 State 时置位，走球-球分支），以及测试。
 			if (bZeroI != bZeroJ)
 			{
 				// 把带开关的那一方整条速度钉到对方上（相对速度归零，随行星一起动）。
