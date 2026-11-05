@@ -149,9 +149,17 @@ void UCosmosSimulationSubsystem::AddBodyToSimulator(UCosmosOrbitComponent* Compo
 		// Collision 时才真的用这个球。
 		State.Radius = double(Ship->GetContactRadiusCm()) / CentimetersPerAu;
 
-		// 撞上行星时**整条速度归零**（相对速度归零、随行星一起动），而不是默认的
-		// 「只抹法向、切向沿地表滑」—— 玩家期望撞地即停，不是擦着地表一路滑。
-		State.bZeroVelocityOnContact = true;
+		// 刚体：姿态归求解器，Actor 的 Rotation 每帧从这里写回。
+		State.bRigidBody = true;
+
+		// 关卡的摆放朝向是初态。FQuat 与 FQuat4d 精度不同，逐个分量转。
+		const FQuat InitialRotation = Ship->GetActorQuat();
+		State.Orientation = FQuat4d(
+			InitialRotation.X, InitialRotation.Y, InitialRotation.Z, InitialRotation.W);
+
+		// 逐步退出的老开关：bZeroVelocityOnContact 会把整条速度钉成行星的速度
+		// （撞地即停）。刚体接触靠摩擦停，不再需要它 —— 留着位不置，行星间接触
+		// 仍走默认的光滑硬球语义。
 	}
 
 	Component->SimulatorIndex = Simulator.AddBody(State);
@@ -238,6 +246,9 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 
 		// 本地厘米 → 世界厘米（只取旋转+缩放，不加 Actor 位置：探针相对船心）→ AU。
 		// 每帧重算是为了跟上船的转向：横着贴地和倒着贴地，碰到的探针不是同一批。
+		//
+		// 用的是 Actor 的变换（含上一帧写回的朝向），比求解器的 Orientation 晚一帧。
+		// 探针本来就是每帧重采的近似，晚一帧的误差远小于一个探针间距。
 		const FTransform ShipTransform = Ship->GetActorTransform();
 		TArray<FVector3d> Probes;
 		Probes.Reserve(LocalProbes.Num());
@@ -249,6 +260,29 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 
 		State.SetContactProbes(MoveTemp(Probes));
 		State.Radius = 0.0;
+
+		// 惯性张量：用探针点的本地 AABB 当长方体。探针集就是船体凸包的代表点，
+		// AABB 即船体包围盒；按包围盒算惯量足以决定「哪条边着地时翻得多快」，
+		// 而且不需要读网格资产。
+		FBox ProbeBox(ForceInit);
+		for (const FVector& LocalProbe : LocalProbes)
+		{
+			ProbeBox += LocalProbe;
+		}
+
+		const FVector HalfExtentCm = ProbeBox.GetExtent();
+		if (HalfExtentCm.X > 0.f && HalfExtentCm.Y > 0.f && HalfExtentCm.Z > 0.f)
+		{
+			State.InverseInertiaLocal = FCosmosBodyState::InverseInertiaFromBox(
+				State.Mass, FVector3d(HalfExtentCm) / CentimetersPerAu);
+		}
+		else
+		{
+			// 探针全落在一个平面 / 一条线上：长方体公式退化。
+			// 退回均匀球，至少不会给出零惯量（零惯量 = 撞了也不转）。
+			State.InverseInertiaLocal = FCosmosBodyState::InverseInertiaFromSphere(
+				State.Mass, FMath::Max(State.ContactProbeRadius, 1.0e-9));
+		}
 
 		// ── 逐探针的真实地表半径 ────────────────────────────────────────────
 		// 求解器每个子步都会重算接触（一帧最多 MaxStepsPerFrame = 200 步），
@@ -440,7 +474,21 @@ void UCosmosSimulationSubsystem::ApplyControlledBodyForces(float DeltaSeconds)
 			? 1.0 / (double(DampingTime) * TimeScale)
 			: 0.0;
 
+		// 角速度先写给飞船：横滚的「到顶衰减」要读实际角速度，而读的必须是
+		// 上一帧写回的值 —— 求解器单位（rad/模拟年）→ 真实单位（rad/秒）。
+		Ship->SetCosmosAngularVelocity(FVector(Body.AngularVelocity * TimeScale));
+
+		// 角加速度：真实 rad/s² → 求解器 rad/模拟年²。多除一个 TimeScale 是因为
+		// 它是 dt 的二阶量（α·dt² 才是角度）。
+		Body.ExternalAngularAcceleration =
+			FVector3d(Ship->GetAngularAccelerationWorldRadPerS2(DeltaSeconds))
+			/ (TimeScale * TimeScale);
+
+		// 角阻尼同 LinearDamping：τ 是真实秒，求解器的时间单位是模拟年。
+		Body.AngularDamping = double(Ship->GetAngularDampingPerSecond()) / TimeScale;
+
 		bHasForcedBodies |= !Body.ExternalAcceleration.IsNearlyZero()
+			|| !Body.ExternalAngularAcceleration.IsNearlyZero()
 			|| Body.LinearDamping != 0.0;
 	}
 }
@@ -581,17 +629,14 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 		return;
 	}
 
-	// ── 0. 刷新接触形状 + 施加受控天体的外力 ──
-	// 三者都是「推进之前把引擎侧状态喂给求解器」。
-	//
+	// ── 0. 刷新接触形状 ──
 	// 接触形状必须在推进之前：接触解算发生在 StepExact 内部，读的就是这一刻的
 	// Radius / ContactProbes。放到推进之后，这一帧的接触用的还是上一帧的地形高度
 	// 和上一帧的船头朝向。
 	//
-	// 外力同理：本帧推进读的就是这一刻写进去的值。
+	// 外力不在这里读 —— 它只在**真正会推进**的帧里读取，见下面 NumSteps > 0 那一支。
 	RefreshPlanetContactRadii();
 	RefreshShipContactProbes();
-	ApplyControlledBodyForces(DeltaTime);
 
 	// ── 1. 时间推进 ──
 	// 真实秒 × TimeScale = 需要模拟的天文年数。
@@ -612,6 +657,15 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 	if (NumSteps > 0)
 	{
 		const int32 StepsToRun = FMath::Min(NumSteps, MaxStepsPerFrame);
+
+		// 外力只在**真正会推进**的帧里读取。零子步帧（帧率高于 1 / (BaseTimeStep /
+		// TimeScale) 时成批出现）里如果也读，待发角速度冲量会被取走清零，却没有任何
+		// StepExact 消费写进去的 ExternalAngularAcceleration —— 下一帧它又被覆盖，
+		// 整帧鼠标输入静默丢失（144 Hz 下约一半帧，且损失随帧率变）。
+		//
+		// 跳过的帧里冲量自然累加到下一帧（Look() 是 +=），而 α = 冲量/dt、
+		// Δω_sim = α_sim · TimeScale · dt，dt 恰好约掉 —— 跨帧累积不改变力度。
+		ApplyControlledBodyForces(DeltaTime);
 
 		// 只扣掉真正跑了的那些步，剩下的留到下一帧。
 		AdvanceAccumulator -= double(StepsToRun) * BaseTimeStep;
@@ -652,7 +706,28 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 		if (Component->bSimulated)
 		{
 			const FCosmosBodyState& State = Simulator.GetBody(Component->SimulatorIndex);
-			BodyActor->SetActorLocation(Simulator.ToWorldLocation(State.Position), /*bSweep=*/false);
+
+			// 刚体（飞船）：位置 + 朝向一起写回。朝向的权威在求解器 —— 这里不写
+			// 就没人写，而谁在别处 AddActorLocalRotation 就是两个写入方互相抹。
+			//
+			// 非刚体天体只写位置：它们的 Orientation 恒为单位四元数，若也走
+			// SetActorTransform，关卡里摆好的行星朝向会被瞬间抹成零。
+			if (State.bRigidBody)
+			{
+				BodyActor->SetActorTransform(
+					FTransform(
+						FQuat(
+							State.Orientation.X, State.Orientation.Y,
+							State.Orientation.Z, State.Orientation.W),
+						Simulator.ToWorldLocation(State.Position),
+						BodyActor->GetActorScale3D()),
+					/*bSweep=*/false, nullptr, ETeleportType::None);
+			}
+			else
+			{
+				BodyActor->SetActorLocation(
+					Simulator.ToWorldLocation(State.Position), /*bSweep=*/false);
+			}
 
 			// 受控天体（飞船）：把求解器速度一并写回 Actor。
 			// ASpaceshipPawn::GetVelocity() 的覆写读的就是它 —— 体素调用器的预测、
