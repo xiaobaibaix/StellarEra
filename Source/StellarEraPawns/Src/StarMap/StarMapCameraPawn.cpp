@@ -7,6 +7,7 @@
 #include "Engine/World.h"
 #include "PlanetEditComponent.h"
 #include "PlanetSurfaceRay.h"
+#include "StarMapCameraInputComponent.h"
 #include "VoxelPlanetActor.h"
 #include "AlwaysLocalVoxelInvokerComponent.h"
 #include "VoxelViewpointInvokers.h"
@@ -22,6 +23,9 @@ AStarMapCameraPawn::AStarMapCameraPawn()
 
 	// 视线方向由本 Pawn 自己管（OrbitRotation），不走控制器的旋转。
 	Camera->bUsePawnControlRotation = false;
+
+	// 星图的键鼠输入：与角色 / 飞船同构，回调住在组件里。
+	PlayerInput = CreateDefaultSubobject<UStarMapCameraInputComponent>(TEXT("PlayerInput"));
 
 	// --- 体素调用器：三档 LOD，见头文件里的说明 ---
 	//
@@ -87,6 +91,16 @@ AStarMapCameraPawn::AStarMapCameraPawn()
 	//   提示串写 Ctrl+左键填（右键已归绕轨）、MaxEditDistanceCm = 5e7（与最远
 	//   50 AU 的绕轨距离同一尺度）。
 	// 原生 AStarMapCameraPawn 实例没有编辑功能，调用方按空处理。
+}
+
+void AStarMapCameraPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
+{
+	Super::SetupPlayerInputComponent(PlayerInputComponent);
+
+	if (PlayerInput)
+	{
+		PlayerInput->Bind(PlayerInputComponent);
+	}
 }
 
 void AStarMapCameraPawn::BeginPlay()

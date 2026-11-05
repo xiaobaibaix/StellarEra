@@ -100,18 +100,9 @@ void AStellarEraPlayerController::SetupInputComponent()
 		return;
 	}
 
-	// 角色 / 飞船的移动、视角、推力由各自的 Pawn 在自己的 SetupPlayerInputComponent
-	// 里绑定；这里只留「只有星图相机在用时才有意义」的鼠标与滚轮 —— 星图是控制器的
-	// 一个模式，不是一个 Pawn 的行为。
-	EnhancedInput->BindAction(Input.Look, ETriggerEvent::Triggered, this, &AStellarEraPlayerController::OnLook);
-	EnhancedInput->BindAction(Input.LookActivate, ETriggerEvent::Started, this, &AStellarEraPlayerController::OnLookActivateStarted);
-	EnhancedInput->BindAction(Input.LookActivate, ETriggerEvent::Completed, this, &AStellarEraPlayerController::OnLookActivateCompleted);
-	EnhancedInput->BindAction(Input.LookMiddle, ETriggerEvent::Started, this, &AStellarEraPlayerController::OnLookMiddleStarted);
-	EnhancedInput->BindAction(Input.LookMiddle, ETriggerEvent::Completed, this, &AStellarEraPlayerController::OnLookMiddleCompleted);
-
-	// 只绑 Triggered：滚轮每格是一次独立冲量，不滚就不产生值，没有 Completed 可收。
-	EnhancedInput->BindAction(Input.Zoom, ETriggerEvent::Triggered, this, &AStellarEraPlayerController::OnZoom);
-
+	// 角色 / 飞船 / 星图相机的移动、视角、推力由各自的 Pawn 在自己的
+	// SetupPlayerInputComponent 里绑定；这里只留控制器自己的那几条 ——
+	// 上下船、星图开关与**选择**、编辑、矿物透视。
 	EnhancedInput->BindAction(Input.StarMapToggle, ETriggerEvent::Started,
 		this, &AStellarEraPlayerController::ToggleStarMap);
 	EnhancedInput->BindAction(Input.StarMapSelect, ETriggerEvent::Started,
@@ -201,12 +192,10 @@ void AStellarEraPlayerController::ApplyViewpointInvokerGate(
 
 void AStellarEraPlayerController::ApplyMouseModeForPawn(APawn* InPawn)
 {
-	// 换 Pawn 时把两个「按住」标志都清零。按着键登船/离船/进星图的话，松开事件
-	// 会送到新 Pawn 身上，标志就永远停在 true —— 角色一下船就自己转视角，
-	// 或者星图里没按左键也在转视角。
-	bLookHeld = false;
+	// 换 Pawn 时把「左键按住」标志清零：按着键登船 / 离船 / 进星图的话，松开事件
+	// 会送到新 Pawn 身上，标志就永远停在 true，星图里没按左键也在转视角。
+	// 视角那两个标志（右键 / 中键）归 UStarMapCameraInputComponent，它在 Bind 时自己清。
 	bStarMapSelectHeld = false;
-	bStarMapMiddleHeld = false;
 
 	const bool bWalking = Cast<APlanetCharacter>(InPawn) != nullptr;
 	const bool bStarMap = Cast<AStarMapCameraPawn>(InPawn) != nullptr;
@@ -278,6 +267,16 @@ UPlanetEditComponent* AStellarEraPlayerController::GetEditComponentInEditMode() 
 	return Edit && Edit->IsEditMode() ? Edit : nullptr;
 }
 
+bool AStellarEraPlayerController::IsStarMapSelectHeld() const
+{
+	return bStarMapSelectHeld;
+}
+
+bool AStellarEraPlayerController::IsMineralViewActive() const
+{
+	return ActiveMineralView != nullptr;
+}
+
 void AStellarEraPlayerController::ForceExitEditMode(APawn* InPawn)
 {
 	// 形参不能叫 Pawn：AController 自己有个 Pawn 成员，遮蔽会被当成错误（C4458）。
@@ -285,115 +284,6 @@ void AStellarEraPlayerController::ForceExitEditMode(APawn* InPawn)
 	if (Edit && Edit->IsEditMode())
 	{
 		Edit->SetEditMode(false);
-	}
-}
-
-EStarMapLookMode AStellarEraPlayerController::ResolveStarMapLookMode(
-	const bool bRightHeld,
-	const bool bLeftHeld,
-	const bool bMiddleHeld,
-	const bool bEditMode,
-	const bool bContinuousDigging,
-	const bool bActiveMineralView)
-{
-	// 连续挖期间一个键都不放行：挖掘点跟着光标走，视角一动路径就画歪了。
-	// 转头也算 —— 视线一变，屏幕射线跟着变，挖掘点一样会漂。
-	if (bContinuousDigging)
-	{
-		return EStarMapLookMode::None;
-	}
-
-	// 右键优先：它只转头、不挪相机，与同时按住的其它键不冲突。
-	if (bRightHeld)
-	{
-		return EStarMapLookMode::Aim;
-	}
-
-	// 中键绕行不看模式：编辑 / 矿物透视下左键被借走时，它就是唯一的绕行键。
-	if (bMiddleHeld)
-	{
-		return EStarMapLookMode::Orbit;
-	}
-
-	// 左键在编辑模式（挖掘 / 填充）与矿物透视（图例点击）里已经被借走，
-	// 这两种状态下按下左键必须什么都不做。
-	if (bLeftHeld && !bEditMode && !bActiveMineralView)
-	{
-		return EStarMapLookMode::Orbit;
-	}
-
-	return EStarMapLookMode::None;
-}
-
-void AStellarEraPlayerController::OnLook(const FInputActionValue& Value)
-{
-	// 角色 / 飞船的视角由它们自己绑、自己乘灵敏度。这里只有星图相机 Possess 时
-	// 才有事可做；其余 Pawn 上这个回调直接返回。
-	AStarMapCameraPawn* StarMap = Cast<AStarMapCameraPawn>(GetPawn());
-	if (!StarMap)
-	{
-		return;
-	}
-
-	const FVector2D Axis = Value.Get<FVector2D>();
-	const float DeltaYaw = Axis.X * LookSensitivity;
-	const float DeltaPitch = (bInvertLookY ? -Axis.Y : Axis.Y) * LookSensitivity;
-
-	// 星图的鼠标位移只在按住鼠标（CaptureDuringMouseDown）时才有值，所以
-	// 「现在按的是哪个键」靠各键的按住标志区分；拿去哪由 ResolveStarMapLookMode
-	// 决定（右键转头 / 左键绕行 / 中键绕行 / 编辑时左键什么都不做）。
-	const UPlanetEditComponent* Edit = GetEditComponentInEditMode();
-	switch (ResolveStarMapLookMode(
-		bLookHeld,
-		bStarMapSelectHeld,
-		bStarMapMiddleHeld,
-		Edit != nullptr,
-		Edit && Edit->IsContinuousDigging(),
-		ActiveMineralView != nullptr))
-	{
-	case EStarMapLookMode::Orbit:
-		StarMap->OrbitLook(DeltaYaw, DeltaPitch);
-		break;
-	case EStarMapLookMode::Aim:
-		StarMap->AimLook(DeltaYaw, DeltaPitch);
-		break;
-	case EStarMapLookMode::None:
-	default:
-		break;
-	}
-}
-
-void AStellarEraPlayerController::OnLookActivateStarted(const FInputActionValue& Value)
-{
-	// 只当星图的「按住右键 = 转头」开关用。角色的右键（视角开关 + 编辑点放）
-	// 由 APlanetCharacter 自己绑同一个动作、自己处理。
-	bLookHeld = true;
-}
-
-void AStellarEraPlayerController::OnLookActivateCompleted(const FInputActionValue& Value)
-{
-	bLookHeld = false;
-}
-
-void AStellarEraPlayerController::OnLookMiddleStarted(const FInputActionValue& Value)
-{
-	// 只记状态、不区分 Pawn：分派在 OnLook 里，角色/飞船根本不看这个标志。
-	// 星图里它是「编辑模式下左键被借走」时的绕行键（见 ResolveStarMapLookMode）。
-	bStarMapMiddleHeld = true;
-}
-
-void AStellarEraPlayerController::OnLookMiddleCompleted(const FInputActionValue& Value)
-{
-	bStarMapMiddleHeld = false;
-}
-
-void AStellarEraPlayerController::OnZoom(const FInputActionValue& Value)
-{
-	// 角色 / 飞船的滚轮由它们自己绑（角色还分「编辑时调笔刷」与「否则缩相机」）。
-	// 这里只剩星图相机那一路。
-	if (AStarMapCameraPawn* StarMap = Cast<AStarMapCameraPawn>(GetPawn()))
-	{
-		StarMap->AddZoom(Value.Get<float>());
 	}
 }
 

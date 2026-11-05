@@ -7,6 +7,7 @@
 #include "GameFramework/PlayerController.h"
 #include "Templates/SubclassOf.h"
 #include "StarMapUIInputs.h"
+#include "StarMapCameraInputComponent.h"
 #include "StellarEraInputActions.h"
 #include "StellarEraPlayerController.generated.h"
 
@@ -20,23 +21,6 @@ struct FInputActionValue;
 struct FStarMapScreenCandidate;
 
 /**
- * 星图里鼠标位移该拿去干什么。
- *
- * - `Orbit`：绕焦点转（相机位置跟着变），见 AStarMapCameraPawn::OrbitLook。
- * - `Aim`：只转视线朝向（相机位置不变），见 AStarMapCameraPawn::AimLook。
- * - `None`：正在编辑 / 连续挖，视角一律不动。
- *
- * 与「哪个键按着」分开建模：右键在普通模式与编辑模式里都归 Aim，左键在编辑
- * 模式里归挖掘（None）—— 一个 bool 表达不了这种三路分派。
- */
-enum class EStarMapLookMode : uint8
-{
-	None,
-	Orbit,
-	Aim,
-};
-
-/**
  * 本项目的玩家控制器。
  *
  * 输入资产（IMC / IA）在运行时用 C++ 构造：零手工步骤，改完代码立刻能跑，
@@ -48,11 +32,12 @@ enum class EStarMapLookMode : uint8
  *     动作表由本类经 `IStellarEraInputSource` 提供 —— 所以这里没有按 Pawn 类型
  *     分派的三路 `Cast`，新增一种可操控 Pawn 也不用改本类；
  *   - **本类**只绑控制器级的东西：E 上下船、M 星图、G 编辑、H 矿物、数字键，
- *     以及**星图模式**下的鼠标（星图是控制器的一个模式，不是某个 Pawn 的行为）。
+ *     以及星图模式下的**选择**（左键按下 / 拖拽 / 连挖收尾）；星图的视角与缩放归
+ *     相机自己的 `UStarMapCameraInputComponent`。
  */
 UCLASS()
 class AStellarEraPlayerController : public APlayerController, public IStarMapUIInputs,
-	public IStellarEraInputSource
+	public IStellarEraInputSource, public IStarMapLookContext
 {
 	GENERATED_BODY()
 
@@ -133,30 +118,6 @@ public:
 	 */
 	static void ApplyViewpointInvokerGate(UWorld* World, const APawn* InPawn);
 
-	/**
-	 * 星图的鼠标位移该拿去哪。纯函数，OnLook 调它，测试直接调它。
-	 *
-	 * 星图的鼠标位移只在按住鼠标（CaptureDuringMouseDown）时才有值，所以
-	 * 「按的是哪个键」只能靠按住的标志位区分。分派规则（按优先级）：
-	 *   - 连续挖期间一律 None —— 挖掘点跟着光标走，视角一动就画歪（转头也算，
-	 *     视线一变，屏幕射线就变了）。
-	 *   - 右键 → Aim：只转头、不挪相机，任何模式都可用。
-	 *   - 中键 → Orbit：编辑 / 矿物透视下左键被借走时，绕行改由它承担。
-	 *   - 左键 → Orbit，但编辑模式（挖掘 / 填充）与矿物透视（图例）下左键已被
-	 *     借走，只能是 None。
-	 *   - 都没按 → None。
-	 *
-	 * 右键优先于其它键：转头不改变相机位置，同时按住时先满足它更符合直觉。
-	 * 只决定「拿去哪」；缩放走 OnZoom（滚轮），任何状态下都能用。
-	 */
-	static EStarMapLookMode ResolveStarMapLookMode(
-		bool bRightHeld,
-		bool bLeftHeld,
-		bool bMiddleHeld,
-		bool bEditMode,
-		bool bContinuousDigging,
-		bool bActiveMineralView);
-
 	/** 当前激活的矿物透视组件；未激活时为空。星图 UI 用它画图例、喂矿体显隐。 */
 	virtual UPlanetMineralViewComponent* GetActiveMineralView() const override { return ActiveMineralView; }
 
@@ -184,30 +145,19 @@ protected:
 	 */
 	UPlanetEditComponent* GetEditComponentInEditMode() const;
 
+	//~ Begin IStarMapLookContext Interface
+	virtual bool IsStarMapSelectHeld() const override;
+	virtual bool IsMineralViewActive() const override;
+	//~ End IStarMapLookContext Interface
+
 	/** Pawn 上开着的编辑模式一律退出。上船 / 进出星图 / 调试换 Pawn 共用。 */
 	void ForceExitEditMode(APawn* InPawn);
-
-	// --- 星图鼠标（角色 / 飞船的移动与视角由各自的 Pawn 自己绑定） ---
-
-	/** 鼠标位移。只有星图相机被 Possess 时才有实际动作。 */
-	void OnLook(const FInputActionValue& Value);
-
-	/** 右键按住 / 松开。星图里它只当「转头」的开关用。 */
-	void OnLookActivateStarted(const FInputActionValue& Value);
-	void OnLookActivateCompleted(const FInputActionValue& Value);
-
-	/** 中键按住 / 松开。星图里它顶替被借走的左键做绕行。 */
-	void OnLookMiddleStarted(const FInputActionValue& Value);
-	void OnLookMiddleCompleted(const FInputActionValue& Value);
 
 	/** G 键：切换编辑模式。角色与星图相机都有编辑组件；飞船等没有，按 G 无反应。 */
 	void OnEditModeToggle(const FInputActionValue& Value);
 
 	/** `[` / `]`：编辑模式下调笔刷尺寸（±1）。星图里滚轮归缩放，所以尺寸另占一对键；角色编辑模式下滚轮也能调。 */
 	void OnBrushSize(const FInputActionValue& Value);
-
-	/** 滚轮。本类只负责星图那一路（角色 / 飞船在自己的 Pawn 里绑）。 */
-	void OnZoom(const FInputActionValue& Value);
 
 	/**
 	 * 进入 / 退出星图模式。
@@ -301,37 +251,10 @@ protected:
 	void ShowPrompt(const FString& Text);
 
 	/**
-	 * 星图里右键是否按住。角色 / 飞船的视角开关由各自 Pawn 自己记，不在这里。
-	 *
-	 * 星图的鼠标位移只在按住鼠标（CaptureDuringMouseDown）时才有值，所以
-	 * 「现在按的是哪个键」只能靠各键的按住标志区分（见 ResolveStarMapLookMode）。
-	 */
-	bool bLookHeld = false;
-
-	/**
-	 * 星图相机的鼠标灵敏度（度/像素）。
-	 *
-	 * 角色与飞船各自有一份同样名字的字段（它们自己绑 Look），因为三者的手感
-	 * 本来就该能分开调。
-	 */
-	UPROPERTY(EditAnywhere, Category = "Input")
-	float LookSensitivity = 1.2f;
-
-	/** 星图相机的上下视角反向。 */
-	UPROPERTY(EditAnywhere, Category = "Input")
-	bool bInvertLookY = false;
-
-	/**
-	 * 星图里左键是否按住。与 bLookHeld 同理：换 Pawn 时必须清零，否则按着左键
+	 * 星图里左键是否按住。换 Pawn 时必须清零，否则按着左键
 	 * 进出星图之后，松开事件送到新 Pawn 身上，这个标志就永远停在 true。
 	 */
 	bool bStarMapSelectHeld = false;
-
-	/**
-	 * 星图里中键是否按住。用途与 bStarMapSelectHeld 同理，但归绕行 —— 编辑模式
-	 * 与矿物透视把左键借走之后，绕行只能靠中键。换 Pawn 时一并清零。
-	 */
-	bool bStarMapMiddleHeld = false;
 
 	/** 左键按下的屏幕位置（像素）。用 double 存 —— 与 GetMousePosition 的 double 重载对齐。 */
 	FVector2D StarMapPressPosition = FVector2D::ZeroVector;

@@ -13,6 +13,7 @@
 #include "PlanetCharacter.h"
 #include "PlanetEditComponent.h"
 #include "SpaceshipPawn.h"
+#include "StarMapCameraInputComponent.h"
 #include "StarMapCameraPawn.h"
 #include "StellarEraPlayerController.h"
 
@@ -697,13 +698,12 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapLookDispatchTest,
 
 bool FStellarEraStarMapLookDispatchTest::RunTest(const FString& Parameters)
 {
-	using FController = AStellarEraPlayerController;
 	using EMode = EStarMapLookMode;
 
 	// 参数顺序：(右键, 左键, 中键, 编辑模式, 连续挖, 矿物透视)
 	auto Resolve = [](bool bRight, bool bLeft, bool bMiddle, bool bEdit, bool bDig, bool bMineral)
 	{
-		return FController::ResolveStarMapLookMode(bRight, bLeft, bMiddle, bEdit, bDig, bMineral);
+		return UStarMapCameraInputComponent::ResolveLookMode(bRight, bLeft, bMiddle, bEdit, bDig, bMineral);
 	};
 
 	// ── 普通星图：左键绕行、右键转头、中键也绕行 ──

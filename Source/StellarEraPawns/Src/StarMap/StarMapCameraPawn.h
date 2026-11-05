@@ -11,6 +11,7 @@ class AVoxelPlanetActor;
 class UCameraComponent;
 class UCosmosSimulationSubsystem;
 class UPlanetEditComponent;
+class UStarMapCameraInputComponent;
 class UVoxelSimpleInvokerComponent;
 
 /**
@@ -72,6 +73,8 @@ public:
 	AStarMapCameraPawn();
 
 	virtual void BeginPlay() override;
+
+	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 
 	//~ Begin IVoxelViewpointInvokers Interface
 	virtual void SetViewpointInvokersActive(bool bActive) override;
@@ -327,6 +330,10 @@ protected:
 	/** 相机，同时是根组件。不挂 SpringArm —— 太空里没有东西要避。 */
 	UPROPERTY(VisibleAnywhere, Category = "StarMap")
 	TObjectPtr<UCameraComponent> Camera;
+
+	/** 键鼠输入。回调与输入状态都在组件里，本类只负责转发绑定。 */
+	UPROPERTY(VisibleAnywhere, Category = "Input")
+	TObjectPtr<UStarMapCameraInputComponent> PlayerInput;
 
 	/**
 	 * 体素调用器：四档 LOD，配置与飞船（ASpaceshipPawn）同一套。
