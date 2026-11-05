@@ -236,8 +236,8 @@ ASpaceshipPawn::ASpaceshipPawn()
 	//
 	// 另一个更隐蔽的问题：bInheritRoll 剥的是**世界坐标**的 roll 分量，而飞船的
 	// "水平"由 GetAutoLevelUp() 对齐到行星球面法线（姿态现已整体归求解器，
-	// GetAutoLevelUp() 现在只用来定升降推力的"上"）。两者只在赤道重合，于是飞船在
-	// 赤道以外平飞、机身一点没滚时，相机的地平线却是歪的。
+	// GetAutoLevelUp() 现在只被 GetLandingQueryRadiusCm() 用来定重力方向）。两者只在
+	// 赤道重合，于是飞船在赤道以外平飞、机身一点没滚时，相机的地平线却是歪的。
 	// 改成 true 后相机与机身完全一致，这个偏差自然消失。
 	//
 	// 横滚由玩家独占：AutoLevelSpeed 默认 0（关闭自动回正），按住 A/D 就是完整的

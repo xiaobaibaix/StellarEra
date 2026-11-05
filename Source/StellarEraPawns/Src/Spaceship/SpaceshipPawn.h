@@ -814,7 +814,7 @@ protected:
 	 * 参考行星（控制飞船的那颗）。BeginPlay 时自动查找最近的一颗；找不到（纯太空
 	 * 关卡）时自动回正退回世界 Z、相对速度退化为绝对速度。软依赖：缺了它飞船照常飞。
 	 *
-	 * 它同时喂给：升降推力方向、大气密度/阻力、GetAutoLevelUp()（定"上"用），
+	 * 它同时喂给：升降推力方向、大气密度/阻力、GetAutoLevelUp()（定重力方向用），
 	 * 以及子系统每帧写回的参考速度（SetReferencePlanetVelocity）。
 	 */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Spaceship")

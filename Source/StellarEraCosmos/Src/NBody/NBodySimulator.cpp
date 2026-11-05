@@ -261,10 +261,9 @@ namespace
 	};
 
 	/**
-	 * 每对天体最多解几个接触点。飞船实测有 134 个探针（见
-	 * SpaceshipCollisionTests 的 `[Ship] 接触探针 134 个`），机腹平贴地面时同时
-	 * 穿透的点会超过 16，所以这里必须**边收集边截断**：满了就替换最浅的那个，
-	 * 全程不扩容、不排序。
+	 * 每对天体最多解几个接触点。飞船有上百个探针（`StellarEra.Spaceship.ShipContactProbes`
+	 * 只断言非空，具体个数随 Hull 网格变），机腹平贴地面时同时穿透的点会超过 16，
+	 * 所以这里必须**边收集边截断**：满了就替换最浅的那个，全程不扩容、不排序。
 	 */
 	constexpr int32 MaxContactPointsPerPair = 16;
 

@@ -101,7 +101,7 @@ void UCosmosSimulationSubsystem::UnregisterBody(UCosmosOrbitComponent* Component
 		Body.AngularDamping = 0.0;
 
 		// 角速度是这一支新增的，且**不会自己衰减**（阻尼刚被清零）。探针不清的话，
-		// 幽灵天体还会拿 134 个点继续和行星做接触求解 —— 结果既不写回也没人看，纯烧时间。
+		// 幽灵天体还会拿上百个探针继续和行星做接触求解 —— 结果既不写回也没人看，纯烧时间。
 		Body.AngularVelocity = FVector3d::ZeroVector;
 		Body.SetContactProbes({});
 	}
@@ -259,8 +259,8 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 			// 对齐，以及将来球-球分支若开始做旋转接触时不必回头再找。
 			//
 			// 这条兜底路径的**行为也变了**：旧的 bZeroVelocityOnContact 会让飞船撞上就
-			// 停，现在没人置位，球-球分支只抹法向、没有摩擦，飞船会贴着地表一直滑。
-			// 只在 Hull 没导 Simple Collision 时才会走到。
+			// 停，而运行期的飞船已不再置位它 —— 球-球分支只抹法向、没有摩擦，飞船会
+			// 贴着地表一直滑。只在 Hull 没导 Simple Collision 时才会走到。
 			State.InverseInertiaLocal = FCosmosBodyState::InverseInertiaFromSphere(
 				State.Mass, FMath::Max(State.Radius, 1.0e-9));
 			continue;

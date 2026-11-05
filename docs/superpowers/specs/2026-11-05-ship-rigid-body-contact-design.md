@@ -292,9 +292,9 @@ State.Orientation = FQuat4d(BodyActor->GetActorQuat());  // 初态 = 关卡摆�
 
 **`RefreshShipContactProbes`**：
 
-- 探针旋转**仍读 `Ship->GetActorTransform()`**（含上一帧写回的朝向），不直接读
-  `State.Orientation`。稳态下两者相等（写回就是写 Orientation），差别只有 float 精度
-  与一帧延迟，远小于一个探针间距。缩放同样从 Actor 取。
+- 探针旋转**仍读 `Ship->GetActorTransform()`**，不直接读 `State.Orientation`。
+  在 Refresh 那一刻两者相等 —— Actor 旋转就是上一帧写回的 Orientation，也正是求解器
+  本帧推进前的朝向，**没有滞后**，差别只有 float 精度。缩放同样从 Actor 取。
 - 顺手写惯性：探针 AABB → 长方体公式 → `State.InverseInertiaLocal`；
   无探针时球体惯性。每帧重算，成本是探针数的 min/max（与已有的旋转遍历同阶）。
 
@@ -340,11 +340,12 @@ Pawn::Tick        Look()/SetRoll() → PendingAngularImpulseLocal、RollInput
                   （不再写 Actor 朝向）
         ↓
 Subsystem::Tick   ① RefreshPlanetContactRadii
-                  ② RefreshShipContactProbes   ← 用 State.Orientation 转探针 + 写惯性
-                  ③ ApplyControlledBodyForces  ← 读待发冲量（清零）、写 α 与角阻尼
+                  ② RefreshShipContactProbes   ← 用 Actor 变换（无滞后，见 §3.7）转探针
+                                                + 写惯性
+                  ③ ApplyControlledBodyForces  ← 先 SetCosmosAngularVelocity（步进前的 ω），
+                                                再读待发冲量（清零）、写 α 与角阻尼
                   ④ 200 × StepExact           ← 姿态积分 → 接触冲量修正 ω
                   ⑤ 写回：SetActorTransform(位置+朝向) + SetCosmosVelocity
-                            + SetCosmosAngularVelocity
 ```
 
 ---
@@ -371,7 +372,7 @@ Subsystem::Tick   ① RefreshPlanetContactRadii
 |---|---|
 | `Source/StellarEraCosmos/Src/NBody/NBodySimulator.h` | `FCosmosBodyState` 加字段；姿态积分与冲量辅助函数声明 |
 | `Source/StellarEraCosmos/Src/NBody/NBodySimulator.cpp` | `StepExact` 加姿态积分；`ResolveProbeContact` 重写为多接触点顺序冲量 |
-| `Source/StellarEraCosmos/Src/CosmosSimulationSubsystem.cpp` | `AddBodyToSimulator` 初始化刚体字段；`RefreshShipContactProbes` 用求解器朝向 + 写惯性；`ApplyControlledBodyForces` 写角加速度与角阻尼；写回改用 `SetActorTransform` |
+| `Source/StellarEraCosmos/Src/CosmosSimulationSubsystem.cpp` | `AddBodyToSimulator` 初始化刚体字段；`RefreshShipContactProbes` 用 Actor 变换转探针 + 写惯性；`ApplyControlledBodyForces` 写角速度、角加速度与角阻尼；写回改用 `SetActorTransform` |
 | `Source/StellarEraPawns/Src/Spaceship/SpaceshipPawn.h/.cpp` | 删 `AddActorLocalRotation` 与自动回正；新增 `PendingAngularImpulseLocal`、`SetCosmosAngularVelocity`、`GetAngularAccelerationWorldRadPerS2`、`RollAngularAcceleration` |
 | `Source/StellarEraCosmos/Src/Tests/RigidBodyContactTests.cpp` | 新增：求解器刚体与接触用例 |
 | `Source/StellarEraPawns/Src/Tests/SpaceshipAngularInputTests.cpp` | 新增：角加速度输入的纯函数用例 |
