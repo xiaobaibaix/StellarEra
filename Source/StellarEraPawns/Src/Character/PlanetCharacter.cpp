@@ -20,11 +20,8 @@
 #include "EngineUtils.h"
 #include "CollisionQueryParams.h"
 #include "Engine/World.h"
-#include "StellarEraInputActions.h"
-#include "EnhancedInputComponent.h"
-#include "InputActionValue.h"
-#include "InputCoreTypes.h"
 #include "GameFramework/PlayerController.h"
+#include "PlanetCharacterInputComponent.h"
 
 namespace
 {
@@ -255,6 +252,8 @@ APlanetCharacter::APlanetCharacter(const FObjectInitializer& ObjectInitializer)
 		UE_LOG(LogTemp, Warning,
 			TEXT("APlanetCharacter: 找不到占位网格 %s，Mesh 将没有模型。"), FallbackMeshPath);
 	}
+
+	PlayerInput = CreateDefaultSubobject<UPlanetCharacterInputComponent>(TEXT("PlayerInput"));
 }
 
 UPlanetEditComponent* APlanetCharacter::GetPlanetEditComponent() const
@@ -693,164 +692,12 @@ void APlanetCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 
-	UEnhancedInputComponent* EnhancedInput = Cast<UEnhancedInputComponent>(PlayerInputComponent);
-	IStellarEraInputSource* Source = Cast<IStellarEraInputSource>(GetController());
-	if (!EnhancedInput || !Source)
+	// 引擎只在**本地 Possess 这个 Pawn** 时调用这里，所以「谁被操控谁响应输入」
+	// 由 Pawn 栈保证；真正的绑定与回调都在组件里。
+	if (PlayerInput)
 	{
-		// 静默解绑等于「角色对键鼠完全没反应」，是这里最难查的失败模式：留一条 Error。
-		UE_LOG(LogTemp, Error, TEXT("[Input] APlanetCharacter 绑定失败：EnhancedInput=%s InputSource=%s Controller=%s"),
-			EnhancedInput ? TEXT("是") : TEXT("否"),
-			Source ? TEXT("是") : TEXT("否"),
-			*GetNameSafe(GetController()));
-		return;
+		PlayerInput->Bind(PlayerInputComponent);
 	}
-
-	const FStellarEraInputActions& Input = Source->GetStellarEraInputActions();
-
-	EnhancedInput->BindAction(Input.Move, ETriggerEvent::Triggered, this, &APlanetCharacter::OnMoveInput);
-	EnhancedInput->BindAction(Input.Look, ETriggerEvent::Triggered, this, &APlanetCharacter::OnLookInput);
-	EnhancedInput->BindAction(Input.LookActivate, ETriggerEvent::Started,
-		this, &APlanetCharacter::OnLookRightStarted);
-	EnhancedInput->BindAction(Input.LookActivate, ETriggerEvent::Completed,
-		this, &APlanetCharacter::OnLookRightCompleted);
-	EnhancedInput->BindAction(Input.Jump, ETriggerEvent::Started, this, &APlanetCharacter::OnJumpInput);
-	EnhancedInput->BindAction(Input.Sprint, ETriggerEvent::Started,
-		this, &APlanetCharacter::OnSprintStarted);
-	EnhancedInput->BindAction(Input.Sprint, ETriggerEvent::Completed,
-		this, &APlanetCharacter::OnSprintCompleted);
-
-	// 只绑 Triggered：滚轮每格是一次独立冲量，不滚就不产生值，没有 Completed 可收。
-	EnhancedInput->BindAction(Input.Zoom, ETriggerEvent::Triggered, this, &APlanetCharacter::OnZoomInput);
-
-	// 绑定成功也给一条 Verbose：「没报错」不等于「绑上了」，无头跑时用它当正证据。
-	UE_LOG(LogTemp, Verbose, TEXT("[Input] APlanetCharacter(%s) 已绑定角色输入"), *GetName());
-}
-
-UPlanetEditComponent* APlanetCharacter::GetEditComponentInEditMode() const
-{
-	UPlanetEditComponent* Edit = GetPlanetEditComponent();
-	return Edit && Edit->IsEditMode() ? Edit : nullptr;
-}
-
-void APlanetCharacter::OnMoveInput(const FInputActionValue& Value)
-{
-	Move(Value.Get<FVector2D>());
-}
-
-void APlanetCharacter::OnLookInput(const FInputActionValue& Value)
-{
-	// 视角只在按住右键时跟鼠标动。不按的时候鼠标划过屏幕不带画面，角色自己拐弯
-	// （A/D 横移时 bOrientRotationToMovement 转的身）也不会把相机拖走。
-	if (!bLookHeld)
-	{
-		return;
-	}
-
-	const FVector2D Axis = Value.Get<FVector2D>();
-	Look(Axis.X * LookSensitivity, (bInvertLookY ? -Axis.Y : Axis.Y) * LookSensitivity);
-}
-
-void APlanetCharacter::OnLookRightStarted(const FInputActionValue& Value)
-{
-	bLookHeld = true;
-
-	UPlanetEditComponent* Edit = GetEditComponentInEditMode();
-	if (!Edit)
-	{
-		return;
-	}
-
-	// 右键按住期间预览切到「放」，与松开右键时 PlaceAtScreenPosition 的中心一致。
-	Edit->SetPreviewPlacing(true);
-
-	APlayerController* PC = Cast<APlayerController>(GetController());
-	double MouseX = 0.0;
-	double MouseY = 0.0;
-	bEditRightPressValid = PC && PC->GetMousePosition(MouseX, MouseY);
-	if (bEditRightPressValid)
-	{
-		EditRightPressPosition = FVector2D(MouseX, MouseY);
-	}
-}
-
-void APlanetCharacter::OnLookRightCompleted(const FInputActionValue& Value)
-{
-	bLookHeld = false;
-
-	UPlanetEditComponent* Edit = GetEditComponentInEditMode();
-	// 松开右键后预览回到「挖」。必须在下面的早退**之前**复位：没记下按下位置
-	// （bEditRightPressValid 为 false）时也要复位，否则预览会一直停在「放」。
-	if (Edit)
-	{
-		Edit->SetPreviewPlacing(false);
-	}
-
-	if (!bEditRightPressValid)
-	{
-		return;
-	}
-	bEditRightPressValid = false;
-
-	if (!Edit)
-	{
-		return;
-	}
-
-	APlayerController* PC = Cast<APlayerController>(GetController());
-	double MouseX = 0.0;
-	double MouseY = 0.0;
-	if (!PC || !PC->GetMousePosition(MouseX, MouseY))
-	{
-		return;
-	}
-
-	// 按住右键拖拽是转视角，松开时若几乎没动才算「点放」。拖动中相机转了，
-	// 光标回到原点附近也不会误解成点击，因为玩家在拖动时不会刻意回到起点。
-	const double MovedSq = FVector2D::DistSquared(
-		EditRightPressPosition, FVector2D(MouseX, MouseY));
-	if (MovedSq > StellarEraInput::ClickMoveThresholdPx * StellarEraInput::ClickMoveThresholdPx)
-	{
-		return;
-	}
-
-	Edit->PlaceAtScreenPosition(FVector2D(MouseX, MouseY));
-}
-
-void APlanetCharacter::OnJumpInput(const FInputActionValue& Value)
-{
-	Jump();
-}
-
-void APlanetCharacter::OnSprintStarted(const FInputActionValue& Value)
-{
-	SetSprinting(true);
-}
-
-void APlanetCharacter::OnSprintCompleted(const FInputActionValue& Value)
-{
-	SetSprinting(false);
-}
-
-void APlanetCharacter::OnZoomInput(const FInputActionValue& Value)
-{
-	const float Scroll = Value.Get<float>();
-
-	if (UPlanetEditComponent* Edit = GetEditComponentInEditMode())
-	{
-		// 编辑模式下滚轮改笔刷尺寸，相机臂长保持不动 —— 挖洞时要盯着脚下，
-		// 顺手把镜头拉远/拉近会打断瞄准。一格滚轮 = 一档，一档多少体素问组件；
-		// 按住 Ctrl 走粗调（×10）。
-		if (!FMath::IsNearlyZero(Scroll))
-		{
-			APlayerController* PC = Cast<APlayerController>(GetController());
-			const bool bCoarse = PC
-				&& (PC->IsInputKeyDown(EKeys::LeftControl) || PC->IsInputKeyDown(EKeys::RightControl));
-			Edit->AdjustBrushSizeByStep(Scroll > 0.f, bCoarse);
-		}
-		return;
-	}
-
-	AddZoom(Scroll);
 }
 
 void APlanetCharacter::SetSprinting(bool bSprinting)

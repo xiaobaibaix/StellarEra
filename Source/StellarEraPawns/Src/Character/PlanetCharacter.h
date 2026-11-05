@@ -11,6 +11,7 @@
 class AVoxelPlanetActor;
 class UCameraComponent;
 class UAnimInstance;
+class UPlanetCharacterInputComponent;
 class UPlanetEditComponent;
 class USkeletalMesh;
 class USpringArmComponent;
@@ -45,6 +46,10 @@ public:
 	 * （`IStellarEraInputSource`）取，因为 IMC/IA 是运行期构造的、归属控制器。
 	 */
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
+
+	/** 键鼠输入。回调与输入状态都在组件里，本类只负责转发绑定。 */
+	UPROPERTY(VisibleAnywhere, Category = "Input")
+	TObjectPtr<UPlanetCharacterInputComponent> PlayerInput;
 
 	//~ Begin IVoxelViewpointInvokers Interface
 	virtual void SetViewpointInvokersActive(bool bActive) override;
@@ -127,35 +132,6 @@ public:
 	float PlanetReevaluateInterval = 0.5f;
 
 protected:
-	// --- 输入回调（SetupPlayerInputComponent 里绑定） ---
-
-	/** WASD。在飞船里时走不到这里 —— 飞船有自己的输入组件。 */
-	void OnMoveInput(const FInputActionValue& Value);
-
-	/** 鼠标位移。只在按住右键时真正转头，见 bLookHeld。 */
-	void OnLookInput(const FInputActionValue& Value);
-
-	/**
-	 * 右键按下 / 松开。两个用途：
-	 *   1. 开关视角（按住才转头，鼠标划过屏幕不会拖走画面）；
-	 *   2. 编辑模式下「点放」方块 —— 按下预览切到「放」，松开时位移小于阈值才真正放置。
-	 */
-	void OnLookRightStarted(const FInputActionValue& Value);
-	void OnLookRightCompleted(const FInputActionValue& Value);
-
-	void OnJumpInput(const FInputActionValue& Value);
-	void OnSprintStarted(const FInputActionValue& Value);
-	void OnSprintCompleted(const FInputActionValue& Value);
-
-	/**
-	 * 滚轮。编辑模式下改笔刷尺寸（相机臂长保持不动，挖洞时要盯着脚下）；
-	 * 其余时候缩相机臂长。
-	 */
-	void OnZoomInput(const FInputActionValue& Value);
-
-	/** 当前打开的编辑组件；不在编辑模式、或蓝图没挂组件时为空。 */
-	UPlanetEditComponent* GetEditComponentInEditMode() const;
-
 	/** 在关卡里找离角色最近的一颗行星；找不到返回 nullptr。 */
 	AVoxelPlanetActor* FindNearestPlanet() const;
 
@@ -370,23 +346,4 @@ private:
 
 	/** 每帧朝 TargetZoomOffset 平滑，再写进 SpringArm->TargetArmLength。 */
 	float ZoomOffset = 0.f;
-
-	// --- 输入状态 ---
-
-	/** 鼠标灵敏度（度/像素）。 */
-	UPROPERTY(EditAnywhere, Category = "Input")
-	float LookSensitivity = 1.2f;
-
-	/** 上下视角反向。觉得鼠标上下颠倒时把它改成 true。 */
-	UPROPERTY(EditAnywhere, Category = "Input")
-	bool bInvertLookY = false;
-
-	/** 右键是否按住。松开时视角不响应鼠标，走动时相机不会被拖走。 */
-	bool bLookHeld = false;
-
-	/** 编辑模式右键按下的屏幕位置。松开时用它区分「点击放置」与「拖拽转视角」。 */
-	FVector2D EditRightPressPosition = FVector2D::ZeroVector;
-
-	/** 右键按下时是否记下了编辑位置（不是编辑模式 / 没拿到鼠标时为 false）。 */
-	bool bEditRightPressValid = false;
 };
