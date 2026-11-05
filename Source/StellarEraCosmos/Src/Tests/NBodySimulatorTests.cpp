@@ -858,7 +858,9 @@ bool FStellarEraNBodyProbeContactTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("球体也不动"), Simulator.GetBody(0).Position.X, 0.0, 1.0e-15);
 	}
 
-	// 撞上即停：探针体带 bZeroVelocityOnContact 时，整条速度钉到球体上。
+	// 探针接触走冲量求解：法向相对速度被抹掉，切向由库仑摩擦削。
+	// bZeroVelocityOnContact 只作用于球-球分支，探针分支不再消费它 ——
+	// 这里仍然置位，就是为了钉住「置了也不影响探针路径」。
 	{
 		FNBodySimulator Simulator;
 		Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
@@ -883,10 +885,18 @@ bool FStellarEraNBodyProbeContactTest::RunTest(const FString& Parameters)
 
 		Simulator.StepExact(0.0);
 
-		TestEqual(TEXT("撞上即停：速度 = 球体速度（X）"),
-			Simulator.GetBody(1).Velocity.X, 0.0, 1.0e-15);
-		TestEqual(TEXT("撞上即停：速度 = 球体速度（Y）"),
-			Simulator.GetBody(1).Velocity.Y, 0.002, 1.0e-15);
+		// 法向相对速度 −0.01，有效质量 1/(1/1 + 1/3) = 0.75 → λ_n = 0.0075，
+		// 两侧法向相对速度归零。切向相对 0.002，μλ_n = 0.6×0.0075 = 0.0045，
+		// 大于所需的 0.002×0.75 = 0.0015，于是切向也被完全削平。
+		const FVector3d Relative =
+			Simulator.GetBody(1).Velocity - Simulator.GetBody(0).Velocity;
+		TestEqual(TEXT("法向相对速度归零"), Relative.X, 0.0, 1.0e-15);
+		TestEqual(TEXT("切向相对速度被摩擦削光（μλ_n 够大）"), Relative.Y, 0.0, 1.0e-15);
+
+		TestEqual(TEXT("探针体速度 X = 球体速度 X"),
+			Simulator.GetBody(1).Velocity.X, -0.0025, 1.0e-15);
+		TestEqual(TEXT("探针体速度 Y = 球体速度 Y"),
+			Simulator.GetBody(1).Velocity.Y, 0.0015, 1.0e-15);
 	}
 
 	return true;
@@ -1267,7 +1277,10 @@ bool FStellarEraNBodyProbeSurfaceRadiiTest::RunTest(const FString& Parameters)
 			Simulator.GetBody(1).Position.X, 0.1575, 1.0e-15);
 	}
 
-	// ── 7. 撞上即停与逐探针半径共存：速度仍钉到行星上 ──
+	// ── 7. 逐探针半径与冲量求解共存：法向相对速度抹掉，切向受 μλ_n 限制 ──
+	//
+	// bZeroVelocityOnContact 在探针分支已不再消费（只留球-球分支），这里仍置位
+	// 只是为了钉住这一点：结果必须由冲量公式给出，而不是「撞上即停」。
 	{
 		FNBodySimulator Simulator = MakeSimulator();
 
@@ -1280,10 +1293,18 @@ bool FStellarEraNBodyProbeSurfaceRadiiTest::RunTest(const FString& Parameters)
 
 		Simulator.StepExact(0.0);
 
-		TestEqual(TEXT("撞上即停：速度 X 归零"),
-			Simulator.GetBody(1).Velocity.X, 0.0, 1.0e-15);
-		TestEqual(TEXT("撞上即停：速度 Y 也钉到行星上"),
-			Simulator.GetBody(1).Velocity.Y, 0.0, 1.0e-15);
+		// 法向 −0.01 → λ_n = 0.01×0.75 = 0.0075；切向 0.002 需要 0.0015 的冲量，
+		// 小于 μλ_n = 0.6×0.0075 = 0.0045，所以切向也被削光。行星质量 3，
+		// 它的速度反向分走 λ/3。
+		const FVector3d Relative =
+			Simulator.GetBody(1).Velocity - Simulator.GetBody(0).Velocity;
+		TestEqual(TEXT("法向相对速度归零"), Relative.X, 0.0, 1.0e-15);
+		TestEqual(TEXT("切向相对速度被摩擦削光"), Relative.Y, 0.0, 1.0e-15);
+
+		TestEqual(TEXT("飞船速度 X = −0.0025"),
+			Simulator.GetBody(1).Velocity.X, -0.0025, 1.0e-15);
+		TestEqual(TEXT("飞船速度 Y = 0.0005"),
+			Simulator.GetBody(1).Velocity.Y, 0.0005, 1.0e-15);
 	}
 
 	return true;

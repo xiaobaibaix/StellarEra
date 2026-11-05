@@ -183,6 +183,18 @@ struct FCosmosBodyState
 	 */
 	double AngularDamping = 0.0;
 
+	/**
+	 * 库仑摩擦系数 μ：切向冲量被夹在 [−μ·λ_n, +μ·λ_n] 内。默认 0.6 ≈ 橡胶/金属
+	 * 之间的常见值，够让飞船落地后不无限滑走，又不至于像刹车片一样粘住。
+	 */
+	double ContactFriction = 0.6;
+
+	/**
+	 * 恢复系数 e：0 = 完全非弹性（默认，撞上不弹），1 = 完全弹性。
+	 * 飞船落地不该弹起来，所以默认 0；参数留着是为了以后的弹性质点。
+	 */
+	double ContactRestitution = 0.0;
+
 	/** I⁻¹·τ：世界系力矩 → 世界系角速度增量。非刚体返回零。 */
 	FVector3d ApplyInverseInertia(const FVector3d& Torque) const
 	{
@@ -510,7 +522,9 @@ private:
 
 	/**
 	 * 探针接触：ProbeIndex 天体带凸包探针，SphereIndex 天体按半径 Radius 当球体。
-	 * 取「最深探针」做穿透解算，让路比例与速度规则和球-球分支完全一致。
+	 * 收集**全部**穿透的探针，逐点顺序冲量求解（法向 + 库仑摩擦），再沿所有接触
+	 * 法线的平均方向推一次位置（推掉最深那份穿透）。非刚体的探针天体（探针点
+	 * 质量）退化成与球-球分支相同的两体冲量。
 	 */
 	void ResolveProbeContact(int32 ProbeIndex, int32 SphereIndex);
 
