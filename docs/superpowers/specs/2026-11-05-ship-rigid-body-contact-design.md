@@ -221,6 +221,9 @@ SphereBody.Position -= n_of_max · (MaxDepth · ShareSphere)
 `Tick` 里的 `AddActorLocalRotation` 整段删除。`AutoLevelSpeed` 的回正代码路径删除
 （属性保留、注释标为失效；删属性会让蓝图与关卡实例里存的值丢失）。
 
+`GetAutoLevelUp()` **保留**：落地检测半径（`GetLandingQueryRadiusCm`）用它的反向当
+重力方向，与自动回正是两个用途。
+
 新增两个方法：
 
 ```cpp
@@ -305,11 +308,20 @@ Body.AngularDamping = double(ShipAngularDampingPerSecond) / TimeScale;
 **写回**：位置与朝向必须同一次写，否则组件变换更新两次：
 
 ```cpp
-BodyActor->SetActorTransform(
-    FTransform(FQuat(State.Orientation),
-               Simulator.ToWorldLocation(State.Position),
-               BodyActor->GetActorScale3D()),
-    /*bSweep=*/false, nullptr, ETeleportType::None);
+if (State.bRigidBody)
+{
+    BodyActor->SetActorTransform(
+        FTransform(FQuat(State.Orientation),
+                   Simulator.ToWorldLocation(State.Position),
+                   BodyActor->GetActorScale3D()),
+        /*bSweep=*/false, nullptr, ETeleportType::None);
+}
+else
+{
+    // 非刚体天体仍只写位置。否则 Identity 的 Orientation 会把行星的摆放朝向
+    // 瞬间抹成零 —— 它们的朝向归关卡摆位，不归求解器。
+    BodyActor->SetActorLocation(Simulator.ToWorldLocation(State.Position), /*bSweep=*/false);
+}
 ```
 
 `CarryRiders` 用的是位置差量，不受朝向影响。写回之后再
@@ -380,7 +392,9 @@ Subsystem::Tick   ① RefreshPlanetContactRadii
 | `InertiaFromBoxMatchesFormula` | AABB 已知的探针集 → 逆惯性等于 `12/(m·(b²+c²))` |
 | 现有能量漂移测试 | 不受影响（造的都是点质量、`bRigidBody = false`） |
 
-### 6.2 Pawn 层（`StellarEra.Pawns.AngularInput.*`）
+### 6.2 Pawn 层（`StellarEra.Spaceship.AngularInput.*`）
+
+命名前缀跟着现有 Pawn 测试走（`StellarEra.Spaceship.*`），不用 `Pawns`。
 
 纯函数，不建世界：
 
