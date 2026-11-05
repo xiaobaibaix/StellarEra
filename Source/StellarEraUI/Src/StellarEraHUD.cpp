@@ -345,24 +345,21 @@ void AStellarEraHUD::FormatSpeedLines(
 	const float MaxKmPerSecond, const bool bHasReferencePlanet,
 	FString& OutAbsoluteLine, FString& OutRelativeLine)
 {
-	// 绝对速度：非有限值 / 负值不能印 nan/inf。
+	// 绝对速度：惯性系，只报数，不带上限 —— 上限比的是相对参考行星的速度
+	// （见 ASpaceshipPawn::GetThrustAccelerationWorldCmPerS2）。非有限值 / 负值
+	// 不能印 nan/inf。
 	if (!FMath::IsFinite(AbsoluteKmPerSecond) || AbsoluteKmPerSecond < 0.f)
 	{
 		OutAbsoluteLine = TEXT("绝对速度  --");
 	}
-	else if (FMath::IsFinite(MaxKmPerSecond) && MaxKmPerSecond > 0.f)
-	{
-		OutAbsoluteLine = FString::Printf(TEXT("绝对速度  %.2f / %.2f km/s"),
-			AbsoluteKmPerSecond, MaxKmPerSecond);
-	}
 	else
 	{
-		OutAbsoluteLine = FString::Printf(TEXT("绝对速度  %.2f km/s（无上限）"),
-			AbsoluteKmPerSecond);
+		OutAbsoluteLine = FString::Printf(TEXT("绝对速度  %.2f km/s"), AbsoluteKmPerSecond);
 	}
 
 	// 相对速度必须有参考行星才有意义；太空里（PlanetActor 为空）印占位符，
 	// 否则读者会以为「相对速度」也是某个真实参考系。
+	// 速度上限印在这一行：推力衰减比的就是相对速度。
 	if (!bHasReferencePlanet)
 	{
 		OutRelativeLine = TEXT("相对速度  --（无参考行星）");
@@ -371,9 +368,15 @@ void AStellarEraHUD::FormatSpeedLines(
 	{
 		OutRelativeLine = TEXT("相对速度  --");
 	}
+	else if (FMath::IsFinite(MaxKmPerSecond) && MaxKmPerSecond > 0.f)
+	{
+		OutRelativeLine = FString::Printf(TEXT("相对速度  %.2f / %.2f km/s"),
+			RelativeKmPerSecond, MaxKmPerSecond);
+	}
 	else
 	{
-		OutRelativeLine = FString::Printf(TEXT("相对速度  %.2f km/s"), RelativeKmPerSecond);
+		OutRelativeLine = FString::Printf(TEXT("相对速度  %.2f km/s（无上限）"),
+			RelativeKmPerSecond);
 	}
 }
 
@@ -405,8 +408,8 @@ void AStellarEraHUD::DrawStatusPanel(const FSpaceshipStatus& Status, const float
 	// 设成了 0）—— 那是「没有上限」，不是「不能动」，所以分两种印法而不是直接印 0。
 	// 巡航开着但设了硬上限时，飞船报上来的就是那个硬上限，照常印「x / y」。
 	//
-	// 速度印两条：绝对（惯性系，速度上限按这条生效）与相对参考行星（大气阻力 /
-	// 「停在地表上」按这条）。贴着一颗公转中的行星静止时，两条的差别就是行星速度。
+	// 速度印两条：绝对（惯性系，只用于观察）与相对参考行星（速度上限、大气阻力、
+	// 「停在地表上」都按这条）。贴着一颗公转中的行星静止时，两条的差别就是行星速度。
 	FString AbsoluteSpeedLine;
 	FString RelativeSpeedLine;
 	FormatSpeedLines(Status.SpeedKmPerSecond, Status.RelativeSpeedKmPerSecond,

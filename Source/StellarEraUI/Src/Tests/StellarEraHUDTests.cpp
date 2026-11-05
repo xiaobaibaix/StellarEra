@@ -89,20 +89,20 @@ bool FStellarEraHUDSpeedLinesTest::RunTest(const FString& Parameters)
 	FString Absolute;
 	FString Relative;
 
-	// 有上限：绝对速度印「当前 / 上限」；相对速度单独一行，不带上限
-	// （上限目前作用在绝对速度上，印在相对速度旁边会误导）。
-	AStellarEraHUD::FormatSpeedLines(1.665f, 0.f, 1.5f, true, Absolute, Relative);
+	// 有上限：上限作用在**相对参考行星**的速度上（推力衰减比的就是相对速度），
+	// 所以「当前 / 上限」印在相对速度行；绝对速度只报读数。
+	AStellarEraHUD::FormatSpeedLines(1.665f, 0.25f, 1.5f, true, Absolute, Relative);
 	TestTrue(TEXT("绝对速度标明绝对"), Absolute.Contains(TEXT("绝对速度")));
-	TestTrue(TEXT("绝对速度含当前值与上限"), Absolute.Contains(TEXT("1.66 / 1.50 km/s")));
-	TestTrue(TEXT("相对速度标明相对"), Relative.Contains(TEXT("相对速度")));
-	TestTrue(TEXT("相对速度含读数"), Relative.Contains(TEXT("0.00 km/s")));
+	TestTrue(TEXT("绝对速度含当前值"), Absolute.Contains(TEXT("1.66 km/s")));
 	// 注意：km/s 自带斜杠，判「有没有上限」只能找 " / " 这个格式。
-	TestFalse(TEXT("相对速度不带上限"), Relative.Contains(TEXT(" / ")));
+	TestFalse(TEXT("绝对速度不带上限"), Absolute.Contains(TEXT(" / ")));
+	TestTrue(TEXT("相对速度标明相对"), Relative.Contains(TEXT("相对速度")));
+	TestTrue(TEXT("相对速度含当前值与上限"), Relative.Contains(TEXT("0.25 / 1.50 km/s")));
 
 	// 无上限（0 = 什么上限都没有）时不能印「x / 0」。
 	AStellarEraHUD::FormatSpeedLines(1.665f, 1.2f, 0.f, true, Absolute, Relative);
-	TestTrue(TEXT("无上限时印无上限"), Absolute.Contains(TEXT("无上限")));
-	TestFalse(TEXT("无上限时不印上限格式"), Absolute.Contains(TEXT(" / ")));
+	TestTrue(TEXT("无上限时印无上限"), Relative.Contains(TEXT("无上限")));
+	TestFalse(TEXT("无上限时不印上限格式"), Relative.Contains(TEXT(" / ")));
 	TestTrue(TEXT("相对速度 1.2"), Relative.Contains(TEXT("1.20 km/s")));
 
 	// 没有参考行星（纯太空）：相对速度印占位符，不假装有个参考系。

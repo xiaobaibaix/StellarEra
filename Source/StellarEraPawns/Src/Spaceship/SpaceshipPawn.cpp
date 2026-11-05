@@ -1178,15 +1178,21 @@ FVector ASpaceshipPawn::GetThrustAccelerationWorldCmPerS2(float DeltaSeconds) co
 	// MaxSpeedKmPerSecond。除取哪个值以外，两档的衰减规则完全相同 —— Shift 只是
 	// 推得更快、上限更高，不是另一套操纵逻辑。
 	//
-	// 速度取 GetVelocity()，与阻尼、制动同一个惯性系（贴着行星时含行星自身的
-	// 运动）。投影在**夹长度之前**做：夹长度只会缩短向量，不会把沿速分量放大回去。
+	// 速度取 GetRelativeVelocity() —— 上限管的是「相对参考行星飞多快」，与大气
+	// 阻力、落地判定同一个参考系。**不能用惯性系绝对速度**：飞船跟着行星公转，
+	// 绝对速度里含行星的轨道速度（本关卡实测 7.17 km/s），而 MaxSpeedKmPerSecond
+	// 只有 1.5 km/s。用绝对速度的话比例恒被夹到 1、衰减系数 f 恒为 0，机头方向的
+	// 正向推力被整根投影掉，只剩垂直于速度的残余分量 —— 玩家看到的就是「按 W 往
+	// 侧边飞」，且偏多少取决于机头与速度的夹角，所以时好时坏。
+	// 没有参考行星时 GetRelativeVelocity() 退化为绝对速度，深空行为不变。
+	// 投影在**夹长度之前**做：夹长度只会缩短向量，不会把沿速分量放大回去。
 	const float ActiveMaxSpeedKmPerSecond =
 		bBoosting ? BoostMaxSpeedKmPerSecond : MaxSpeedKmPerSecond;
 	const double MaxSpeedCmPerSecond =
 		double(ActiveMaxSpeedKmPerSecond) * double(CentimetersPerKilometer);
 	if (MaxSpeedCmPerSecond > 0.0)
 	{
-		const FVector Velocity = GetVelocity();
+		const FVector Velocity = GetRelativeVelocity();
 		const double Speed = Velocity.Size();
 		if (Speed > KINDA_SMALL_NUMBER)
 		{

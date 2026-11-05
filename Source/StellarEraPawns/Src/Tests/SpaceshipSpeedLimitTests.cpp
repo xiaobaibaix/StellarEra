@@ -204,6 +204,53 @@ bool FStellarEraSpeedLimitThrustTest::RunTest(const FString& Parameters)
 				FVector::DotProduct(Acceleration, Forward), 0.0, FullThrust * 1.0e-3));
 	}
 
+	// 参考系：上限比的是**相对参考行星**的速度，不是惯性系绝对速度。
+	//
+	// 飞船跟着行星公转时，绝对速度就是行星轨道速度（本关卡实测 7.17 km/s），
+	// 远超 MaxSpeedKmPerSecond。若上限拿绝对速度算，衰减系数会被钉死在 0，
+	// 机头方向的正向推力被整根投影掉，只剩垂直于速度的残余分量 —— 表现为
+	// 按 W 往侧边飞。相对速度才是玩家能感受到的「本船飞多快」，也是大气阻力
+	// 与落地判定用的参考系。
+	{
+		// 行星速度取 1.5 倍上限：绝对速度必然超限，相对速度仍可自由取。
+		const double PlanetSpeedCmPerSecond = 1.5 * TestCapCmPerSecond;
+
+		Ship->SetThrust(1.f);
+		Ship->SetVertical(0.f);
+
+		// 相对行星静止：绝对速度 = 行星速度（15 km/s > 10 km/s 上限），
+		// 但相对速度为 0，推力必须是满的、且严格沿机头。
+		Ship->SetReferencePlanetVelocity(Forward * PlanetSpeedCmPerSecond);
+		Ship->SetCosmosVelocity(Forward * PlanetSpeedCmPerSecond);
+		const FVector AtRestRelative =
+			Ship->GetThrustAccelerationWorldCmPerS2(DeltaSeconds);
+		TestTrue(TEXT("随行星平移时推力仍沿机头"),
+			FMath::IsNearlyEqual(
+				FVector::DotProduct(AtRestRelative, Forward),
+				FullThrust, FullThrust * 1.0e-3));
+		TestTrue(TEXT("随行星平移时没有侧向推力"),
+			AtRestRelative.Size() < FullThrust * 1.001);
+
+		// 相对半程：f = 1 − 0.5² = 0.75，与绝对速度无关。
+		Ship->SetCosmosVelocity(
+			Forward * (PlanetSpeedCmPerSecond + 0.5 * TestCapCmPerSecond));
+		TestTrue(TEXT("相对半程沿速推力剩 75%"),
+			FMath::IsNearlyEqual(
+				Ship->GetThrustAccelerationWorldCmPerS2(DeltaSeconds).Size(),
+				FullThrust * 0.75, FullThrust * 1.0e-3));
+
+		// 相对到顶：正向推力归零。判据是相对速度到顶，不是绝对速度。
+		Ship->SetCosmosVelocity(
+			Forward * (PlanetSpeedCmPerSecond + TestCapCmPerSecond));
+		TestTrue(TEXT("相对速度到顶时正向推力归零"),
+			Ship->GetThrustAccelerationWorldCmPerS2(DeltaSeconds).Size()
+				< FullThrust * 1.0e-3);
+
+		// 复位：后面的断言按「没有参考行星」的口径跑（相对 = 绝对）。
+		Ship->SetReferencePlanetVelocity(FVector::ZeroVector);
+		Ship->SetCosmosVelocity(FVector::ZeroVector);
+	}
+
 	// 上限填 0 = 不限：超速时照给满推力。
 	{
 		WriteMaxSpeedKmPerSecond(Ship, 0.f);

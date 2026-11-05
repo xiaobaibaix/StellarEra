@@ -55,6 +55,9 @@ struct FSpaceshipStatus
 	 * **当前生效的**硬上限（按 Shift 时为 BoostMaxSpeedKmPerSecond，否则为
 	 * MaxSpeedKmPerSecond）里较小且非 0 的那个，HUD 直接印它。
 	 *
+	 * 比较对象是**相对参考行星**的速度（与 RelativeSpeedKmPerSecond 同口径），
+	 * 不是惯性系绝对速度 —— 否则飞船跟着行星公转就必然「超限」。
+	 *
 	 * 0 表示**没有上限**（巡航开着、硬上限也设成了 0），不是「不能动」。
 	 */
 	float MaxSpeedKmPerSecond = 0.f;
@@ -654,6 +657,10 @@ protected:
 	 *
 	 * **只在没按 Shift 时生效**；按 Shift 时改用 BoostMaxSpeedKmPerSecond。
 	 *
+	 * 比的是**相对参考行星**的速度，不是惯性系绝对速度：飞船跟着行星公转时，
+	 * 绝对速度里含行星的轨道速度（本关卡约 7.2 km/s），按绝对速度算会让上限
+	 * 恒处于超限状态，正向推力被整根削掉。
+	 *
 	 * 越接近上限，**沿速度方向的正向**推力越小（f = 1 − (v/vmax)²），到顶时 f = 0：
 	 * 速度渐近逼近上限，不是撞上一堵墙。横向推力与 S 制动不打折，到顶仍能转向、
 	 * 能刹车（见 GetThrustAccelerationWorldCmPerS2）。
@@ -672,8 +679,8 @@ protected:
 	 * Shift 加速时的速度上限（**世界 km/s**）。0 = 不限。
 	 *
 	 * 与 MaxSpeedKmPerSecond 相互独立：按住 Shift 时只认本值，松开后只认前者。
-	 * 衰减规则完全相同 —— f = 1 − (v/vmax)²，只削沿速度方向的正向推力，横向推力
-	 * 和 S 制动不打折；大气阻力同样不受上限影响。
+	 * 衰减规则完全相同 —— 比相对参考行星的速度，f = 1 − (v/vmax)²，只削沿速度
+	 * 方向的正向推力，横向推力和 S 制动不打折；大气阻力同样不受上限影响。
 	 *
 	 * 默认 24（W 上限的 2 倍）：巡航关着时 Shift 的阻尼极速只有 3.6 km/s，本值
 	 * 不起作用；巡航开着（阻尼关掉）时才靠它让 Shift 比 W 飞得更快。
