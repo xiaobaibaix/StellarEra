@@ -1,11 +1,17 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 //
-// 飞船角加速度换算的用例。被测函数是纯函数，不建 Actor、不依赖关卡。
+// 飞船角加速度端口的用例，分两条测试：
 //
-// 断言三件事：
-//   1. 鼠标冲量（机体本地，度/秒）→ 世界系角加速度（rad/s²），除以 dt；
-//   2. 横滚是持续角加速度，到 MaxRollRate 时衰减到 0（与旧版「到顶就停」一致）；
-//   3. dt 为 0 时返回零向量，不产生 inf。
+// `StellarEra.Spaceship.AngularInput`（纯函数，不建 Actor、不依赖关卡）：
+//   1. 鼠标增量（机体本地，度/秒）→ 世界系角加速度（rad/s²），除以 dt；
+//   2. 横滚是持续角加速度，同向到 MaxRollRate 时衰减到 0；
+//   3. 反打给全额角加速度（不按 |rate| 衰减）；
+//   4. dt 为 0 时不产生 inf。
+//
+// `StellarEra.Spaceship.AngularInputState`（真 Actor + 编辑器世界）：
+//   5. 待发冲量「读走并清零」、目标转速在界内削到上限；
+//   6. 转速被物理带出上限后**绝不主动减速**（同向/零输入 α = 0，反向才减速）；
+//   7. 进入落地自由视角时丢弃待发冲量。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -173,7 +179,36 @@ bool FStellarEraShipAngularInputStateTest::RunTest(const FString& Parameters)
 		Ship->GetAngularAccelerationWorldRadPerS2(0.02f).IsNearlyZero(1.0e-3f));
 	Ship->SetCosmosAngularVelocity(FVector::ZeroVector);
 
-	// ── 3. 进入自由视角时丢掉待发冲量 ──
+	// ── 3. 超界时绝不主动减速（落地翻滚的恢复必须是纯物理） ──
+	// 飞船没转，世界系偏航就是本地 Z。300°/s 远在 MaxYawRate(90) 之外，
+	// 模拟被落地冲击带起来的翻滚。
+	Ship->SetCosmosAngularVelocity(FVector(0.f, 0.f, FMath::DegreesToRadians(300.f)));
+
+	// 3a. 没摸鼠标：α 必须恰好是 0（旧实现会给出 (90−300)/dt 的巨大刹车）。
+	TestTrue(TEXT("超界且无输入：不主动减速"),
+		Ship->GetAngularAccelerationWorldRadPerS2(0.02f).IsNearlyZero());
+
+	// 3b. 同向输入：仍然是 0，不把转速往 90 拽。
+	Ship->Look(20.f / 6.f, 0.f); // +20°/s 的增量
+	TestTrue(TEXT("超界同向输入：不主动减速"),
+		Ship->GetAngularAccelerationWorldRadPerS2(0.02f).IsNearlyZero());
+
+	// 3c. 反向输入：按玩家给的量减速（−20°/s 的增量 → α = −20°/dt）。
+	Ship->Look(-20.f / 6.f, 0.f);
+	TestEqual(TEXT("超界反向输入按给定增量减速"),
+		float(Ship->GetAngularAccelerationWorldRadPerS2(0.02f).Z),
+		float(FMath::DegreesToRadians(-20.0)) / 0.02f, 2.0e-3f);
+
+	// 3d. 回归：界内朝上限加速仍削到 90（Critical 的判据：稳态有上限）。
+	Ship->SetCosmosAngularVelocity(FVector(0.f, 0.f, FMath::DegreesToRadians(50.f)));
+	Ship->Look(100.f / 6.f, 0.f); // +100°/s 的增量
+	TestEqual(TEXT("界内 +100 削到 90，α = (90−50)/dt"),
+		float(Ship->GetAngularAccelerationWorldRadPerS2(0.02f).Z),
+		float(FMath::DegreesToRadians(40.0)) / 0.02f, 5.0e-2f);
+
+	Ship->SetCosmosAngularVelocity(FVector::ZeroVector);
+
+	// ── 4. 进入自由视角时丢掉待发冲量 ──
 	// 平台顶面落在落地检测球内 10 cm，判定才会成立。
 	const float RadiusCm = Ship->GetLandingQueryRadiusCm();
 	AStaticMeshActor* Platform = World->SpawnActor<AStaticMeshActor>();

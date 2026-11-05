@@ -1258,6 +1258,38 @@ FVector ASpaceshipPawn::ComputeAngularAccelerationWorldRadPerS2(
 	return AlphaWorld;
 }
 
+namespace
+{
+	/**
+	 * 把「当前转速 + 输入增量」折成一个目标转速（度/秒）。
+	 *
+	 * 两个不变量：
+	 *   1. 界内朝上限方向加速时削到 ±Limit —— 持续同向输入稳态 ≈ Limit，
+	 *      且每帧的目标都是同一个常数，与帧长无关；
+	 *   2. **绝不在没有反向输入时主动减速**。被落地冲击带到 300°/s 的翻滚，
+	 *      玩家没摸鼠标就该保持 300°/s（只由物理/接触决定），同向输入也不该把它
+	 *      往 90 拽。只有反向输入（玩家在操控）才按它给的量减速。
+	 *
+	 * 这条规则就是「落地恢复 = 纯物理，不辅助」在输入端口上的落点：这里只翻译
+	 * 玩家意图，不做姿态刹车。
+	 */
+	double ResolveRateTarget(double Current, double Delta, double Limit)
+	{
+		const double Target = Current + Delta;
+
+		// 界内：朝上限方向加速时削到上限（正常飞行的手感来源）。
+		if (FMath::Abs(Current) <= Limit)
+		{
+			return FMath::Clamp(Target, -Limit, Limit);
+		}
+
+		// 已被物理带出上限：同向输入（Delta × Current > 0）与零输入都不改转速。
+		// 反向输入原样给 —— 不额外夹到对侧上限，玩家要刹多少就给多少。
+		const bool bReversing = Delta * Current < 0.0;
+		return bReversing ? Target : Current;
+	}
+} // namespace
+
 FVector ASpaceshipPawn::GetAngularAccelerationWorldRadPerS2(float DeltaSeconds)
 {
 	// 自由视角：鼠标归相机。这里也必须清掉待发冲量 —— Look() 在自由视角里
@@ -1271,13 +1303,16 @@ FVector ASpaceshipPawn::GetAngularAccelerationWorldRadPerS2(float DeltaSeconds)
 	const FQuat BodyRotation = GetActorQuat();
 
 	// 速率目标模型：鼠标冲量 = 「想在当前转速上再加多少」（机体系，度/秒）。
-	// 先把**目标转速**夹到本轴上限，再把「到目标还差多少」交给纯函数除以 dt。
+	// 先把**目标转速**按 ResolveRateTarget 的规则定下来，再把「到目标还差多少」
+	// 交给纯函数除以 dt。
 	//
 	// 为什么不能直接把冲量除以 dt：那样每帧都追加同一个增量，求解器只按角阻尼
 	// 衰减，稳态转速 = 增量 / (角阻尼 × dt) —— 60 fps 下 3 px/帧 约 370°/s，
 	// 冲量饱和时约 1450°/s，且随帧率变（30 fps ≈ 680、144 fps ≈ 3600）。
 	// 夹住目标之后：单击仍是一个会衰减的冲量（总转角 ≈ MaxYawRate / 角阻尼
-	// ≈ 25.7°），持续输入稳在 90 / 70 的硬上限，与旧版逐条一致且帧率无关。
+	// ≈ 25.7°），持续同向输入稳态 ≈ 上限，差一个阻尼项（阻尼在输入之后施加，
+	// 采样到的稳态约 Max·(1 − 角阻尼·dt)）；「帧率无关」说的是目标恒定，
+	// 不是精确等于 Max。
 	const FVector CurrentLocalRadPerSec =
 		BodyRotation.UnrotateVector(CosmosAngularVelocity);
 	const FVector CurrentLocalDegPerSec(
@@ -1285,16 +1320,14 @@ FVector ASpaceshipPawn::GetAngularAccelerationWorldRadPerS2(float DeltaSeconds)
 		FMath::RadiansToDegrees(CurrentLocalRadPerSec.Y),
 		FMath::RadiansToDegrees(CurrentLocalRadPerSec.Z));
 
-	// 横滚没有鼠标冲量（Look 只写 Y/Z），X 原样带过去；Y/Z 按各自上限夹。
-	// 用 Abs 兜住负配置：Clamp 要求下限不大于上限。
+	// 横滚没有鼠标冲量（Look 只写 Y/Z），X 原样带过去；Y/Z 按各自上限。
+	// 上限取 Abs 兜住负配置。
 	const double YawLimit = double(FMath::Abs(MaxYawRate));
 	const double PitchLimit = double(FMath::Abs(MaxPitchRate));
 	const FVector TargetLocalDegPerSec(
 		CurrentLocalDegPerSec.X + PendingAngularImpulseLocalDeg.X,
-		FMath::Clamp(CurrentLocalDegPerSec.Y + PendingAngularImpulseLocalDeg.Y,
-			-PitchLimit, PitchLimit),
-		FMath::Clamp(CurrentLocalDegPerSec.Z + PendingAngularImpulseLocalDeg.Z,
-			-YawLimit, YawLimit));
+		ResolveRateTarget(CurrentLocalDegPerSec.Y, PendingAngularImpulseLocalDeg.Y, PitchLimit),
+		ResolveRateTarget(CurrentLocalDegPerSec.Z, PendingAngularImpulseLocalDeg.Z, YawLimit));
 
 	const FVector PendingDeltaLocalDegPerSec =
 		TargetLocalDegPerSec - CurrentLocalDegPerSec;
