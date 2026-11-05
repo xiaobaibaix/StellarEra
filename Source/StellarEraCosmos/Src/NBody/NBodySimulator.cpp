@@ -230,11 +230,14 @@ namespace
 	/** 单个接触点（求解器单位 AU / AU每年）。 */
 	struct FProbeContactPoint
 	{
-		/** 相对探针天体中心的位置（AU）。同时是球体那边的力臂取负。 */
+		/** 探针侧力臂：相对探针天体中心的探针位置（AU）。 */
 		FVector3d Offset = FVector3d::ZeroVector;
 
-		/** 球心 → 探针的单位方向。 */
+		/** 球心 → 接触点的单位方向。 */
 		FVector3d Normal = FVector3d::ZeroVector;
+
+		/** 接触点所在的那层地表半径：球侧力臂 = Normal × SurfaceRadius。 */
+		double SurfaceRadius = 0.0;
 
 		/** 穿透深度（> 0）。 */
 		double Depth = 0.0;
@@ -244,9 +247,25 @@ namespace
 
 		/** 本接触点已累计的法向冲量，摩擦锥的上限。 */
 		double AccumulatedNormalImpulse = 0.0;
+
+		/**
+		 * 固定的切向正交基（跨迭代不变）。切向冲量必须在同一组基上累计 ——
+		 * 每轮按当前切向速度重算方向的话，「累计」就没了参照，摩擦锥夹不住。
+		 */
+		FVector3d TangentU = FVector3d::ZeroVector;
+		FVector3d TangentV = FVector3d::ZeroVector;
+
+		/** 累计切向冲量在 (TangentU, TangentV) 上的分量。 */
+		double AccumulatedTangentU = 0.0;
+		double AccumulatedTangentV = 0.0;
 	};
 
-	/** 每对天体最多解几个接触点。探针通常 6~8 个，16 是留余量。 */
+	/**
+	 * 每对天体最多解几个接触点。飞船实测有 134 个探针（见
+	 * SpaceshipCollisionTests 的 `[Ship] 接触探针 134 个`），机腹平贴地面时同时
+	 * 穿透的点会超过 16，所以这里必须**边收集边截断**：满了就替换最浅的那个，
+	 * 全程不扩容、不排序。
+	 */
 	constexpr int32 MaxContactPointsPerPair = 16;
 
 	/** 顺序冲量迭代次数。4 次在「一对天体、≤16 点」的规模下已收敛到 1e-3。 */
@@ -258,20 +277,43 @@ namespace
 	}
 
 	/** 接触点速度：v + ω × r。 */
-	FVector3d PointVelocity(const FCosmosBodyState& Body, const FVector3d& Offset)
+	FVector3d PointVelocity(const FCosmosBodyState& Body, const FVector3d& LeverArm)
 	{
-		return Body.Velocity + FVector3d::CrossProduct(Body.AngularVelocity, Offset);
+		return Body.Velocity + FVector3d::CrossProduct(Body.AngularVelocity, LeverArm);
+	}
+
+	/**
+	 * 球侧的力臂：球心 → 接触点。长度是**该探针脚下的地表半径**（地形抬高时
+	 * 它比球半径大），不是探针体的 −Offset —— 两者只在「探针体中心与球心重合
+	 * 且 |Probe| == R_s」时才碰巧相等。
+	 */
+	FVector3d SphereLeverArm(const FProbeContactPoint& Contact)
+	{
+		return Contact.Normal * Contact.SurfaceRadius;
+	}
+
+	/** 由法线构造一组固定的切向正交基（确定性，无分支依赖状态）。 */
+	void BuildTangentBasis(const FVector3d& Normal, FVector3d& OutU, FVector3d& OutV)
+	{
+		// 挑一个与法线夹角最大的世界轴当叉乘的把手，避免退化。
+		const FVector3d Helper = FMath::Abs(Normal.Z) < 0.9
+			? FVector3d(0.0, 0.0, 1.0)
+			: FVector3d(1.0, 0.0, 0.0);
+		OutU = FVector3d::CrossProduct(Helper, Normal).GetSafeNormal();
+		OutV = FVector3d::CrossProduct(Normal, OutU);
 	}
 
 	/**
 	 * 沿 Direction 的接触有效质量：1 / (1/m₁ + 1/m₂ + 角项)。
 	 *
-	 * 角项对非刚体恒为零（ApplyInverseInertia 自己判 bRigidBody），所以行星之间
-	 * 仍然退化成经典的两体冲量，与改动前一样。
+	 * 两侧的角项都用**各自的**力臂（探针侧的 Offset、球侧的 SphereOffset）。
+	 * 力臂为零或一方不是刚体时（ApplyInverseInertia 自己判 bRigidBody），
+	 * 对应的角项就是零，退化成经典的两体冲量。
 	 */
 	double EffectiveMassAlong(
 		const FCosmosBodyState& ProbeBody, const FCosmosBodyState& SphereBody,
-		const FVector3d& ProbeOffset, const FVector3d& Direction)
+		const FVector3d& ProbeOffset, const FVector3d& SphereOffset,
+		const FVector3d& Direction)
 	{
 		double InverseMass =
 			InverseMassOf(ProbeBody) + InverseMassOf(SphereBody);
@@ -281,8 +323,7 @@ namespace
 		InverseMass += FVector3d::DotProduct(Direction, FVector3d::CrossProduct(
 			ProbeBody.ApplyInverseInertia(ProbeArm), ProbeOffset));
 
-		// 球侧：力臂是 −ProbeOffset（接触点在球心的反方向）。
-		const FVector3d SphereOffset = -ProbeOffset;
+		// 球侧：力臂是球心 → 接触点。
 		const FVector3d SphereArm = FVector3d::CrossProduct(SphereOffset, Direction);
 		InverseMass += FVector3d::DotProduct(Direction, FVector3d::CrossProduct(
 			SphereBody.ApplyInverseInertia(SphereArm), SphereOffset));
@@ -290,10 +331,11 @@ namespace
 		return InverseMass > 0.0 ? 1.0 / InverseMass : 0.0;
 	}
 
-	/** 把冲量施加到两侧：探针侧 +J，球侧 −J。 */
+	/** 把冲量施加到两侧：探针侧 +J（力臂 ProbeOffset），球侧 −J（力臂 SphereOffset）。 */
 	void ApplyContactImpulse(
 		FCosmosBodyState& ProbeBody, FCosmosBodyState& SphereBody,
-		const FVector3d& ProbeOffset, const FVector3d& Impulse)
+		const FVector3d& ProbeOffset, const FVector3d& SphereOffset,
+		const FVector3d& Impulse)
 	{
 		if (ProbeBody.Mass > 0.0)
 		{
@@ -307,7 +349,7 @@ namespace
 			SphereBody.Velocity -= Impulse / SphereBody.Mass;
 		}
 		SphereBody.AngularVelocity += SphereBody.ApplyInverseInertia(
-			FVector3d::CrossProduct(-ProbeOffset, -Impulse));
+			FVector3d::CrossProduct(SphereOffset, -Impulse));
 	}
 }
 
@@ -439,9 +481,13 @@ void FNBodySimulator::ResolveProbeContact(int32 ProbeIndex, int32 SphereIndex)
 		return;
 	}
 
-	// ① 收集所有穿透的探针。不再是「取最深的一个」：机身侧倾着地时是**两三个**
+	// ① 收集穿透的探针。不再是「取最深的一个」：机身侧倾着地时是**两三个**
 	//    探针同时压在地面上，只解一个的话接触力矩为零，船就永远不会翻过去。
+	//
+	//    边收集边截断：槽位固定 MaxContactPointsPerPair 个，满了以后只有「比当前
+	//    最浅者更深」的新点才顶掉它。不 sort、不扩容，热路径上零堆分配。
 	TArray<FProbeContactPoint, TInlineAllocator<MaxContactPointsPerPair>> Contacts;
+	Contacts.Reserve(MaxContactPointsPerPair);
 
 	for (int32 Index = 0; Index < ProbeBody.ContactProbes.Num(); ++Index)
 	{
@@ -453,31 +499,46 @@ void FNBodySimulator::ResolveProbeContact(int32 ProbeIndex, int32 SphereIndex)
 		const double Distance = Delta.Size();
 		const double Penetration = ProbeSurfaceRadius - Distance;
 
-		// 探针正好落在球心时法线无定义：既算不出力矩，也没有方向可推，跳过。
-		if (Penetration <= 0.0 || Distance <= 1.0e-12)
+		// NaN / Inf（坏几何、坏体素查询）必须当「没有接触」跳过：`<=` 对 NaN 恒为
+		// false，会把它当有效接触收进来，NaN 一路污染速度、位置与截断比较。
+		// 探针正好落在球心（Distance ≈ 0）时法线也无定义，同样跳过。
+		if (!FMath::IsFinite(Penetration) || !FMath::IsFinite(Distance)
+			|| Penetration <= 0.0 || Distance <= 1.0e-12)
 		{
 			continue;
 		}
 
-		FProbeContactPoint& Contact = Contacts.AddDefaulted_GetRef();
+		FProbeContactPoint Contact;
 		Contact.Offset = Probe;
 		Contact.Normal = Delta / Distance;
+		Contact.SurfaceRadius = ProbeSurfaceRadius;
 		Contact.Depth = Penetration;
+		BuildTangentBasis(Contact.Normal, Contact.TangentU, Contact.TangentV);
+
+		if (Contacts.Num() < MaxContactPointsPerPair)
+		{
+			Contacts.Add(Contact);
+			continue;
+		}
+
+		// 满了：找当前最浅的槽位，新点更深才替换。
+		int32 Shallowest = 0;
+		for (int32 Slot = 1; Slot < Contacts.Num(); ++Slot)
+		{
+			if (Contacts[Slot].Depth < Contacts[Shallowest].Depth)
+			{
+				Shallowest = Slot;
+			}
+		}
+		if (Contact.Depth > Contacts[Shallowest].Depth)
+		{
+			Contacts[Shallowest] = Contact;
+		}
 	}
 
 	if (Contacts.Num() == 0)
 	{
 		return;
-	}
-
-	// 超过上限时只留最深的那些 —— 深的是真正承重的，浅的被同一个刚体挡住。
-	if (Contacts.Num() > MaxContactPointsPerPair)
-	{
-		Contacts.Sort([](const FProbeContactPoint& A, const FProbeContactPoint& B)
-		{
-			return A.Depth > B.Depth;
-		});
-		Contacts.SetNum(MaxContactPointsPerPair);
 	}
 
 	const double Restitution = FMath::Clamp(ProbeBody.ContactRestitution, 0.0, 1.0);
@@ -486,9 +547,10 @@ void FNBodySimulator::ResolveProbeContact(int32 ProbeIndex, int32 SphereIndex)
 	// 迭代前的法向速度：恢复系数只对「这一步开始时正在接近」的接触生效。
 	for (FProbeContactPoint& Contact : Contacts)
 	{
+		const FVector3d SphereOffset = SphereLeverArm(Contact);
 		const FVector3d Relative =
 			PointVelocity(ProbeBody, Contact.Offset)
-			- PointVelocity(SphereBody, -Contact.Offset);
+			- PointVelocity(SphereBody, SphereOffset);
 		Contact.InitialNormalVelocity = FVector3d::DotProduct(Relative, Contact.Normal);
 	}
 
@@ -497,15 +559,17 @@ void FNBodySimulator::ResolveProbeContact(int32 ProbeIndex, int32 SphereIndex)
 	{
 		for (FProbeContactPoint& Contact : Contacts)
 		{
+			const FVector3d SphereOffset = SphereLeverArm(Contact);
+
 			const FVector3d RelativeBefore =
 				PointVelocity(ProbeBody, Contact.Offset)
-				- PointVelocity(SphereBody, -Contact.Offset);
+				- PointVelocity(SphereBody, SphereOffset);
 
 			const double NormalVelocity =
 				FVector3d::DotProduct(RelativeBefore, Contact.Normal);
 			const double TargetNormalVelocity = -Restitution * Contact.InitialNormalVelocity;
 			const double NormalMass = EffectiveMassAlong(
-				ProbeBody, SphereBody, Contact.Offset, Contact.Normal);
+				ProbeBody, SphereBody, Contact.Offset, SphereOffset, Contact.Normal);
 
 			// 法向冲量只能推不能拉（DeltaLambda > 0），物体不会被「粘」回去。
 			if (NormalMass > 0.0)
@@ -514,7 +578,7 @@ void FNBodySimulator::ResolveProbeContact(int32 ProbeIndex, int32 SphereIndex)
 				if (DeltaLambda > 0.0)
 				{
 					Contact.AccumulatedNormalImpulse += DeltaLambda;
-					ApplyContactImpulse(ProbeBody, SphereBody, Contact.Offset,
+					ApplyContactImpulse(ProbeBody, SphereBody, Contact.Offset, SphereOffset,
 						Contact.Normal * DeltaLambda);
 				}
 			}
@@ -522,63 +586,92 @@ void FNBodySimulator::ResolveProbeContact(int32 ProbeIndex, int32 SphereIndex)
 			// 摩擦用**施加法向冲量之后**的速度：法向先消掉，切向才是真正要削的。
 			const FVector3d Relative =
 				PointVelocity(ProbeBody, Contact.Offset)
-				- PointVelocity(SphereBody, -Contact.Offset);
+				- PointVelocity(SphereBody, SphereOffset);
 			const double NormalNow = FVector3d::DotProduct(Relative, Contact.Normal);
 			const FVector3d TangentVelocity = Relative - Contact.Normal * NormalNow;
-			const double TangentSpeed = TangentVelocity.Size();
 
-			if (Friction > 0.0 && TangentSpeed > 1.0e-12)
+			// 切向有效质量按**固定的**两根基轴分别取（对角近似，忽略面内耦合）。
+			// 球面接触的惯量近似各向同性，这个近似够用，又省掉 2×2 求逆。
+			const double TangentMassU = EffectiveMassAlong(
+				ProbeBody, SphereBody, Contact.Offset, SphereOffset, Contact.TangentU);
+			const double TangentMassV = EffectiveMassAlong(
+				ProbeBody, SphereBody, Contact.Offset, SphereOffset, Contact.TangentV);
+
+			if (Friction > 0.0 && TangentMassU > 0.0 && TangentMassV > 0.0)
 			{
-				const FVector3d Tangent = TangentVelocity / TangentSpeed;
-				const double TangentMass = EffectiveMassAlong(
-					ProbeBody, SphereBody, Contact.Offset, Tangent);
+				// 候选累计 = 上一轮累计 + 「把当前切向速度压到零」所需的增量。
+				double CandidateU = Contact.AccumulatedTangentU
+					- FVector3d::DotProduct(TangentVelocity, Contact.TangentU) * TangentMassU;
+				double CandidateV = Contact.AccumulatedTangentV
+					- FVector3d::DotProduct(TangentVelocity, Contact.TangentV) * TangentMassV;
 
-				if (TangentMass > 0.0)
+				// 库仑锥：**累计**切向冲量的模长不超过 μ·λ_n。
+				//
+				// 这里刻意偏离规格 §3.5 的伪码（伪码夹的是「本轮增量」）：增量式在
+				// ContactIterations 轮里每个接触点最多能累计 ContactIterations×μλ_n，
+				// 默认 μ=0.6 时等效 μ 可达 ≈2.4，飞船落地会「发粘」—— 与本次改动的
+				// 目标正好相反。评审裁定改为夹累计量。写错的表现是切向滑移过度
+				// （μ 显得偏小），不是发粘。
+				const double MaxFriction = Friction * Contact.AccumulatedNormalImpulse;
+				const double CandidateSize =
+					FMath::Sqrt(CandidateU * CandidateU + CandidateV * CandidateV);
+				if (CandidateSize > MaxFriction)
 				{
-					const double MaxFriction = Friction * Contact.AccumulatedNormalImpulse;
-					const double DeltaLambda = FMath::Clamp(
-						-TangentSpeed * TangentMass, -MaxFriction, MaxFriction);
+					const double Scale = CandidateSize > 1.0e-30 ? MaxFriction / CandidateSize : 0.0;
+					CandidateU *= Scale;
+					CandidateV *= Scale;
+				}
 
-					if (DeltaLambda != 0.0)
-					{
-						ApplyContactImpulse(ProbeBody, SphereBody, Contact.Offset,
-							Tangent * DeltaLambda);
-					}
+				// 只施加与上一轮的差值，累计量本身才是状态。
+				const double DeltaU = CandidateU - Contact.AccumulatedTangentU;
+				const double DeltaV = CandidateV - Contact.AccumulatedTangentV;
+				Contact.AccumulatedTangentU = CandidateU;
+				Contact.AccumulatedTangentV = CandidateV;
+
+				if (DeltaU != 0.0 || DeltaV != 0.0)
+				{
+					ApplyContactImpulse(ProbeBody, SphereBody, Contact.Offset, SphereOffset,
+						Contact.TangentU * DeltaU + Contact.TangentV * DeltaV);
 				}
 			}
 		}
 	}
 
-	// ③ 位置修正：推**一次**，推掉最深的那份穿透量，方向取所有接触点法线的平均。
+	// ③ 位置修正：推**一次**，推掉最深的那份穿透量，方向取所有接触法线按穿透量
+	//    加权的平均。
 	//
 	//    逐个接触点各推一次会和速度冲量叠加成「越推越远」，所以只推一次。但方向
-	//    不能直接取最深那个点的法线：机身侧倾、四个探针同时压地时第一个探针的法线
-	//    是歪的，照它推一步重心就偏一点，几次之后整机横向「走」出球面、接触全部
-	//    消失，再也不会被拉回来（对称四探针的用例就是这么飘到 z≈9.99 的）。
-	//    取平均法线后对称接触的横向分量互相抵消，只剩真正的推出方向。
+	//    不能直接取「最深那个点」的法线：机身侧倾、四个探针同时压地时，最深那个
+	//    探针的法线是歪的，照它推一步重心就偏一点，几次之后整机横向「走」出球面、
+	//    接触全部消失，再也不会被拉回来（对称四探针的用例就是这么飘到 z≈9.99 的）。
+	//    按穿透量加权后，深的那份主导方向、浅的那些只做微调，对称接触的横向分量
+	//    互相抵消。
 	//
-	//    单接触点、或多探针共线（法线同向）时，平均法线就是那个法线、深度就是最深
-	//    那份 —— 与只取最深点逐字等价，旧用例的精确摆位一条都不变。
+	//    单接触点、或多探针共线（法线同向）时，加权平均方向就是那个法线、深度就是
+	//    最深那份 —— 与只取最深点逐字等价，旧用例的精确摆位一条都不变。
+	const FProbeContactPoint* Deepest = &Contacts[0];
 	double DeepestDepth = 0.0;
-	FVector3d NormalSum = FVector3d::ZeroVector;
+	double DepthSum = 0.0;
+	FVector3d WeightedNormalSum = FVector3d::ZeroVector;
+
 	for (const FProbeContactPoint& Contact : Contacts)
 	{
 		DeepestDepth = FMath::Max(DeepestDepth, Contact.Depth);
-		NormalSum += Contact.Normal;
+		DepthSum += Contact.Depth;
+		WeightedNormalSum += Contact.Normal * Contact.Depth;
+
+		if (Contact.Depth > Deepest->Depth)
+		{
+			Deepest = &Contact;
+		}
 	}
 
-	// 法线两两抵消（接触点把球心围在中间）时没有可信的推出方向，退回最深点的法线。
-	FVector3d PushNormal = NormalSum.GetSafeNormal();
-	if (PushNormal.IsZero())
+	// 方向可信度 = |Σdᵢnᵢ| / Σdᵢ ∈ [0, 1]。低于 0.25 说明接触点把球心围在中间、
+	// 方向由几何噪声主导 —— 这时 GetSafeNormal 仍会给出一个长度接近 1 的方向，
+	// 靠 IsZero() 抓不住，必须用相对阈值判。退化时退回最深点的法线。
+	FVector3d PushNormal = WeightedNormalSum.GetSafeNormal();
+	if (PushNormal.IsZero() || WeightedNormalSum.Size() < 0.25 * DepthSum)
 	{
-		const FProbeContactPoint* Deepest = &Contacts[0];
-		for (const FProbeContactPoint& Contact : Contacts)
-		{
-			if (Contact.Depth > Deepest->Depth)
-			{
-				Deepest = &Contact;
-			}
-		}
 		PushNormal = Deepest->Normal;
 	}
 

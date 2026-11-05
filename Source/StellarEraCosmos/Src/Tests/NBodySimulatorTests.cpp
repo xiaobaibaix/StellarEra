@@ -888,6 +888,11 @@ bool FStellarEraNBodyProbeContactTest::RunTest(const FString& Parameters)
 		// 法向相对速度 −0.01，有效质量 1/(1/1 + 1/3) = 0.75 → λ_n = 0.0075，
 		// 两侧法向相对速度归零。切向相对 0.002，μλ_n = 0.6×0.0075 = 0.0045，
 		// 大于所需的 0.002×0.75 = 0.0015，于是切向也被完全削平。
+		//
+		// 相对速度整体归零 ⇒ 两者速度都等于质心速度：
+		//     (m₁v₁ + m₂v₂) / (m₁ + m₂)
+		//   = (1·(−0.01, 0, 0) + 3·(0, 0.002, 0)) / 4
+		//   = (−0.0025, 0.0015, 0)
 		const FVector3d Relative =
 			Simulator.GetBody(1).Velocity - Simulator.GetBody(0).Velocity;
 		TestEqual(TEXT("法向相对速度归零"), Relative.X, 0.0, 1.0e-15);
@@ -1296,6 +1301,11 @@ bool FStellarEraNBodyProbeSurfaceRadiiTest::RunTest(const FString& Parameters)
 		// 法向 −0.01 → λ_n = 0.01×0.75 = 0.0075；切向 0.002 需要 0.0015 的冲量，
 		// 小于 μλ_n = 0.6×0.0075 = 0.0045，所以切向也被削光。行星质量 3，
 		// 它的速度反向分走 λ/3。
+		//
+		// 相对速度整体归零 ⇒ 两者速度都等于质心速度：
+		//     (m₁v₁ + m₂v₂) / (m₁ + m₂)
+		//   = (1·(−0.01, 0.002, 0) + 3·(0, 0, 0)) / 4
+		//   = (−0.0025, 0.0005, 0)
 		const FVector3d Relative =
 			Simulator.GetBody(1).Velocity - Simulator.GetBody(0).Velocity;
 		TestEqual(TEXT("法向相对速度归零"), Relative.X, 0.0, 1.0e-15);

@@ -159,6 +159,114 @@ bool FStellarEraCosmosRigidBodyContactTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("没有攒出角速度"), Body.AngularVelocity.IsNearlyZero(1.0e-9));
 	}
 
+	// ── 7. 接触点超过 16 个：边收集边截断，但**最深**那个必须留下 ──
+	{
+		// 19 个等深的环状探针 + 1 个更深的正中探针（排在最后）。
+		// 环上探针：世界中 (±2cosθ, 2sinθ, 4)，距球心 sqrt(20) → 穿透 10 − sqrt(20) ≈ 5.5279。
+		// 正中探针：世界中 (0,0,4)，距球心 4 → 穿透 6。
+		// 只留「先遇到的 16 个」的话位移由 5.5279 决定；保留最深者的实现给出 6。
+		TArray<FVector3d> Probes;
+		for (int32 Index = 0; Index < 19; ++Index)
+		{
+			const double Angle = 2.0 * UE_PI * Index / 19.0;
+			Probes.Add(FVector3d(2.0 * FMath::Cos(Angle), 2.0 * FMath::Sin(Angle), 0.0));
+		}
+		Probes.Add(FVector3d(0.0, 0.0, 0.0));
+
+		const FVector3d Start(0.0, 0.0, 4.0);
+		FNBodySimulator Simulator = MakeProbeScene(10.0, Start, Probes);
+
+		Simulator.StepExact(1.0e-5);
+
+		// 位置修正的位移模长恒为「最深穿透 × 探针侧让路比例」，与推出方向无关。
+		// 探针质量 1、球质量 1e6 → 比例 = 1e6/(1e6+1)。
+		const double Share = 1.0e6 / (1.0e6 + 1.0);
+		const double Moved = (Simulator.GetBody(1).Position - Start).Size();
+		TestEqual(TEXT("截断后仍推掉最深那份穿透（6 × 份额）"), Moved, 6.0 * Share, 1.0e-3);
+	}
+
+	// ── 8. NaN 探针被跳过，不污染任何状态 ──
+	{
+		// `<=` 对 NaN 恒为 false，不显式判 IsFinite 的话它会被当成有效接触。
+		TArray<FVector3d> Probes;
+		Probes.Add(FVector3d(FMath::Sqrt(-1.0), 0.0, 0.0));   // sqrt(−1) → NaN
+		Probes.Add(FVector3d(0.0, 0.0, 1.0));
+
+		const FVector3d Start(0.0, 0.0, 4.0);
+		FNBodySimulator Simulator = MakeProbeScene(10.0, Start, Probes);
+
+		Simulator.StepExact(1.0e-5);
+
+		const FCosmosBodyState& Body = Simulator.GetBody(1);
+		TestTrue(TEXT("位置没有 NaN"), !Body.Position.ContainsNaN());
+		TestTrue(TEXT("速度没有 NaN"), !Body.Velocity.ContainsNaN());
+		TestTrue(TEXT("角速度没有 NaN"), !Body.AngularVelocity.ContainsNaN());
+
+		// 有效探针 (0,0,1) 在世界 (0,0,5)：距球心 5 → 穿透 5，照常推 5×份额。
+		const double Share = 1.0e6 / (1.0e6 + 1.0);
+		TestEqual(TEXT("有效探针照常解算"),
+			Body.Position.Z, 4.0 + 5.0 * Share, 1.0e-3);
+	}
+
+	// ── 9. 非对称多接触：推出方向按穿透量加权，不是简单平均 ──
+	{
+		// A：世界中 (0,0,4)，距球心 4 → 穿透 6，法线 (0,0,1)。
+		// B：世界中 (5,0,4)，距球心 sqrt(41) → 穿透 10 − sqrt(41)，法线 (5,0,4)/sqrt(41)。
+		// 推出方向 = normalize(6·nA + d_B·nB)。
+		// 未加权的平均是 normalize(nA + nB)，X 分量 0.4330 vs 0.3224，差 0.11；
+		// 乘上 6 之后位移相差约 0.66，远超这里的容差。
+		const FVector3d Start(0.0, 0.0, 4.0);
+		FNBodySimulator Simulator = MakeProbeScene(10.0, Start,
+			{FVector3d(0.0, 0.0, 0.0), FVector3d(5.0, 0.0, 0.0)});
+
+		Simulator.StepExact(1.0e-5);
+
+		const double DistanceB = FMath::Sqrt(41.0);
+		const double DepthB = 10.0 - DistanceB;
+		const FVector3d NormalB(5.0 / DistanceB, 0.0, 4.0 / DistanceB);
+		const FVector3d Push =
+			(FVector3d(0.0, 0.0, 6.0) + NormalB * DepthB).GetSafeNormal();
+
+		const double Share = 1.0e6 / (1.0e6 + 1.0);
+		const FVector3d Expected = Start + Push * (6.0 * Share);
+
+		const FVector3d Actual = Simulator.GetBody(1).Position;
+		TestEqual(TEXT("X：按穿透量加权"), Actual.X, Expected.X, 1.0e-6);
+		TestEqual(TEXT("Z：按穿透量加权"), Actual.Z, Expected.Z, 1.0e-6);
+		TestEqual(TEXT("Y 仍为零（两法线都在 XZ 面内）"), Actual.Y, 0.0, 1.0e-12);
+	}
+
+	// ── 10. 两个接触点同时滑动：切向冲量**累计**夹在摩擦锥里 ──
+	{
+		// 两个探针在机身 ±X 两侧、法线几乎同向朝 +Z；机身带很大的切向速度沿 +Y 滑。
+		// 摩擦每轮都想再削一截，但切向速度远大于 μλ_n，锥一直满着：
+		// 按「本轮增量」夹的话 4 轮累计可达 4×μλ_n，按「累计量」夹则总量 ≤ μλ_n。
+		const FVector3d Start(0.0, 0.0, 9.9);
+		FNBodySimulator Simulator = MakeProbeScene(10.0, Start,
+			{FVector3d(0.3, 0.0, 0.05), FVector3d(-0.3, 0.0, 0.05)});
+		Simulator.GetBodyMutable(1).ContactFriction = 0.1;
+		Simulator.GetBodyMutable(1).Velocity = FVector3d(0.0, 1.0, -1.0);
+
+		Simulator.StepExact(1.0e-5);
+
+		const FCosmosBodyState& Body = Simulator.GetBody(1);
+
+		// 两个接触的法线都没有 Y 分量、X 分量两侧抵消，所以法向冲量总量可以从
+		// 线动量反推：Δv_z = Σλ_n · n_z / m，探针质量 1。
+		const FVector3d ProbeWorld(Start + FVector3d(0.3, 0.0, 0.05));
+		const double NormalZ = ProbeWorld.Z / ProbeWorld.Size();
+		const double NormalImpulseTotal = (Body.Velocity.Z - (-1.0)) / NormalZ;
+
+		// 切向同理：所有摩擦冲量都在 ±Y 上（切向速度、力矩都保持在这个对称面上），
+		// 所以 Δv_y 就是切向冲量总量（质量 1，标量）。
+		const double TangentialImpulse = FMath::Abs(Body.Velocity.Y - 1.0);
+
+		TestTrue(TEXT("摩擦确实生效（下面的上界不是恒真）"),
+			TangentialImpulse > 0.5 * 0.1 * NormalImpulseTotal);
+		TestTrue(TEXT("切向冲量总量 ≤ μ·Σλ_n（累计裁剪，不是每轮各夹一次）"),
+			TangentialImpulse <= 0.1 * NormalImpulseTotal * (1.0 + 1.0e-4) + 1.0e-12);
+	}
+
 	return true;
 }
 
