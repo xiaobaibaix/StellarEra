@@ -16,8 +16,8 @@ using UnrealBuildTool;
 //
 //   L5 StellarEra         ─Public→ UI / Pawns  ─Private→ Planet / Cosmos
 //   L4 StellarEraUI       ─Public→ Planet      ─Private→ Pawns / Cosmos
-//   L3 StellarEraCosmos   ─Private→ Planet
-//   L2 StellarEraPawns    ─Public→ Cosmos / Planet / Voxel
+//   L3 StellarEraPawns    ─Public→ Cosmos / Planet / Voxel
+//   L2 StellarEraCosmos   ─Private→ Planet
 //   L1 StellarEraPlanet   无项目依赖（只依赖引擎与 Voxel 插件）
 //
 // **Public 与 Private 的分界只有一条：公开头里出没出现那个模块的类型。**
