@@ -8,6 +8,7 @@
 #include "Camera/CameraComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "GameFramework/SpringArmComponent.h"
+#include "LandingDebugSphereComponent.h"
 #include "UObject/ConstructorHelpers.h"
 #include "EngineUtils.h"
 #include "Engine/StaticMesh.h"
@@ -248,6 +249,10 @@ ASpaceshipPawn::ASpaceshipPawn()
 	Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("Camera"));
 	Camera->SetupAttachment(SpringArm, USpringArmComponent::SocketName);
 	Camera->bUsePawnControlRotation = false;
+
+	// B 键调试视角的检测球。tick 在 TG_PostUpdateWork —— 必须晚于 N 体子系统
+	// 写回位置，否则球会画在上一帧的船位（详见组件头文件）。
+	LandingDebugSphere = CreateDefaultSubobject<ULandingDebugSphereComponent>(TEXT("LandingDebugSphere"));
 }
 
 void ASpaceshipPawn::ApplyHullMesh()
@@ -492,8 +497,10 @@ void ASpaceshipPawn::Tick(float DeltaSeconds)
 	//
 	// 落地且没有起飞方向的输入时，鼠标改为环绕停住的飞船，而不是转飞船。
 	// IsLanded() 是一次全向球重叠（与按 E 下船同一口径），每帧一次，开销可忽略。
+	const bool bLandedNow = IsLanded();
+
 	const bool bWasFreeLookActive = bFreeLookActive;
-	bFreeLookActive = ShouldUseFreeLook(IsLanded(), ThrustInput, VerticalInput);
+	bFreeLookActive = ShouldUseFreeLook(bLandedNow, ThrustInput, VerticalInput);
 
 	// 刚进入：清掉残余角速度。否则落地那一刻的最后一甩会在自由视角里继续带着船转，
 	// 与「落地即冻结」矛盾。
@@ -653,6 +660,13 @@ void ASpaceshipPawn::Tick(float DeltaSeconds)
 		SpringArm->SetRelativeRotation(
 			SpringArmBaseRotation * FRotator(FreeLookPitch, FreeLookYaw, 0.f).Quaternion());
 	}
+
+	// --- 8. 调试视角（B）：落地检测球 ---
+	//
+	// 不在这里画：本 Tick 跑在 TG_PrePhysics，此时 UCosmosSimulationSubsystem
+	// 还没把求解器位置写回 Actor，GetActorLocation() 是上一帧的 —— 球会永远
+	// 落后一帧（7 km/s @ 25 fps ≈ 280 m）。绘制在 ULandingDebugSphereComponent
+	// 里完成，那个组件的 tick 是 TG_PostUpdateWork，排在写回之后。
 }
 
 void ASpaceshipPawn::SetThrust(float Value)
@@ -693,6 +707,11 @@ void ASpaceshipPawn::AddZoom(float Value)
 void ASpaceshipPawn::TogglePreserveVelocity()
 {
 	bPreserveVelocity = !bPreserveVelocity;
+}
+
+void ASpaceshipPawn::ToggleDebugViewMode()
+{
+	bDebugViewMode = !bDebugViewMode;
 }
 
 FSpaceshipStatus ASpaceshipPawn::GetStatus() const

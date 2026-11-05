@@ -174,7 +174,12 @@ public:
 	// 时显示 —— 与 bShowOutsideStarMap 解耦，那个开关会把预测线和速度箭头
 	// 一起拖进游戏画面，这里不要。
 
-	/** 操控飞船时是否显示引力合力箭头。默认开。 */
+	/**
+	 * 操控飞船时是否允许显示引力合力箭头。默认开。
+	 *
+	 * 它只是**总开关**：真正显示还要求飞船的调试视角（B 键）开着、且玩家正本地
+	 * 操控这艘船、不在星图里（见 ShouldShowNetForceArrow）。
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory|NetForceArrow")
 	bool bDrawNetForceArrow = true;
 
@@ -422,6 +427,16 @@ public:
 		const FVector& Anchor, const FVector& Direction, double TotalLengthCm,
 		double ShaftRadiusCm, double HeadRadiusCm, double HeadFraction,
 		FTransform& OutShaft, FTransform& OutHead);
+
+	/**
+	 * 实体合力箭头这一帧该不该显示。
+	 *
+	 * 四个条件缺一不可：组件总开关、Owner 是本地玩家正操控的飞船、不在星图里、
+	 * 飞船的调试视角（B 键）开着。最后一条让它从「一上船就常驻」变成「只在调试
+	 * 视角里出现」。纯函数，自动化测试直接调用。
+	 */
+	static bool ShouldShowNetForceArrow(bool bDrawArrow, bool bControlledShip,
+		bool bInStarMap, bool bDebugViewMode);
 
 private:
 	/**

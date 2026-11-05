@@ -11,6 +11,7 @@
 class APlanetCharacter;
 class AVoxelPlanetActor;
 class UCameraComponent;
+class ULandingDebugSphereComponent;
 class USpringArmComponent;
 class UStaticMesh;
 class UStaticMeshComponent;
@@ -191,6 +192,22 @@ public:
 
 	/** 巡航（速度保持）是否开启。 */
 	bool IsPreserveVelocity() const { return bPreserveVelocity; }
+
+	/**
+	 * 切换飞船调试视角（B 键）。
+	 *
+	 * 打开时：
+	 *   - 在船心画落地检测球的线框（半径 = GetLandingQueryRadiusCm()，与按 E 下船
+	 *     的判定同一个球），命中地面时变绿、悬空时橙色；
+	 *   - UCosmosTrajectoryComponent 的实体引力合力箭头才允许显示。
+	 *
+	 * 状态跟着飞船走：下船 / 进星图时飞船不再被本地控制，两样东西自然看不见；
+	 * 再上船仍保留上次的开关。
+	 */
+	void ToggleDebugViewMode();
+
+	/** 调试视角是否开着。 */
+	bool IsDebugViewMode() const { return bDebugViewMode; }
 
 	/** 取一份状态快照，供 HUD 之类的显示层读取。 */
 	FSpaceshipStatus GetStatus() const;
@@ -497,6 +514,16 @@ protected:
 	TObjectPtr<UCameraComponent> Camera;
 
 	/**
+	 * B 键调试视角的落地检测球（线框）。
+	 *
+	 * 单独做成组件是为了 tick 顺序：它跑在 TG_PostUpdateWork，即
+	 * UCosmosSimulationSubsystem 写回位置之后，球的坐标才是本帧的。
+	 * 若放在本 Actor 的 Tick 里画，会永远落后一帧（详见组件头文件）。
+	 */
+	UPROPERTY(Transient, VisibleAnywhere, Category = "Spaceship|Debug")
+	TObjectPtr<ULandingDebugSphereComponent> LandingDebugSphere;
+
+	/**
 	 * 按住 W（不按 Shift）时相机沿机身后方后缩的距离（厘米）。
 	 *
 	 * 由推力输入驱动（见 Tick 第 5 段）：按住 W 就缩到这个距离，松开平滑收回，与
@@ -672,6 +699,15 @@ protected:
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spaceship|Thrust")
 	bool bPreserveVelocity = false;
+
+	/**
+	 * B 键调试视角开关：显示落地检测球与引力合力箭头。
+	 *
+	 * Transient：只是运行期状态，不写进关卡 —— 否则编辑器里不小心打开一次，
+	 * 每次进 PIE 都会带着一堆调试线。默认关，与「不再一上船就常驻」一致。
+	 */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Spaceship|Debug")
+	bool bDebugViewMode = false;
 
 	/**
 	 * 自动回正速率（度/秒）。只回正横滚，不动玩家给的俯仰。0 = 关闭。

@@ -172,4 +172,30 @@ bool FStellarEraNetForceArrowTransformTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraNetForceArrowGateTest,
+	"StellarEra.Trajectory.NetForceArrowGate",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraNetForceArrowGateTest::RunTest(const FString& Parameters)
+{
+	using Comp = UCosmosTrajectoryComponent;
+
+	// 四个条件缺一不可：组件总开关、本地操控的飞船、不在星图、调试视角开着。
+	TestTrue(TEXT("四项全满足才显示"),
+		Comp::ShouldShowNetForceArrow(
+			/*bDrawArrow=*/true, /*bControlledShip=*/true,
+			/*bInStarMap=*/false, /*bDebugViewMode=*/true));
+
+	TestFalse(TEXT("组件总开关关掉时不显示"),
+		Comp::ShouldShowNetForceArrow(false, true, false, true));
+	TestFalse(TEXT("Owner 不是本地操控的飞船时不显示"),
+		Comp::ShouldShowNetForceArrow(true, false, false, true));
+	TestFalse(TEXT("星图里不显示"),
+		Comp::ShouldShowNetForceArrow(true, true, true, true));
+	TestFalse(TEXT("调试视角没开时不显示（不再一上船就常驻）"),
+		Comp::ShouldShowNetForceArrow(true, true, false, false));
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

@@ -150,6 +150,10 @@ void AStellarEraPlayerController::SetupInputComponent()
 	// 只绑 Started：按住 Tab 只切一次，不会随按键重复翻转状态。
 	EnhancedInput->BindAction(IA_Cruise, ETriggerEvent::Started, this, &AStellarEraPlayerController::OnCruise);
 
+	// B 同理：按住只切一次，避免调试视角每帧翻转。
+	EnhancedInput->BindAction(IA_DebugViewToggle, ETriggerEvent::Started,
+		this, &AStellarEraPlayerController::OnDebugViewToggle);
+
 	// 只绑 Triggered：滚轮每格是一次独立冲量，不滚就不产生值，没有 Completed 可收。
 	EnhancedInput->BindAction(IA_Zoom, ETriggerEvent::Triggered, this, &AStellarEraPlayerController::OnZoom);
 
@@ -327,6 +331,7 @@ void AStellarEraPlayerController::BuildInputAssets()
 	IA_Vertical = MakeAction(this, TEXT("IA_Vertical"), EInputActionValueType::Axis1D);
 	IA_Boost = MakeAction(this, TEXT("IA_Boost"), EInputActionValueType::Boolean);
 	IA_Cruise = MakeAction(this, TEXT("IA_Cruise"), EInputActionValueType::Boolean);
+	IA_DebugViewToggle = MakeAction(this, TEXT("IA_DebugViewToggle"), EInputActionValueType::Boolean);
 	IA_Zoom = MakeAction(this, TEXT("IA_Zoom"), EInputActionValueType::Axis1D);
 	IA_Interact = MakeAction(this, TEXT("IA_Interact"), EInputActionValueType::Boolean);
 	IA_StarMapToggle = MakeAction(this, TEXT("IA_StarMapToggle"), EInputActionValueType::Boolean);
@@ -371,6 +376,10 @@ void AStellarEraPlayerController::BuildInputAssets()
 	MapKey(MappingContext, IA_Vertical, EKeys::LeftControl, { MakeNegate(this) });
 	MapKey(MappingContext, IA_Boost, EKeys::LeftShift);
 	MapKey(MappingContext, IA_Cruise, EKeys::Tab);
+
+	// B 键：飞船调试视角（落地检测球 + 引力合力箭头）。角色 / 星图相机上
+	// 没有对应处理，按下无反应。
+	MapKey(MappingContext, IA_DebugViewToggle, EKeys::B);
 
 	// 滚轮是轴键（每格 ±1），不是按键，所以映射到 Axis1D 的动作上直接取值。
 	// 不需要任何修饰器：方向约定（上滚 = 拉近）由 ASpaceshipPawn::AddZoom 负责。
@@ -686,6 +695,25 @@ void AStellarEraPlayerController::OnCruise(const FInputActionValue& Value)
 	if (AStellarEraHUD* StellarHUD = Cast<AStellarEraHUD>(GetHUD()))
 	{
 		StellarHUD->ShowNotice(Ship->IsPreserveVelocity() ? TEXT("巡航：开") : TEXT("巡航：关"));
+	}
+}
+
+void AStellarEraPlayerController::OnDebugViewToggle(const FInputActionValue& Value)
+{
+	// 只有操控飞船时才有这个模式。角色 / 星图相机上按 B 什么都不做 ——
+	// 不弹提示，避免走路时误按出现一条无关文案。
+	ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(GetPawn());
+	if (!Ship)
+	{
+		return;
+	}
+
+	Ship->ToggleDebugViewMode();
+
+	if (AStellarEraHUD* StellarHUD = Cast<AStellarEraHUD>(GetHUD()))
+	{
+		StellarHUD->ShowNotice(Ship->IsDebugViewMode()
+			? TEXT("飞船调试视角：开") : TEXT("飞船调试视角：关"));
 	}
 }
 

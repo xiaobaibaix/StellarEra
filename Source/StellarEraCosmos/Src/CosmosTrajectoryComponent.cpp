@@ -297,11 +297,14 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	// 它属于「操控飞船」这个状态，不属于星图：上船出现、下船走角色消失、进星图
 	// 也消失。所以**不**读 bInStarMapView，也不受 bShowOutsideStarMap 影响 ——
 	// 那个开关会把预测线和速度箭头一起拖进游戏画面，与本需求无关。
+	//
+	// 另外还要求飞船的调试视角（B 键）开着：箭头不再一上船就常驻。
 	const ASpaceshipPawn* ControlledShip = Cast<ASpaceshipPawn>(OwnerActor);
-	const bool bWantsNetForceArrow = bDrawNetForceArrow
-		&& ControlledShip != nullptr
-		&& ControlledShip->IsLocallyControlled()
-		&& !Subsystem->IsStarMapActive();
+	const bool bWantsNetForceArrow = ShouldShowNetForceArrow(
+		bDrawNetForceArrow,
+		ControlledShip != nullptr && ControlledShip->IsLocallyControlled(),
+		Subsystem->IsStarMapActive(),
+		ControlledShip != nullptr && ControlledShip->IsDebugViewMode());
 
 	if (bWantsNetForceArrow)
 	{
@@ -578,6 +581,14 @@ void UCosmosTrajectoryComponent::AppendGravityArrow(const UCosmosSimulationSubsy
 		Color, 0.0f, LineThickness, LineDepthPriority);
 	Lines.Emplace(Tip, Tip + (Direction * HeadCos - Perp * HeadSin) * HeadLength,
 		Color, 0.0f, LineThickness, LineDepthPriority);
+}
+
+bool UCosmosTrajectoryComponent::ShouldShowNetForceArrow(bool bDrawArrow,
+	bool bControlledShip, bool bInStarMap, bool bDebugViewMode)
+{
+	// 拆成独立纯函数的理由很简单：门控原来内联在 Tick 里，只能靠 PIE 肉眼验；
+	// 抽出来之后「少任何一个条件都不显示」可以无头断言。
+	return bDrawArrow && bControlledShip && !bInStarMap && bDebugViewMode;
 }
 
 FLinearColor UCosmosTrajectoryComponent::NetForceArrowColor(double MagnitudeCmPerS2,

@@ -233,6 +233,12 @@ protected:
 	void OnZoom(const FInputActionValue& Value);
 
 	/**
+	 * B 键：切换飞船调试视角（落地检测球 + 引力合力箭头）。
+	 * 只在当前 Pawn 是飞船时生效；角色 / 星图相机按 B 无反应。
+	 */
+	void OnDebugViewToggle(const FInputActionValue& Value);
+
+	/**
 	 * 进入 / 退出星图模式。
 	 *
 	 * 方向由「当前 Possess 的是不是星图 Pawn」判定，**不用单独的状态标志** ——
@@ -448,6 +454,10 @@ protected:
 	/** 巡航开关（Tab）。切换飞船的速度保持状态，只绑 Started。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> IA_Cruise;
+
+	/** 飞船调试视角开关（B）。只绑 Started，按一下切一次。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> IA_DebugViewToggle;
 
 	/** 相机缩放（鼠标滚轮）。轴值，每格 ±1。 */
 	UPROPERTY(Transient)
