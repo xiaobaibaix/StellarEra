@@ -70,9 +70,9 @@ Minerals/
 改矿怎么分布 → `Minerals/Geology/PlanetGeologyField.cpp`；
 改矿有多大、什么形状 → `Minerals/Geology/Distributions/` 里对应的变体。
 
-`Terrain/` 里的东西只被 Planet 内部用；`Invokers/` 里的被 `StellarEraPawns` 与
-`StellarEraUI` 跨模块引用 —— 它们不属于「地形」，是 Voxel 插件 LOD 的接线层，
-当初只是恰好放在 Terrain 文件夹里。
+`Terrain/` 里的东西只被 Planet 内部用；`Invokers/` 里的被 `StellarEraPawns`（角色 /
+飞船 / 星图相机）与装配层控制器跨模块引用 —— 它们不属于「地形」，是 Voxel 插件 LOD
+的接线层，当初只是恰好放在 Terrain 文件夹里。
 
 五个目录共享同一份体素密度场，这是它们合在一个模块里的理由。
 编辑内核直接写它、地形生成直接写它、矿物与大气按它取采样点 ——
@@ -82,21 +82,22 @@ Minerals/
 
 | 模块 | 行数 | 一句话 | 什么时候动它 |
 |---|---:|---|---|
-| `StellarEraPawns` | 4461 | 角色、飞船 —— 二合一 | 见下面的子目录表 |
+| `StellarEraPawns` | 4461 | 角色、飞船与各自的输入组件、星图相机 | 见下面的子目录表 |
 
 ```
 StellarEraPawns/Src/
-├── Character/                 球面角色、移动组件、动画实例
-├── Spaceship/                 飞船 Pawn
+├── Character/                 球面角色、移动组件、动画实例、输入组件
+├── Spaceship/                 飞船 Pawn 及其输入组件
+├── StarMap/                   星图相机（不 Tick，位置在 CalcCamera 现算）
 └── Tests/                     7 个测试
 ```
 
 两者的共同点是「被 `AStellarEraPlayerController` 通过 Possess 切换」，
 且都实现 `IVoxelViewpointInvokers`。放在一起，换视点的逻辑才有唯一归属地。
 
-> **星图相机不在这个模块**，它在 `StellarEraUI`。它确实是个被 possess 的 Pawn，
-> 但它调 `UCosmosSimulationSubsystem`，而 Cosmos 里有 4 处 `Cast<ASpaceshipPawn>`，
-> 搬过来就是 `Pawns → Cosmos → Pawns`。等抽出 `ICosmosBody` 后再搬。
+> **星图相机在 `Src/StarMap/`。** 它依赖 Cosmos，而 Cosmos 曾经反向
+> `Cast<ASpaceshipPawn>`；抽出 `ICosmosBody` 之后方向才理顺。
+> 相机曾住在 `StellarEraUI`，蓝图子类靠 `[CoreRedirects]` 的 `+ClassRedirects` 兜底。
 
 ### L3 天体
 
@@ -123,7 +124,7 @@ StellarEraCosmos/Src/
 
 | 模块 | 行数 | 一句话 | 什么时候动它 |
 |---|---:|---|---|
-| `StellarEraUI` | 4272 | HUD 绘制、星图面板、编辑 UI、星图相机、`IStarMapUIInputs` | 改 HUD 显示、改星图样式 |
+| `StellarEraUI` | 4272 | HUD 绘制、星图面板、编辑 UI、`IStarMapUIInputs` | 改 HUD 显示、改星图样式 |
 
 `StarMapUIInputs.h` 在这里而不是在 Game 模块，是正确的依赖倒置：
 UI 声明自己需要什么，Game 去实现，于是 UI 不需要 include 控制器。
@@ -151,14 +152,14 @@ UI 声明自己需要什么，Game 去实现，于是 UI 不需要 include 控�
 | 加一种新的矿脉形态 | 继承 `UPlanetGeologyDistribution`，实现 `BuildRuntime` |
 | 改角色球面行走手感 | `StellarEraPawns/Src/Character/PlanetCharacterMovementComponent.cpp` |
 | 改飞船推力/阻尼 | `StellarEraPawns/Src/Spaceship/SpaceshipPawn.cpp` |
-| 改星图相机速度/缩放 | `StellarEraUI/Src/StarMapCameraPawn.cpp` |
+| 改星图相机速度/缩放 | `StellarEraPawns/Src/StarMap/StarMapCameraPawn.cpp` |
 | 改 N 体积分稳定性 | `StellarEraCosmos/Src/NBodySimulator.cpp` |
 | 改模拟步长/时间流速 | `StellarEraCosmos/Src/CosmosSimulationSubsystem.h` 的 Config 段 |
 | 加一种天体类型/单位制 | `StellarEraCosmos/Src/CosmosTypes.h` |
 | 改 HUD 显示内容 | `StellarEraUI/Src/StellarEraHUD.cpp` |
 | 改星图交互 | `StellarEraUI/Src/StarMapUISystem.cpp` |
 | 改按键映射（哪个键是哪个动作） | `StellarEraPawns/Src/StellarEraInputActions.cpp` 的 `Build` |
-| 改角色 / 飞船对输入的响应 | `StellarEraPawns/Src/{Character,Spaceship}/*.cpp` 的 `SetupPlayerInputComponent` |
+| 改角色 / 飞船对输入的响应 | `StellarEraPawns/Src/Character/PlanetCharacterInputComponent.cpp` / `Src/Spaceship/SpaceshipInputComponent.cpp`（Pawn 的 `SetupPlayerInputComponent` 只建组件并调 `Bind`） |
 | 改星图 / 模式键（E M G H 数字键）的绑定 | `StellarEra/Src/StellarEraPlayerController.cpp` 的 `SetupInputComponent` |
 
 ---
@@ -173,6 +174,8 @@ UI 声明自己需要什么，Game 去实现，于是 UI 不需要 include 控�
 3. **接口放到「已经被所有实现方与使用方依赖的最低层」**。`IVoxelViewpointInvokers`
    在 `Planet/Src/Invokers/`（Pawns 与 UI 都已 Public 依赖 Planet）；
    `IStarMapUIInputs` 明确属于 UI 的输入需求，就由 UI 定义、上层实现。
+   反过来，`ICosmosBody` 声明在 Cosmos（消费方）、由 Pawns 的飞船实现 ——
+   消费方在低层时，接口就放低层。
 
 ### 什么时候该建子目录
 

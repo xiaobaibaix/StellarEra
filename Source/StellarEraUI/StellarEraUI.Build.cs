@@ -19,13 +19,15 @@ using UnrealBuildTool;
 // 本模块仍然依赖 Pawns：HUD 要 include 相机头来认「现在是不是星图视角」。
 //
 // ── 关于 Voxel 依赖 ───────────────────────────────────────────────────
-// 合并前本模块靠 StellarEraTerrain 的 **Public** 依赖传递拿到 Voxel 模块，
-// 所以相机头里的 TObjectPtr<UVoxelSimpleInvokerComponent> 能链接上。
-// 接口搬去 Core、Terrain 依赖删掉之后，这条传递链断了，链接期报
-// LNK2019: Z_Construct_UClass_UVoxelSimpleInvokerComponent 未解析。
+// 这条依赖是相机头还住在本模块时留下的：当时 StarMapCameraPawn.h 里的
+// TObjectPtr<UVoxelSimpleInvokerComponent> UPROPERTY 让本模块的生成代码
+// 需要 Voxel 的 UClass（早先靠 StellarEraTerrain 的 **Public** 依赖传递；
+// 传递链断掉后链接期报 LNK2019: Z_Construct_UClass_UVoxelSimpleInvokerComponent）。
 //
-// 用 Private 而不是 Public：相机头对 Voxel 类型只有前向声明，
-// 下游模块 include 它只需要指针，不需要 Voxel 的包含路径与库。
+// 2026-11-06 相机搬进 StellarEraPawns/Src/StarMap/ 之后，本模块已经没有直接
+// 使用 Voxel 类型的地方：Voxel 类型只经 Planet 的公开头（VoxelPlanetActor.h）
+// 间接带进来，而 Planet → Voxel 是 Public 依赖。这一项目前留着未删 ——
+// 删之前得先编译验证没有隐藏的 UClass 引用。
 public class StellarEraUI : ModuleRules
 {
 	public StellarEraUI(ReadOnlyTargetRules Target) : base(Target)
@@ -47,12 +49,14 @@ public class StellarEraUI : ModuleRules
 		{
 			"Core", "CoreUObject", "Engine",
 
-			// StarMapCameraPawn.h 是本模块的公开头，且实现 IVoxelViewpointInvokers
-			// —— 该接口随体素接线层住在 StellarEraPlanet/Src/Invokers/，
-			// 下游 include 相机头时必须能找到它，所以 Planet 是 **Public** 依赖。
-			// （原 StellarEraCore 住着这个接口，它拆掉后本项从 Private 升为 Public。）
-			// 本模块对 Planet 的其余使用（行星 Actor、编辑组件与笔刷、矿物与地质场）
-			// 本来全在 .cpp 里，升级只多传递几个 include 路径，不引入环。
+			// 本模块的公开头只对 Planet 的类型做前置声明（StarMapUIInputs.h 的
+			// UPlanetMineralViewComponent、StellarEraHUD.h 的 UPlanetEditComponent），
+			// 完整类型一律在 .cpp 里使用。按「公开头里 include 了对方才算 Public」
+			// 的判据，这一项其实可以降回 Private；目前保持 Public 未动，
+			// 待编译验证后由维护者决定。
+			// （2026-11-06 之前它是 Public 的硬理由：StarMapCameraPawn.h 是本模块的
+			//  公开头且实现 IVoxelViewpointInvokers；相机搬进 Pawns/Src/StarMap/ 后
+			//  这个理由不再成立。）
 			"StellarEraPlanet",
 		});
 
@@ -62,7 +66,7 @@ public class StellarEraUI : ModuleRules
 			"StellarEraCosmos",   // 选中天体、轨迹、星图状态、CosmosTypes 的枚举
 			// 地质场与元素类型（StarMapUISystem.cpp 直接用）随矿物并入 Planet，
 			// 不再单独依赖 StellarEraGeology。
-			"Voxel",              // 相机头里的 UPROPERTY 需要 UVoxelSimpleInvokerComponent 的 UClass
+			"Voxel",              // 相机头搬走后已无直接使用；理由见上方「关于 Voxel 依赖」
 		});
 	}
 }

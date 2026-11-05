@@ -13,9 +13,9 @@
 | 层 | 模块 | 文件 | 行数 | 测试 | 一句话 | 依赖（Public / Private） |
 |---:|---|---:|---:|---:|---|---|
 | L1 | `StellarEraPlanet` | 76 | 19076 | 13 | 一颗行星的全部：地形 / 大气 / 矿物（含地质场）/ 编辑 / 体素接线 | Public: Voxel / Private: AssetRegistry, GeometryCore, GeometryFramework |
-| L2 | `StellarEraPawns` | 17 | 4461 | 7 | 玩家能 possess 的：角色、飞船 | Public: Planet, Voxel |
-| L3 | `StellarEraCosmos` | 14 | 6339 | 3 | N 体积分与编排、天体类型、轨迹 | Private: Planet, Pawns |
-| L4 | `StellarEraUI` | 16 | 4344 | 5 | HUD、星图、图例、星图相机 | Public: Planet / Private: Pawns, Cosmos, Voxel |
+| L2 | `StellarEraPawns` | 17 | 4461 | 7 | 玩家能 possess 的：角色、飞船、星图相机 | Public: Cosmos, Planet, Voxel |
+| L3 | `StellarEraCosmos` | 14 | 6339 | 3 | N 体积分与编排、天体类型、轨迹 | Private: Planet |
+| L4 | `StellarEraUI` | 16 | 4344 | 5 | HUD、星图、图例 | Public: Planet / Private: Pawns, Cosmos, Voxel |
 | L5 | `StellarEra` | 8 | 3149 | 2 | GameMode、PlayerController（primary game module） | Public: UI / Private: 其余 |
 
 **没有 L0 了。** 只剩引擎与 `Voxel` 插件，项目自研代码分五层。
@@ -53,8 +53,8 @@ graph TD
     UI -->|Public| PL
     UI -.->|Private| C
     UI -.->|Private| P
-    C -.->|Private| P
     C -.->|Private| PL
+    P -->|Public| C
     P -->|Public| PL
 
     style PL fill:#e6f4ea,stroke:#34a853
@@ -66,17 +66,19 @@ graph TD
 
 实线是公开依赖，虚线是私有依赖（下游看不到被依赖模块的头）。
 
-三条 Public 边（`StellarEra → UI`、`UI → Planet`、`Pawns → Planet`）全部是被
-`IVoxelViewpointInvokers` 逼出来的 —— 星图相机与两个 Pawn 都在**公开头**里继承它。
+四条 Public 边：`StellarEra → UI`、`UI → Planet`、`Pawns → Planet`、`Pawns → Cosmos`。
+其中 `Pawns → Planet` 是被 `IVoxelViewpointInvokers` 逼出来的 —— 两个 Pawn 与星图相机
+都在**公开头**里继承它；`Pawns → Cosmos` 则因为飞船在公开头里实现 `ICosmosBody`、
+星图相机要调 `UCosmosSimulationSubsystem`（2026-11-06 抽出接口后才成立）。
 其余跨模块引用一律 Private。
 
-**单向，无环。** 三条曾经试图制造环的路，都留着明确的注释说明为什么没搬：
+**单向，无环。** 三条曾经试图制造环的路，第一条已经还清，另两条仍按原判据处理：
 
 | 想搬的东西 | 会形成的环 | 现在的处理 |
 |---|---|---|
-| `AStarMapCameraPawn` → Pawns | `Pawns → Cosmos → Pawns`（Cosmos 有 4 处 `Cast<ASpaceshipPawn>`） | 相机留在 UI。等 `ICosmosBody` 抽出来再搬 |
+| `AStarMapCameraPawn` → Pawns | ~~`Pawns → Cosmos → Pawns`~~（已还清） | 2026-11-06 抽出 `ICosmosBody`（`Cosmos/Src/CosmosBody.h`，由飞船实现）后相机已搬进 `Pawns/Src/StarMap/`，旧脚本路径由 `[CoreRedirects]` 兜底 |
 | UI 直接用 `CosmosSimulationSubsystem` | 已经是合法方向（UI 在上层），无需搬 | UI 私有依赖 Cosmos |
-| `IVoxelViewpointInvokers` 放 Cosmos | `Pawns → Cosmos`，而 Cosmos 私有依赖 Pawns | 放 Planet/Src/Invokers/，UI 与 Pawns 都已 Public 依赖 Planet |
+| `IVoxelViewpointInvokers` 放 Cosmos | `Pawns → Cosmos`，而当时 Cosmos 私有依赖 Pawns | 放 Planet/Src/Invokers/，UI 与 Pawns 都已 Public 依赖 Planet |
 
 ### Public 还是 Private —— 判据只有一条
 
@@ -144,14 +146,17 @@ foreach (string SubDir in Directory.GetDirectories(SrcDir, "*", SearchOption.All
 其中 4 个被 Pawns 与 UI 跨模块 include —— 它们是 Voxel 插件 LOD 的接线层，
 不是地形，于是分出了 `Invokers/`。
 
-当前各目录规模：`Terrain` 10、`Edit` 12、`Atmosphere` 5、`Invokers` 5、`Surface` 4、
-`Cosmos/Src` 6（+ `NBody` 3）、`UI/Src` 9、`Character` 6、`StellarEra/Src` 4。
+当前各目录规模：`Terrain` 10、`Edit` 12、`Atmosphere` 12、`Hydrology` 6、`Invokers` 5、
+`Surface` 4、`Cosmos/Src` 9（+ `NBody` 3）、`UI/Src` 7、`Character` 8、`Spaceship` 6、
+`StarMap` 2、`StellarEra/Src` 4。
 `Minerals/` 拆成三个子目录，其中 `Geology/` 再分出 `Distributions/`：
 `Geology` 5（+ `Distributions` 10）、`Surface` 4、`View` 4。
 
 `Cosmos/Src/NBody/` 是个例外：只有 3 个文件（`NBodySimulator.h/.cpp` + `CosmosTypes.h`），
 够不上「每族 ≥4 个」的门槛，但它是一个 1300 行的独立计算单元，且与编排层没有代码交集 ——
 判据的第二条「有没有第二类职责」在这里成立，所以还是分了出来。
+`Pawns/Src/StarMap/` 同理只有 2 个文件：它是 2026-11-06 整体搬来的单个类（星图相机），
+不是从某个目录里拆出来的功能族，因此不受这条门槛约束。
 
 ### 矿物域的层次（`Planet/Src/Minerals/`）
 
@@ -225,7 +230,7 @@ UCosmosSimulationSubsystem* Simulation =
 
 | 接口 | 位置 | 为什么放这 |
 |---|---|---|
-| `IVoxelViewpointInvokers` | `StellarEraPlanet/Src/Invokers/` | 实现方是 Pawns 的两个 Pawn 与 UI 的星图相机，使用方是 Controller。三方都已依赖 Planet，放这里不需要任何新依赖 |
+| `IVoxelViewpointInvokers` | `StellarEraPlanet/Src/Invokers/` | 实现方是 Pawns 的两个 Pawn 与星图相机（2026-11-06 起相机也在 `Pawns/Src/StarMap/`），使用方是 Controller。三方都已依赖 Planet，放这里不需要任何新依赖 |
 | `IStarMapUIInputs` | `StellarEraUI/Src/` | 明确属于 UI 的使用方契约，由 Controller（L5）实现 |
 
 两个接口的去处遵循同一条判据：**契约跟着「已经被所有人依赖的那一层」走**。
@@ -281,7 +286,7 @@ UCosmosSimulationSubsystem* Simulation =
 ├─ 是「元素/矿物分布规则」？            → Planet/Src/Minerals/Geology/（形态放 Distributions/）
 ├─ 是「行星上的东西」（地形/大气/矿物/编辑/表面）？
 │                                       → StellarEraPlanet/Src/<功能面>/
-├─ 是「玩家能控制的东西」？              → StellarEraPawns/Src/<Character|Spaceship>/
+├─ 是「玩家能控制的东西」？              → StellarEraPawns/Src/<Character|Spaceship|StarMap>/
 ├─ 是「天体运动 / 轨道 / N 体」？        → StellarEraCosmos
 ├─ 是「显示 / 交互」？                   → StellarEraUI
 ├─ 是「游戏框架 / 输入绑定 / 模式切换」？  → StellarEra（装配层）
