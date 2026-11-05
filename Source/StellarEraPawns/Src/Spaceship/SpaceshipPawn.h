@@ -6,6 +6,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Pawn.h"
 #include "VoxelViewpointInvokers.h"
+#include "CosmosBody.h"
 #include "SpaceshipPawn.generated.h"
 
 class APlanetCharacter;
@@ -103,16 +104,17 @@ struct FSpaceshipStatus
  * UCosmosSimulationSubsystem 每帧下来读走、换算成 AU/年² 写进它那个 FCosmosBodyState。
  * 位置与速度都由求解器写回（SetActorLocation + SetCosmosVelocity）。
  *
- * 力只能是这个方向：依赖是 **Cosmos → Spaceship**（子系统要 Cast 到 ASpaceshipPawn
- * 读推力与阻尼），所以 Spaceship 不能反向依赖 Cosmos —— 既不能 include
- * CosmosOrbitComponent.h，也不能调那个子系统。
+ * 力只能是这个方向：子系统不认识 ASpaceshipPawn，只认 CosmosBody.h 里的
+ * ICosmosBody（本类实现它）。依赖方向因此是 **Pawns → Cosmos**，本类可以
+ * include Cosmos 的头，但**不**主动去调那个子系统 —— 推力与阻尼由子系统
+ * 每帧下来读走，状态由它写回。
  *
  * 鼠标给的是角速度冲量而不是直接设朝向，松手后指数衰减 —— 这是"开飞机"的惯性感
  * 来源，也是《戴森球计划》伊卡洛斯的做法。姿态是**运动学**的：它只决定推力朝哪，
  * 不参与积分。
  */
 UCLASS()
-class STELLARERAPAWNS_API ASpaceshipPawn : public APawn, public IVoxelViewpointInvokers
+class STELLARERAPAWNS_API ASpaceshipPawn : public APawn, public IVoxelViewpointInvokers, public ICosmosBody
 {
 	GENERATED_BODY()
 
@@ -227,7 +229,7 @@ public:
 	void ToggleDebugViewMode();
 
 	/** 调试视角是否开着。 */
-	bool IsDebugViewMode() const { return bDebugViewMode; }
+	bool IsDebugViewMode() const override { return bDebugViewMode; }
 
 	/** 取一份状态快照，供 HUD 之类的显示层读取。 */
 	FSpaceshipStatus GetStatus() const;
@@ -276,7 +278,7 @@ public:
 	 * 正常情况下求解器用的是 BuildContactProbes 产出的凸包探针（见
 	 * GetContactProbesLocalCm）；这个半径只在网格没导 Simple Collision 时生效。
 	 */
-	float GetContactRadiusCm() const;
+	float GetContactRadiusCm() const override;
 
 	/**
 	 * 从 Hull 当前的网格算出接触探针（Actor 本地坐标，厘米）。
@@ -298,7 +300,7 @@ public:
 	 * 接触探针（Actor 本地，厘米）。空数组 = 没有可用的凸包，求解器退回 300 cm 球。
 	 * 由 BeginPlay / OnConstruction 在套用 HullMesh 之后重建。
 	 */
-	const TArray<FVector>& GetContactProbesLocalCm() const { return ContactProbesLocalCm; }
+	const TArray<FVector>& GetContactProbesLocalCm() const override { return ContactProbesLocalCm; }
 
 	/**
 	 * 本帧要施加在自己那个 N 体上的推力加速度（**厘米/秒²**，世界坐标）。零 = 无推力。
@@ -340,7 +342,7 @@ public:
 	 * GetAtmosphereDragAccelerationWorldCmPerS2）。阻力与输入无关，推力为 0、
 	 * 巡航开着时照样生效；它也**不**受速度上限衰减。
 	 */
-	FVector GetThrustAccelerationWorldCmPerS2(float DeltaSeconds) const;
+	FVector GetThrustAccelerationWorldCmPerS2(float DeltaSeconds) const override;
 
 	/**
 	 * 速度上限的衰减系数：f = 1 − (v/vmax)²，夹在 [0, 1]。
@@ -400,29 +402,29 @@ public:
 	 * 关掉阻尼才有办法一路加速到圆轨道速度（阻尼极速只有它的 0.156 倍，见 spec §4）。
 	 * 有阻尼时速度收敛到「推力 × 本值」，这就是极速的来源。
 	 */
-	float GetDampingTime() const;
+	float GetDampingTime() const override;
 
 	/**
 	 * 由 UCosmosSimulationSubsystem 在写回位置时一并写入的**求解器速度**
 	 * （厘米/秒，世界坐标）。本类不自己算速度 —— 位移归求解器，速度也就该由它给。
 	 */
-	void SetCosmosVelocity(const FVector& InVelocity) { CosmosVelocity = InVelocity; }
+	void SetCosmosVelocity(const FVector& InVelocity) override { CosmosVelocity = InVelocity; }
 
 	/**
 	 * 由 UCosmosSimulationSubsystem 每帧写入的**参考行星中心速度**（世界厘米/秒）。
 	 *
 	 * 行星自身不自转，大气跟着行星中心平移，所以大气阻力必须按「飞船相对行星」
-	 * 的速度算；相对速度也是 HUD 要显示的第二条速度。方向只能是子系统下来推：
-	 * StellarEraSpaceship 不能反向依赖 StellarEraCosmos 去查求解器（会成环）。
+	 * 的速度算；相对速度也是 HUD 要显示的第二条速度。方向仍然是子系统往下推：
+	 * 本类不主动去查求解器，参考速度由 UCosmosSimulationSubsystem 每帧推进来。
 	 * 没有参考行星时传零向量，相对速度退化为绝对速度。
 	 */
-	void SetReferencePlanetVelocity(const FVector& InVelocity) { ReferencePlanetVelocity = InVelocity; }
+	void SetReferencePlanetVelocity(const FVector& InVelocity) override { ReferencePlanetVelocity = InVelocity; }
 
 	/** 相对参考行星的速度（世界厘米/秒）；没有参考行星时等于 GetVelocity()。 */
 	FVector GetRelativeVelocity() const { return GetVelocity() - ReferencePlanetVelocity; }
 
 	/** 当前参考行星（控制飞船的那颗，供子系统回查它的求解器速度）；可能为空。 */
-	AVoxelPlanetActor* GetPlanetActor() const { return PlanetActor; }
+	AVoxelPlanetActor* GetPlanetActor() const override { return PlanetActor; }
 
 	/**
 	 * 覆写：让引擎侧所有问「这艘船多快」的地方拿到求解器给的真值。
@@ -644,7 +646,8 @@ protected:
 	 * 就是它）。世界速度与物理速度不是一回事，见
 	 * UCosmosOrbitComponent::InitialVelocityKmPerSecond 的注释。
 	 *
-	 * 换算是本模块内的一行（× 1e5），因为本模块不依赖 Cosmos 的单位体系。
+	 * 换算是本模块内的一行（× 1e5）：本类的推力参数按世界单位标定，
+	 * 不走 Cosmos 的 CosmosUnits:: 换算体系。
 	 */
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Thrust",
 		meta = (DisplayName = "推力加速度（km/s²，世界）"))
@@ -934,7 +937,7 @@ private:
 	 *
 	 * 门控必须按相对速度：行星随求解器每秒走几十公里，船相对行星静止时
 	 * GetVelocity() 的绝对值并不小。这里用两个 Actor 的逐帧位移相减，
-	 * 免得让本模块反向依赖 StellarEraCosmos 去查求解器（会成环）。
+	 * 免得每帧去查求解器 —— 速度是子系统推过来的，本类不反向拉。
 	 */
 	FVector LastVoxelInvokerShipLocation = FVector::ZeroVector;
 	FVector LastVoxelInvokerPlanetLocation = FVector::ZeroVector;

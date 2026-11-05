@@ -4,7 +4,7 @@
 
 #include "CosmosOrbitComponent.h"
 #include "VoxelPlanetActor.h"
-#include "SpaceshipPawn.h"
+#include "CosmosBody.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Pawn.h"
@@ -142,7 +142,7 @@ void UCosmosSimulationSubsystem::AddBodyToSimulator(UCosmosOrbitComponent* Compo
 		// 保留它是因为开局日志要打一行半径，那时还没刷过。
 		State.Radius = double(Planet->GetSurfaceRadiusCm()) / CentimetersPerAu;
 	}
-	else if (const ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(BodyActor))
+	else if (const ICosmosBody* Ship = Cast<ICosmosBody>(BodyActor))
 	{
 		// 这里先给 300 cm 球当**兜底**：第一次 Tick 就会由 RefreshShipContactProbes
 		// 换成船体凸包生成的接触探针（Radius 同时置 0）。只有网格没导 Simple
@@ -213,7 +213,8 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 {
 	for (UCosmosOrbitComponent* Component : Bodies)
 	{
-		ASpaceshipPawn* Ship = Component ? Cast<ASpaceshipPawn>(Component->GetOwner()) : nullptr;
+		AActor* OwnerActor = Component ? Component->GetOwner() : nullptr;
+		ICosmosBody* Ship = Cast<ICosmosBody>(OwnerActor);
 		if (!Ship || Component->SimulatorIndex == INDEX_NONE)
 		{
 			continue;
@@ -238,7 +239,7 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 
 		// 本地厘米 → 世界厘米（只取旋转+缩放，不加 Actor 位置：探针相对船心）→ AU。
 		// 每帧重算是为了跟上船的转向：横着贴地和倒着贴地，碰到的探针不是同一批。
-		const FTransform ShipTransform = Ship->GetActorTransform();
+		const FTransform ShipTransform = OwnerActor->GetActorTransform();
 		TArray<FVector3d> Probes;
 		Probes.Reserve(LocalProbes.Num());
 		for (const FVector& LocalProbe : LocalProbes)
@@ -392,7 +393,7 @@ void UCosmosSimulationSubsystem::ApplyControlledBodyForces(float DeltaSeconds)
 			continue;
 		}
 
-		ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(Component->GetOwner());
+		ICosmosBody* Ship = Cast<ICosmosBody>(Component->GetOwner());
 		if (!Ship)
 		{
 			continue;
@@ -425,7 +426,7 @@ void UCosmosSimulationSubsystem::ApplyControlledBodyForces(float DeltaSeconds)
 		Ship->SetReferencePlanetVelocity(ReferenceVelocity);
 
 		// 帧时长原样转给飞船：它的制动要按「本帧满推力能改变多少速度」收敛，
-		// 见 ASpaceshipPawn::GetThrustAccelerationWorldCmPerS2。
+		// 见 ICosmosBody::GetThrustAccelerationWorldCmPerS2。
 		Body.ExternalAcceleration = FVector3d(CosmosUnits::WorldCmPerS2ToGameAcceleration(
 			FVector3d(Ship->GetThrustAccelerationWorldCmPerS2(DeltaSeconds)),
 			CentimetersPerAu, TimeScale));
@@ -655,9 +656,9 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 			BodyActor->SetActorLocation(Simulator.ToWorldLocation(State.Position), /*bSweep=*/false);
 
 			// 受控天体（飞船）：把求解器速度一并写回 Actor。
-			// ASpaceshipPawn::GetVelocity() 的覆写读的就是它 —— 体素调用器的预测、
-			// IsLanded() 的阈值判断、HUD 的速度显示都走那一处收口。
-			if (ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(BodyActor))
+			// ASpaceshipPawn::GetVelocity() 的覆写读的就是它（经 ICosmosBody::SetCosmosVelocity
+			// 写回）—— 体素调用器的预测、IsLanded() 的阈值判断、HUD 的速度显示都走那一处收口。
+			if (ICosmosBody* Ship = Cast<ICosmosBody>(BodyActor))
 			{
 				Ship->SetCosmosVelocity(ToWorldVelocityScaled(State.Velocity));
 			}

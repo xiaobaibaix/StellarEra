@@ -6,6 +6,7 @@
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 
+#include "CosmosBody.h"
 #include "PlanetCharacter.h"
 #include "PlanetCharacterInputComponent.h"
 #include "SpaceshipInputComponent.h"
@@ -58,6 +59,23 @@ bool FStellarEraSpaceshipInputComponentTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("默认不反 Y"), ShipInput->bInvertLookY);
 	}
 
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraShipImplementsCosmosBodyTest,
+	"StellarEra.Pawns.ShipImplementsCosmosBody",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraShipImplementsCosmosBodyTest::RunTest(const FString& Parameters)
+{
+	const ASpaceshipPawn* ShipCDO = GetDefault<ASpaceshipPawn>();
+	if (!TestNotNull(TEXT("ASpaceshipPawn CDO"), ShipCDO))
+	{
+		return false;
+	}
+
+	// Cosmos 靠这个转型驱动飞船；接口没实现的话飞船在求解器里是颗无接触点质量。
+	TestNotNull(TEXT("飞船实现 ICosmosBody"), Cast<ICosmosBody>(ShipCDO));
 	return true;
 }
 

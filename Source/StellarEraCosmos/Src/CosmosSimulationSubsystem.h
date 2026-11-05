@@ -329,16 +329,17 @@ private:
 	/**
 	 * 每帧推进之前，把**受控天体**（飞船）想施加的力写进求解器。
 	 *
-	 * 方向只能是「子系统下来读飞船」：飞船模块不能依赖 StellarEraCosmos，
-	 * 飞船不能反过来调本子系统（见 ASpaceshipPawn 的类注释）。
+	 * 只认 CosmosBody.h 里的 ICosmosBody 接口，不认具体 Pawn：受控实体在 Pawns 模块
+	 * 实现该接口，依赖方向因此是 Pawns → Cosmos（原先是 Cosmos 反向
+	 * Cast<ASpaceshipPawn>）。力的方向仍是「子系统下来读」—— 受控天体不主动调本子系统。
 	 *
-	 * DeltaSeconds 是本帧的帧时长，原样转给飞船 —— 它的制动要按「本帧满推力能改变
-	 * 多少速度」收敛（见 ASpaceshipPawn::GetThrustAccelerationWorldCmPerS2），必须知道这一帧
-	 * 有多长。由本处传入而不是让飞船在自己 Tick 里抄一份：两个 Tick 谁先谁后不保证，
-	 * 抄的那份在帧率突变的那一帧会让制动过冲。
+	 * DeltaSeconds 是本帧的帧时长，原样转给受控天体 —— 它的制动要按「本帧满推力能
+	 * 改变多少速度」收敛（见 ICosmosBody::GetThrustAccelerationWorldCmPerS2），必须知道
+	 * 这一帧有多长。由本处传入而不是让受控天体在自己 Tick 里抄一份：两个 Tick 谁先
+	 * 谁后不保证，抄的那份在帧率突变的那一帧会让制动过冲。
 	 *
-	 * 只认 ASpaceshipPawn —— 现在只有一艘船，Cast 就是全部；等出现第二个受控天体
-	 * （第二艘船、导弹）再抽接口，那时抽出来的形状也才看得清。
+	 * 接口化之后，第二艘船 / 导弹只要实现 ICosmosBody 就能被同一个求解器驱动，
+	 * 本子系统不需要改。
 	 */
 	void ApplyControlledBodyForces(float DeltaSeconds);
 

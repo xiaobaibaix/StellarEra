@@ -11,8 +11,8 @@ using UnrealBuildTool;
 // IVoxelViewpointInvokers（换视点时要门控各自的体素调用器）。
 // 把两者放在一起，换视点的逻辑才有唯一的归属地。
 //
-// 星图相机**不在**这里：它调 UCosmosSimulationSubsystem，而 Cosmos 内部有
-// 4 处 Cast<ASpaceshipPawn>，搬过来就是 Pawns → Cosmos → Pawns。它留在 UI。
+// 星图相机在 Src/StarMap/：它依赖 Cosmos，而 Cosmos 曾经反向 Cast<ASpaceshipPawn>。
+// 抽出 ICosmosBody 之后那笔债还清，Pawns → Cosmos 才立得住。
 //
 // 目录按功能分组，.h 与 .cpp 同目录并列：
 //   Src/Character   角色、动画实例、移动组件
@@ -51,6 +51,11 @@ public class StellarEraPawns : ModuleRules
 			// 该接口随体素接线层住在 Planet/Src/Invokers/ —— 所以是 Public 依赖，
 			// 下游 include 本模块的 Pawn 头时能找到它。（原 StellarEraCore 已拆除。）
 			"StellarEraPlanet",
+
+			// 飞船在公开头里实现 Cosmos 的 ICosmosBody，星图相机（Src/StarMap/）
+			// 也要调 UCosmosSimulationSubsystem —— 下游 include 这些公开头时必须
+			// 找得到 Cosmos，所以是 Public 依赖。
+			"StellarEraCosmos",
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]

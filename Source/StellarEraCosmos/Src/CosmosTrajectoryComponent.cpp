@@ -5,12 +5,13 @@
 #include "CosmosOrbitComponent.h"
 #include "CosmosSimulationSubsystem.h"
 #include "CosmosTypes.h"
-#include "SpaceshipPawn.h"
+#include "CosmosBody.h"
 #include "VoxelPlanetActor.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
+#include "GameFramework/Pawn.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "UObject/Package.h"
 #include "UObject/UObjectGlobals.h"
@@ -299,12 +300,13 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	// 那个开关会把预测线和速度箭头一起拖进游戏画面，与本需求无关。
 	//
 	// 另外还要求飞船的调试视角（B 键）开着：箭头不再一上船就常驻。
-	const ASpaceshipPawn* ControlledShip = Cast<ASpaceshipPawn>(OwnerActor);
+	const APawn* ControlledPawn = Cast<APawn>(OwnerActor);
+	const ICosmosBody* ControlledBody = Cast<ICosmosBody>(OwnerActor);
 	const bool bWantsNetForceArrow = ShouldShowNetForceArrow(
 		bDrawNetForceArrow,
-		ControlledShip != nullptr && ControlledShip->IsLocallyControlled(),
+		ControlledPawn != nullptr && ControlledPawn->IsLocallyControlled(),
 		Subsystem->IsStarMapActive(),
-		ControlledShip != nullptr && ControlledShip->IsDebugViewMode());
+		ControlledBody != nullptr && ControlledBody->IsDebugViewMode());
 
 	if (bWantsNetForceArrow)
 	{
@@ -1416,7 +1418,7 @@ void UCosmosTrajectoryComponent::DrawInEditor()
 		{
 			State.Radius = double(Planet->GetSurfaceRadiusCm()) / CmPerAu;
 		}
-		else if (const ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(OwnerActor))
+		else if (const ICosmosBody* Ship = Cast<ICosmosBody>(OwnerActor))
 		{
 			State.Radius = double(Ship->GetContactRadiusCm()) / CmPerAu;
 
