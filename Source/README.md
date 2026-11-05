@@ -43,7 +43,7 @@ StellarEraPlanet/
 
 | 模块 | 行数 | 一句话 | 什么时候动它 |
 |---|---:|---|---|
-| `StellarEraPlanet` | 19076 | 地形生成、大气、矿物（含地质场与矿脉形态）、编辑、体素接线 | 见下面的子目录表 |
+| `StellarEraPlanet` | 29190 | 地形生成、大气、矿物（含地质场与矿脉形态）、编辑、体素接线 | 见下面的子目录表 |
 
 ```
 StellarEraPlanet/Src/
@@ -82,7 +82,7 @@ Minerals/
 
 | 模块 | 行数 | 一句话 | 什么时候动它 |
 |---|---:|---|---|
-| `StellarEraPawns` | 4461 | 角色、飞船与各自的输入组件、星图相机 | 见下面的子目录表 |
+| `StellarEraPawns` | 7492 | 角色、飞船与各自的输入组件、星图相机 | 见下面的子目录表 |
 
 ```
 StellarEraPawns/Src/
@@ -103,7 +103,7 @@ StellarEraPawns/Src/
 
 | 模块 | 行数 | 一句话 | 什么时候动它 |
 |---|---:|---|---|
-| `StellarEraCosmos` | 6339 | N 体求解器、天体类型与单位、轨道参数、预测轨迹 | 改积分算法、改模拟步长、改预测窗口 |
+| `StellarEraCosmos` | 7739 | N 体求解器、天体类型与单位、轨道参数、预测轨迹 | 改积分算法、改模拟步长、改预测窗口 |
 
 ```
 StellarEraCosmos/Src/
@@ -124,7 +124,7 @@ StellarEraCosmos/Src/
 
 | 模块 | 行数 | 一句话 | 什么时候动它 |
 |---|---:|---|---|
-| `StellarEraUI` | 4272 | HUD 绘制、星图面板、编辑 UI、`IStarMapUIInputs` | 改 HUD 显示、改星图样式 |
+| `StellarEraUI` | 3133 | HUD 绘制、星图面板、编辑 UI、`IStarMapUIInputs` | 改 HUD 显示、改星图样式 |
 
 `StarMapUIInputs.h` 在这里而不是在 Game 模块，是正确的依赖倒置：
 UI 声明自己需要什么，Game 去实现，于是 UI 不需要 include 控制器。
@@ -133,7 +133,7 @@ UI 声明自己需要什么，Game 去实现，于是 UI 不需要 include 控�
 
 | 模块 | 行数 | 一句话 | 什么时候动它 |
 |---|---:|---|---|
-| `StellarEra` | 3157 | GameMode、PlayerController（只转发输入） | 改输入绑定、改开局流程 |
+| `StellarEra` | 3753 | GameMode、PlayerController（只转发输入） | 改输入绑定、改开局流程 |
 
 ---
 
