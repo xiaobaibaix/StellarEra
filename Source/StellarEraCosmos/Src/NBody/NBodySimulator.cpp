@@ -435,6 +435,10 @@ void FNBodySimulator::StepExact(double TimeStep)
 		break;
 	}
 
+	// 姿态先于接触积分：接触冲量要读的是**本步**的角速度与朝向，
+	// 用它算力臂，再把力矩写回同一个 ω。
+	IntegrateRigidBodyOrientations(TimeStep);
+
 	// 约束放在积分**之后**：这样三种积分器共用一处，Step 与 PredictTrajectory
 	// 也就自动拿到同样的接触行为（预测跑的是同一个 StepExact 的副本）。
 	//
@@ -864,4 +868,67 @@ bool FNBodySimulator::PredictClosedOrbit(int32 BodyIndex, int32 NumSamplesPerOrb
 	const FVector3d FirstPosition = Out.RelativePositions[0];
 	Out.RelativePositions.Add(FirstPosition);
 	return true;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// 刚体姿态
+
+FVector3d FCosmosBodyState::InverseInertiaFromBox(double Mass, const FVector3d& HalfExtent)
+{
+	const FVector3d Edge = HalfExtent * 2.0;
+	if (Mass <= 0.0 || Edge.X <= 0.0 || Edge.Y <= 0.0 || Edge.Z <= 0.0)
+	{
+		return FVector3d::ZeroVector;
+	}
+
+	const double TwelveOverMass = 12.0 / Mass;
+	return FVector3d(
+		TwelveOverMass / (Edge.Y * Edge.Y + Edge.Z * Edge.Z),
+		TwelveOverMass / (Edge.X * Edge.X + Edge.Z * Edge.Z),
+		TwelveOverMass / (Edge.X * Edge.X + Edge.Y * Edge.Y));
+}
+
+FVector3d FCosmosBodyState::InverseInertiaFromSphere(double Mass, double Radius)
+{
+	const double Inertia = 0.4 * Mass * Radius * Radius;
+	return Inertia > 0.0 ? FVector3d(1.0 / Inertia) : FVector3d::ZeroVector;
+}
+
+void FNBodySimulator::IntegrateRigidBodyOrientations(double TimeStep)
+{
+	if (TimeStep <= 0.0)
+	{
+		return;
+	}
+
+	for (FCosmosBodyState& Body : Bodies)
+	{
+		if (!Body.bRigidBody)
+		{
+			continue;
+		}
+
+		// ① 角速度：显式欧拉。线速度那边用 Velocity Verlet 是因为有引力这个平滑
+		//    加速度场；角加速度只有外力矩与接触冲量，且一帧最多 200 个子步，
+		//    一阶足够。
+		Body.AngularVelocity += Body.ExternalAngularAcceleration * TimeStep;
+
+		// ② 阻尼：乘法形式，k·dt ≥ 1 时直接归零。
+		if (Body.AngularDamping > 0.0)
+		{
+			const double Decay = 1.0 - Body.AngularDamping * TimeStep;
+			Body.AngularVelocity *= Decay > 0.0 ? Decay : 0.0;
+		}
+
+		// ③ 朝向：dq = exp(½·ω·dt) ⊗ q。世界系角速度 → 左乘。
+		//    归一化每步都做：不归一的话几千步之后 Actor 的变换矩阵会慢慢
+		//    变成非正交，表现为缓慢缩放。
+		const double Speed = Body.AngularVelocity.Size();
+		if (Speed > 0.0)
+		{
+			const FVector3d Axis = Body.AngularVelocity / Speed;
+			const FQuat4d Delta(Axis, Speed * TimeStep);
+			Body.Orientation = (Delta * Body.Orientation).GetNormalized();
+		}
+	}
 }

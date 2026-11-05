@@ -145,6 +145,68 @@ struct FCosmosBodyState
 	double LinearDamping = 0.0;
 
 	/**
+	 * 是否是**刚体**：为 true 时求解器积分姿态、接触冲量产生力矩。
+	 * 为 false（行星、恒星）时朝向归关卡摆位，求解器一个字节都不写。
+	 */
+	bool bRigidBody = false;
+
+	/**
+	 * 世界系朝向。只对刚体有意义，非刚体恒为单位四元数。
+	 *
+	 * 求解器是姿态的**唯一权威**：Actor 的 Rotation 每帧由子系统从这里写回，
+	 * 谁也别在别处 AddActorLocalRotation —— 两处都写就是互相抹。
+	 */
+	FQuat4d Orientation = FQuat4d::Identity;
+
+	/** 世界系角速度（弧度 / 模拟年）。与位置速度同一个时间单位。 */
+	FVector3d AngularVelocity = FVector3d::ZeroVector;
+
+	/**
+	 * 机体系惯性张量的**逆**，对角元。零向量 = 任何力矩都不产生角加速度
+	 * （点质量、或探针退化成一条线）。
+	 *
+	 * 用逆而不是 I 本身：接触冲量每一步都要乘它，且 I 退化时逆就是零，
+	 * 天然把「没有惯量」变成「转不动」，不需要额外的除零保护。
+	 */
+	FVector3d InverseInertiaLocal = FVector3d::ZeroVector;
+
+	/**
+	 * 外部力矩产生的角加速度（rad/模拟年²）。与 ExternalAcceleration 一样由
+	 * 外部每帧写入，求解器只加不解释。单位推导见 spec §3.3。
+	 */
+	FVector3d ExternalAngularAcceleration = FVector3d::ZeroVector;
+
+	/**
+	 * 角阻尼（1/模拟年）：ω ← ω·(1 − k·dt)，逐子步乘。
+	 *
+	 * 用乘法而不是减法，是为了 k·dt ≥ 1 时能干净地归零而不是反号。
+	 */
+	double AngularDamping = 0.0;
+
+	/** I⁻¹·τ：世界系力矩 → 世界系角速度增量。非刚体返回零。 */
+	FVector3d ApplyInverseInertia(const FVector3d& Torque) const
+	{
+		if (!bRigidBody)
+		{
+			return FVector3d::ZeroVector;
+		}
+
+		// I⁻¹ 是机体系的对角阵，所以「转进机体 → 乘 → 转回世界」。
+		const FVector3d Local = Orientation.UnrotateVector(Torque) * InverseInertiaLocal;
+		return Orientation.RotateVector(Local);
+	}
+
+	/**
+	 * 长方体的逆惯量。`HalfExtent` 是**半边长**，公式按边长 2·HalfExtent：
+	 *     Ixx = m/12·(h_y² + h_z²)
+	 * 任一边长或质量非正时返回零（转不动），不返回 NaN。
+	 */
+	static FVector3d InverseInertiaFromBox(double Mass, const FVector3d& HalfExtent);
+
+	/** 均匀球：I = 2/5·m·r²。 */
+	static FVector3d InverseInertiaFromSphere(double Mass, double Radius);
+
+	/**
 	 * 接触时把**全部**速度清零（相对速度归零，跟随对方一起动），而不是默认的
 	 * 「只抹相互接近的法向分量、切向沿地表滑」。为 true 的天体撞上别的天体时，
 	 * 其速度被直接设成对方的速度 —— 飞船撞地即停、并随行星一起动。
@@ -451,6 +513,14 @@ private:
 	 * 取「最深探针」做穿透解算，让路比例与速度规则和球-球分支完全一致。
 	 */
 	void ResolveProbeContact(int32 ProbeIndex, int32 SphereIndex);
+
+	/**
+	 * 刚体姿态积分：ω += α·dt，ω 乘角阻尼，q ← exp(½·ω·dt)⊗q。
+	 *
+	 * 放在 StepExact 里积分器之后、ResolveContacts 之前 —— 三种积分器共用一处，
+	 * 预测轨迹（同样调 StepExact）自动拿到同样的姿态行为。
+	 */
+	void IntegrateRigidBodyOrientations(double TimeStep);
 
 	/**
 	 * 接触时两个天体各让多少位移，按「谁轻谁让路」分配，两者之和恒为 1。
