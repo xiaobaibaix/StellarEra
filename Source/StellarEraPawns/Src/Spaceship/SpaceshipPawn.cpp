@@ -765,18 +765,15 @@ void ASpaceshipPawn::Look(float DeltaYaw, float DeltaPitch)
 		return;
 	}
 
-	// 冲量模型：鼠标位移累加成**角速度冲量**（机体系，度/秒）。子系统每帧把它
-	// 读走、换算成角加速度注入求解器，求解器的角阻尼负责「转一会儿再停」。
+	// 冲量模型：鼠标位移累加成**角速度增量**（机体系，度/秒）。子系统每帧把它
+	// 读走、加到当前转速上并夹到 MaxYawRate / MaxPitchRate，再换算成角加速度注入
+	// 求解器，求解器的角阻尼负责「转一会儿再停」。
 	//
-	// 上限沿用旧版的 MaxYawRate / MaxPitchRate：一帧内最多给出这么大的角速度。
-	const float NewYaw = FMath::Clamp(
-		float(PendingAngularImpulseLocalDeg.Z) + DeltaYaw * MouseImpulseScale,
-		-MaxYawRate, MaxYawRate);
-	const float NewPitch = FMath::Clamp(
-		float(PendingAngularImpulseLocalDeg.Y) + DeltaPitch * MouseImpulseScale,
-		-MaxPitchRate, MaxPitchRate);
-
-	PendingAngularImpulseLocalDeg = FVector(0.f, NewPitch, NewYaw);
+	// 夹取放在读取侧（GetAngularAccelerationWorldRadPerS2）而不是这里：这里夹的是
+	// 单帧增量，反打时要先被增量上限拖一帧才反向；夹**目标转速**才与旧版
+	// （Clamp 状态本身）逐条一致，也不随帧率变。Look 一帧可能被调多次，累加即可。
+	PendingAngularImpulseLocalDeg +=
+		FVector(0.f, DeltaPitch, DeltaYaw) * MouseImpulseScale;
 }
 
 float ASpaceshipPawn::GetLandingQueryRadiusCm() const
@@ -1216,29 +1213,42 @@ FVector ASpaceshipPawn::ComputeAngularAccelerationWorldRadPerS2(
 	float InMaxRollRateDegPerSec,
 	float DeltaSeconds)
 {
-	if (DeltaSeconds <= KINDA_SMALL_NUMBER)
+	FVector AlphaWorld = FVector::ZeroVector;
+
+	// 鼠标：待发冲量已经是「到目标转速还差多少」（调用方先把它加到当前转速上，
+	// 再按 MaxYawRate / MaxPitchRate 夹住目标）。除以 dt 就是一帧内兑现它所需的
+	// 角加速度 —— 目标被夹住之后，稳态转速恒为上限，与帧长无关。
+	//
+	// dt ≈ 0 时没有可积的步长，只跳过这一支；横滚不依赖 dt，下面照给。
+	if (DeltaSeconds > KINDA_SMALL_NUMBER)
 	{
-		return FVector::ZeroVector;
+		const FVector LocalDeltaRadPerSec(
+			FMath::DegreesToRadians(PendingImpulseLocalDegPerSec.X),
+			FMath::DegreesToRadians(PendingImpulseLocalDegPerSec.Y),
+			FMath::DegreesToRadians(PendingImpulseLocalDegPerSec.Z));
+
+		AlphaWorld = BodyRotation.RotateVector(LocalDeltaRadPerSec) / DeltaSeconds;
 	}
 
-	// 鼠标冲量：机体系（度/秒）→ 世界系（rad/s）→ 角加速度（rad/s²）。
-	// 除以 dt 而不是乘：一帧的冲量在一帧内兑现，帧长变了手感不变。
-	const FVector LocalRadPerSec(
-		FMath::DegreesToRadians(PendingImpulseLocalDegPerSec.X),
-		FMath::DegreesToRadians(PendingImpulseLocalDegPerSec.Y),
-		FMath::DegreesToRadians(PendingImpulseLocalDegPerSec.Z));
-
-	FVector AlphaWorld = BodyRotation.RotateVector(LocalRadPerSec) / DeltaSeconds;
-
-	// 横滚：持续角加速度，实际滚转速率接近上限时线性衰减到 0。
-	// 这个 taper 就是旧版「到 MaxRollRate 就不再增加」的连续版本。
+	// 横滚：持续角加速度，与 dt 无关。只有**同向**时才按接近上限线性衰减 ——
+	// 这个 taper 是旧版「到 MaxRollRate 就不再增加」的连续版本。
+	//
+	// 反打必须给全额 A：带阻尼时的稳态是 A / (A/Max + 角阻尼) = 93.75°/s，
+	// 若反打也按 |rate| 衰减，只剩 0.22A，从 +93.75 压回 0 要 0.28 秒，
+	// 而旧版「到顶就停」是瞬时反向。
 	if (!FMath::IsNearlyZero(InRollInput) && InMaxRollRateDegPerSec > 0.f)
 	{
 		const FVector LocalAngularVelocity =
 			BodyRotation.UnrotateVector(ActualAngularVelocityWorld);
 		const float RollRateDeg = FMath::RadiansToDegrees(float(LocalAngularVelocity.X));
-		const float Taper = FMath::Clamp(
-			1.f - FMath::Abs(RollRateDeg) / InMaxRollRateDegPerSec, 0.f, 1.f);
+
+		const bool bSameDirectionAsRate =
+			!FMath::IsNearlyZero(RollRateDeg)
+			&& FMath::Sign(InRollInput) == FMath::Sign(RollRateDeg);
+
+		const float Taper = bSameDirectionAsRate
+			? FMath::Clamp(1.f - FMath::Abs(RollRateDeg) / InMaxRollRateDegPerSec, 0.f, 1.f)
+			: 1.f;
 
 		const float AlphaRollRad =
 			FMath::DegreesToRadians(InRollInput * InRollAngularAccelerationDegPerS2 * Taper);
@@ -1258,8 +1268,39 @@ FVector ASpaceshipPawn::GetAngularAccelerationWorldRadPerS2(float DeltaSeconds)
 		return FVector::ZeroVector;
 	}
 
+	const FQuat BodyRotation = GetActorQuat();
+
+	// 速率目标模型：鼠标冲量 = 「想在当前转速上再加多少」（机体系，度/秒）。
+	// 先把**目标转速**夹到本轴上限，再把「到目标还差多少」交给纯函数除以 dt。
+	//
+	// 为什么不能直接把冲量除以 dt：那样每帧都追加同一个增量，求解器只按角阻尼
+	// 衰减，稳态转速 = 增量 / (角阻尼 × dt) —— 60 fps 下 3 px/帧 约 370°/s，
+	// 冲量饱和时约 1450°/s，且随帧率变（30 fps ≈ 680、144 fps ≈ 3600）。
+	// 夹住目标之后：单击仍是一个会衰减的冲量（总转角 ≈ MaxYawRate / 角阻尼
+	// ≈ 25.7°），持续输入稳在 90 / 70 的硬上限，与旧版逐条一致且帧率无关。
+	const FVector CurrentLocalRadPerSec =
+		BodyRotation.UnrotateVector(CosmosAngularVelocity);
+	const FVector CurrentLocalDegPerSec(
+		FMath::RadiansToDegrees(CurrentLocalRadPerSec.X),
+		FMath::RadiansToDegrees(CurrentLocalRadPerSec.Y),
+		FMath::RadiansToDegrees(CurrentLocalRadPerSec.Z));
+
+	// 横滚没有鼠标冲量（Look 只写 Y/Z），X 原样带过去；Y/Z 按各自上限夹。
+	// 用 Abs 兜住负配置：Clamp 要求下限不大于上限。
+	const double YawLimit = double(FMath::Abs(MaxYawRate));
+	const double PitchLimit = double(FMath::Abs(MaxPitchRate));
+	const FVector TargetLocalDegPerSec(
+		CurrentLocalDegPerSec.X + PendingAngularImpulseLocalDeg.X,
+		FMath::Clamp(CurrentLocalDegPerSec.Y + PendingAngularImpulseLocalDeg.Y,
+			-PitchLimit, PitchLimit),
+		FMath::Clamp(CurrentLocalDegPerSec.Z + PendingAngularImpulseLocalDeg.Z,
+			-YawLimit, YawLimit));
+
+	const FVector PendingDeltaLocalDegPerSec =
+		TargetLocalDegPerSec - CurrentLocalDegPerSec;
+
 	const FVector Result = ComputeAngularAccelerationWorldRadPerS2(
-		GetActorQuat(), PendingAngularImpulseLocalDeg, CosmosAngularVelocity,
+		BodyRotation, PendingDeltaLocalDegPerSec, CosmosAngularVelocity,
 		RollInput, RollAngularAcceleration, MaxRollRate, DeltaSeconds);
 
 	PendingAngularImpulseLocalDeg = FVector::ZeroVector;

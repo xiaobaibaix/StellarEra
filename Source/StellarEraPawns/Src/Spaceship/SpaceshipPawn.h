@@ -153,7 +153,14 @@ public:
 	float GetAngularDampingPerSecond() const { return AngularDamping; }
 
 	/**
-	 * 纯函数：待发冲量 + 横滚输入 → 世界系角加速度（rad/s²）。
+	 * 纯函数：转速增量 + 横滚输入 → 世界系角加速度（rad/s²）。
+	 *
+	 * @param PendingImpulseLocalDegPerSec 机体系「到目标转速还差多少」（度/秒）。
+	 *        调用方负责先把目标夹到 MaxYawRate / MaxPitchRate —— 本函数签名里没有
+	 *        这两个上限（Task 4 的调用契约），夹取单点放在
+	 *        GetAngularAccelerationWorldRadPerS2。
+	 * @param ActualAngularVelocityWorld   求解器写回的实际角速度（**rad/s**），
+	 *        用于横滚的同向 taper。
 	 *
 	 * 单独拆出来是为了能无头测试 —— 测试不建 Actor，只喂四元数与系数。
 	 */
@@ -635,11 +642,11 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Camera")
 	float FreeLookReturnSpeed = 6.f;
 
-	/** 偏航角速度上限（度/秒）。 */
+	/** 目标偏航角速度上限（度/秒）。鼠标累加的转速目标夹在这里。 */
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Handling")
 	float MaxYawRate = 90.f;
 
-	/** 俯仰角速度上限（度/秒）。 */
+	/** 目标俯仰角速度上限（度/秒）。鼠标累加的转速目标夹在这里。 */
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Handling")
 	float MaxPitchRate = 70.f;
 
@@ -658,7 +665,12 @@ protected:
 	 *
 	 * 默认 1500 = MaxRollRate 120 ÷ 0.08 秒 —— 压杆后 80 ms 到满滚转，
 	 * 与旧版「一帧就到位」相比略有惯性，但不至于像鼠标那样甩过头。
-	 * 实际角速度到 MaxRollRate 时衰减到 0，所以稳态与旧版一致。
+	 *
+	 * **带阻尼时稳态到不了 MaxRollRate**：同向 taper 给出
+	 * A·(1 − v/Max) = 角阻尼·v，即 v = A / (A/Max + 角阻尼)
+	 * = 1500 / (12.5 + 3.5) = 93.75°/s（MaxRollRate 的 78%）。
+	 * 要不要调大本值把稳态补回 120，留给飞行手感调参（Task 5）决定；
+	 * 反打不受 taper 衰减，一定是全额 A，所以「松手/反向」仍是干脆的。
 	 */
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Handling")
 	float RollAngularAcceleration = 1500.f;
@@ -941,8 +953,10 @@ private:
 	float VerticalInput = 0.f;
 
 	/**
-	 * 待发角速度冲量（机体系，度/秒）：Y = 俯仰、Z = 偏航。
-	 * Look() 累加，GetAngularAccelerationWorldRadPerS2() 读一次并清零。
+	 * 待发角速度增量（机体系，度/秒）：Y = 俯仰、Z = 偏航。
+	 *
+	 * Look() 累加，GetAngularAccelerationWorldRadPerS2() 读一次并清零。读取侧会把
+	 * 「当前转速 + 本值」夹到 MaxYawRate / MaxPitchRate 之后才换算成角加速度。
 	 */
 	FVector PendingAngularImpulseLocalDeg = FVector::ZeroVector;
 
