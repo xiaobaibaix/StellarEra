@@ -3,7 +3,7 @@
 using System.IO;
 using UnrealBuildTool;
 
-// 受控实体层：玩家能 possess 的 Pawn —— 行星角色、飞船。
+// 受控实体层：玩家能 possess 的 Pawn —— 行星角色、飞船、星图相机。
 //
 // 由原来的 StellarEraCharacter / StellarEraSpaceship 合并而来。
 // 它们的共同点是「被 AStellarEraPlayerController 通过 Possess 切换」，
@@ -41,9 +41,10 @@ public class StellarEraPawns : ModuleRules
 		{
 			"Core", "CoreUObject", "Engine",
 
-			// 两个 Pawn 的头都继承 IVoxelViewpointInvokers，
-			// 并且直接持有插件的 UAlwaysLocalVoxelInvokerWithPredictionComponent，
-			// 所以插件头必须对下游可见 —— Voxel 是 Public 依赖。
+			// 三个 Pawn 的头都继承 IVoxelViewpointInvokers，并且直接持有插件的
+			// 体素调用器组件（角色 / 星图相机用 UVoxelSimpleInvokerComponent，
+			// 飞船用 UVoxelInvokerWithPredictionComponent），所以插件头必须对
+			// 下游可见 —— Voxel 是 Public 依赖。
 			"Voxel",
 
 			// 角色贴地、飞船大气阻力，都直接调行星模块的接口。
@@ -60,8 +61,9 @@ public class StellarEraPawns : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			// 角色 / 飞船自带输入绑定（SetupPlayerInputComponent）：从控制器给的
-			// FStellarEraInputActions 里取动作，再绑到自己的回调上。
+			// 角色 / 飞船 / 星图相机各有自己的输入组件：从控制器给的
+			// FStellarEraInputActions 里取动作，再绑到各自的回调上；
+			// Pawn 的 SetupPlayerInputComponent 只做转发。
 			// 只有 .cpp 用到 EnhancedInput 的类型，公开头只前置声明 UInputAction，
 			// 所以是私有依赖。
 			"EnhancedInput",

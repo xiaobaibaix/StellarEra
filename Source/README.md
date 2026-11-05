@@ -82,18 +82,23 @@ Minerals/
 
 | 模块 | 行数 | 一句话 | 什么时候动它 |
 |---|---:|---|---|
-| `StellarEraPawns` | 7492 | 角色、飞船与各自的输入组件、星图相机 | 见下面的子目录表 |
+| `StellarEraPawns` | 7843 | 角色、飞船、星图相机与各自的输入组件 | 见下面的子目录表 |
 
 ```
 StellarEraPawns/Src/
 ├── Character/                 球面角色、移动组件、动画实例、输入组件
 ├── Spaceship/                 飞船 Pawn 及其输入组件
-├── StarMap/                   星图相机（不 Tick，位置在 CalcCamera 现算）
-└── Tests/                     10 个测试
+├── StarMap/                   星图相机（不 Tick，位置在 CalcCamera 现算）及其输入组件
+└── Tests/                     11 个测试
 ```
 
-两者的共同点是「被 `AStellarEraPlayerController` 通过 Possess 切换」，
+三者的共同点是「被 `AStellarEraPlayerController` 通过 Possess 切换」，
 且都实现 `IVoxelViewpointInvokers`。放在一起，换视点的逻辑才有唯一归属地。
+
+三个可操控对象各有自己的输入组件（角色 / 飞船 / 星图相机），Pawn 的
+`SetupPlayerInputComponent` 只做转发；控制器只绑控制器级输入（上下船、星图开关与选择、
+编辑、矿物透视）。星图的分派规则 `EStarMapLookMode`、`ResolveLookMode` 与
+`IStarMapLookContext` 都在 `StarMap/StarMapCameraInputComponent.h`。
 
 > **星图相机在 `Src/StarMap/`。** 它依赖 Cosmos，而 Cosmos 曾经反向
 > `Cast<ASpaceshipPawn>`；抽出 `ICosmosBody` 之后方向才理顺。
@@ -133,7 +138,7 @@ UI 声明自己需要什么，Game 去实现，于是 UI 不需要 include 控�
 
 | 模块 | 行数 | 一句话 | 什么时候动它 |
 |---|---:|---|---|
-| `StellarEra` | 3753 | GameMode、PlayerController（只转发输入） | 改输入绑定、改开局流程 |
+| `StellarEra` | 3566 | GameMode、PlayerController（只绑控制器级输入） | 改控制器级输入绑定、改开局流程 |
 
 ---
 
@@ -152,15 +157,15 @@ UI 声明自己需要什么，Game 去实现，于是 UI 不需要 include 控�
 | 加一种新的矿脉形态 | 继承 `UPlanetGeologyDistribution`，实现 `BuildRuntime` |
 | 改角色球面行走手感 | `StellarEraPawns/Src/Character/PlanetCharacterMovementComponent.cpp` |
 | 改飞船推力/阻尼 | `StellarEraPawns/Src/Spaceship/SpaceshipPawn.cpp` |
-| 改星图相机速度/缩放 | `StellarEraPawns/Src/StarMap/StarMapCameraPawn.cpp` |
+| 改星图相机速度/缩放 | `StellarEraPawns/Src/StarMap/StarMapCameraPawn.cpp`（速度曲线）/ `Src/StarMap/StarMapCameraInputComponent.cpp`（缩放绑定） |
 | 改 N 体积分稳定性 | `StellarEraCosmos/Src/NBodySimulator.cpp` |
 | 改模拟步长/时间流速 | `StellarEraCosmos/Src/CosmosSimulationSubsystem.h` 的 Config 段 |
 | 加一种天体类型/单位制 | `StellarEraCosmos/Src/CosmosTypes.h` |
 | 改 HUD 显示内容 | `StellarEraUI/Src/StellarEraHUD.cpp` |
 | 改星图交互 | `StellarEraUI/Src/StarMapUISystem.cpp` |
 | 改按键映射（哪个键是哪个动作） | `StellarEraPawns/Src/StellarEraInputActions.cpp` 的 `Build` |
-| 改角色 / 飞船对输入的响应 | `StellarEraPawns/Src/Character/PlanetCharacterInputComponent.cpp` / `Src/Spaceship/SpaceshipInputComponent.cpp`（两个输入组件都在 Pawn 的构造函数里 `CreateDefaultSubobject`，`SetupPlayerInputComponent` 只调 `Bind`） |
-| 改星图 / 模式键（E M G H 数字键）的绑定 | `StellarEra/Src/StellarEraPlayerController.cpp` 的 `SetupInputComponent` |
+| 改角色 / 飞船 / 星图相机对输入的响应 | `StellarEraPawns/Src/Character/PlanetCharacterInputComponent.cpp` / `Src/Spaceship/SpaceshipInputComponent.cpp` / `Src/StarMap/StarMapCameraInputComponent.cpp`（三个输入组件都在 Pawn 的构造函数里 `CreateDefaultSubobject`，`SetupPlayerInputComponent` 只调 `Bind`） |
+| 改星图开关 / 模式键（E M G H 数字键）的绑定 | `StellarEra/Src/StellarEraPlayerController.cpp` 的 `SetupInputComponent`（星图视角与缩放在 `StarMapCameraInputComponent.cpp`） |
 
 ---
 

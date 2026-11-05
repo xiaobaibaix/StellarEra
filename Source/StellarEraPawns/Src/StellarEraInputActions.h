@@ -164,7 +164,8 @@ class UStellarEraInputSource : public UInterface
  *
  *   - APlanetCharacter 绑 Move / Look / Jump / Sprint / Zoom / 右键点放；
  *   - ASpaceshipPawn 绑 Look / 推力 / 滚转 / 升降 / 加速 / 巡航 / 缩放 / B；
- *   - 星图相机与全部模式键仍绑在控制器上（星图是控制器的一个模式，不是 Pawn 的行为）。
+ *   - AStarMapCameraPawn 绑星图视角（绕行 / 转头）与缩放，见 UStarMapCameraInputComponent；
+ *     星图的开关、选择与全部模式键仍绑在控制器上（进图与选择逻辑归控制器）。
  *
  * 这样「当前 Possess 的是谁，就由谁响应输入」由引擎的 Pawn 输入栈完成，
  * 控制器里不再有 `Cast<APlanetCharacter>` / `Cast<ASpaceshipPawn>` 的三路分派。

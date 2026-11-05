@@ -157,7 +157,7 @@ public:
 	/**
 	 * 落地自由视角的激活条件：已落地、且没有按 W（正向推力）或 Space（上升）。
 	 *
-	 * 输入约定见 ASpaceshipPawn::SetupPlayerInputComponent：W / Space 给 +1，
+	 * 输入约定见 USpaceshipInputComponent::Bind：W / Space 给 +1，
 	 * S / Ctrl 给 -1。
 	 * 所以负值只是制动 / 下降，**不**退出自由视角 —— 只有起飞方向的输入才把
 	 * 视角还给飞船。纯函数，测试直接调它。
