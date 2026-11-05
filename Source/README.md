@@ -82,7 +82,7 @@ Minerals/
 
 | 模块 | 行数 | 一句话 | 什么时候动它 |
 |---|---:|---|---|
-| `StellarEraPawns` | 7843 | 角色、飞船、星图相机与各自的输入组件 | 见下面的子目录表 |
+| `StellarEraPawns` | 7844 | 角色、飞船、星图相机与各自的输入组件 | 见下面的子目录表 |
 
 ```
 StellarEraPawns/Src/
@@ -138,7 +138,7 @@ UI 声明自己需要什么，Game 去实现，于是 UI 不需要 include 控�
 
 | 模块 | 行数 | 一句话 | 什么时候动它 |
 |---|---:|---|---|
-| `StellarEra` | 3566 | GameMode、PlayerController（只绑控制器级输入） | 改控制器级输入绑定、改开局流程 |
+| `StellarEra` | 3660 | GameMode、PlayerController（只绑控制器级输入） | 改控制器级输入绑定、改开局流程 |
 
 ---
 

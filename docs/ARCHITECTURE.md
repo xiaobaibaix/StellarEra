@@ -8,7 +8,7 @@
 
 ## 一、一页速查
 
-5 个模块，5 层，190 个文件，51471 行，55 个自动化测试文件。
+5 个模块，5 层，191 个文件，51566 行，56 个自动化测试文件。
 
 > **统计口径**：文件与行数只数各模块 `Source/<模块>/Src/` 下的 `.h` / `.cpp`
 > （递归含子目录，含 `Tests/`），**不含**模块入口 `StellarEra<X>.h/.cpp` 与 `Build.cs`；
@@ -20,9 +20,9 @@
 |---:|---|---:|---:|---:|---|---|
 | L1 | `StellarEraPlanet` | 120 | 29190 | 30 | 一颗行星的全部：地形 / 大气 / 矿物（含地质场）/ 编辑 / 体素接线 | Public: Voxel, GeometryCore / Private: AssetRegistry, GeometryFramework |
 | L2 | `StellarEraCosmos` | 18 | 7739 | 6 | N 体积分与编排、天体类型、轨迹 | Private: Planet |
-| L3 | `StellarEraPawns` | 32 | 7843 | 11 | 玩家能 possess 的：角色、飞船、星图相机 | Public: Cosmos, Planet, Voxel / Private: EnhancedInput, InputCore |
+| L3 | `StellarEraPawns` | 32 | 7844 | 11 | 玩家能 possess 的：角色、飞船、星图相机 | Public: Cosmos, Planet, Voxel / Private: EnhancedInput, InputCore |
 | L4 | `StellarEraUI` | 12 | 3133 | 4 | HUD、星图、图例 | Public: Planet / Private: Pawns, Cosmos, Voxel |
-| L5 | `StellarEra` | 8 | 3566 | 4 | GameMode、PlayerController（primary game module） | Public: UI, Pawns / Private: Planet, Cosmos, Voxel, InputCore, EnhancedInput |
+| L5 | `StellarEra` | 9 | 3660 | 5 | GameMode、PlayerController（primary game module） | Public: UI, Pawns / Private: Planet, Cosmos, Voxel, InputCore, EnhancedInput |
 
 **没有 L0 了。** 只剩引擎与 `Voxel` 插件，项目自研代码分五层。
 
