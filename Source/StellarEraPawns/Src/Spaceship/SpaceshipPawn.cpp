@@ -502,53 +502,29 @@ void ASpaceshipPawn::Tick(float DeltaSeconds)
 	const bool bWasFreeLookActive = bFreeLookActive;
 	bFreeLookActive = ShouldUseFreeLook(bLandedNow, ThrustInput, VerticalInput);
 
-	// 刚进入：清掉残余角速度。否则落地那一刻的最后一甩会在自由视角里继续带着船转，
+	// 刚进入：丢弃待发冲量。否则落地那一刻的最后一甩会在自由视角里继续带着船转，
 	// 与「落地即冻结」矛盾。
+	//
+	// 已经转起来的角速度归求解器管 —— 由它那份 AngularDamping 衰减，本类改不了。
 	if (bFreeLookActive && !bWasFreeLookActive)
 	{
-		YawRate = 0.f;
-		PitchRate = 0.f;
+		PendingAngularImpulseLocalDeg = FVector::ZeroVector;
 	}
 
-	// --- 1. 角速度衰减 ---
-	// 鼠标给的是冲量（见 Look），这里让角速度平滑地衰减回 0。两者的平衡
-	// 就是“甩一下鼠标，飞船转一会儿再停下”的手感。
-	YawRate = FMath::FInterpTo(YawRate, 0.f, DeltaSeconds, AngularDamping);
-	PitchRate = FMath::FInterpTo(PitchRate, 0.f, DeltaSeconds, AngularDamping);
-
-	// --- 2. 应用旋转（落地自由视角时整体冻结） ---
+	// --- 1–3. 姿态归求解器 ---
 	//
-	// 自由视角里船是停着的：鼠标分给相机，A/D 横滚也不该把船带着滚。
-	// 起飞输入一出现（第 0 段判定为假），下一帧恢复。
-	if (!bFreeLookActive)
-	{
-		FRotator DeltaRotation(PitchRate * DeltaSeconds, YawRate * DeltaSeconds, 0.f);
-		DeltaRotation.Roll = RollInput * MaxRollRate * DeltaSeconds;
-		AddActorLocalRotation(DeltaRotation);
-	}
-
-	// --- 3. 自动回正：只把横滚拉回水平，俯仰留给玩家（自由视角时同样冻结） ---
-	if (!bFreeLookActive && AutoLevelSpeed > 0.f)
-	{
-		const FQuat Current = GetActorQuat();
-		const FVector Forward = Current.GetForwardVector();
-		// 参考“上”投影到垂直于机身前向的平面，就是机身“上”应该朝向的方向。
-		// 参考方向贴着行星时是球面法线，太空中才是世界 Z —— 若一律用世界 Z，
-		// 飞船在赤道附近会直接滚转 90°，落地射线随之指偏，IsLanded() 永远为假。
-		FVector DesiredUp = FVector::VectorPlaneProject(GetAutoLevelUp(), Forward);
-		if (DesiredUp.Normalize())
-		{
-			const FQuat Correction = FQuat::FindBetweenNormals(Current.GetUpVector(), DesiredUp);
-			const float AngleRad = Correction.GetAngle();
-			if (AngleRad > KINDA_SMALL_NUMBER)
-			{
-				// 限制每秒最多转 AutoLevelSpeed 度，避免生硬地瞬间弹正。
-				const float MaxRad = FMath::DegreesToRadians(AutoLevelSpeed) * DeltaSeconds;
-				const float Alpha = FMath::Min(1.f, MaxRad / AngleRad);
-				AddActorWorldRotation(FQuat::Slerp(FQuat::Identity, Correction, Alpha));
-			}
-		}
-	}
+	// 这里原来做三件事：角速度 FInterpTo 衰减、AddActorLocalRotation、自动回正。
+	// 全部搬走了：
+	//   - 鼠标冲量 → GetAngularAccelerationWorldRadPerS2() 交给求解器；
+	//   - A/D → 持续角加速度（RollAngularAcceleration）；
+	//   - 衰减 → 求解器的 AngularDamping；
+	//   - 翻滚 → 接触冲量的力矩。
+	//
+	// 位置与朝向每帧由 UCosmosSimulationSubsystem 写回一次。**不要再在这里
+	// AddActorLocalRotation**：两处都写姿态就是互相抹，表现是机身抖或转不动。
+	//
+	// AutoLevelSpeed 与 GetAutoLevelUp() 保留：前者是留着的开关（默认 0），
+	// 后者还被 GetLandingQueryRadiusCm() 用来定重力方向。
 
 	// --- 4. 推力 ---
 	//
@@ -600,7 +576,7 @@ void ASpaceshipPawn::Tick(float DeltaSeconds)
 	//   松手         → lag 衰减到 0，画面补齐，最终与机身完全一致（无残留偏差）。
 	//
 	// 用**实际旋转差**而不是 RollInput * MaxRollRate：后者只在横滚完全由输入驱动时
-	// 成立，而 AutoLevelSpeed 一旦调回正数（那个属性就是留着复活的）也会滚机身。
+	// 成立，而接触力矩与求解器积分出的角速度也会滚机身。
 	const FQuat CurrentRotation = GetActorQuat();
 	{
 		// 机身本帧相对上一帧多转了多少，表达在上一帧的机身坐标系里。
@@ -789,10 +765,18 @@ void ASpaceshipPawn::Look(float DeltaYaw, float DeltaPitch)
 		return;
 	}
 
-	// 冲量模型：鼠标位移直接累加进角速度。甩一下鼠标，飞船会转一会儿再
-	// 慢慢停下，而不是跟着鼠标立刻静止——这就是街机飞行的惯性感。
-	YawRate = FMath::Clamp(YawRate + DeltaYaw * MouseImpulseScale, -MaxYawRate, MaxYawRate);
-	PitchRate = FMath::Clamp(PitchRate + DeltaPitch * MouseImpulseScale, -MaxPitchRate, MaxPitchRate);
+	// 冲量模型：鼠标位移累加成**角速度冲量**（机体系，度/秒）。子系统每帧把它
+	// 读走、换算成角加速度注入求解器，求解器的角阻尼负责「转一会儿再停」。
+	//
+	// 上限沿用旧版的 MaxYawRate / MaxPitchRate：一帧内最多给出这么大的角速度。
+	const float NewYaw = FMath::Clamp(
+		float(PendingAngularImpulseLocalDeg.Z) + DeltaYaw * MouseImpulseScale,
+		-MaxYawRate, MaxYawRate);
+	const float NewPitch = FMath::Clamp(
+		float(PendingAngularImpulseLocalDeg.Y) + DeltaPitch * MouseImpulseScale,
+		-MaxPitchRate, MaxPitchRate);
+
+	PendingAngularImpulseLocalDeg = FVector(0.f, NewPitch, NewYaw);
 }
 
 float ASpaceshipPawn::GetLandingQueryRadiusCm() const
@@ -1221,4 +1205,63 @@ float ASpaceshipPawn::GetDampingTime() const
 	// 巡航 = 只关阻尼，推力照给。关掉阻尼才有办法一路加速到圆轨道速度 ——
 	// 阻尼极速只有它的 0.156 倍。
 	return bPreserveVelocity ? 0.f : DampingTime;
+}
+
+FVector ASpaceshipPawn::ComputeAngularAccelerationWorldRadPerS2(
+	const FQuat& BodyRotation,
+	const FVector& PendingImpulseLocalDegPerSec,
+	const FVector& ActualAngularVelocityWorld,
+	float InRollInput,
+	float InRollAngularAccelerationDegPerS2,
+	float InMaxRollRateDegPerSec,
+	float DeltaSeconds)
+{
+	if (DeltaSeconds <= KINDA_SMALL_NUMBER)
+	{
+		return FVector::ZeroVector;
+	}
+
+	// 鼠标冲量：机体系（度/秒）→ 世界系（rad/s）→ 角加速度（rad/s²）。
+	// 除以 dt 而不是乘：一帧的冲量在一帧内兑现，帧长变了手感不变。
+	const FVector LocalRadPerSec(
+		FMath::DegreesToRadians(PendingImpulseLocalDegPerSec.X),
+		FMath::DegreesToRadians(PendingImpulseLocalDegPerSec.Y),
+		FMath::DegreesToRadians(PendingImpulseLocalDegPerSec.Z));
+
+	FVector AlphaWorld = BodyRotation.RotateVector(LocalRadPerSec) / DeltaSeconds;
+
+	// 横滚：持续角加速度，实际滚转速率接近上限时线性衰减到 0。
+	// 这个 taper 就是旧版「到 MaxRollRate 就不再增加」的连续版本。
+	if (!FMath::IsNearlyZero(InRollInput) && InMaxRollRateDegPerSec > 0.f)
+	{
+		const FVector LocalAngularVelocity =
+			BodyRotation.UnrotateVector(ActualAngularVelocityWorld);
+		const float RollRateDeg = FMath::RadiansToDegrees(float(LocalAngularVelocity.X));
+		const float Taper = FMath::Clamp(
+			1.f - FMath::Abs(RollRateDeg) / InMaxRollRateDegPerSec, 0.f, 1.f);
+
+		const float AlphaRollRad =
+			FMath::DegreesToRadians(InRollInput * InRollAngularAccelerationDegPerS2 * Taper);
+		AlphaWorld += BodyRotation.RotateVector(FVector(AlphaRollRad, 0.f, 0.f));
+	}
+
+	return AlphaWorld;
+}
+
+FVector ASpaceshipPawn::GetAngularAccelerationWorldRadPerS2(float DeltaSeconds)
+{
+	// 自由视角：鼠标归相机。这里也必须清掉待发冲量 —— Look() 在自由视角里
+	// 走的是相机分支、不会写它，攒下的是进入自由视角之前那一帧的旧值。
+	if (bFreeLookActive)
+	{
+		PendingAngularImpulseLocalDeg = FVector::ZeroVector;
+		return FVector::ZeroVector;
+	}
+
+	const FVector Result = ComputeAngularAccelerationWorldRadPerS2(
+		GetActorQuat(), PendingAngularImpulseLocalDeg, CosmosAngularVelocity,
+		RollInput, RollAngularAcceleration, MaxRollRate, DeltaSeconds);
+
+	PendingAngularImpulseLocalDeg = FVector::ZeroVector;
+	return Result;
 }

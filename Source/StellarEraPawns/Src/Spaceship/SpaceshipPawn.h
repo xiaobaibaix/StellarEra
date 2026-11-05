@@ -104,9 +104,13 @@ struct FSpaceshipStatus
  * 读推力与阻尼），所以 Spaceship 不能反向依赖 Cosmos —— 既不能 include
  * CosmosOrbitComponent.h，也不能调那个子系统。
  *
- * 鼠标给的是角速度冲量而不是直接设朝向，松手后指数衰减 —— 这是"开飞机"的惯性感
- * 来源，也是《戴森球计划》伊卡洛斯的做法。姿态是**运动学**的：它只决定推力朝哪，
- * 不参与积分。
+ * 鼠标给的是角速度冲量而不是直接设朝向，松手后由求解器的角阻尼衰减 —— 这是
+ * "开飞机"的惯性感来源，也是《戴森球计划》伊卡洛斯的做法。
+ *
+ * **姿态也归求解器**（与位移同一条口径）：本类只把「这一帧想施加多少角加速度」
+ * 暴露出去（GetAngularAccelerationWorldRadPerS2 / GetAngularDampingPerSecond），
+ * 角速度与朝向由求解器积分、每帧写回。本类**不再**自己 AddActorLocalRotation，
+ * 否则两处都写姿态就是互相抹，表现是机身抖或转不动。
  */
 UCLASS()
 class STELLARERAPAWNS_API ASpaceshipPawn : public APawn, public IVoxelViewpointInvokers
@@ -130,10 +134,45 @@ public:
 	/** 横滚输入（-1 / +1）。 */
 	void SetRoll(float Value);
 
+	/**
+	 * 本帧要施加的世界系角加速度（rad/s²）。**有副作用**：读走并清零待发冲量，
+	 * 所以一帧只能调一次（UCosmosSimulationSubsystem::ApplyControlledBodyForces）。
+	 *
+	 * 自由视角（落地且没给推力）时返回零，同时丢弃待发冲量 —— 否则退出自由
+	 * 视角的那一刻会补发一次落地前攒下的旧输入。
+	 */
+	FVector GetAngularAccelerationWorldRadPerS2(float DeltaSeconds);
+
+	/** 子系统每帧写回的实际角速度（世界系 rad/s）。横滚到顶的衰减要读它。 */
+	void SetCosmosAngularVelocity(const FVector& InWorldRadPerSecond)
+	{
+		CosmosAngularVelocity = InWorldRadPerSecond;
+	}
+
+	/** 角阻尼（1/秒），子系统换算成 1/模拟年 后写进求解器。 */
+	float GetAngularDampingPerSecond() const { return AngularDamping; }
+
+	/**
+	 * 纯函数：待发冲量 + 横滚输入 → 世界系角加速度（rad/s²）。
+	 *
+	 * 单独拆出来是为了能无头测试 —— 测试不建 Actor，只喂四元数与系数。
+	 */
+	static FVector ComputeAngularAccelerationWorldRadPerS2(
+		const FQuat& BodyRotation,
+		const FVector& PendingImpulseLocalDegPerSec,
+		const FVector& ActualAngularVelocityWorld,
+		float InRollInput,
+		float InRollAngularAccelerationDegPerS2,
+		float InMaxRollRateDegPerSec,
+		float DeltaSeconds);
+
 	/** 升降输入（-1 = 降，+1 = 升）。 */
 	void SetVertical(float Value);
 
-	/** 鼠标输入（度）。以冲量形式累加进角速度，松手后衰减。 */
+	/**
+	 * 鼠标输入（度）。以冲量形式累加进待发角速度冲量（机体系，度/秒），
+	 * 由 GetAngularAccelerationWorldRadPerS2() 每帧取走，求解器的角阻尼负责衰减。
+	 */
 	void Look(float DeltaYaw, float DeltaPitch);
 
 	/**
@@ -604,15 +643,34 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Handling")
 	float MaxPitchRate = 70.f;
 
-	/** 横滚角速度（度/秒），由 A/D 直接驱动，不带惯性。 */
+	/**
+	 * 横滚角速度上限（度/秒）。
+	 *
+	 * A/D 现在给的是**持续角加速度**（见 RollAngularAcceleration），实际角速度由
+	 * 求解器积分、到本值附近衰减到零，所以它是「到顶」的刻度而不是每帧硬设的值。
+	 */
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Handling")
 	float MaxRollRate = 120.f;
+
+	/**
+	 * 横滚角加速度（度/秒²）。A/D 给的是**持续角加速度**而不是直接设角速度：
+	 * 求解器持有实际角速度，输入只能通过加速度进得去。
+	 *
+	 * 默认 1500 = MaxRollRate 120 ÷ 0.08 秒 —— 压杆后 80 ms 到满滚转，
+	 * 与旧版「一帧就到位」相比略有惯性，但不至于像鼠标那样甩过头。
+	 * 实际角速度到 MaxRollRate 时衰减到 0，所以稳态与旧版一致。
+	 */
+	UPROPERTY(EditAnywhere, Category = "Spaceship|Handling")
+	float RollAngularAcceleration = 1500.f;
 
 	/** 鼠标位移到角速度的换算系数（度/秒 每度）。越大越灵敏。 */
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Handling")
 	float MouseImpulseScale = 6.f;
 
-	/** 角速度衰减速率（FInterpTo 速率）。越小惯性越久。 */
+	/**
+	 * 角阻尼（**1/秒**），子系统换算成 1/模拟年后写进求解器。
+	 * 越大惯性越短；旧版这里还是 FInterpTo 速率，数值含义相同。
+	 */
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Handling")
 	float AngularDamping = 3.5f;
 
@@ -723,10 +781,13 @@ protected:
 	 * A/D 抢方向盘（MaxRollRate 120 被顶掉 45，净滚转只剩 75°/s），松手后还会自动
 	 * 把机身拉回水平，玩家压出来的角度留不住。
 	 *
-	 * 关掉之后自动回正不再跑，但 PlanetActor / PlanetReevaluateInterval 那套
-	 * 参考行星机制并未空转：升降推力的"上"也取自这颗行星（见
-	 * GetThrustAccelerationWorldCmPerS2）。代价是每 PlanetReevaluateInterval
-	 * 秒一次遍历几颗 Actor，可忽略；把本属性调回正数即可恢复自动回正。
+	 * 2026-11 姿态归求解器之后，本类里那段运动学自动回正已删除，本属性暂时**没有
+	 * 消费者**（留着的开关，默认 0）。GetAutoLevelUp() 仍被 GetLandingQueryRadiusCm()
+	 * 用来定重力方向。
+	 *
+	 * 参考行星机制本身并未空转：升降推力的"上"也取自这颗行星（见
+	 * GetThrustAccelerationWorldCmPerS2），代价是每 PlanetReevaluateInterval
+	 * 秒一次遍历几颗 Actor，可忽略。
 	 *
 	 * 代价：贴着行星飞大圆时曲面往下走，机身不会自己跟，需要玩家压杆维持高度。
 	 */
@@ -878,8 +939,15 @@ private:
 	float ThrustInput = 0.f;
 	float RollInput = 0.f;
 	float VerticalInput = 0.f;
-	float YawRate = 0.f;
-	float PitchRate = 0.f;
+
+	/**
+	 * 待发角速度冲量（机体系，度/秒）：Y = 俯仰、Z = 偏航。
+	 * Look() 累加，GetAngularAccelerationWorldRadPerS2() 读一次并清零。
+	 */
+	FVector PendingAngularImpulseLocalDeg = FVector::ZeroVector;
+
+	/** 子系统写回的实际角速度（世界系 rad/s），只用于横滚到顶的衰减。 */
+	FVector CosmosAngularVelocity = FVector::ZeroVector;
 
 	/** 加速键（Shift）当前是否按下。 */
 	bool bBoosting = false;
@@ -968,8 +1036,8 @@ private:
 	/**
 	 * 落地自由视角是否激活。每帧 Tick 开头由 ShouldUseFreeLook 重算。
 	 *
-	 * 激活时飞船整体冻结：Look() 不再给角速度，Tick 跳过旋转与自动回正，
-	 * 鼠标改去累加 FreeLookYaw / FreeLookPitch。
+	 * 激活时鼠标改去累加 FreeLookYaw / FreeLookPitch，不再给飞船角速度冲量；
+	 * 已经转起来的角速度由求解器的 AngularDamping 衰减（本类改不了）。
 	 */
 	bool bFreeLookActive = false;
 
