@@ -602,30 +602,37 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>" \
 **Files:**
 - Modify: `docs/ARCHITECTURE.md`
 - Modify: `Source/README.md`
-- Modify: `Source/StellarEra/StellarEra.Build.cs`（整支复审 Important 1：`:19-23` 的依赖注释写的还是改前的 `Cosmos ─Private→ Pawns`）
+- Verify only: `Source/StellarEra/StellarEra.Build.cs`（**已在 Task 1 修复轮 `1ca2f0c` 改好**：`StellarEraPawns` 提为 Public、依赖说明重写。Task 2 只核对它与文档是否一致，不重写）
+- Modify: `Source/StellarEraPawns/StellarEraPawns.Build.cs:63-66`（复审 Minor：Public 依赖理由段）
 - Modify: `Source/StellarEraPawns/Src/Spaceship/SpaceshipPawn.h:160`（复审 Minor 3：注释指向已搬走的绑定表）
 
-- [ ] **Step 1: 修 `StellarEra.Build.cs` 的依赖注释**
+> 这一支同时收掉 2026-11-06 上一支（`83564aa..5c2f495`）整支复审遗留的文档 Minor：
+> `Source/README.md:95` 的「两者」应为「三者」、`docs/ARCHITECTURE.md:235` 接口表缺 `ICosmosBody`。
+> 它们不在代码 diff 里，靠这一支顺手闭合。
 
-`Source/StellarEra/StellarEra.Build.cs:19-23` 现在写的是：
+- [ ] **Step 1: 核对 `StellarEra.Build.cs`（不要重写）**
 
+`Source/StellarEra/StellarEra.Build.cs` 的依赖图与注释已在 Task 1 修复轮改完。读一遍，确认它写的是：
 ```
-//   L3 StellarEraCosmos   ─Private→ Planet / Pawns
-//   L2 StellarEraPawns    ─Public→ Planet
-```
-
-改成与 `docs/ARCHITECTURE.md` 一致的现状：
-
-```
+//   L5 StellarEra         ─Public→ UI / Pawns  ─Private→ Planet / Cosmos
+//   L4 StellarEraUI       ─Public→ Planet      ─Private→ Pawns / Cosmos
 //   L3 StellarEraCosmos   ─Private→ Planet
 //   L2 StellarEraPawns    ─Public→ Cosmos / Planet / Voxel
+//   L1 StellarEraPlanet   无项目依赖（只依赖引擎与 Voxel 插件）
 ```
-
-同一段里「两个 Public 依赖都是被 `IVoxelViewpointInvokers` 逼出来的：UI 的星图相机与……」这类理由也要同步 —— 星图相机已不在 UI。
+并确认 `PublicDependencyModuleNames` 含 `StellarEraUI` 与 `StellarEraPawns`、`PrivateDependencyModuleNames` 只含 `StellarEraPlanet` / `StellarEraCosmos` / `Voxel` / `InputCore` / `EnhancedInput`。
+不一致就改代码；一致就什么也不做，**不要为了「顺便整理」重排**。
 
 - [ ] **Step 2: 修 `SpaceshipPawn.h:160` 的注释指向**
 
 `// 输入约定见 ASpaceshipPawn::SetupPlayerInputComponent` 改成 `USpaceshipInputComponent::Bind`。
+
+- [ ] **Step 2b: 收掉上一支复审遗留的三条文档 Minor**
+
+1. `Source/StellarEraPawns/StellarEraPawns.Build.cs:63-66` —— Public 依赖理由段若仍只解释 `IVoxelViewpointInvokers`，
+   补上 `StellarEraCosmos`（`ICosmosBody`）这条边；以文件里当次的实际文本为准，别照抄旧句子。
+2. `Source/README.md:95` 附近若有「两者」指代输入组件，改成「三者」（角色 / 飞船 / 星图相机）。
+3. `docs/ARCHITECTURE.md:235` 的接口表补 `ICosmosBody`（模块 Cosmos，实现方 `ASpaceshipPawn`，8 个纯虚）。
 
 - [ ] **Step 3: 找出文档里所有描述「星图鼠标绑在控制器上」的句子**
 
@@ -687,6 +694,7 @@ git commit -m "docs(架构): 同步星图相机输入组件与依赖注释
 
 Co-Authored-By: Claude Code <noreply@anthropic.com>" \
   -- docs/ARCHITECTURE.md Source/README.md Source/StellarEra/StellarEra.Build.cs \
+     Source/StellarEraPawns/StellarEraPawns.Build.cs \
      Source/StellarEraPawns/Src/Spaceship/SpaceshipPawn.h
 ```
 
