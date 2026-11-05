@@ -20,10 +20,13 @@ class UCosmosOrbitComponent;
  *     WorldSubsystem 的单例由引擎保证，不需要在关卡里摆一个驱动 Actor。
  *
  * 每帧顺序（全在一次 Tick 内完成，避免天体之间差一帧）：
- *   0. 刷新行星接触半径 + 把受控天体（飞船）的推力/阻尼喂给求解器
- *   1. 推进求解器若干步
- *   2. 把求解器位置与速度写回天体、并把位移带给骑在上面的 Pawn
+ *   0. 刷新行星接触半径与飞船接触探针
+ *   1. 推进求解器若干步（**只在真的会推进的帧里**，推进前才读受控天体的推力/阻尼）
+ *   2. 把求解器位置、速度（刚体还有朝向）写回天体，并把位移带给骑在上面的 Pawn
  *   3. 诊断
+ *
+ * 零子步帧（帧率高于 1 / (BaseTimeStep / TimeScale)）里不读外力：待发输入会留到
+ * 下一帧，按那一帧真正消费的真实秒折算，见 ApplyControlledBodyForces。
  */
 UCLASS(Config = Game)
 class STELLARERACOSMOS_API UCosmosSimulationSubsystem : public UTickableWorldSubsystem
@@ -327,14 +330,22 @@ private:
 	void RefreshShipContactProbes();
 
 	/**
-	 * 每帧推进之前，把**受控天体**（飞船）想施加的力写进求解器。
+	 * 在**真正会推进的帧**里、推进之前，把**受控天体**（飞船）想施加的力写进求解器。
+	 *
+	 * 零子步帧不调用：那一帧没有 StepExact 消费写入的力，而读取角加速度会把飞船
+	 * 攒下的待发冲量清零 —— 见 Tick 里的说明。
 	 *
 	 * 方向只能是「子系统下来读飞船」：飞船模块不能依赖 StellarEraCosmos，
 	 * 飞船不能反过来调本子系统（见 ASpaceshipPawn 的类注释）。
 	 *
-	 * DeltaSeconds 是本帧的帧时长，原样转给飞船 —— 它的制动要按「本帧满推力能改变
-	 * 多少速度」收敛（见 ASpaceshipPawn::GetThrustAccelerationWorldCmPerS2），必须知道这一帧
-	 * 有多长。由本处传入而不是让飞船在自己 Tick 里抄一份：两个 Tick 谁先谁后不保证，
+	 * DeltaSeconds 传的是**本帧实际会消费的真实秒**
+	 * （StepsToRun·BaseTimeStep/TimeScale），不是引擎给的帧时长：
+	 *   - 有子步的普通帧两者几乎相等；
+	 *   - 跳过若干帧之后，冲量累计了那几帧的量，这里也必须把对应的真实秒一起传下去，
+	 *     否则速率目标通道会按单帧时长折算，角速度增量被放大成跳帧数倍。
+	 * 飞船的线性制动要按「本帧满推力能改变多少速度」收敛
+	 * （见 ASpaceshipPawn::GetThrustAccelerationWorldCmPerS2），必须知道这一帧有多长。
+	 * 由本处传入而不是让飞船在自己 Tick 里抄一份：两个 Tick 谁先谁后不保证，
 	 * 抄的那份在帧率突变的那一帧会让制动过冲。
 	 *
 	 * 只认 ASpaceshipPawn —— 现在只有一艘船，Cast 就是全部；等出现第二个受控天体

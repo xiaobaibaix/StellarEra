@@ -84,7 +84,7 @@ void UCosmosSimulationSubsystem::UnregisterBody(UCosmosOrbitComponent* Component
 	// 后面所有索引整体前移，其余组件已存的 SimulatorIndex 全部失效。
 	// 本项目的天体在整局游戏里不增不减，这个取舍是安全的。
 	//
-	// 但要把「每帧由组件写进去」的那两个字段清零：否则按住 W 销毁飞船时，那颗
+	// 但要把「每帧由组件写进去」的那几个字段清零：否则按住 W 销毁飞船时，那颗
 	// 幽灵天体会一直带着最后一帧的外力与阻尼飞下去。物理上这点力可以忽略，
 	// 真正的问题是 bHasForcedBodies 下一帧就变回 false —— 诊断里的 ⚠ 跟着消失，
 	// 等于诊断在撒谎。
@@ -94,6 +94,11 @@ void UCosmosSimulationSubsystem::UnregisterBody(UCosmosOrbitComponent* Component
 		FCosmosBodyState& Body = Simulator.GetBodyMutable(Component->SimulatorIndex);
 		Body.ExternalAcceleration = FVector3d::ZeroVector;
 		Body.LinearDamping = 0.0;
+
+		// 角向同理：飞船的角加速度与角阻尼也是每帧写入的，不一起清掉，销毁后那颗
+		// 幽灵天体仍会带着最后一帧的角加速度自转。
+		Body.ExternalAngularAcceleration = FVector3d::ZeroVector;
+		Body.AngularDamping = 0.0;
 	}
 }
 
@@ -241,14 +246,20 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 		{
 			State.SetContactProbes({});
 			State.Radius = double(Ship->GetContactRadiusCm()) / CentimetersPerAu;
+
+			// 没有探针就没有包围盒可用，退回球体惯量（Radius 刚写好，已是 AU）。
+			// 不写的话 InverseInertiaLocal 保持零 = 撞了也不转。
+			State.InverseInertiaLocal = FCosmosBodyState::InverseInertiaFromSphere(
+				State.Mass, FMath::Max(State.Radius, 1.0e-9));
 			continue;
 		}
 
 		// 本地厘米 → 世界厘米（只取旋转+缩放，不加 Actor 位置：探针相对船心）→ AU。
 		// 每帧重算是为了跟上船的转向：横着贴地和倒着贴地，碰到的探针不是同一批。
 		//
-		// 用的是 Actor 的变换（含上一帧写回的朝向），比求解器的 Orientation 晚一帧。
-		// 探针本来就是每帧重采的近似，晚一帧的误差远小于一个探针间距。
+		// 用的是 Actor 的变换，而不是直接读 State.Orientation：稳态下 Actor 的旋转
+		// 就是上一帧写回的 State.Orientation，也正是求解器本帧推进前的朝向 ——
+		// 两者没有滞后。取 Scene 变换是因为 TransformVector 会一并带上世界缩放。
 		const FTransform ShipTransform = Ship->GetActorTransform();
 		TArray<FVector3d> Probes;
 		Probes.Reserve(LocalProbes.Num());
@@ -264,6 +275,10 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 		// 惯性张量：用探针点的本地 AABB 当长方体。探针集就是船体凸包的代表点，
 		// AABB 即船体包围盒；按包围盒算惯量足以决定「哪条边着地时翻得多快」，
 		// 而且不需要读网格资产。
+		//
+		// ⚠ 这里用的是**未缩放**的本地探针，而上面的探针走 TransformVector（含 Actor
+		// 世界缩放）。当前关卡飞船 scale = 1 所以两者一致；若哪天飞船被缩放，惯量得
+		// 按缩放后的半边长算 —— 别只缩放探针不缩放这里。
 		FBox ProbeBox(ForceInit);
 		for (const FVector& LocalProbe : LocalProbes)
 		{
@@ -489,7 +504,8 @@ void UCosmosSimulationSubsystem::ApplyControlledBodyForces(float DeltaSeconds)
 
 		bHasForcedBodies |= !Body.ExternalAcceleration.IsNearlyZero()
 			|| !Body.ExternalAngularAcceleration.IsNearlyZero()
-			|| Body.LinearDamping != 0.0;
+			|| Body.LinearDamping != 0.0
+			|| Body.AngularDamping != 0.0;
 	}
 }
 
@@ -663,9 +679,16 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 		// StepExact 消费写进去的 ExternalAngularAcceleration —— 下一帧它又被覆盖，
 		// 整帧鼠标输入静默丢失（144 Hz 下约一半帧，且损失随帧率变）。
 		//
-		// 跳过的帧里冲量自然累加到下一帧（Look() 是 +=），而 α = 冲量/dt、
-		// Δω_sim = α_sim · TimeScale · dt，dt 恰好约掉 —— 跨帧累积不改变力度。
-		ApplyControlledBodyForces(DeltaTime);
+		// 跳过的帧里冲量自然累加到下一帧（Look() 是 +=），所以这里必须传**本帧真正
+		// 要消费的真实秒**，而不是当前帧的 DeltaTime：跳过 N 帧后冲量是 N 帧的量，
+		// 而实际推进的真实秒是 T_c = StepsToRun·BaseTimeStep/TimeScale ≈ N·DeltaTime。
+		// GetAngularAccelerationWorldRadPerS2 用 Δt 把「到目标转速还差多少」折成角
+		// 加速度，若除数仍是单帧 DeltaTime，Δω = (target−current)·T_c/DeltaTime 就是
+		// N 倍 —— 帧率越高甩得越狠。传 T_c 时 Δω = target−current，与帧率无关。
+		// （线性推力是真正的加速度、不除以 Δt，换 T_c 对它没有影响；横滚走真实角
+		// 加速度，也本来就按 T_c 施力。）
+		const double StepRealSeconds = double(StepsToRun) * BaseTimeStep / TimeScale;
+		ApplyControlledBodyForces(float(StepRealSeconds));
 
 		// 只扣掉真正跑了的那些步，剩下的留到下一帧。
 		AdvanceAccumulator -= double(StepsToRun) * BaseTimeStep;
