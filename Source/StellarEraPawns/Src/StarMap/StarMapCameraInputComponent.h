@@ -108,7 +108,7 @@ private:
 	const IStarMapLookContext* GetLookContext() const;
 
 	/** 相机 Pawn 自己的编辑组件，且只在编辑模式下才返回。 */
-	const UPlanetEditComponent* GetEditComponentInEditMode() const;
+	UPlanetEditComponent* GetEditComponentInEditMode() const;
 
 	void OnLookInput(const FInputActionValue& Value);
 	void OnLookActivateStarted(const FInputActionValue& Value);
@@ -116,6 +116,12 @@ private:
 	void OnLookMiddleStarted(const FInputActionValue& Value);
 	void OnLookMiddleCompleted(const FInputActionValue& Value);
 	void OnZoomInput(const FInputActionValue& Value);
+
+	/** G 键：切换星图相机的编辑模式。矿物透视开着时忽略（左键归图例）。 */
+	void OnEditModeToggle(const FInputActionValue& Value);
+
+	/** `[` / `]`：编辑模式下调笔刷尺寸（±1，按住 Ctrl ×10）。非编辑模式下无反应。 */
+	void OnBrushSize(const FInputActionValue& Value);
 
 	/** 右键是否按住（Aim 转头）。 */
 	bool bLookHeld = false;

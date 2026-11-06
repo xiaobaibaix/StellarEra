@@ -97,8 +97,9 @@ StellarEraPawns/Src/
 
 三个可操控对象各有自己的输入组件（角色 / 飞船 / 星图相机），Pawn 的
 `SetupPlayerInputComponent` 只做转发；控制器只绑控制器级输入（上下船、星图开关与选择、
-编辑、矿物透视）。星图的分派规则 `EStarMapLookMode`、`ResolveLookMode` 与
-`IStarMapLookContext` 都在 `StarMap/StarMapCameraInputComponent.h`。
+矿物透视），编辑（G）与笔刷尺寸（`[` / `]`）随各自 Pawn 绑。星图的分派规则
+`EStarMapLookMode`、`ResolveLookMode` 与 `IStarMapLookContext` 都在
+`StarMap/StarMapCameraInputComponent.h`。
 
 > **星图相机在 `Src/StarMap/`。** 它依赖 Cosmos，而 Cosmos 曾经反向
 > `Cast<ASpaceshipPawn>`；抽出 `ICosmosBody` 之后方向才理顺。

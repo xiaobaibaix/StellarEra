@@ -100,9 +100,9 @@ void AStellarEraPlayerController::SetupInputComponent()
 		return;
 	}
 
-	// 角色 / 飞船 / 星图相机的移动、视角、推力由各自的 Pawn 在自己的
+	// 角色 / 飞船 / 星图相机的移动、视角、推力、编辑与笔刷由各自的 Pawn 在自己的
 	// SetupPlayerInputComponent 里绑定；这里只留控制器自己的那几条 ——
-	// 上下船、星图开关与**选择**、编辑、矿物透视。
+	// 上下船、星图开关与**选择**、矿物透视。
 	EnhancedInput->BindAction(Input.StarMapToggle, ETriggerEvent::Started,
 		this, &AStellarEraPlayerController::ToggleStarMap);
 	EnhancedInput->BindAction(Input.StarMapSelect, ETriggerEvent::Started,
@@ -110,14 +110,8 @@ void AStellarEraPlayerController::SetupInputComponent()
 	EnhancedInput->BindAction(Input.StarMapSelect, ETriggerEvent::Completed,
 		this, &AStellarEraPlayerController::OnStarMapSelectCompleted);
 
-	EnhancedInput->BindAction(Input.EditModeToggle, ETriggerEvent::Started,
-		this, &AStellarEraPlayerController::OnEditModeToggle);
-
-	// 只绑 Started：Axis1D 的 Triggered 在按住时每帧触发一次，笔刷会瞬间冲到上限。
-	EnhancedInput->BindAction(Input.BrushSize, ETriggerEvent::Started, this,
-		&AStellarEraPlayerController::OnBrushSize);
-
-	EnhancedInput->BindAction(Input.Interact, ETriggerEvent::Started, this, &AStellarEraPlayerController::OnInteract);
+	EnhancedInput->BindAction(Input.Interact, ETriggerEvent::Started,
+		this, &AStellarEraPlayerController::OnInteract);
 
 	EnhancedInput->BindAction(Input.MineralViewToggle, ETriggerEvent::Started,
 		this, &AStellarEraPlayerController::OnMineralViewToggle);
@@ -395,37 +389,6 @@ void AStellarEraPlayerController::PlayerTick(float DeltaTime)
 
 	// 星图模式不在这里刷操作提示：那是每帧一条 AddOnScreenDebugMessage（黄字），
 	// 看起来就是调试输出，而且和星图自己的 UI 重复。操作说明归星图 UI 管。
-}
-
-void AStellarEraPlayerController::OnEditModeToggle(const FInputActionValue& Value)
-{
-	// 矿物透视下左键归图例：编辑模式会抢左键并改写体素，所以直接忽略切换，
-	// 保持进入观察时强制退出的状态。
-	if (ActiveMineralView)
-	{
-		return;
-	}
-
-	// 角色与星图相机各有一个编辑组件；飞船等其他 Pawn 上没有，返回空。
-	if (UPlanetEditComponent* Edit = GetEditComponentForPawn(GetPawn()))
-	{
-		Edit->ToggleEditMode();
-	}
-}
-
-void AStellarEraPlayerController::OnBrushSize(const FInputActionValue& Value)
-{
-	if (UPlanetEditComponent* Edit = GetEditComponentInEditMode())
-	{
-		const float Axis = Value.Get<float>();
-		if (!FMath::IsNearlyZero(Axis))
-		{
-			// 星图区间跨到 1280，一档 10 体素要按一百多下 —— 按住 Ctrl 走 ×10 粗调。
-			const bool bCoarse =
-				IsInputKeyDown(EKeys::LeftControl) || IsInputKeyDown(EKeys::RightControl);
-			Edit->AdjustBrushSizeByStep(Axis > 0.f, bCoarse);
-		}
-	}
 }
 
 void AStellarEraPlayerController::OnInteract(const FInputActionValue& Value)

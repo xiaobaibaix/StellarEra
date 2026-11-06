@@ -1,6 +1,6 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 //
-// 星图相机的键鼠输入真的接到了相机身上，而控制器不再绑视角与缩放。
+// 星图相机的键鼠输入真的接到了相机身上，而控制器不再绑视角、缩放与编辑键。
 //
 // 守的是这次搬运最容易哑掉的一环：`AStarMapCameraPawn::SetupPlayerInputComponent`
 // 只是四行转发，整个 override 删掉、或里面的 `PlayerInput->Bind(...)` 被删，
@@ -65,9 +65,10 @@ bool FStellarEraStarMapInputWiringTest::RunTest(const FString& Parameters)
 	// 它有自己的 EnhancedActionEventBindings —— 读错容器会得到恒 0。
 	const TArray<TUniquePtr<FEnhancedInputActionEventBinding>>& Bindings = Input->GetActionEventBindings();
 
-	// 星图视角的六条：Look / LookActivate(Started,Completed) /
-	// LookMiddle(Started,Completed) / Zoom。少一条就是某个键静默失灵。
-	if (!TestEqual(TEXT("星图相机绑定的动作数"), Bindings.Num(), 6))
+	// 星图视角与编辑的八条：Look / LookActivate(Started,Completed) /
+	// LookMiddle(Started,Completed) / Zoom / EditModeToggle / BrushSize。
+	// 少一条就是某个键静默失灵。
+	if (!TestEqual(TEXT("星图相机绑定的动作数"), Bindings.Num(), 8))
 	{
 		return false;
 	}
@@ -76,6 +77,8 @@ bool FStellarEraStarMapInputWiringTest::RunTest(const FString& Parameters)
 	int32 LookActivateCount = 0;
 	int32 LookMiddleCount = 0;
 	int32 ZoomCount = 0;
+	int32 EditModeCount = 0;
+	int32 BrushSizeCount = 0;
 	for (const TUniquePtr<FEnhancedInputActionEventBinding>& Binding : Bindings)
 	{
 		const UInputAction* Action = Binding ? Binding->GetAction() : nullptr;
@@ -84,12 +87,16 @@ bool FStellarEraStarMapInputWiringTest::RunTest(const FString& Parameters)
 		LookActivateCount += ActionName == TEXT("IA_LookActivate") ? 1 : 0;
 		LookMiddleCount += ActionName == TEXT("IA_LookMiddle") ? 1 : 0;
 		ZoomCount += ActionName == TEXT("IA_Zoom") ? 1 : 0;
+		EditModeCount += ActionName == TEXT("IA_EditModeToggle") ? 1 : 0;
+		BrushSizeCount += ActionName == TEXT("IA_BrushSize") ? 1 : 0;
 	}
 
 	TestEqual(TEXT("IA_Look 绑定数"), LookCount, 1);
 	TestEqual(TEXT("IA_LookActivate 绑定数（按住 / 松开）"), LookActivateCount, 2);
 	TestEqual(TEXT("IA_LookMiddle 绑定数（按住 / 松开）"), LookMiddleCount, 2);
 	TestEqual(TEXT("IA_Zoom 绑定数"), ZoomCount, 1);
+	TestEqual(TEXT("IA_EditModeToggle 绑定数"), EditModeCount, 1);
+	TestEqual(TEXT("IA_BrushSize 绑定数"), BrushSizeCount, 1);
 
 	return true;
 }

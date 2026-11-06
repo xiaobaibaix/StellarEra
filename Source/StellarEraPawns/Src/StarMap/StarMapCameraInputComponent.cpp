@@ -4,7 +4,9 @@
 
 #include "EnhancedInputComponent.h"
 #include "GameFramework/Controller.h"
+#include "GameFramework/PlayerController.h"
 #include "InputActionValue.h"
+#include "InputCoreTypes.h"
 #include "PlanetEditComponent.h"
 #include "StarMapCameraPawn.h"
 #include "StellarEraInputActions.h"
@@ -22,10 +24,10 @@ const IStarMapLookContext* UStarMapCameraInputComponent::GetLookContext() const
 	return Cast<IStarMapLookContext>(Controller);
 }
 
-const UPlanetEditComponent* UStarMapCameraInputComponent::GetEditComponentInEditMode() const
+UPlanetEditComponent* UStarMapCameraInputComponent::GetEditComponentInEditMode() const
 {
 	const AStarMapCameraPawn* Pawn = GetPawn();
-	const UPlanetEditComponent* Edit = Pawn ? Pawn->GetPlanetEditComponent() : nullptr;
+	UPlanetEditComponent* Edit = Pawn ? Pawn->GetPlanetEditComponent() : nullptr;
 	return Edit && Edit->IsEditMode() ? Edit : nullptr;
 }
 
@@ -99,6 +101,11 @@ void UStarMapCameraInputComponent::Bind(UInputComponent* PlayerInputComponent)
 	// 只绑 Triggered：滚轮每格是一次独立冲量，不滚就不产生值，没有 Completed 可收。
 	EnhancedInput->BindAction(Input.Zoom, ETriggerEvent::Triggered, this, &UStarMapCameraInputComponent::OnZoomInput);
 
+	// 编辑模式是「这个 Pawn 自己的组件」，所以 G 与笔刷尺寸跟着相机走。
+	// 只绑 Started：Axis1D 的 Triggered 在按住时每帧触发一次，笔刷会瞬间冲到上限。
+	EnhancedInput->BindAction(Input.EditModeToggle, ETriggerEvent::Started, this, &UStarMapCameraInputComponent::OnEditModeToggle);
+	EnhancedInput->BindAction(Input.BrushSize, ETriggerEvent::Started, this, &UStarMapCameraInputComponent::OnBrushSize);
+
 	// 绑定成功也给一条 Verbose：「没报错」不等于「绑上了」，无头跑时用它当正证据。
 	UE_LOG(LogTemp, Verbose, TEXT("[Input] AStarMapCameraPawn(%s) 已绑定星图相机输入"), *Pawn->GetName());
 }
@@ -166,5 +173,46 @@ void UStarMapCameraInputComponent::OnZoomInput(const FInputActionValue& Value)
 	if (AStarMapCameraPawn* Pawn = GetPawn())
 	{
 		Pawn->AddZoom(Value.Get<float>());
+	}
+}
+
+void UStarMapCameraInputComponent::OnEditModeToggle(const FInputActionValue& Value)
+{
+	// 矿物透视下左键归图例：编辑模式会抢左键并改写体素，所以直接忽略切换，
+	// 保持进入观察时强制退出的状态。
+	const IStarMapLookContext* Context = GetLookContext();
+	if (Context && Context->IsMineralViewActive())
+	{
+		return;
+	}
+
+	AStarMapCameraPawn* Pawn = GetPawn();
+	if (UPlanetEditComponent* Edit = Pawn ? Pawn->GetPlanetEditComponent() : nullptr)
+	{
+		Edit->ToggleEditMode();
+	}
+}
+
+void UStarMapCameraInputComponent::OnBrushSize(const FInputActionValue& Value)
+{
+	AStarMapCameraPawn* Pawn = GetPawn();
+	if (!Pawn)
+	{
+		return;
+	}
+
+	const float Axis = Value.Get<float>();
+	if (FMath::IsNearlyZero(Axis))
+	{
+		return;
+	}
+
+	if (UPlanetEditComponent* Edit = GetEditComponentInEditMode())
+	{
+		// 星图区间跨到 1280，一档 10 体素要按一百多下 —— 按住 Ctrl 走 ×10 粗调。
+		APlayerController* PC = Cast<APlayerController>(Pawn->GetController());
+		const bool bCoarse = PC
+			&& (PC->IsInputKeyDown(EKeys::LeftControl) || PC->IsInputKeyDown(EKeys::RightControl));
+		Edit->AdjustBrushSizeByStep(Axis > 0.f, bCoarse);
 	}
 }

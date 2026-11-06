@@ -28,12 +28,19 @@ struct FStarMapScreenCandidate;
  * 定稿后再换成 .uasset 是平滑的替换（数据结构一样，只是来源变了）。
  *
  * 输入绑定按「谁被操控谁绑」分：
- *   - **角色 / 飞船**在自己的 `SetupPlayerInputComponent` 里绑移动、视角、推力等，
- *     动作表由本类经 `IStellarEraInputSource` 提供 —— 所以这里没有按 Pawn 类型
- *     分派的三路 `Cast`，新增一种可操控 Pawn 也不用改本类；
- *   - **本类**只绑控制器级的东西：E 上下船、M 星图、G 编辑、H 矿物、数字键，
+ *   - **角色 / 飞船 / 星图相机**在自己的 `SetupPlayerInputComponent` 里绑移动、视角、
+ *     推力、编辑与笔刷等，动作表由本类经 `IStellarEraInputSource` 提供 —— 所以这里
+ *     没有按 Pawn 类型分派的三路 `Cast`，新增一种可操控 Pawn 也不用改本类；
+ *   - **本类**只绑控制器级的东西：E 上下船、M 星图、H 矿物、数字键，
  *     以及星图模式下的**选择**（左键按下 / 拖拽 / 连挖收尾）；星图的视角与缩放归
  *     相机自己的 `UStarMapCameraInputComponent`。
+ *
+ * 同时实现三个跨模块接口，全部是**依赖倒置**的查询钩子：声明方在 Pawns / UI
+ * （下游），实现方是本类（Game，最上层），消费方各自 `Cast<接口>(Controller)`。
+ *   - `IStellarEraInputSource`：三个 Pawn 的输入组件来取运行时构造的动作表；
+ *   - `IStarMapUIInputs`：HUD / 星图面板查询鼠标位置、屏幕拾取、矿物透视；
+ *   - `IStarMapLookContext`：星图相机判「鼠标位移该绕行还是转头」时问的两句状态。
+ * 三者都只读、不改状态。再加接口前先确认：这个状态是不是真的只有控制器知道。
  */
 UCLASS()
 class AStellarEraPlayerController : public APlayerController, public IStarMapUIInputs,
@@ -42,19 +49,40 @@ class AStellarEraPlayerController : public APlayerController, public IStarMapUII
 	GENERATED_BODY()
 
 public:
+	// ── 构造与生命周期 ──
+
 	AStellarEraPlayerController();
 
 	virtual void SetupInputComponent() override;
 	virtual void BeginPlay() override;
 
+	// ── 接口实现 ──
+	// 三个都是对别的模块的契约，统一放 public：没必要一个 public 一个 protected。
+
+	//~ Begin IStellarEraInputSource Interface
 	/** 把运行时构造的动作表交给 Pawn 去绑定。实现见 .cpp（幂等 Build）。 */
 	virtual const FStellarEraInputActions& GetStellarEraInputActions() override;
+	//~ End IStellarEraInputSource Interface
 
+	//~ Begin IStarMapUIInputs Interface
 	/** 把一颗天体投到屏幕；成功时 OutCenter 为中心、OutRadiusPx 为轮廓半径（像素）。 */
 	virtual bool ProjectBodyToScreen(AActor* Body, FVector2D& OutCenter, float& OutRadiusPx) const override;
 
 	/** 任意屏幕点下的已注册天体。悬停与点击共用。 */
 	virtual AActor* PickBodyUnderScreenPosition(const FVector2D& ScreenPosition) const override;
+
+	/** 当前激活的矿物透视组件；未激活时为空。星图 UI 用它画图例、喂矿体显隐。 */
+	virtual UPlanetMineralViewComponent* GetActiveMineralView() const override { return ActiveMineralView; }
+
+	virtual bool GetStarMapMousePositionPx(FVector2D& OutPosition) const override;
+	//~ End IStarMapUIInputs Interface
+
+	//~ Begin IStarMapLookContext Interface
+	virtual bool IsStarMapSelectHeld() const override;
+	virtual bool IsMineralViewActive() const override;
+	//~ End IStarMapLookContext Interface
+
+	// ── 静态查询（无状态，能无头测）──
 
 	/**
 	 * 这个天体身上（含它的挂载物）有没有星图相机。
@@ -118,19 +146,13 @@ public:
 	 */
 	static void ApplyViewpointInvokerGate(UWorld* World, const APawn* InPawn);
 
-	/** 当前激活的矿物透视组件；未激活时为空。星图 UI 用它画图例、喂矿体显隐。 */
-	virtual UPlanetMineralViewComponent* GetActiveMineralView() const override { return ActiveMineralView; }
-
-	virtual bool GetStarMapMousePositionPx(FVector2D& OutPosition) const override;
-
-	//~ Begin IStarMapLookContext Interface
-	// 与上面两个 IStarMapUIInputs 实现同规格放 public：这三个都是对别的模块的契约，
-	// 没必要一个 public 一个 protected。
-	virtual bool IsStarMapSelectHeld() const override;
-	virtual bool IsMineralViewActive() const override;
-	//~ End IStarMapLookContext Interface
-
 protected:
+	// ── Possess / 逐帧 ──
+
+	virtual void OnPossess(APawn* InPawn) override;
+
+	virtual void PlayerTick(float DeltaTime) override;
+
 	/**
 	 * 按当前 Possess 的 Pawn 切换鼠标模式。
 	 *
@@ -141,8 +163,6 @@ protected:
 	 * （开局 Possess、登船、离船、DebugPossessShip）最后都走 Possess。
 	 */
 	void ApplyMouseModeForPawn(APawn* InPawn);
-
-	virtual void OnPossess(APawn* InPawn) override;
 
 	/**
 	 * 当前 Pawn 上、且编辑模式开着的编辑组件，否则 nullptr。
@@ -155,77 +175,7 @@ protected:
 	/** Pawn 上开着的编辑模式一律退出。上船 / 进出星图 / 调试换 Pawn 共用。 */
 	void ForceExitEditMode(APawn* InPawn);
 
-	/** G 键：切换编辑模式。角色与星图相机都有编辑组件；飞船等没有，按 G 无反应。 */
-	void OnEditModeToggle(const FInputActionValue& Value);
-
-	/** `[` / `]`：编辑模式下调笔刷尺寸（±1）。星图里滚轮归缩放，所以尺寸另占一对键；角色编辑模式下滚轮也能调。 */
-	void OnBrushSize(const FInputActionValue& Value);
-
-	/**
-	 * 进入 / 退出星图模式。
-	 *
-	 * 方向由「当前 Possess 的是不是星图 Pawn」判定，**不用单独的状态标志** ——
-	 * 幂等，也不会和实际 Possess 的 Pawn 不同步。
-	 *
-	 * 进入时聚焦**借用了相机的那颗行星**（行星相机就挂在它身上）；深空退回单例
-	 * 相机时，聚焦离进场 Pawn 最近的、带星图相机的已注册天体。飞船没有星图相机，
-	 * 不再被聚焦（见 HasStarMapCamera）。
-	 *
-	 * 做成无参是为了直接绑给 Enhanced Input：FEnhancedInputActionHandlerSignature
-	 * 就是一个无参委托（EnhancedInputComponent.h:490 的 DEFINE_BIND_ACTION）。
-	 */
-	void ToggleStarMap();
-
-	/**
-	 * H 键：进入 / 退出矿物透视。只在星图里生效。
-	 *
-	 * 进入条件：当前选中的是体素行星、且它带地质场。失败时给 2 秒提示，不改变状态。
-	 * 退出条件：再按一次 H、退出星图、换 Pawn、或选中天体变了（见 PlayerTick）。
-	 */
-	void OnMineralViewToggle();
-
-	/** 数字键 1..9：切换第 ElementIndex 个元素的显示（下标从 0 起）。 */
-	void OnMineralFilter(const FInputActionValue& Value, int32 ElementIndex);
-
-	/** 数字键 0：全部打开。 */
-	void OnMineralShowAll(const FInputActionValue& Value);
-
-	/**
-	 * 退出矿物透视（幂等）。退出星图 / 换 Pawn / 选中变化都走这里；
-	 * 关卡结束时由组件自身的 EndPlay 兜底恢复，控制器不覆写 EndPlay。
-	 */
-	void ExitMineralViewIfActive();
-
-	/** 带时长的提示：几秒后自动消失，与每帧刷新的 ShowPrompt 分开。 */
-	void ShowPromptFor(const FString& Text, float DurationSeconds);
-
-	/** 左键按下：记下位置，用来区分「点击」和「拖拽」。 */
-	void OnStarMapSelectStarted(const FInputActionValue& Value);
-
-	/** 左键松开：位移小于阈值算点击（拾取），否则算拖拽结束（不改变选中）。 */
-	void OnStarMapSelectCompleted(const FInputActionValue& Value);
-
-	/** 投影单颗天体。拾取与选中面板锚点共用这一条路径。 */
-	bool MakeScreenCandidate(AActor* Body, FStarMapScreenCandidate& Out) const;
-
-	/**
-	 * 调试用：直接在角色与飞船之间切换 Possess，跳过登船流程。
-	 * 在 PIE 控制台输入 `DebugPossessShip` 调用。登船流程做好之后，
-	 * 这个命令仍保留作为开发工具。
-	 */
-	UFUNCTION(Exec)
-	void DebugPossessShip();
-
-	/**
-	 * 调试用：把当前飞船当成「已落地」直接走一遍下船流程（等价于按 E）。
-	 *
-	 * 与 DebugPossessShip 配对：它能让人进入「坐在船上但没有角色」的状态，
-	 * 这条能把角色补回来。也用于无头验证（`-ExecCmds="DebugDisembark"`）。
-	 */
-	UFUNCTION(Exec)
-	void DebugDisembark();
-
-	virtual void PlayerTick(float DeltaTime) override;
+	// ── 输入：交互 / 登船 ──
 
 	/** 按 E 时的分派：没在船上就尝试登船，在船上就尝试离船。 */
 	void OnInteract(const FInputActionValue& Value);
@@ -249,8 +199,90 @@ protected:
 	 */
 	APlanetCharacter* SpawnCrewCharacter(ASpaceshipPawn* Ship);
 
+	// ── 输入：星图 ──
+
+	/**
+	 * 进入 / 退出星图模式。
+	 *
+	 * 方向由「当前 Possess 的是不是星图 Pawn」判定，**不用单独的状态标志** ——
+	 * 幂等，也不会和实际 Possess 的 Pawn 不同步。
+	 *
+	 * 进入时聚焦**借用了相机的那颗行星**（行星相机就挂在它身上）；深空退回单例
+	 * 相机时，聚焦离进场 Pawn 最近的、带星图相机的已注册天体。飞船没有星图相机，
+	 * 不再被聚焦（见 HasStarMapCamera）。
+	 *
+	 * 做成无参是为了直接绑给 Enhanced Input：FEnhancedInputActionHandlerSignature
+	 * 就是一个无参委托（EnhancedInputComponent.h:490 的 DEFINE_BIND_ACTION）。
+	 */
+	void ToggleStarMap();
+
+	/**
+	 * 退出星图的收尾：Possess 回 ReturnPawn，再把星图相机搬回球心。
+	 *
+	 * 由退出分支的定时器在视点混合结束后调用（见 StarMapExitBlendSeconds）；
+	 * 混合时长为 0 或没有返回 Pawn 时直接调用。
+	 */
+	void FinishStarMapExit(APawn* ReturnPawn);
+
+	/** 左键按下：记下位置，用来区分「点击」和「拖拽」。 */
+	void OnStarMapSelectStarted(const FInputActionValue& Value);
+
+	/** 左键松开：位移小于阈值算点击（拾取），否则算拖拽结束（不改变选中）。 */
+	void OnStarMapSelectCompleted(const FInputActionValue& Value);
+
+	/** 投影单颗天体。拾取与选中面板锚点共用这一条路径。 */
+	bool MakeScreenCandidate(AActor* Body, FStarMapScreenCandidate& Out) const;
+
+	// ── 输入：矿物透视 ──
+
+	/**
+	 * H 键：进入 / 退出矿物透视。只在星图里生效。
+	 *
+	 * 进入条件：当前选中的是体素行星、且它带地质场。失败时给 2 秒提示，不改变状态。
+	 * 退出条件：再按一次 H、退出星图、换 Pawn、或选中天体变了（见 PlayerTick）。
+	 */
+	void OnMineralViewToggle();
+
+	/** 数字键 1..9：切换第 ElementIndex 个元素的显示（下标从 0 起）。 */
+	void OnMineralFilter(const FInputActionValue& Value, int32 ElementIndex);
+
+	/** 数字键 0：全部打开。 */
+	void OnMineralShowAll(const FInputActionValue& Value);
+
+	/**
+	 * 退出矿物透视（幂等）。退出星图 / 换 Pawn / 选中变化都走这里；
+	 * 关卡结束时由组件自身的 EndPlay 兜底恢复，控制器不覆写 EndPlay。
+	 */
+	void ExitMineralViewIfActive();
+
+	// ── 提示 ──
+
 	/** 在屏幕上显示一行提示（每帧刷新，duration 0）。 */
 	void ShowPrompt(const FString& Text);
+
+	/** 带时长的提示：几秒后自动消失，与每帧刷新的 ShowPrompt 分开。 */
+	void ShowPromptFor(const FString& Text, float DurationSeconds);
+
+	// ── 调试命令 ──
+
+	/**
+	 * 调试用：直接在角色与飞船之间切换 Possess，跳过登船流程。
+	 * 在 PIE 控制台输入 `DebugPossessShip` 调用。登船流程做好之后，
+	 * 这个命令仍保留作为开发工具。
+	 */
+	UFUNCTION(Exec)
+	void DebugPossessShip();
+
+	/**
+	 * 调试用：把当前飞船当成「已落地」直接走一遍下船流程（等价于按 E）。
+	 *
+	 * 与 DebugPossessShip 配对：它能让人进入「坐在船上但没有角色」的状态，
+	 * 这条能把角色补回来。也用于无头验证（`-ExecCmds="DebugDisembark"`）。
+	 */
+	UFUNCTION(Exec)
+	void DebugDisembark();
+
+	// ── 运行时状态 ──
 
 	/**
 	 * 星图里左键是否按住。换 Pawn 时必须清零，否则按着左键
@@ -260,6 +292,33 @@ protected:
 
 	/** 左键按下的屏幕位置（像素）。用 double 存 —— 与 GetMousePosition 的 double 重载对齐。 */
 	FVector2D StarMapPressPosition = FVector2D::ZeroVector;
+
+	/**
+	 * 兜底星图相机 Pawn。懒创建并复用，不每次进出都 Spawn/Destroy。
+	 *
+	 * 2026-11-01 起**只是兜底**：进图优先用焦点行星自带的星图相机
+	 * （见 ResolvePlanetStarMapCamera），行星没挂相机或从深空进入才用这台。
+	 * 用了行星相机时本成员保持为空（或保留上一台旧的），退出不销毁任何一台 ——
+	 * 行星相机随行星生死，单例兜底随控制器生死。
+	 */
+	UPROPERTY(Transient)
+	TObjectPtr<AStarMapCameraPawn> StarMapPawn;
+
+	/** 进入星图前 Possess 的 Pawn。退出时换回去。弱引用 —— 它可能已经没了。 */
+	TWeakObjectPtr<APawn> PreviousPawn;
+
+	/** 等待视点混合结束的定时器。还活着时再按 M 会被忽略。 */
+	FTimerHandle StarMapExitTimerHandle;
+
+	/** 全部输入动作与按键映射。定义见 StellarEraInputActions.h。 */
+	UPROPERTY(Transient)
+	FStellarEraInputActions Input;
+
+	/** 当前激活的矿物透视组件。行星销毁时 GC 会把它置空。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UPlanetMineralViewComponent> ActiveMineralView;
+
+	// ── 可调参数 ──
 
 	/**
 	 * 拾取的像素容差。20 像素保证远处的星球也点得中。
@@ -310,37 +369,4 @@ protected:
 	 */
 	UPROPERTY(EditDefaultsOnly, Category = "StellarEra")
 	TSubclassOf<APlanetCharacter> CrewCharacterClass;
-
-	/**
-	 * 兜底星图相机 Pawn。懒创建并复用，不每次进出都 Spawn/Destroy。
-	 *
-	 * 2026-11-01 起**只是兜底**：进图优先用焦点行星自带的星图相机
-	 * （见 ResolvePlanetStarMapCamera），行星没挂相机或从深空进入才用这台。
-	 * 用了行星相机时本成员保持为空（或保留上一台旧的），退出不销毁任何一台 ——
-	 * 行星相机随行星生死，单例兜底随控制器生死。
-	 */
-	UPROPERTY(Transient)
-	TObjectPtr<AStarMapCameraPawn> StarMapPawn;
-
-	/** 进入星图前 Possess 的 Pawn。退出时换回去。弱引用 —— 它可能已经没了。 */
-	TWeakObjectPtr<APawn> PreviousPawn;
-
-	/**
-	 * 退出星图的收尾：Possess 回 ReturnPawn，再把星图相机搬回球心。
-	 *
-	 * 由退出分支的定时器在视点混合结束后调用（见 StarMapExitBlendSeconds）；
-	 * 混合时长为 0 或没有返回 Pawn 时直接调用。
-	 */
-	void FinishStarMapExit(APawn* ReturnPawn);
-
-	/** 等待视点混合结束的定时器。还活着时再按 M 会被忽略。 */
-	FTimerHandle StarMapExitTimerHandle;
-
-	/** 全部输入动作与按键映射。定义见 StellarEraInputActions.h。 */
-	UPROPERTY(Transient)
-	FStellarEraInputActions Input;
-
-	/** 当前激活的矿物透视组件。行星销毁时 GC 会把它置空。 */
-	UPROPERTY(Transient)
-	TObjectPtr<UPlanetMineralViewComponent> ActiveMineralView;
 };

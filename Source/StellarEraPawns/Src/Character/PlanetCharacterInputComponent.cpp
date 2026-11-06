@@ -44,6 +44,11 @@ void UPlanetCharacterInputComponent::Bind(UInputComponent* PlayerInputComponent)
 	// 只绑 Triggered：滚轮每格是一次独立冲量，不滚就不产生值，没有 Completed 可收。
 	EnhancedInput->BindAction(Input.Zoom, ETriggerEvent::Triggered, this, &UPlanetCharacterInputComponent::OnZoomInput);
 
+	// 编辑模式是「这个 Pawn 自己的组件」，所以 G 与笔刷尺寸跟着角色走。
+	// 只绑 Started：Axis1D 的 Triggered 在按住时每帧触发一次，笔刷会瞬间冲到上限。
+	EnhancedInput->BindAction(Input.EditModeToggle, ETriggerEvent::Started, this, &UPlanetCharacterInputComponent::OnEditModeToggle);
+	EnhancedInput->BindAction(Input.BrushSize, ETriggerEvent::Started, this, &UPlanetCharacterInputComponent::OnBrushSize);
+
 	// 绑定成功也给一条 Verbose：「没报错」不等于「绑上了」，无头跑时用它当正证据。
 	UE_LOG(LogTemp, Verbose, TEXT("[Input] APlanetCharacter(%s) 已绑定角色输入"), *Pawn->GetName());
 }
@@ -222,4 +227,44 @@ void UPlanetCharacterInputComponent::OnZoomInput(const FInputActionValue& Value)
 	}
 
 	Pawn->AddZoom(Scroll);
+}
+
+void UPlanetCharacterInputComponent::OnEditModeToggle(const FInputActionValue& Value)
+{
+	APlanetCharacter* Pawn = GetPawn();
+	if (!Pawn)
+	{
+		return;
+	}
+
+	// 不查「矿物透视是否开着」：星图退出与每一次 Possess 都会 ExitMineralViewIfActive，
+	// 操控角色时它必然关闭。那条判断只对星图相机有意义（见 UStarMapCameraInputComponent）。
+	if (UPlanetEditComponent* Edit = Pawn->GetPlanetEditComponent())
+	{
+		Edit->ToggleEditMode();
+	}
+}
+
+void UPlanetCharacterInputComponent::OnBrushSize(const FInputActionValue& Value)
+{
+	APlanetCharacter* Pawn = GetPawn();
+	if (!Pawn)
+	{
+		return;
+	}
+
+	const float Axis = Value.Get<float>();
+	if (FMath::IsNearlyZero(Axis))
+	{
+		return;
+	}
+
+	if (UPlanetEditComponent* Edit = GetEditComponentInEditMode())
+	{
+		// 星图区间跨到 1280，一档 10 体素要按一百多下 —— 按住 Ctrl 走 ×10 粗调。
+		APlayerController* PC = Cast<APlayerController>(Pawn->GetController());
+		const bool bCoarse = PC
+			&& (PC->IsInputKeyDown(EKeys::LeftControl) || PC->IsInputKeyDown(EKeys::RightControl));
+		Edit->AdjustBrushSizeByStep(Axis > 0.f, bCoarse);
+	}
 }

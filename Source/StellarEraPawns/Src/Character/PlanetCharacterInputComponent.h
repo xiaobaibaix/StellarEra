@@ -55,6 +55,12 @@ private:
 	void OnSprintCompleted(const FInputActionValue& Value);
 	void OnZoomInput(const FInputActionValue& Value);
 
+	/** G 键：切换本角色的编辑模式。编辑组件没挂（原生角色 / 蓝图没加）时无反应。 */
+	void OnEditModeToggle(const FInputActionValue& Value);
+
+	/** `[` / `]`：编辑模式下调笔刷尺寸（±1，按住 Ctrl ×10）。非编辑模式下无反应。 */
+	void OnBrushSize(const FInputActionValue& Value);
+
 	/** 当前打开的编辑组件；不在编辑模式、或蓝图没挂组件时为空。 */
 	UPlanetEditComponent* GetEditComponentInEditMode() const;
 
