@@ -1,0 +1,44 @@
+﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
+
+#include "SpaceshipInputActions.h"
+
+#include "InputCoreTypes.h"
+#include "InputMappingContext.h"
+#include "StellarEraInputActionBuilder.h"
+
+void FSpaceshipInputActions::Build(UObject* Outer, UInputMappingContext* Context)
+{
+	if (Look || !Context)
+	{
+		return;
+	}
+
+	Look = StellarEraInput::MakeAction(Outer, TEXT("IA_Ship_Look"), EInputActionValueType::Axis2D);
+	Thrust = StellarEraInput::MakeAction(Outer, TEXT("IA_Ship_Thrust"), EInputActionValueType::Axis1D);
+	Roll = StellarEraInput::MakeAction(Outer, TEXT("IA_Ship_Roll"), EInputActionValueType::Axis1D);
+	Vertical = StellarEraInput::MakeAction(Outer, TEXT("IA_Ship_Vertical"), EInputActionValueType::Axis1D);
+	Boost = StellarEraInput::MakeAction(Outer, TEXT("IA_Ship_Boost"), EInputActionValueType::Boolean);
+	Cruise = StellarEraInput::MakeAction(Outer, TEXT("IA_Ship_Cruise"), EInputActionValueType::Boolean);
+	DebugViewToggle = StellarEraInput::MakeAction(Outer, TEXT("IA_Ship_DebugViewToggle"), EInputActionValueType::Boolean);
+	Zoom = StellarEraInput::MakeAction(Outer, TEXT("IA_Ship_Zoom"), EInputActionValueType::Axis1D);
+
+	// 鼠标位移本身一直有值，能不能用、拿去干什么由各 Pawn 自己按按住的键分派。
+	StellarEraInput::MapKey(Context, Look, EKeys::Mouse2D);
+
+	// 飞船：W 推力 / S 制动，D/A 横滚，Space/LeftControl 升降，LeftShift 加速，Tab 巡航。
+	StellarEraInput::MapKey(Context, Thrust, EKeys::W);
+	StellarEraInput::MapKey(Context, Thrust, EKeys::S, { StellarEraInput::MakeNegate(Outer) });
+	StellarEraInput::MapKey(Context, Roll, EKeys::D);
+	StellarEraInput::MapKey(Context, Roll, EKeys::A, { StellarEraInput::MakeNegate(Outer) });
+	StellarEraInput::MapKey(Context, Vertical, EKeys::SpaceBar);
+	StellarEraInput::MapKey(Context, Vertical, EKeys::LeftControl, { StellarEraInput::MakeNegate(Outer) });
+	StellarEraInput::MapKey(Context, Boost, EKeys::LeftShift);
+	StellarEraInput::MapKey(Context, Cruise, EKeys::Tab);
+
+	// B 键：飞船调试视角（落地检测球 + 引力合力箭头）。
+	StellarEraInput::MapKey(Context, DebugViewToggle, EKeys::B);
+
+	// 滚轮是轴键（每格 ±1），不是按键，所以映射到 Axis1D 的动作上直接取值。
+	// 不需要任何修饰器：方向约定（上滚 = 拉近）由 ASpaceshipPawn::AddZoom 负责。
+	StellarEraInput::MapKey(Context, Zoom, EKeys::MouseWheelAxis);
+}

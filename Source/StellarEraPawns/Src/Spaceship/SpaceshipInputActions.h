@@ -1,0 +1,64 @@
+﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
+// ASpaceshipPawn 专属的 Enhanced Input 动作与按键映射。
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "SpaceshipInputActions.generated.h"
+
+class UInputAction;
+class UInputMappingContext;
+
+/**
+ * 飞船用到的动作。
+ *
+ * 由 FStellarEraInputActions 组合持有、由控制器构造，飞船在
+ * `USpaceshipInputComponent::SetupPlayerInputComponent` 里绑。
+ * 动作全部 NewObject 到控制器名下，没有磁盘资产 —— 改键只改这里的映射表。
+ *
+ * 对象名带 `IA_Ship_` 前缀：三张表共用同一个 Outer，同名会被引擎改名成
+ * 不可预测的 `_1` / `_0`，前缀保证每张表的动作能按名字认出来。
+ *
+ * 与角色共用 W/S、LeftShift、Mouse2D、滚轮不会打架：同一个 IMC 里的动作互不吞
+ * 输入，分派由「当前 Possess 的是谁」决定 —— 只有被操控 Pawn 的组件绑了它们。
+ */
+USTRUCT()
+struct STELLARERAPAWNS_API FSpaceshipInputActions
+{
+	GENERATED_BODY()
+
+	/** 鼠标位移（与角色 / 星图同名同位，保持三张表的形状一致）。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> Look;
+
+	/** W 推力 / S 制动。Axis1D。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> Thrust;
+
+	/** D/A 横滚。Axis1D。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> Roll;
+
+	/** Space / LeftControl 升降。Axis1D。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> Vertical;
+
+	/** 加速键（Shift）。与角色的 Sprint 共用按键，靠 Pawn 类型分派。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> Boost;
+
+	/** 巡航开关（Tab）。切换飞船的速度保持状态，只绑 Started。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> Cruise;
+
+	/** 飞船调试视角开关（B）。只绑 Started，按一下切一次。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> DebugViewToggle;
+
+	/** 相机缩放（鼠标滚轮）。轴值，每格 ±1。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> Zoom;
+
+	/** 构造动作并往 Context 里注册按键映射。已经构造过就直接返回。 */
+	void Build(UObject* Outer, UInputMappingContext* Context);
+};

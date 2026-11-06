@@ -84,24 +84,24 @@ bool FStellarEraCharacterInputWiringTest::RunTest(const FString& Parameters)
 	{
 		const UInputAction* Action = Binding ? Binding->GetAction() : nullptr;
 		const FName ActionName = Action ? Action->GetFName() : NAME_None;
-		MoveCount += ActionName == TEXT("IA_Move") ? 1 : 0;
-		LookCount += ActionName == TEXT("IA_Look") ? 1 : 0;
-		LookActivateCount += ActionName == TEXT("IA_LookActivate") ? 1 : 0;
-		JumpCount += ActionName == TEXT("IA_Jump") ? 1 : 0;
-		SprintCount += ActionName == TEXT("IA_Sprint") ? 1 : 0;
-		ZoomCount += ActionName == TEXT("IA_Zoom") ? 1 : 0;
-		EditModeCount += ActionName == TEXT("IA_EditModeToggle") ? 1 : 0;
-		BrushSizeCount += ActionName == TEXT("IA_BrushSize") ? 1 : 0;
+		MoveCount += ActionName == TEXT("IA_Character_Move") ? 1 : 0;
+		LookCount += ActionName == TEXT("IA_Character_Look") ? 1 : 0;
+		LookActivateCount += ActionName == TEXT("IA_Character_LookActivate") ? 1 : 0;
+		JumpCount += ActionName == TEXT("IA_Character_Jump") ? 1 : 0;
+		SprintCount += ActionName == TEXT("IA_Character_Sprint") ? 1 : 0;
+		ZoomCount += ActionName == TEXT("IA_Character_Zoom") ? 1 : 0;
+		EditModeCount += ActionName == TEXT("IA_Character_EditModeToggle") ? 1 : 0;
+		BrushSizeCount += ActionName == TEXT("IA_Character_BrushSize") ? 1 : 0;
 	}
 
-	TestEqual(TEXT("IA_Move 绑定数"), MoveCount, 1);
-	TestEqual(TEXT("IA_Look 绑定数"), LookCount, 1);
-	TestEqual(TEXT("IA_LookActivate 绑定数（按住 / 松开）"), LookActivateCount, 2);
-	TestEqual(TEXT("IA_Jump 绑定数"), JumpCount, 1);
-	TestEqual(TEXT("IA_Sprint 绑定数（按住 / 松开）"), SprintCount, 2);
-	TestEqual(TEXT("IA_Zoom 绑定数"), ZoomCount, 1);
-	TestEqual(TEXT("IA_EditModeToggle 绑定数"), EditModeCount, 1);
-	TestEqual(TEXT("IA_BrushSize 绑定数"), BrushSizeCount, 1);
+	TestEqual(TEXT("IA_Character_Move 绑定数"), MoveCount, 1);
+	TestEqual(TEXT("IA_Character_Look 绑定数"), LookCount, 1);
+	TestEqual(TEXT("IA_Character_LookActivate 绑定数（按住 / 松开）"), LookActivateCount, 2);
+	TestEqual(TEXT("IA_Character_Jump 绑定数"), JumpCount, 1);
+	TestEqual(TEXT("IA_Character_Sprint 绑定数（按住 / 松开）"), SprintCount, 2);
+	TestEqual(TEXT("IA_Character_Zoom 绑定数"), ZoomCount, 1);
+	TestEqual(TEXT("IA_Character_EditModeToggle 绑定数"), EditModeCount, 1);
+	TestEqual(TEXT("IA_Character_BrushSize 绑定数"), BrushSizeCount, 1);
 
 	return true;
 }

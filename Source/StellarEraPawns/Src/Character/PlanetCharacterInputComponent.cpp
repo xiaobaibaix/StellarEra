@@ -31,7 +31,8 @@ void UPlanetCharacterInputComponent::Bind(UInputComponent* PlayerInputComponent)
 		return;
 	}
 
-	const FStellarEraInputActions& Input = Source->GetStellarEraInputActions();
+	// 只取角色自己那张表：别的 Pawn 的动作不归这里管，也就不可能绑错。
+	const FPlanetCharacterInputActions& Input = Source->GetStellarEraInputActions().Character;
 
 	EnhancedInput->BindAction(Input.Move, ETriggerEvent::Triggered, this, &UPlanetCharacterInputComponent::OnMoveInput);
 	EnhancedInput->BindAction(Input.Look, ETriggerEvent::Triggered, this, &UPlanetCharacterInputComponent::OnLookInput);

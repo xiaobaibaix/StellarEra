@@ -87,26 +87,26 @@ bool FStellarEraStarMapInputWiringTest::RunTest(const FString& Parameters)
 	{
 		const UInputAction* Action = Binding ? Binding->GetAction() : nullptr;
 		const FName ActionName = Action ? Action->GetFName() : NAME_None;
-		LookCount += ActionName == TEXT("IA_Look") ? 1 : 0;
-		LookActivateCount += ActionName == TEXT("IA_LookActivate") ? 1 : 0;
-		LookMiddleCount += ActionName == TEXT("IA_LookMiddle") ? 1 : 0;
-		ZoomCount += ActionName == TEXT("IA_Zoom") ? 1 : 0;
-		EditModeCount += ActionName == TEXT("IA_EditModeToggle") ? 1 : 0;
-		BrushSizeCount += ActionName == TEXT("IA_BrushSize") ? 1 : 0;
-		MineralViewToggleCount += ActionName == TEXT("IA_MineralViewToggle") ? 1 : 0;
-		MineralFilterCount += ActionName.ToString().StartsWith(TEXT("IA_MineralFilter")) ? 1 : 0;
-		MineralShowAllCount += ActionName == TEXT("IA_MineralShowAll") ? 1 : 0;
+		LookCount += ActionName == TEXT("IA_StarMap_Look") ? 1 : 0;
+		LookActivateCount += ActionName == TEXT("IA_StarMap_LookActivate") ? 1 : 0;
+		LookMiddleCount += ActionName == TEXT("IA_StarMap_LookMiddle") ? 1 : 0;
+		ZoomCount += ActionName == TEXT("IA_StarMap_Zoom") ? 1 : 0;
+		EditModeCount += ActionName == TEXT("IA_StarMap_EditModeToggle") ? 1 : 0;
+		BrushSizeCount += ActionName == TEXT("IA_StarMap_BrushSize") ? 1 : 0;
+		MineralViewToggleCount += ActionName == TEXT("IA_StarMap_MineralViewToggle") ? 1 : 0;
+		MineralFilterCount += ActionName.ToString().StartsWith(TEXT("IA_StarMap_MineralFilter")) ? 1 : 0;
+		MineralShowAllCount += ActionName == TEXT("IA_StarMap_MineralShowAll") ? 1 : 0;
 	}
 
-	TestEqual(TEXT("IA_Look 绑定数"), LookCount, 1);
-	TestEqual(TEXT("IA_LookActivate 绑定数（按住 / 松开）"), LookActivateCount, 2);
-	TestEqual(TEXT("IA_LookMiddle 绑定数（按住 / 松开）"), LookMiddleCount, 2);
-	TestEqual(TEXT("IA_Zoom 绑定数"), ZoomCount, 1);
-	TestEqual(TEXT("IA_EditModeToggle 绑定数"), EditModeCount, 1);
-	TestEqual(TEXT("IA_BrushSize 绑定数"), BrushSizeCount, 1);
-	TestEqual(TEXT("IA_MineralViewToggle 绑定数"), MineralViewToggleCount, 1);
-	TestEqual(TEXT("IA_MineralFilter1..9 绑定数"), MineralFilterCount, 9);
-	TestEqual(TEXT("IA_MineralShowAll 绑定数"), MineralShowAllCount, 1);
+	TestEqual(TEXT("IA_StarMap_Look 绑定数"), LookCount, 1);
+	TestEqual(TEXT("IA_StarMap_LookActivate 绑定数（按住 / 松开）"), LookActivateCount, 2);
+	TestEqual(TEXT("IA_StarMap_LookMiddle 绑定数（按住 / 松开）"), LookMiddleCount, 2);
+	TestEqual(TEXT("IA_StarMap_Zoom 绑定数"), ZoomCount, 1);
+	TestEqual(TEXT("IA_StarMap_EditModeToggle 绑定数"), EditModeCount, 1);
+	TestEqual(TEXT("IA_StarMap_BrushSize 绑定数"), BrushSizeCount, 1);
+	TestEqual(TEXT("IA_StarMap_MineralViewToggle 绑定数"), MineralViewToggleCount, 1);
+	TestEqual(TEXT("IA_StarMap_MineralFilter1..9 绑定数"), MineralFilterCount, 9);
+	TestEqual(TEXT("IA_StarMap_MineralShowAll 绑定数"), MineralShowAllCount, 1);
 
 	return true;
 }

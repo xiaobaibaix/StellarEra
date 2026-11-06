@@ -89,7 +89,8 @@ void UStarMapCameraInputComponent::Bind(UInputComponent* PlayerInputComponent)
 		return;
 	}
 
-	const FStellarEraInputActions& Input = Source->GetStellarEraInputActions();
+	// 只取星图相机自己那张表：别的 Pawn 的动作不归这里管，也就不可能绑错。
+	const FStarMapCameraInputActions& Input = Source->GetStellarEraInputActions().StarMap;
 
 	EnhancedInput->BindAction(Input.Look, ETriggerEvent::Triggered, this, &UStarMapCameraInputComponent::OnLookInput);
 	EnhancedInput->BindAction(Input.LookActivate, ETriggerEvent::Started, this, &UStarMapCameraInputComponent::OnLookActivateStarted);

@@ -31,7 +31,8 @@ void USpaceshipInputComponent::Bind(UInputComponent* PlayerInputComponent)
 		return;
 	}
 
-	const FStellarEraInputActions& Input = Source->GetStellarEraInputActions();
+	// 只取飞船自己那张表：别的 Pawn 的动作不归这里管，也就不可能绑错。
+	const FSpaceshipInputActions& Input = Source->GetStellarEraInputActions().Ship;
 
 	EnhancedInput->BindAction(Input.Look, ETriggerEvent::Triggered, this, &USpaceshipInputComponent::OnLookInput);
 	EnhancedInput->BindAction(Input.Thrust, ETriggerEvent::Triggered, this, &USpaceshipInputComponent::OnThrustInput);

@@ -1,10 +1,13 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
-// 本项目用到的全部 Enhanced Input 动作与按键映射，集中在一个结构体里。
+// 本项目用到的全部 Enhanced Input 动作与按键映射：一个共享 IMC + 按 Pawn 分表。
 
 #pragma once
 
 #include "CoreMinimal.h"
 #include "UObject/Interface.h"
+#include "PlanetCharacterInputActions.h"
+#include "SpaceshipInputActions.h"
+#include "StarMapCameraInputActions.h"
 #include "StellarEraInputActions.generated.h"
 
 class UInputAction;
@@ -23,87 +26,16 @@ namespace StellarEraInput
 }
 
 /**
- * 运行时构造的输入资产。
+ * 控制器自己的三条动作。
  *
- * 以前这些 IA_* 直接摊在 AStellarEraPlayerController 上：二十个 UPROPERTY 加一个
- * 一百多行的构建函数，把控制器本身的逻辑淹了。集中到这里之后只是一份数据，
- * 由控制器持有、构造，再交给 Pawn 去绑定。
- *
- * 所有资产都 NewObject 到 Outer（控制器）名下，随控制器一起回收；没有磁盘资产，
- * 改键只改 Build 里的映射表，不用碰 .ini 或编辑器资产。
- *
- * 位置：住在本模块（StellarEraPawns）而不是主模块，因为**绑定的一方是 Pawn**。
- * 角色 / 飞船在自己的 SetupPlayerInputComponent 里取这张表；控制器只负责造出来、
- * 把 IMC 塞进本地玩家子系统。
+ * 它们不属于任何一个 Pawn：上下船（E）、进出星图（M）、星图里选中 / 拖拽天体
+ * （鼠标左键）的状态与流程都跨 Pawn，所以绑在控制器上。星图相机只通过
+ * `IStarMapLookContext::IsStarMapSelectHeld()` 问「左键现在按着没有」。
  */
 USTRUCT()
-struct STELLARERAPAWNS_API FStellarEraInputActions
+struct STELLARERAPAWNS_API FControllerInputActions
 {
 	GENERATED_BODY()
-
-	/** 这些动作的归属上下文。 */
-	UPROPERTY(Transient)
-	TObjectPtr<UInputMappingContext> MappingContext;
-
-	// ── 角色 ──
-
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> Move;
-
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> Look;
-
-	/**
-	 * 视角开关（鼠标右键）。按住才让角色 / 飞船 / 星图的视角跟鼠标动。
-	 *
-	 * 单独做成一个布尔动作，而不是在 Look 里直接查 EKeys::RightMouseButton 的
-	 * 键状态：键位以后要能在编辑器里改（IMC/IA 就是为此才在运行时构造的），
-	 * 写死键名去轮询等于把右键钉死在这一行上。
-	 */
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> LookActivate;
-
-	/**
-	 * 星图的中键（绕行）。与 LookActivate 同一个套路：Look 只有鼠标位移，
-	 * 「按的是哪个键」得另有布尔动作来分辨。
-	 */
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> LookMiddle;
-
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> Jump;
-
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> Sprint;
-
-	// ── 飞船 ──
-
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> Thrust;
-
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> Roll;
-
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> Vertical;
-
-	/** 飞船加速键（Shift）。与角色的 Sprint 共用按键，靠 Pawn 类型分派。 */
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> Boost;
-
-	/** 巡航开关（Tab）。切换飞船的速度保持状态，只绑 Started。 */
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> Cruise;
-
-	/** 飞船调试视角开关（B）。只绑 Started，按一下切一次。 */
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> DebugViewToggle;
-
-	/** 相机缩放（鼠标滚轮）。轴值，每格 ±1。角色 / 飞船 / 星图各绑各的。 */
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> Zoom;
-
-	// ── 交互 / 星图 / 编辑 ──
 
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> Interact;
@@ -112,35 +44,57 @@ struct STELLARERAPAWNS_API FStellarEraInputActions
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> StarMapToggle;
 
-	/**
-	 * 星图里选中天体 / 拖拽绕行（鼠标左键）。按下与松开的位移区分两者。
-	 * 编辑模式与矿物透视下左键已被借走，那时拖拽是编辑 / 图例，绕行改由中键承担、
-	 * 转头仍是右键 —— 见 UStarMapCameraInputComponent::ResolveLookMode。
-	 */
+	/** 星图里选中天体 / 拖拽绕行（鼠标左键）。按下与松开的位移区分两者。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> StarMapSelect;
 
-	/** 编辑模式开关（G）。 */
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> EditModeToggle;
+	/** 构造动作并往 Context 里注册按键映射。已经构造过就直接返回。 */
+	void Build(UObject* Outer, UInputMappingContext* Context);
+};
 
-	/** 笔刷尺寸（`[` / `]`）。Axis1D，只绑 Started，不随按住每帧刷。 */
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> BrushSize;
+/**
+ * 运行时构造的输入资产：一个共享的 IMC，加四张按归属拆开的动作表。
+ *
+ * 以前二十多个 IA_* 全摊在一个结构体里：角色、飞船、星图相机、控制器四条线
+ * 的键挤在一起，改角色键得先翻过半个飞船的字段。现在每张表跟着它的消费方
+ * 走 —— `Src/Character/`、`Src/Spaceship/`、`Src/StarMap/` 各一份，剩下的
+ * 控制器那三条留在本文件。
+ *
+ * 四张表共用同一个 `MappingContext`：按键映射必须落在同一个 IMC 里，否则
+ * 「按一次 W」要往本地玩家子系统里塞四个上下文。共用按键不打架 —— 同一个
+ * IMC 里的动作互不吞输入，而只有被 Possess 的那个 Pawn 绑了它的动作表。
+ *
+ * 所有资产都 NewObject 到 Outer（控制器）名下，随控制器一起回收；没有磁盘
+ * 资产，改键只改各表的 Build，不用碰 .ini 或编辑器资产。
+ *
+ * 位置：住在本模块（StellarEraPawns）而不是主模块，因为**绑定的一方是 Pawn**。
+ * 各 Pawn 在自己的 SetupPlayerInputComponent 里取自己那张表；控制器只负责造
+ * 出来、把 IMC 塞进本地玩家子系统。
+ */
+USTRUCT()
+struct STELLARERAPAWNS_API FStellarEraInputActions
+{
+	GENERATED_BODY()
 
-	// ── 矿物透视 ──
-
-	/** 矿物透视开关（H）。 */
+	/** 四张表共用的归属上下文。 */
 	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> MineralViewToggle;
+	TObjectPtr<UInputMappingContext> MappingContext;
 
-	/** 数字键 1..9：按下标切换元素显示。下标 = 运行期元素顺序。 */
+	/** APlanetCharacter 的移动 / 视角 / 跳 / 冲刺 / 缩放 / 编辑 / 笔刷。 */
 	UPROPERTY(Transient)
-	TArray<TObjectPtr<UInputAction>> MineralFilter;
+	FPlanetCharacterInputActions Character;
 
-	/** 数字键 0：全部打开。 */
+	/** ASpaceshipPawn 的推力 / 横滚 / 升降 / 加速 / 巡航 / 缩放 / 调试视角。 */
 	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> MineralShowAll;
+	FSpaceshipInputActions Ship;
+
+	/** AStarMapCameraPawn 的视角 / 缩放 / 编辑 / 笔刷 / 矿物透视。 */
+	UPROPERTY(Transient)
+	FStarMapCameraInputActions StarMap;
+
+	/** 控制器自己的上下船、星图开关与选择。 */
+	UPROPERTY(Transient)
+	FControllerInputActions Controller;
 
 	/**
 	 * 构造全部动作与按键映射。已经构造过就直接返回。
@@ -162,11 +116,11 @@ class UStellarEraInputSource : public UInterface
  * 由 AStellarEraPlayerController 实现（它在 Game 模块，Pawn 看不到），Pawn 在
  * `SetupPlayerInputComponent` 里通过它取到动作表，各绑各的：
  *
- *   - APlanetCharacter 绑 Move / Look / Jump / Sprint / Zoom / 右键点放 / G 编辑 / 笔刷尺寸；
- *   - ASpaceshipPawn 绑 Look / 推力 / 滚转 / 升降 / 加速 / 巡航 / 缩放 / B；
- *   - AStarMapCameraPawn 绑星图视角（绕行 / 转头）、缩放、G 编辑、笔刷尺寸，
- *     以及 H 矿物透视与 0..9 数字键，见 UStarMapCameraInputComponent；
- *   - 上下船、星图开关与选择仍绑在控制器上 —— 它们的状态与流程跨 Pawn。
+ *   - APlanetCharacter 取 `.Character`；
+ *   - ASpaceshipPawn 取 `.Ship`；
+ *   - AStarMapCameraPawn 取 `.StarMap`；
+ *   - 上下船、星图开关与选择仍绑在控制器上（`.Controller`）—— 它们的状态与
+ *     流程跨 Pawn。
  *
  * 这样「当前 Possess 的是谁，就由谁响应输入」由引擎的 Pawn 输入栈完成，
  * 控制器里不再有 `Cast<APlanetCharacter>` / `Cast<ASpaceshipPawn>` 的三路分派。

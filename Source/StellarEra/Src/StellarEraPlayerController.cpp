@@ -102,15 +102,15 @@ void AStellarEraPlayerController::SetupInputComponent()
 
 	// 角色 / 飞船 / 星图相机的移动、视角、推力、编辑、笔刷、矿物透视由各自的 Pawn
 	// 在自己的 SetupPlayerInputComponent 里绑定；这里只留控制器自己的那几条 ——
-	// 上下船、星图开关与**选择**。
-	EnhancedInput->BindAction(Input.StarMapToggle, ETriggerEvent::Started,
+	// 上下船、星图开关与**选择**，即 Input.Controller 那一张表。
+	EnhancedInput->BindAction(Input.Controller.StarMapToggle, ETriggerEvent::Started,
 		this, &AStellarEraPlayerController::ToggleStarMap);
-	EnhancedInput->BindAction(Input.StarMapSelect, ETriggerEvent::Started,
+	EnhancedInput->BindAction(Input.Controller.StarMapSelect, ETriggerEvent::Started,
 		this, &AStellarEraPlayerController::OnStarMapSelectStarted);
-	EnhancedInput->BindAction(Input.StarMapSelect, ETriggerEvent::Completed,
+	EnhancedInput->BindAction(Input.Controller.StarMapSelect, ETriggerEvent::Completed,
 		this, &AStellarEraPlayerController::OnStarMapSelectCompleted);
 
-	EnhancedInput->BindAction(Input.Interact, ETriggerEvent::Started,
+	EnhancedInput->BindAction(Input.Controller.Interact, ETriggerEvent::Started,
 		this, &AStellarEraPlayerController::OnInteract);
 }
 
