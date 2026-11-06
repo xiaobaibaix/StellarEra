@@ -21,6 +21,8 @@ void FSpaceshipInputActions::Build(UObject* Outer, UInputMappingContext* Context
 	Cruise = StellarEraInput::MakeAction(Outer, TEXT("IA_Ship_Cruise"), EInputActionValueType::Boolean);
 	DebugViewToggle = StellarEraInput::MakeAction(Outer, TEXT("IA_Ship_DebugViewToggle"), EInputActionValueType::Boolean);
 	Zoom = StellarEraInput::MakeAction(Outer, TEXT("IA_Ship_Zoom"), EInputActionValueType::Axis1D);
+	Interact = StellarEraInput::MakeAction(Outer, TEXT("IA_Ship_Interact"), EInputActionValueType::Boolean);
+	StarMapToggle = StellarEraInput::MakeAction(Outer, TEXT("IA_Ship_StarMapToggle"), EInputActionValueType::Boolean);
 
 	// 鼠标位移本身一直有值，能不能用、拿去干什么由各 Pawn 自己按按住的键分派。
 	StellarEraInput::MapKey(Context, Look, EKeys::Mouse2D);
@@ -41,4 +43,9 @@ void FSpaceshipInputActions::Build(UObject* Outer, UInputMappingContext* Context
 	// 滚轮是轴键（每格 ±1），不是按键，所以映射到 Axis1D 的动作上直接取值。
 	// 不需要任何修饰器：方向约定（上滚 = 拉近）由 ASpaceshipPawn::AddZoom 负责。
 	StellarEraInput::MapKey(Context, Zoom, EKeys::MouseWheelAxis);
+
+	// E / M 在角色与星图相机表里也各有一条。同一个 IMC 里的动作互不吞输入，
+	// 真正响应的是被 Possess 那个 Pawn 绑的那条 —— 飞船这里 E 是离船。
+	StellarEraInput::MapKey(Context, Interact, EKeys::E);
+	StellarEraInput::MapKey(Context, StarMapToggle, EKeys::M);
 }

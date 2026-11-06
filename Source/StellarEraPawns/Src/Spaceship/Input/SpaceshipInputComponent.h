@@ -48,6 +48,12 @@ private:
 	void OnDebugViewToggle(const FInputActionValue& Value);
 	void OnZoomInput(const FInputActionValue& Value);
 
+	/** M：进星图。换 Possess 的实现住在控制器，经 IStellarEraSessionCommands 转发。 */
+	void OnStarMapToggle(const FInputActionValue& Value);
+
+	/** E：离船。实现同样在控制器上（生成角色 + 换 Possess）。 */
+	void OnInteract(const FInputActionValue& Value);
+
 	/** 通过 HUD 的 IStellarEraNoticeSink 弹一条提示；拿不到 HUD 时静默跳过。 */
 	void ShowNotice(const FString& Text) const;
 };

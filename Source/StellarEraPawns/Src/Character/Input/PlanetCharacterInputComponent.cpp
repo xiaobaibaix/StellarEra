@@ -3,12 +3,18 @@
 #include "PlanetCharacterInputComponent.h"
 
 #include "EnhancedInputComponent.h"
+#include "GameFramework/HUD.h"
 #include "GameFramework/PlayerController.h"
 #include "InputActionValue.h"
 #include "InputCoreTypes.h"
 #include "PlanetCharacter.h"
 #include "PlanetEditComponent.h"
-#include "StellarEraInputActions.h"
+#include "PlanetCharacterInputActions.h"
+#include "PlanetEditUI.h"
+#include "SessionCommands.h"
+#include "StellarEraInputActionBuilder.h"
+#include "StellarEraInputSource.h"
+#include "StellarEraNoticeSink.h"
 
 APlanetCharacter* UPlanetCharacterInputComponent::GetPawn() const
 {
@@ -32,7 +38,8 @@ void UPlanetCharacterInputComponent::Bind(UInputComponent* PlayerInputComponent)
 	}
 
 	// 只取角色自己那张表：别的 Pawn 的动作不归这里管，也就不可能绑错。
-	const FPlanetCharacterInputActions& Input = Source->GetStellarEraInputActions().Character;
+	// E / M / 左键也在这张表里 —— 角色这边 E 是登船，左键只在编辑模式下有反应。
+	const FPlanetCharacterInputActions& Input = Source->GetPlanetCharacterInputActions();
 
 	EnhancedInput->BindAction(Input.Move, ETriggerEvent::Triggered, this, &UPlanetCharacterInputComponent::OnMoveInput);
 	EnhancedInput->BindAction(Input.Look, ETriggerEvent::Triggered, this, &UPlanetCharacterInputComponent::OnLookInput);
@@ -49,6 +56,12 @@ void UPlanetCharacterInputComponent::Bind(UInputComponent* PlayerInputComponent)
 	// 只绑 Started：Axis1D 的 Triggered 在按住时每帧触发一次，笔刷会瞬间冲到上限。
 	EnhancedInput->BindAction(Input.EditModeToggle, ETriggerEvent::Started, this, &UPlanetCharacterInputComponent::OnEditModeToggle);
 	EnhancedInput->BindAction(Input.BrushSize, ETriggerEvent::Started, this, &UPlanetCharacterInputComponent::OnBrushSize);
+
+	// E / M / 左键：角色表里各有一条，由角色自己接。
+	// 角色这边 E 是登船；左键只绑 Started（编辑挖掘，没有选择逻辑）。
+	EnhancedInput->BindAction(Input.StarMapToggle, ETriggerEvent::Started, this, &UPlanetCharacterInputComponent::OnStarMapToggle);
+	EnhancedInput->BindAction(Input.Interact, ETriggerEvent::Started, this, &UPlanetCharacterInputComponent::OnInteract);
+	EnhancedInput->BindAction(Input.EditPrimary, ETriggerEvent::Started, this, &UPlanetCharacterInputComponent::OnEditPrimary);
 
 	// 绑定成功也给一条 Verbose：「没报错」不等于「绑上了」，无头跑时用它当正证据。
 	UE_LOG(LogTemp, Verbose, TEXT("[Input] APlanetCharacter(%s) 已绑定角色输入"), *Pawn->GetName());
@@ -267,5 +280,91 @@ void UPlanetCharacterInputComponent::OnBrushSize(const FInputActionValue& Value)
 		const bool bCoarse = PC
 			&& (PC->IsInputKeyDown(EKeys::LeftControl) || PC->IsInputKeyDown(EKeys::RightControl));
 		Edit->AdjustBrushSizeByStep(Axis > 0.f, bCoarse);
+	}
+}
+
+APlayerController* UPlanetCharacterInputComponent::GetPlayerController() const
+{
+	const APlanetCharacter* Pawn = GetPawn();
+	return Pawn ? Cast<APlayerController>(Pawn->GetController()) : nullptr;
+}
+
+void UPlanetCharacterInputComponent::ShowNotice(const FString& Text) const
+{
+	// HUD 在 UI 模块（本模块的下游），只能走接口。没有 HUD 时静默跳过。
+	const APlayerController* PC = GetPlayerController();
+	IStellarEraNoticeSink* Sink = PC ? Cast<IStellarEraNoticeSink>(PC->GetHUD()) : nullptr;
+	if (Sink)
+	{
+		Sink->ShowNotice(Text);
+	}
+}
+
+void UPlanetCharacterInputComponent::OnEditPrimary(const FInputActionValue& Value)
+{
+	// 角色没有星图选择：左键只服务编辑（笔刷按钮 + 挖掘）。非编辑模式下整条
+	// 回调无动作 —— 与控制器时代的角色行为一致。
+	UPlanetEditComponent* Edit = GetEditComponentInEditMode();
+	if (!Edit)
+	{
+		return;
+	}
+
+	APlayerController* PC = GetPlayerController();
+	double MouseX = 0.0;
+	double MouseY = 0.0;
+	if (!PC || !PC->GetMousePosition(MouseX, MouseY))
+	{
+		return;
+	}
+	const FVector2D MousePosition(MouseX, MouseY);
+
+	// AHUD::Canvas 只在 PostRender 期间有效，而输入回调跑在 tick 里 —— 问 HUD
+	// 要视口尺寸永远拿到 (0,0)，按钮命中会全部落空。所以从控制器自己查。
+	int32 ViewportSizeX = 0;
+	int32 ViewportSizeY = 0;
+	PC->GetViewportSize(ViewportSizeX, ViewportSizeY);
+	const FVector2D ViewportSize(
+		static_cast<float>(ViewportSizeX), static_cast<float>(ViewportSizeY));
+
+	int32 ButtonIndex = INDEX_NONE;
+	if (ViewportSize.X > 0.0 && ViewportSize.Y > 0.0 &&
+		PlanetEditUI::HitTestBrushButton(ViewportSize, MousePosition, ButtonIndex))
+	{
+		const bool bSphere = ButtonIndex == 0;
+		Edit->SetBrushShape(bSphere ? EPlanetBrushShape::Sphere : EPlanetBrushShape::Cube);
+		ShowNotice(bSphere ? TEXT("笔刷：球体") : TEXT("笔刷：正方体"));
+		return;
+	}
+
+	// 这次点击归不归编辑，由「射线打没打到行星」回答。不能用 DigAtScreenPosition
+	// 的返回值判断：打到了行星但没改到任何体素（比如往空气里挖）也会返回 false。
+	// 角色没有连续挖 / Ctrl 填充，Shift 与 Ctrl 在这里都不改变语义。
+	FPlanetEditTarget Target;
+	if (Edit->TryResolveTarget(MousePosition, Target))
+	{
+		Edit->DigAtScreenPosition(MousePosition);
+	}
+}
+
+void UPlanetCharacterInputComponent::OnStarMapToggle(const FInputActionValue& Value)
+{
+	// 换 Possess 的实现住在控制器（Game 模块，本模块看不到），走接口转发。
+	APlanetCharacter* Pawn = GetPawn();
+	AController* Controller = Pawn ? Pawn->GetController() : nullptr;
+	if (IStellarEraSessionCommands* Commands = Cast<IStellarEraSessionCommands>(Controller))
+	{
+		Commands->ToggleStarMap();
+	}
+}
+
+void UPlanetCharacterInputComponent::OnInteract(const FInputActionValue& Value)
+{
+	// 登船判定（最近飞船 + 距离）住在控制器里，方向也是它按 Pawn 类型决定的。
+	APlanetCharacter* Pawn = GetPawn();
+	AController* Controller = Pawn ? Pawn->GetController() : nullptr;
+	if (IStellarEraSessionCommands* Commands = Cast<IStellarEraSessionCommands>(Controller))
+	{
+		Commands->InteractWithShip();
 	}
 }

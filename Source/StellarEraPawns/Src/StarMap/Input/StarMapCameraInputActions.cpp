@@ -21,6 +21,8 @@ void FStarMapCameraInputActions::Build(UObject* Outer, UInputMappingContext* Con
 	BrushSize = StellarEraInput::MakeAction(Outer, TEXT("IA_StarMap_BrushSize"), EInputActionValueType::Axis1D);
 	MineralViewToggle = StellarEraInput::MakeAction(Outer, TEXT("IA_StarMap_MineralViewToggle"), EInputActionValueType::Boolean);
 	MineralShowAll = StellarEraInput::MakeAction(Outer, TEXT("IA_StarMap_MineralShowAll"), EInputActionValueType::Boolean);
+	StarMapSelect = StellarEraInput::MakeAction(Outer, TEXT("IA_StarMap_Select"), EInputActionValueType::Boolean);
+	StarMapToggle = StellarEraInput::MakeAction(Outer, TEXT("IA_StarMap_StarMapToggle"), EInputActionValueType::Boolean);
 	MineralFilter.Reset();
 	for (int32 Slot = 1; Slot <= 9; ++Slot)
 	{
@@ -65,4 +67,9 @@ void FStarMapCameraInputActions::Build(UObject* Outer, UInputMappingContext* Con
 		StellarEraInput::MapKey(Context, MineralFilter[Slot], DigitKeys[Slot]);
 	}
 	StellarEraInput::MapKey(Context, MineralShowAll, EKeys::Zero);
+
+	// 左键选择 / M 退出星图：这两条也各有一份在角色 / 飞船表里（进星图的入口）。
+	// 同一个 IMC 里的动作互不吞输入，谁被 Possess 谁的那条生效。
+	StellarEraInput::MapKey(Context, StarMapSelect, EKeys::LeftMouseButton);
+	StellarEraInput::MapKey(Context, StarMapToggle, EKeys::M);
 }

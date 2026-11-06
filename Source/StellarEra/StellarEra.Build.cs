@@ -29,9 +29,9 @@ using UnrealBuildTool;
 // StarMapUIInputs.h —— 控制器公开继承 IStarMapUIInputs。
 // 反向（UI → Game）禁止，需要控制器数据的地方走 IStarMapUIInputs。
 //
-// StellarEraPawns 是 **Public**：同一个头还 include 了 StellarEraInputActions.h
-// （IStellarEraInputSource，控制器也公开继承）与 StarMapCameraInputComponent.h
-// （IStarMapLookContext，控制器同样要实现）。
+// StellarEraPawns 是 **Public**：同一个头还 include 了 StellarEraInputSource.h
+// （IStellarEraInputSource，控制器也公开继承）、StellarEraInputActions.h（三张
+// Pawn 动作表）与 StarMapCameraInputComponent.h（IStarMapLookContext，控制器同样要实现）。
 //
 // StellarEraPlanet / StellarEraCosmos 是 **Private**：本模块没有任何公开头
 // include 它们的头；控制器头里的行星与天体类型一律前置声明 + TObjectPtr，
@@ -57,7 +57,8 @@ public class StellarEra : ModuleRules
 		{
 			"Core", "CoreUObject", "Engine",
 			// 公开头里出现的：StarMapUIInputs.h（公开继承 IStarMapUIInputs）、
-			// StellarEraInputActions.h（公开继承 IStellarEraInputSource）、
+			// StellarEraInputSource.h（公开继承 IStellarEraInputSource）、
+			// StellarEraInputActions.h（聚合三张 Pawn 表）、
 			// StarMapCameraInputComponent.h（实现 IStarMapLookContext）。
 			"StellarEraUI",
 			"StellarEraPawns",

@@ -6,19 +6,18 @@
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
 #include "Templates/SubclassOf.h"
+#include "SessionCommands.h"
 #include "StarMapUIInputs.h"
 #include "StarMapCameraInputComponent.h"
 #include "StellarEraInputActions.h"
+#include "StellarEraInputSource.h"
 #include "StellarEraPlayerController.generated.h"
 
 class APlanetCharacter;
 class AStarMapCameraPawn;
 class ASpaceshipPawn;
-class AVoxelPlanetActor;
 class UPlanetMineralViewComponent;
 class UPlanetEditComponent;
-struct FInputActionValue;
-struct FStarMapScreenCandidate;
 
 /**
  * 本项目的玩家控制器。
@@ -28,24 +27,27 @@ struct FStarMapScreenCandidate;
  * 定稿后再换成 .uasset 是平滑的替换（数据结构一样，只是来源变了）。
  *
  * 输入绑定按「谁被操控谁绑」分：
- *   - **角色 / 飞船 / 星图相机**在自己的 `SetupPlayerInputComponent` 里绑移动、视角、
- *     推力、编辑与笔刷等，动作表由本类经 `IStellarEraInputSource` 提供 —— 所以这里
- *     没有按 Pawn 类型分派的三路 `Cast`，新增一种可操控 Pawn 也不用改本类；
- *   - **本类**只绑控制器级的东西：E 上下船、M 星图，以及星图模式下的**选择**
- *     （左键按下 / 拖拽 / 连挖收尾）。星图的视角、缩放、编辑、矿物透视（H 与
- *     数字键）都归相机自己的 `UStarMapCameraInputComponent`；矿物透视的会话状态
- *     也住在相机 Pawn 上，本类只在换 Pawn / 退出星图 / 选中变化时命令它退出。
+ *   - **角色 / 飞船 / 星图相机**在自己的 `SetupPlayerInputComponent` 里绑全部输入，
+ *     动作表由本类经 `IStellarEraInputSource` 提供 —— 所以这里没有按 Pawn 类型
+ *     分派的三路 `Cast`，新增一种可操控 Pawn 也不用改本类；
+ *   - **本类不再绑任何输入**（`SetupInputComponent` 已删除）。M（星图开关）与
+ *     E（上下船）在每个需要它的 Pawn 表里各有一条动作，按下去经
+ *     `IStellarEraSessionCommands` 转发回来；星图左键选择归相机，角色左键只
+ *     服务编辑模式；星图的视角、缩放、编辑、矿物透视（H 与数字键）也都归相机。
  *
- * 同时实现三个跨模块接口，全部是**依赖倒置**的钩子：声明方在 Pawns / UI
+ * 同时实现四个跨模块接口，全部是**依赖倒置**的钩子：声明方在 Pawns / UI
  * （下游），实现方是本类（Game，最上层），消费方各自 `Cast<接口>(Controller)`。
  *   - `IStellarEraInputSource`：三个 Pawn 的输入组件来取运行时构造的动作表；
  *   - `IStarMapUIInputs`：HUD / 星图面板查询鼠标位置、屏幕拾取、矿物透视；
- *   - `IStarMapLookContext`：星图相机问「左键是否按住」，以及失败时借控制器弹提示。
- * 除了那条提示出口，其余都只读。再加接口前先确认：这个状态是不是真的只有控制器知道。
+ *   - `IStarMapLookContext`：星图相机进不了矿物透视时借控制器弹提示；
+ *   - `IStellarEraSessionCommands`：各 Pawn 的 M / E 转发到这里的会话流程。
+ * 除了提示出口与会话命令，其余都只读。再加接口前先确认：这个状态是不是真的
+ * 只有控制器知道。
  */
 UCLASS()
 class AStellarEraPlayerController : public APlayerController, public IStarMapUIInputs,
-	public IStellarEraInputSource, public IStarMapLookContext
+	public IStellarEraInputSource, public IStarMapLookContext,
+	public IStellarEraSessionCommands
 {
 	GENERATED_BODY()
 
@@ -54,15 +56,16 @@ public:
 
 	AStellarEraPlayerController();
 
-	virtual void SetupInputComponent() override;
 	virtual void BeginPlay() override;
 
 	// ── 接口实现 ──
-	// 三个都是对别的模块的契约，统一放 public：没必要一个 public 一个 protected。
+	// 四个都是对别的模块的契约，统一放 public：没必要一个 public 一个 protected。
 
 	//~ Begin IStellarEraInputSource Interface
-	/** 把运行时构造的动作表交给 Pawn 去绑定。实现见 .cpp（幂等 Build）。 */
-	virtual const FStellarEraInputActions& GetStellarEraInputActions() override;
+	// 三张表各交给它的消费方；聚合结构体只有本类看得见。实现见 .cpp（幂等 Build）。
+	virtual const FPlanetCharacterInputActions& GetPlanetCharacterInputActions() override;
+	virtual const FSpaceshipInputActions& GetSpaceshipInputActions() override;
+	virtual const FStarMapCameraInputActions& GetStarMapCameraInputActions() override;
 	//~ End IStellarEraInputSource Interface
 
 	//~ Begin IStarMapUIInputs Interface
@@ -79,65 +82,28 @@ public:
 	//~ End IStarMapUIInputs Interface
 
 	//~ Begin IStarMapLookContext Interface
-	virtual bool IsStarMapSelectHeld() const override;
-
 	/** 相机没有 HUD：矿物透视进不去时借这里弹一条带时长的提示。 */
 	virtual void ShowStarMapPrompt(const FString& Text, float Seconds) override;
 	//~ End IStarMapLookContext Interface
 
+	//~ Begin IStellarEraSessionCommands Interface
+	/**
+	 * M：进入 / 退出星图模式。
+	 *
+	 * 方向由「当前 Possess 的是不是星图 Pawn」判定，**不用单独的状态标志** ——
+	 * 幂等，也不会和实际 Possess 的 Pawn 不同步。
+	 *
+	 * 进入时聚焦**借用了相机的那颗行星**（行星相机就挂在它身上）；深空退回单例
+	 * 相机时，聚焦离进场 Pawn 最近的、带星图相机的已注册天体。飞船没有星图相机，
+	 * 不再被聚焦（见 AStarMapCameraPawn::HasStarMapCamera）。
+	 */
+	virtual void ToggleStarMap() override;
+
+	/** E：按 E 时的分派 —— 没在船上就尝试登船，在船上就尝试离船。 */
+	virtual void InteractWithShip() override;
+	//~ End IStellarEraSessionCommands Interface
+
 	// ── 静态查询（无状态，能无头测）──
-
-	/**
-	 * 这个天体身上（含它的挂载物）有没有星图相机。
-	 *
-	 * 星图的聚焦目标**只认带相机的天体**：相机是「照这颗天体的视点」，没有相机的
-	 * 天体（飞船）在星图里既不被进场自动聚焦，也点不中。纯查询，不碰世界，
-	 * 所以能无头测。
-	 */
-	static bool HasStarMapCamera(const AActor* Body);
-
-	/**
-	 * 「进图时的参考行星」：进星图该借用谁的星图相机。
-	 *
-	 * 驾驶中 → 飞船的参考行星（ASpaceshipPawn::GetPlanetActor，子系统每帧维护）；
-	 * 步行 → 角色当前所在的行星（APlanetCharacter::PlanetActor）；
-	 * 其他 Pawn / 空 → 空。**只做类型解析，不做距离搜索** —— 那是 Pawn 自己的职责，
-	 * 这里越俎代庖会把「最近的行星」与「玩家心中的当前行星」混成一件事。
-	 */
-	static AVoxelPlanetActor* ResolveReferencePlanet(const APawn* EnteringPawn);
-
-	/**
-	 * 在 Owner 的组件里找「行星自带的星图相机」：第一台作为
-	 * UChildActorComponent 子 Actor 存在的 AStarMapCameraPawn。
-	 *
-	 * BP_VoxelPlanet 挂一个 Child Actor Component（子类 BP_StarMapCameraPawn），
-	 * 「星球 + 它的星图相机」就成了一个可整体复制、每个实例可单独换类（Details
-	 * 里 Child Actor Class 可编辑）的组合 —— 这是 B2 路线（用户选定，2026-11-01）。
-	 *
-	 * 注意 CAC 的子 Actor 在类默认对象（CDO）里不存在、实例化才创建，所以
-	 * 本函数对 CDO 恒返回空 —— 这是 CAC 的机制，不是 bug。
-	 * 纯函数（只读组件与 Cast），无头可测；Owner / 子 Actor 不是星图相机时返回空。
-	 */
-	static AStarMapCameraPawn* FindChildStarMapCamera(const AActor* PlanetOwner);
-
-	/**
-	 * 在 Owner 上找直接 Attach 的第一台 AStarMapCameraPawn。
-	 *
-	 * 这条路径覆盖「相机是关卡里的独立 Actor、手动 Attach 到星球」的旧摆法
-	 * （UniverseMap 里现存的 3 台就是这种）。CAC 的子 Actor 其实也会 Attach 到
-	 * 宿主，所以本函数同样能取到 CAC 相机 —— 保留它是为了让 CAC 尚未普及、
-	 * 或临时手摆一台相机的关卡也能正常工作。
-	 *
-	 * 不递归子挂载物，避免飞船 / 角色 / 采矿平台上挂的相机被误认成行星相机。
-	 */
-	static AStarMapCameraPawn* FindAttachedStarMapCamera(const AActor* PlanetOwner);
-
-	/**
-	 * 上面两步的串联：进星图时优先用焦点行星自带的相机。
-	 * 先认 CAC（显式声明的那台），没有再退回附加关系（手动摆的那台）；
-	 * 都没有、或进图时解析不出行星（深空）→ 返回空，调用方退回单例相机。
-	 */
-	static AStarMapCameraPawn* ResolvePlanetStarMapCamera(const APawn* EnteringPawn);
 
 	/**
 	 * 换视点的唯一驱动：把 World 里所有实现 IVoxelViewpointInvokers 的 Pawn
@@ -178,10 +144,7 @@ protected:
 	/** Pawn 上开着的编辑模式一律退出。上船 / 进出星图 / 调试换 Pawn 共用。 */
 	void ForceExitEditMode(APawn* InPawn);
 
-	// ── 输入：交互 / 登船 ──
-
-	/** 按 E 时的分派：没在船上就尝试登船，在船上就尝试离船。 */
-	void OnInteract(const FInputActionValue& Value);
+	// ── 会话：登船 ──
 
 	/** 尝试让角色登上指定飞船。 */
 	void BoardShip(ASpaceshipPawn* Ship);
@@ -202,22 +165,7 @@ protected:
 	 */
 	APlanetCharacter* SpawnCrewCharacter(ASpaceshipPawn* Ship);
 
-	// ── 输入：星图 ──
-
-	/**
-	 * 进入 / 退出星图模式。
-	 *
-	 * 方向由「当前 Possess 的是不是星图 Pawn」判定，**不用单独的状态标志** ——
-	 * 幂等，也不会和实际 Possess 的 Pawn 不同步。
-	 *
-	 * 进入时聚焦**借用了相机的那颗行星**（行星相机就挂在它身上）；深空退回单例
-	 * 相机时，聚焦离进场 Pawn 最近的、带星图相机的已注册天体。飞船没有星图相机，
-	 * 不再被聚焦（见 HasStarMapCamera）。
-	 *
-	 * 做成无参是为了直接绑给 Enhanced Input：FEnhancedInputActionHandlerSignature
-	 * 就是一个无参委托（EnhancedInputComponent.h:490 的 DEFINE_BIND_ACTION）。
-	 */
-	void ToggleStarMap();
+	// ── 会话：星图 ──
 
 	/**
 	 * 退出星图的收尾：Possess 回 ReturnPawn，再把星图相机搬回球心。
@@ -226,15 +174,6 @@ protected:
 	 * 混合时长为 0 或没有返回 Pawn 时直接调用。
 	 */
 	void FinishStarMapExit(APawn* ReturnPawn);
-
-	/** 左键按下：记下位置，用来区分「点击」和「拖拽」。 */
-	void OnStarMapSelectStarted(const FInputActionValue& Value);
-
-	/** 左键松开：位移小于阈值算点击（拾取），否则算拖拽结束（不改变选中）。 */
-	void OnStarMapSelectCompleted(const FInputActionValue& Value);
-
-	/** 投影单颗天体。拾取与选中面板锚点共用这一条路径。 */
-	bool MakeScreenCandidate(AActor* Body, FStarMapScreenCandidate& Out) const;
 
 	// ── 提示 ──
 
@@ -266,15 +205,6 @@ protected:
 	// ── 运行时状态 ──
 
 	/**
-	 * 星图里左键是否按住。换 Pawn 时必须清零，否则按着左键
-	 * 进出星图之后，松开事件送到新 Pawn 身上，这个标志就永远停在 true。
-	 */
-	bool bStarMapSelectHeld = false;
-
-	/** 左键按下的屏幕位置（像素）。用 double 存 —— 与 GetMousePosition 的 double 重载对齐。 */
-	FVector2D StarMapPressPosition = FVector2D::ZeroVector;
-
-	/**
 	 * 兜底星图相机 Pawn。懒创建并复用，不每次进出都 Spawn/Destroy。
 	 *
 	 * 2026-11-01 起**只是兜底**：进图优先用焦点行星自带的星图相机
@@ -291,22 +221,11 @@ protected:
 	/** 等待视点混合结束的定时器。还活着时再按 M 会被忽略。 */
 	FTimerHandle StarMapExitTimerHandle;
 
-	/** 全部输入动作与按键映射。定义见 StellarEraInputActions.h。 */
+	/** 三张 Pawn 动作表与共享 IMC。定义见 StellarEraInputActions.h。 */
 	UPROPERTY(Transient)
 	FStellarEraInputActions Input;
 
 	// ── 可调参数 ──
-
-	/**
-	 * 拾取的像素容差。20 像素保证远处的星球也点得中。
-	 *
-	 * 夹到 ≥ 0：负值在拾取里没有意义，而且**新旧行为不同** —— 旧代码把
-	 * `PixelRadius * PixelRadius` 当半径平方用，`-5` 会被当成 `5`；现在逐候选取
-	 * `max(PixelRadius, ScreenRadiusPx)`，`-5` 被当成 `0`。这个字段是 EditAnywhere，
-	 * 编辑器里能被改成负数，所以在这里挡住。
-	 */
-	UPROPERTY(EditAnywhere, Category = "StarMap", meta = (ClampMin = "0.0"))
-	float SelectionPixelRadius = 20.f;
 
 	/**
 	 * 退出星图时视点混合的时长（秒）。0 = 立刻切回（旧行为）。
@@ -325,7 +244,7 @@ protected:
 	 * 不用重编译就能调。蓝图缺失时退回原生 AStarMapCameraPawn，功能不坏，
 	 * 但参数只能改 C++（构造函数里有 Warning）。
 	 */
-	UPROPERTY()
+	UPROPERTY(EditDefaultsOnly, Category = "StellarEra")
 	TSubclassOf<AStarMapCameraPawn> StarMapPawnClass;
 
 	/**

@@ -65,11 +65,12 @@ bool FStellarEraStarMapInputWiringTest::RunTest(const FString& Parameters)
 	// 它有自己的 EnhancedActionEventBindings —— 读错容器会得到恒 0。
 	const TArray<TUniquePtr<FEnhancedInputActionEventBinding>>& Bindings = Input->GetActionEventBindings();
 
-	// 星图视角、编辑与矿物透视共十九条：Look / LookActivate(Started,Completed) /
-	// LookMiddle(Started,Completed) / Zoom / EditModeToggle / BrushSize /
-	// MineralViewToggle / MineralFilter×9 / MineralShowAll。
+	// 星图视角、编辑与矿物透视、选择与会话共二十二条：Look /
+	// LookActivate(Started,Completed) / LookMiddle(Started,Completed) / Zoom /
+	// EditModeToggle / BrushSize / MineralViewToggle / MineralFilter×9 /
+	// MineralShowAll / StarMapSelect(Started,Completed) / StarMapToggle。
 	// 少一条就是某个键静默失灵。
-	if (!TestEqual(TEXT("星图相机绑定的动作数"), Bindings.Num(), 19))
+	if (!TestEqual(TEXT("星图相机绑定的动作数"), Bindings.Num(), 22))
 	{
 		return false;
 	}
@@ -83,6 +84,8 @@ bool FStellarEraStarMapInputWiringTest::RunTest(const FString& Parameters)
 	int32 MineralViewToggleCount = 0;
 	int32 MineralFilterCount = 0;
 	int32 MineralShowAllCount = 0;
+	int32 StarMapSelectCount = 0;
+	int32 StarMapToggleCount = 0;
 	for (const TUniquePtr<FEnhancedInputActionEventBinding>& Binding : Bindings)
 	{
 		const UInputAction* Action = Binding ? Binding->GetAction() : nullptr;
@@ -96,6 +99,8 @@ bool FStellarEraStarMapInputWiringTest::RunTest(const FString& Parameters)
 		MineralViewToggleCount += ActionName == TEXT("IA_StarMap_MineralViewToggle") ? 1 : 0;
 		MineralFilterCount += ActionName.ToString().StartsWith(TEXT("IA_StarMap_MineralFilter")) ? 1 : 0;
 		MineralShowAllCount += ActionName == TEXT("IA_StarMap_MineralShowAll") ? 1 : 0;
+		StarMapSelectCount += ActionName == TEXT("IA_StarMap_Select") ? 1 : 0;
+		StarMapToggleCount += ActionName == TEXT("IA_StarMap_StarMapToggle") ? 1 : 0;
 	}
 
 	TestEqual(TEXT("IA_StarMap_Look 绑定数"), LookCount, 1);
@@ -107,6 +112,8 @@ bool FStellarEraStarMapInputWiringTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("IA_StarMap_MineralViewToggle 绑定数"), MineralViewToggleCount, 1);
 	TestEqual(TEXT("IA_StarMap_MineralFilter1..9 绑定数"), MineralFilterCount, 9);
 	TestEqual(TEXT("IA_StarMap_MineralShowAll 绑定数"), MineralShowAllCount, 1);
+	TestEqual(TEXT("IA_StarMap_Select 绑定数（按住 / 松开）"), StarMapSelectCount, 2);
+	TestEqual(TEXT("IA_StarMap_StarMapToggle 绑定数"), StarMapToggleCount, 1);
 
 	return true;
 }

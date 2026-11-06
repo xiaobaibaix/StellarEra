@@ -59,6 +59,18 @@ struct STELLARERAPAWNS_API FPlanetCharacterInputActions
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> BrushSize;
 
+	/** 主键（鼠标左键）：编辑模式下点笔刷按钮 / 挖掘。只绑 Started。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> EditPrimary;
+
+	/** 上下船（E）。角色这边是登船，飞船那边是离船，所以各表各造一条。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> Interact;
+
+	/** 星图模式开关（M）。三个 Pawn 都绑自己表里这条，谁被 Possess 谁响应。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> StarMapToggle;
+
 	/** 构造动作并往 Context 里注册按键映射。已经构造过就直接返回。 */
 	void Build(UObject* Outer, UInputMappingContext* Context);
 };

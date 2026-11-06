@@ -38,13 +38,18 @@ StellarEraPlanet  ─→ Voxel（Public），无其它项目依赖
 ```
 Source/
 ├── StellarEra/            主游戏模块（primary game module）：GameMode / PlayerController
-├── StellarEraPlanet/      世界：Src/{Terrain,Surface,Invokers,Atmosphere,Minerals,Edit}/
+│                          Src/Input/ 聚合三张 Pawn 动作表（控制器自己一条输入都不绑）
+├── StellarEraPlanet/      世界：Src/{Terrain,Hydrology,Water,Surface,Invokers,Atmosphere,
+│                                     Minerals,Edit,Sky,Star}/
 │                          Minerals 内：Geology（再含 Distributions）/ Surface / View
 │                          Invokers 里还有 IVoxelViewpointInvokers（三个 Pawn 与控制器共用）
-├── StellarEraPawns/       受控实体：Src/{Character,Spaceship,StarMap}/（StarMap 是星图相机）
+│                          Edit 里有 PlanetEditUI（编辑按钮布局，HUD 与两个 Pawn 共用）
+├── StellarEraPawns/       受控实体：Src/{Character,Spaceship,StarMap}/
+│                          各功能面再分 Input/（输入组件 + 动作表），Character 还有 Animations/
+│                          StarMap 内：相机 Pawn + StarMapPanelLayout / StarMapPicking
 ├── StellarEraCosmos/      N 体求解器 + 单位类型（CosmosTypes）+ 天体接口（CosmosBody）
 │                          + 编排（子系统 / 轨道组件 / 轨迹组件）
-└── StellarEraUI/          HUD、星图面板、矿物图例、编辑按钮布局
+└── StellarEraUI/          HUD、星图面板、矿物图例
 Plugins/
 ├── VoxelFree/          第三方体素插件，勿改
 └── VibeUE/             第三方编辑器 AI 工具，勿改
@@ -106,7 +111,8 @@ Character/Spaceship → Pawns），历史类路径由 `Config/DefaultEngine.ini`
 **项目自研代码现在没有 L0，最底层就是 `StellarEraPlanet`。**
 
 最多三级（`Src/功能域/子目录/文件`）—— 全项目只有 `Minerals/Geology/Distributions/`
-这一处三级；`Edit/` 12 个、`UI/Src` 7 个仍在阈值内，保持平铺。
+这一处三级；Pawns 的 `Character|Spaceship|StarMap/Input/` 与 `Character/Animations/`
+是二级。`Edit/` 14 个、`UI/Src` 5 个仍在阈值内，保持平铺。
 判据写在 `Source/README.md` 的「什么时候该建子目录」。
 
 `AStarMapCameraPawn` 现在在 `StellarEraPawns/Src/StarMap/`：Cosmos 抽出

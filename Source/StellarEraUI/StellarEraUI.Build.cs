@@ -3,8 +3,10 @@
 using System.IO;
 using UnrealBuildTool;
 
-// 界面层：HUD、星图面板、矿物图例、编辑按钮布局。
+// 界面层：HUD、星图面板、矿物图例。
 // .h 与 .cpp 同目录并列在 Src/ 下，测试在 Src/Tests。
+// 编辑按钮布局（PlanetEditUI）已搬到 StellarEraPlanet/Src/Edit/，本模块只消费它 ——
+// HUD 绘制与两个 Pawn 的鼠标命中共用同一份几何。
 //
 // 这是唯一允许同时依赖多个功能模块的模块。反向依赖一律禁止：
 // 功能模块不得 include 本模块的头。
@@ -58,11 +60,17 @@ public class StellarEraUI : ModuleRules
 			//  公开头且实现 IVoxelViewpointInvokers；相机搬进 Pawns/Src/StarMap/ 后
 			//  这个理由不再成立。）
 			"StellarEraPlanet",
+
+			// 本模块的两个公开头直接 include 了 Pawns 的头：
+			//   StarMapUISystem.h → StarMapPanelLayout.h（面板几何，绘制与命中共用）
+			//   StellarEraHUD.h   → StellarEraNoticeSink.h（HUD 实现提示接口）
+			// 按「公开头里 include 了对方才算 Public」的判据，这条边必须是 Public，
+			// 否则只依赖 UI 的下游模块 include 这两个头时会 C1083。
+			"StellarEraPawns",
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			"StellarEraPawns",    // 角色 / 飞船 / 星图相机
 			"StellarEraCosmos",   // 选中天体、轨迹、星图状态、CosmosTypes 的枚举
 			// 地质场与元素类型（StarMapUISystem.cpp 直接用）随矿物并入 Planet，
 			// 不再单独依赖 StellarEraGeology。

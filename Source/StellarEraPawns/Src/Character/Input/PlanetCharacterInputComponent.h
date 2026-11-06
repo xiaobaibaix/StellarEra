@@ -8,6 +8,7 @@
 #include "PlanetCharacterInputComponent.generated.h"
 
 class APlanetCharacter;
+class APlayerController;
 class UInputComponent;
 class UPlanetEditComponent;
 struct FInputActionValue;
@@ -60,6 +61,26 @@ private:
 
 	/** `[` / `]`：编辑模式下调笔刷尺寸（±1，按住 Ctrl ×10）。非编辑模式下无反应。 */
 	void OnBrushSize(const FInputActionValue& Value);
+
+	/**
+	 * 左键按下：只服务编辑（笔刷按钮 + 挖掘）。角色没有星图选择逻辑。
+	 *
+	 * 用的是角色表自己那条 `EditPrimary`，不是星图相机那条 `StarMapSelect` ——
+	 * 同一个按键，两边语义不同，各造各的动作。
+	 */
+	void OnEditPrimary(const FInputActionValue& Value);
+
+	/** M：进星图。换 Possess 的实现住在控制器，经 IStellarEraSessionCommands 转发。 */
+	void OnStarMapToggle(const FInputActionValue& Value);
+
+	/** E：登船。实现同样在控制器上。 */
+	void OnInteract(const FInputActionValue& Value);
+
+	/** 缓存的玩家控制器；拿不到时为空。 */
+	APlayerController* GetPlayerController() const;
+
+	/** 弹一条提示（HUD 在下游模块，只能走 IStellarEraNoticeSink）。 */
+	void ShowNotice(const FString& Text) const;
 
 	/** 当前打开的编辑组件；不在编辑模式、或蓝图没挂组件时为空。 */
 	UPlanetEditComponent* GetEditComponentInEditMode() const;

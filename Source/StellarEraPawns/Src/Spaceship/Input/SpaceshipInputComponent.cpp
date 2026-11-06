@@ -6,8 +6,10 @@
 #include "GameFramework/HUD.h"
 #include "GameFramework/PlayerController.h"
 #include "InputActionValue.h"
+#include "SessionCommands.h"
+#include "SpaceshipInputActions.h"
 #include "SpaceshipPawn.h"
-#include "StellarEraInputActions.h"
+#include "StellarEraInputSource.h"
 #include "StellarEraNoticeSink.h"
 
 ASpaceshipPawn* USpaceshipInputComponent::GetPawn() const
@@ -32,7 +34,8 @@ void USpaceshipInputComponent::Bind(UInputComponent* PlayerInputComponent)
 	}
 
 	// 只取飞船自己那张表：别的 Pawn 的动作不归这里管，也就不可能绑错。
-	const FSpaceshipInputActions& Input = Source->GetStellarEraInputActions().Ship;
+	// E / M 也在这张表里 —— 飞船这边 E 是离船。
+	const FSpaceshipInputActions& Input = Source->GetSpaceshipInputActions();
 
 	EnhancedInput->BindAction(Input.Look, ETriggerEvent::Triggered, this, &USpaceshipInputComponent::OnLookInput);
 	EnhancedInput->BindAction(Input.Thrust, ETriggerEvent::Triggered, this, &USpaceshipInputComponent::OnThrustInput);
@@ -50,6 +53,10 @@ void USpaceshipInputComponent::Bind(UInputComponent* PlayerInputComponent)
 
 	// 只绑 Triggered：滚轮每格是一次独立冲量，不滚就不产生值，没有 Completed 可收。
 	EnhancedInput->BindAction(Input.Zoom, ETriggerEvent::Triggered, this, &USpaceshipInputComponent::OnZoomInput);
+
+	// M 进星图、E 离船：两条都在飞船表里，由飞船自己接。
+	EnhancedInput->BindAction(Input.StarMapToggle, ETriggerEvent::Started, this, &USpaceshipInputComponent::OnStarMapToggle);
+	EnhancedInput->BindAction(Input.Interact, ETriggerEvent::Started, this, &USpaceshipInputComponent::OnInteract);
 
 	// 绑定成功也给一条 Verbose：「没报错」不等于「绑上了」，无头跑时用它当正证据。
 	UE_LOG(LogTemp, Verbose, TEXT("[Input] ASpaceshipPawn(%s) 已绑定飞船输入"), *Pawn->GetName());
@@ -161,6 +168,29 @@ void USpaceshipInputComponent::OnZoomInput(const FInputActionValue& Value)
 	}
 
 	Pawn->AddZoom(Value.Get<float>());
+}
+
+void USpaceshipInputComponent::OnStarMapToggle(const FInputActionValue& Value)
+{
+	// 换 Possess 的实现住在控制器（Game 模块，本模块看不到），走接口转发。
+	// 方向由控制器按「当前 Possess 的是不是星图相机」判定。
+	ASpaceshipPawn* Pawn = GetPawn();
+	AController* Controller = Pawn ? Pawn->GetController() : nullptr;
+	if (IStellarEraSessionCommands* Commands = Cast<IStellarEraSessionCommands>(Controller))
+	{
+		Commands->ToggleStarMap();
+	}
+}
+
+void USpaceshipInputComponent::OnInteract(const FInputActionValue& Value)
+{
+	// 登船 / 离船的判定（落地、最近飞船、距离）住在控制器里。
+	ASpaceshipPawn* Pawn = GetPawn();
+	AController* Controller = Pawn ? Pawn->GetController() : nullptr;
+	if (IStellarEraSessionCommands* Commands = Cast<IStellarEraSessionCommands>(Controller))
+	{
+		Commands->InteractWithShip();
+	}
 }
 
 void USpaceshipInputComponent::ShowNotice(const FString& Text) const

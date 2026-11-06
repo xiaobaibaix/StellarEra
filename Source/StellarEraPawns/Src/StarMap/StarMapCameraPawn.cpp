@@ -3,11 +3,14 @@
 #include "StarMapCameraPawn.h"
 
 #include "Camera/CameraComponent.h"
+#include "Components/ChildActorComponent.h"
 #include "CosmosSimulationSubsystem.h"
 #include "Engine/World.h"
+#include "PlanetCharacter.h"
 #include "PlanetEditComponent.h"
 #include "PlanetMineralViewComponent.h"
 #include "PlanetSurfaceRay.h"
+#include "SpaceshipPawn.h"
 #include "StarMapCameraInputComponent.h"
 #include "VoxelPlanetActor.h"
 #include "AlwaysLocalVoxelInvokerComponent.h"
@@ -875,6 +878,98 @@ AActor* AStarMapCameraPawn::PickBodyAtScreenPosition(
 	}
 
 	return Best;
+}
+
+bool AStarMapCameraPawn::HasStarMapCamera(const AActor* Body)
+{
+	// 与 ResolvePlanetStarMapCamera 同一个解析顺序（先 CAC、再附加关系），
+	// 免得「点得中」与「取得到相机」两套判据互相矛盾。
+	return FindChildStarMapCamera(Body) != nullptr
+		|| FindAttachedStarMapCamera(Body) != nullptr;
+}
+
+AVoxelPlanetActor* AStarMapCameraPawn::ResolveReferencePlanet(const APawn* EnteringPawn)
+{
+	if (!EnteringPawn)
+	{
+		return nullptr;
+	}
+
+	// 驾驶中：飞船的参考行星由 CosmosSimulationSubsystem 每帧维护（最近的行星），
+	// 是「玩家心中的当前行星」的权威来源，不要在这里重新算一遍距离。
+	if (const ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(EnteringPawn))
+	{
+		return Ship->GetPlanetActor();
+	}
+
+	// 步行：角色的 PlanetActor 由它自己的重评定时器维护（ReevaluatePlanet）。
+	// 深空里两者都可能为空 —— 那就退回单例相机，见 ToggleStarMap 进入分支。
+	if (const APlanetCharacter* Character = Cast<APlanetCharacter>(EnteringPawn))
+	{
+		return Character->PlanetActor;
+	}
+
+	return nullptr;
+}
+
+AStarMapCameraPawn* AStarMapCameraPawn::FindChildStarMapCamera(const AActor* PlanetOwner)
+{
+	if (!PlanetOwner)
+	{
+		return nullptr;
+	}
+
+	// 只扫 CAC 的「已创建子 Actor」。GetChildActor() 在组件注册后才有值；
+	// CDO / 未实例化的模板上恒为空 —— FindChildStarMapCamera(CDO) 返回空是预期行为。
+	//
+	// 用 AActor::GetComponents<T>（C++ 口径），不是 GetComponentsByClass ——
+	// 后者在 5.8 里只有蓝图包装 K2_GetComponentsByClass，C++ 直接调不到。
+	TArray<UChildActorComponent*> ChildActorComponents;
+	PlanetOwner->GetComponents<UChildActorComponent>(ChildActorComponents);
+	for (UChildActorComponent* ChildActorComponent : ChildActorComponents)
+	{
+		if (AStarMapCameraPawn* Camera = Cast<AStarMapCameraPawn>(ChildActorComponent->GetChildActor()))
+		{
+			return Camera;
+		}
+	}
+	return nullptr;
+}
+
+AStarMapCameraPawn* AStarMapCameraPawn::FindAttachedStarMapCamera(const AActor* PlanetOwner)
+{
+	if (!PlanetOwner)
+	{
+		return nullptr;
+	}
+
+	// 兜底路径：相机是关卡里的独立 Actor、手动 Attach 到星球（UniverseMap 里
+	// 现存的 3 台就是这种）。CAC 的子 Actor 也会 Attach 到宿主，所以 CAC 相机
+	// 在这里同样能被取到 —— 也就是说这条路对两种摆法都成立，只是让位给 CAC 扫描。
+	//
+	// 不递归：只认直接挂在星球上的第一层，避免行星的其它挂载物（飞船、角色、
+	// 后续的采矿平台）里再藏一台相机时被误取。
+	TArray<AActor*> AttachedActors;
+	PlanetOwner->GetAttachedActors(AttachedActors, /*bResetArray=*/true,
+		/*bRecursivelyIncludeAttachedActors=*/false);
+	for (AActor* AttachedActor : AttachedActors)
+	{
+		if (AStarMapCameraPawn* Camera = Cast<AStarMapCameraPawn>(AttachedActor))
+		{
+			return Camera;
+		}
+	}
+	return nullptr;
+}
+
+AStarMapCameraPawn* AStarMapCameraPawn::ResolvePlanetStarMapCamera(const APawn* EnteringPawn)
+{
+	const AActor* PlanetOwner = ResolveReferencePlanet(EnteringPawn);
+	if (AStarMapCameraPawn* ChildCamera = FindChildStarMapCamera(PlanetOwner))
+	{
+		return ChildCamera;
+	}
+	return FindAttachedStarMapCamera(PlanetOwner);
 }
 
 double AStarMapCameraPawn::SilhouetteRadiusScale(double CameraDistanceCm, double BodyRadiusCm)

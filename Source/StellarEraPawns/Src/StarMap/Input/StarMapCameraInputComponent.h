@@ -8,6 +8,7 @@
 #include "UObject/Interface.h"
 #include "StarMapCameraInputComponent.generated.h"
 
+class APlayerController;
 class AStarMapCameraPawn;
 class UInputComponent;
 class UPlanetEditComponent;
@@ -34,23 +35,20 @@ class UStarMapLookContext : public UInterface
 };
 
 /**
- * 星图相机需要控制器配合的两件事：查询选择状态、弹失败提示。
+ * 星图相机需要控制器配合的一件事：把提示弹到屏幕上。
  *
- * 左键按住的选择逻辑在控制器（图例面板也在那边）；相机没有 HUD，矿物透视
- * 进不去时的提示只能经控制器转出去。组件住 StellarEraPawns、控制器住
- * StellarEra，直接 include 会反向依赖 Game 模块。做法照 ICosmosBody：
- * 游戏模块单向依赖 Pawns，实现放控制器上。
+ * 相机没有 HUD，矿物透视进不去时的提示只能经控制器转出去。组件住
+ * StellarEraPawns、控制器住 StellarEra，直接 include 会反向依赖 Game 模块。
+ * 做法照 ICosmosBody：游戏模块单向依赖 Pawns，实现放控制器上。
  *
- * 编辑模式、连续挖、矿物透视是否激活都直接从相机 Pawn 自己读，不绕控制器。
+ * 左键是否按住、编辑模式、连续挖、矿物透视是否激活都直接从本组件 / 相机 Pawn
+ * 自己读，不绕控制器。
  */
 class STELLARERAPAWNS_API IStarMapLookContext
 {
 	GENERATED_BODY()
 
 public:
-	/** 星图里左键是否按住（选择用的按下 / 拖拽判定）。 */
-	virtual bool IsStarMapSelectHeld() const = 0;
-
 	/** 在屏幕上弹一条带时长的提示。相机没有 HUD，用它报「进不了矿物透视」的原因。 */
 	virtual void ShowStarMapPrompt(const FString& Text, float Seconds) = 0;
 };
@@ -132,9 +130,34 @@ private:
 	/** 数字键 0：全部打开。 */
 	void OnMineralShowAll(const FInputActionValue& Value);
 
+	/**
+	 * 左键按下：按钮 → 笔刷操作 → 记录按下位置预备拾取。
+	 *
+	 * 按下与松开的位移区分「点选天体」与「拖拽转视角」，见 OnStarMapSelectCompleted。
+	 */
+	void OnStarMapSelectStarted(const FInputActionValue& Value);
+
+	/** 左键松开：位移没超阈值就拾取鼠标下的天体（再点一次取消选中）。 */
+	void OnStarMapSelectCompleted(const FInputActionValue& Value);
+
+	/** M：进 / 出星图。真正换 Possess 的实现住在控制器，经 IStellarEraSessionCommands 转发。 */
+	void OnStarMapToggle(const FInputActionValue& Value);
+
+	/** 缓存的玩家控制器；拿不到时为空。 */
+	APlayerController* GetPlayerController() const;
+
+	/** 弹一条提示（HUD 在下游模块，只能走 IStellarEraNoticeSink）。 */
+	void ShowNotice(const FString& Text) const;
+
 	/** 右键是否按住（Aim 转头）。 */
 	bool bLookHeld = false;
 
 	/** 中键是否按住（编辑 / 矿物透视下借用左键的绕行）。 */
 	bool bMiddleHeld = false;
+
+	/** 左键是否按住。选择逻辑与视角分派都读它（不再绕控制器查询）。 */
+	bool bSelectHeld = false;
+
+	/** 左键按下的屏幕位置（像素），松开时算位移判点击 / 拖拽。 */
+	FVector2D SelectPressPosition = FVector2D::ZeroVector;
 };

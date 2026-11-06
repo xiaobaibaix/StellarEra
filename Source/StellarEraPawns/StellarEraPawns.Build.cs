@@ -61,9 +61,9 @@ public class StellarEraPawns : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			// 角色 / 飞船 / 星图相机各有自己的输入组件：从控制器给的
-			// FStellarEraInputActions 里取动作，再绑到各自的回调上；
-			// Pawn 的 SetupPlayerInputComponent 只做转发。
+			// 角色 / 飞船 / 星图相机各有自己的输入组件：经 IStellarEraInputSource
+			// 取自己那张表的动作，再绑到各自的回调上；Pawn 的
+			// SetupPlayerInputComponent 只做转发。
 			// 只有 .cpp 用到 EnhancedInput 的类型，公开头只前置声明 UInputAction，
 			// 所以是私有依赖。
 			"EnhancedInput",

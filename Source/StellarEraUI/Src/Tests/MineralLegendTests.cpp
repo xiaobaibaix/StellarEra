@@ -3,6 +3,7 @@
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
+#include "StarMapPanelLayout.h"
 #include "StarMapUISystem.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -14,7 +15,7 @@ namespace MineralLegendTest
 	void BuildLayout(FStarMapPanelRect& OutPanel, TArray<FStarMapPanelRect>& OutRows,
 		int32 Entries = EntryCount)
 	{
-		UStarMapUISystem::ComputeMineralLegendLayout(
+		StarMapPanelLayout::ComputeMineralLegendLayout(
 			FVector2D(1920.f, 1080.f), Entries, OutPanel, OutRows);
 	}
 }
@@ -74,24 +75,24 @@ bool FMineralLegendHitTestTest::RunTest(const FString& Parameters)
 
 	const FVector2D RowCenter(Rows[1].X + Rows[1].W * 0.5f, Rows[1].Y + Rows[1].H * 0.5f);
 	TestEqual(TEXT("行中心命中该行"),
-		UStarMapUISystem::HitTestMineralLegendRow(Rows, RowCenter), 1);
+		StarMapPanelLayout::HitTestMineralLegendRow(Rows, RowCenter), 1);
 
 	const FVector2D FirstRowCenter(Rows[0].X + Rows[0].W * 0.5f, Rows[0].Y + Rows[0].H * 0.5f);
 	TestEqual(TEXT("第一行中心命中第一行"),
-		UStarMapUISystem::HitTestMineralLegendRow(Rows, FirstRowCenter), 0);
+		StarMapPanelLayout::HitTestMineralLegendRow(Rows, FirstRowCenter), 0);
 
 	// 面板右侧之外：不能命中任何行。
 	TestEqual(TEXT("面板外不命中"),
-		UStarMapUISystem::HitTestMineralLegendRow(Rows,
+		StarMapPanelLayout::HitTestMineralLegendRow(Rows,
 			FVector2D(Panel.X + Panel.W + 5.f, RowCenter.Y)), INDEX_NONE);
 
 	// 两行的接缝（上行的下沿 / 下行的上沿）：留了 HitInsetY 缩进，哪一行都不算。
 	const FVector2D Seam(RowCenter.X, Rows[1].Y);
 	TestEqual(TEXT("行接缝不命中"),
-		UStarMapUISystem::HitTestMineralLegendRow(Rows, Seam), INDEX_NONE);
+		StarMapPanelLayout::HitTestMineralLegendRow(Rows, Seam), INDEX_NONE);
 
 	TestEqual(TEXT("空矩形表返回 INDEX_NONE"),
-		UStarMapUISystem::HitTestMineralLegendRow(
+		StarMapPanelLayout::HitTestMineralLegendRow(
 			TArray<FStarMapPanelRect>(), RowCenter), INDEX_NONE);
 
 	return true;

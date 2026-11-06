@@ -7,21 +7,18 @@
 #include "StarMapUISystem.h"
 #include "PlanetEditBrush.h"
 #include "PlanetEditComponent.h"
-#include "PlanetEditUI.h"
 #include "SpaceshipPawn.h"
 #include "StellarEraHUD.h"
 #include "CosmosSimulationSubsystem.h"
 #include "StarMapCameraPawn.h"
+#include "StarMapPicking.h"
 #include "VoxelPlanetActor.h"
 #include "VoxelViewpointInvokers.h"
-#include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
-#include "InputActionValue.h"
 #include "Engine/Engine.h"
 #include "Camera/PlayerCameraManager.h"
 #include "GameFramework/GameModeBase.h"
 #include "TimerManager.h"
-#include "Components/ChildActorComponent.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/LocalPlayer.h"
 #include "EngineUtils.h"
@@ -85,40 +82,12 @@ AStellarEraPlayerController::AStellarEraPlayerController()
 	}
 }
 
-void AStellarEraPlayerController::SetupInputComponent()
-{
-	Super::SetupInputComponent();
-
-	Input.Build(this);
-
-	UEnhancedInputComponent* EnhancedInput = Cast<UEnhancedInputComponent>(InputComponent);
-	if (!EnhancedInput)
-	{
-		UE_LOG(LogTemp, Error,
-			TEXT("AStellarEraPlayerController: InputComponent 不是 UEnhancedInputComponent，"
-				 "请检查 Config/DefaultInput.ini 的 DefaultInputComponentClass。"));
-		return;
-	}
-
-	// 角色 / 飞船 / 星图相机的移动、视角、推力、编辑、笔刷、矿物透视由各自的 Pawn
-	// 在自己的 SetupPlayerInputComponent 里绑定；这里只留控制器自己的那几条 ——
-	// 上下船、星图开关与**选择**，即 Input.Controller 那一张表。
-	EnhancedInput->BindAction(Input.Controller.StarMapToggle, ETriggerEvent::Started,
-		this, &AStellarEraPlayerController::ToggleStarMap);
-	EnhancedInput->BindAction(Input.Controller.StarMapSelect, ETriggerEvent::Started,
-		this, &AStellarEraPlayerController::OnStarMapSelectStarted);
-	EnhancedInput->BindAction(Input.Controller.StarMapSelect, ETriggerEvent::Completed,
-		this, &AStellarEraPlayerController::OnStarMapSelectCompleted);
-
-	EnhancedInput->BindAction(Input.Controller.Interact, ETriggerEvent::Started,
-		this, &AStellarEraPlayerController::OnInteract);
-}
-
 void AStellarEraPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// SetupInputComponent 通常先于 BeginPlay 跑完，但这里再兜一次底。
+	// 动作资产在 BeginPlay 构造好再塞 IMC；Pawn 的 SetupPlayerInputComponent
+	// 若更早来取，三个 getter 自己也会 Build（幂等）。
 	Input.Build(this);
 
 	if (UEnhancedInputLocalPlayerSubsystem* Subsystem =
@@ -128,12 +97,24 @@ void AStellarEraPlayerController::BeginPlay()
 	}
 }
 
-const FStellarEraInputActions& AStellarEraPlayerController::GetStellarEraInputActions()
+const FPlanetCharacterInputActions& AStellarEraPlayerController::GetPlanetCharacterInputActions()
 {
-	// 幂等：Pawn 的 SetupPlayerInputComponent 可能需要它，而那个时机不一定晚于
-	// 本类的 SetupInputComponent —— Build 在这里再兜一次（已构造就直接返回）。
+	// 幂等：Pawn 的 SetupPlayerInputComponent 可能早于本类 BeginPlay 来取，
+	// Build 在这里兜底（已构造就直接返回）。
 	Input.Build(this);
-	return Input;
+	return Input.Character;
+}
+
+const FSpaceshipInputActions& AStellarEraPlayerController::GetSpaceshipInputActions()
+{
+	Input.Build(this);
+	return Input.Ship;
+}
+
+const FStarMapCameraInputActions& AStellarEraPlayerController::GetStarMapCameraInputActions()
+{
+	Input.Build(this);
+	return Input.StarMap;
 }
 
 void AStellarEraPlayerController::OnPossess(APawn* InPawn)
@@ -181,10 +162,8 @@ void AStellarEraPlayerController::ApplyViewpointInvokerGate(
 
 void AStellarEraPlayerController::ApplyMouseModeForPawn(APawn* InPawn)
 {
-	// 换 Pawn 时把「左键按住」标志清零：按着键登船 / 离船 / 进星图的话，松开事件
-	// 会送到新 Pawn 身上，标志就永远停在 true，星图里没按左键也在转视角。
-	// 视角那两个标志（右键 / 中键）归 UStarMapCameraInputComponent，它在 Bind 时自己清。
-	bStarMapSelectHeld = false;
+	// 输入状态（左键 / 右键 / 中键）全归各 Pawn 的输入组件，它们在 Bind 时自己清零 ——
+	// 换 Pawn 时松开事件会送到新 Pawn 身上，不归本类管了。
 
 	const bool bWalking = Cast<APlanetCharacter>(InPawn) != nullptr;
 	const bool bStarMap = Cast<AStarMapCameraPawn>(InPawn) != nullptr;
@@ -254,11 +233,6 @@ UPlanetEditComponent* AStellarEraPlayerController::GetEditComponentInEditMode() 
 {
 	UPlanetEditComponent* Edit = GetEditComponentForPawn(GetPawn());
 	return Edit && Edit->IsEditMode() ? Edit : nullptr;
-}
-
-bool AStellarEraPlayerController::IsStarMapSelectHeld() const
-{
-	return bStarMapSelectHeld;
 }
 
 UPlanetMineralViewComponent* AStellarEraPlayerController::GetActiveMineralView() const
@@ -398,7 +372,7 @@ void AStellarEraPlayerController::PlayerTick(float DeltaTime)
 	// 看起来就是调试输出，而且和星图自己的 UI 重复。操作说明归星图 UI 管。
 }
 
-void AStellarEraPlayerController::OnInteract(const FInputActionValue& Value)
+void AStellarEraPlayerController::InteractWithShip()
 {
 	if (APlanetCharacter* PawnCharacter = Cast<APlanetCharacter>(GetPawn()))
 	{
@@ -529,101 +503,6 @@ APlanetCharacter* AStellarEraPlayerController::SpawnCrewCharacter(ASpaceshipPawn
 	return SpawnedCharacter;
 }
 
-bool AStellarEraPlayerController::HasStarMapCamera(const AActor* Body)
-{
-	// 与 ResolvePlanetStarMapCamera 同一个解析顺序（先 CAC、再附加关系），
-	// 免得「点得中」与「取得到相机」两套判据互相矛盾。
-	return FindChildStarMapCamera(Body) != nullptr
-		|| FindAttachedStarMapCamera(Body) != nullptr;
-}
-
-AVoxelPlanetActor* AStellarEraPlayerController::ResolveReferencePlanet(const APawn* EnteringPawn)
-{
-	if (!EnteringPawn)
-	{
-		return nullptr;
-	}
-
-	// 驾驶中：飞船的参考行星由 CosmosSimulationSubsystem 每帧维护（最近的行星），
-	// 是「玩家心中的当前行星」的权威来源，不要在这里重新算一遍距离。
-	if (const ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(EnteringPawn))
-	{
-		return Ship->GetPlanetActor();
-	}
-
-	// 步行：角色的 PlanetActor 由它自己的重评定时器维护（ReevaluatePlanet）。
-	// 深空里两者都可能为空 —— 那就退回单例相机，见 ToggleStarMap 进入分支。
-	if (const APlanetCharacter* Character = Cast<APlanetCharacter>(EnteringPawn))
-	{
-		return Character->PlanetActor;
-	}
-
-	return nullptr;
-}
-
-AStarMapCameraPawn* AStellarEraPlayerController::FindChildStarMapCamera(const AActor* PlanetOwner)
-{
-	if (!PlanetOwner)
-	{
-		return nullptr;
-	}
-
-	// 只扫 CAC 的「已创建子 Actor」。GetChildActor() 在组件注册后才有值；
-	// CDO / 未实例化的模板上恒为空 —— FindChildStarMapCamera(CDO) 返回空是预期行为。
-	//
-	// 用 AActor::GetComponents<T>（C++ 口径），不是 GetComponentsByClass ——
-	// 后者在 5.8 里只有蓝图包装 K2_GetComponentsByClass，C++ 直接调不到。
-	TArray<UChildActorComponent*> ChildActorComponents;
-	PlanetOwner->GetComponents<UChildActorComponent>(ChildActorComponents);
-	for (UChildActorComponent* ChildActorComponent : ChildActorComponents)
-	{
-		if (AStarMapCameraPawn* Camera = Cast<AStarMapCameraPawn>(ChildActorComponent->GetChildActor()))
-		{
-			return Camera;
-		}
-	}
-	return nullptr;
-}
-
-AStarMapCameraPawn* AStellarEraPlayerController::FindAttachedStarMapCamera(const AActor* PlanetOwner)
-{
-	if (!PlanetOwner)
-	{
-		return nullptr;
-	}
-
-	// 兜底路径：相机是关卡里的独立 Actor、手动 Attach 到星球（UniverseMap 里
-	// 现存的 3 台就是这种）。CAC 的子 Actor 也会 Attach 到宿主，所以 CAC 相机
-	// 在这里同样能被取到 —— 也就是说这条路对两种摆法都成立，只是让位给 CAC 扫描。
-	//
-	// 不递归：只认直接挂在星球上的第一层，避免行星的其它挂载物（飞船、角色、
-	// 后续的采矿平台）里再藏一台相机时被误取。
-	TArray<AActor*> AttachedActors;
-	PlanetOwner->GetAttachedActors(AttachedActors, /*bResetArray=*/true,
-		/*bRecursivelyIncludeAttachedActors=*/false);
-	for (AActor* AttachedActor : AttachedActors)
-	{
-		if (AStarMapCameraPawn* Camera = Cast<AStarMapCameraPawn>(AttachedActor))
-		{
-			return Camera;
-		}
-	}
-	return nullptr;
-}
-
-AStarMapCameraPawn* AStellarEraPlayerController::ResolvePlanetStarMapCamera(const APawn* EnteringPawn)
-{
-	const AActor* PlanetOwner = ResolveReferencePlanet(EnteringPawn);
-	if (AStarMapCameraPawn* ChildCamera = FindChildStarMapCamera(PlanetOwner))
-	{
-		return ChildCamera;
-	}
-	return FindAttachedStarMapCamera(PlanetOwner);
-}
-
-/** 天体的世界半径（厘米）。定义在拾取那一节，这里先声明 —— 进场聚焦要用。 */
-static double ResolveBodyRadiusCm(const AActor* Body);
-
 void AStellarEraPlayerController::ToggleStarMap()
 {
 	AStarMapCameraPawn* CurrentStarMapPawn = Cast<AStarMapCameraPawn>(GetPawn());
@@ -723,7 +602,7 @@ void AStellarEraPlayerController::ToggleStarMap()
 	}
 
 	// ── 进入 ──
-	// 进入前的 Pawn 先记下：决定用哪台相机（ResolvePlanetStarMapCamera），
+	// 进入前的 Pawn 先记下：决定用哪台相机（AStarMapCameraPawn::ResolvePlanetStarMapCamera），
 	// 也是「深空退路」里挑最近焦点天体的原点。原来这行写在 EnterFrom 之后，
 	// 现在提前 —— EnterFrom 与选相机都不改 GetPawn()，语义不变、依赖先满足。
 	PreviousPawn = GetPawn();
@@ -733,7 +612,8 @@ void AStellarEraPlayerController::ToggleStarMap()
 	// 组合，参数（缩放步长 / 高度区间 / 最大距离）按星球在组件细节面板里配。
 	// 找得到就用它；找不到（行星没挂 CAC、或从深空进图）退回下面的懒创建单例，
 	// 行为与旧版完全一致 —— 所以没挂 CAC 的存量关卡不用改也能跑。
-	AStarMapCameraPawn* CameraToUse = ResolvePlanetStarMapCamera(PreviousPawn.Get());
+	AStarMapCameraPawn* CameraToUse =
+		AStarMapCameraPawn::ResolvePlanetStarMapCamera(PreviousPawn.Get());
 	if (!CameraToUse)
 	{
 		if (!StarMapPawn)
@@ -794,7 +674,7 @@ void AStellarEraPlayerController::ToggleStarMap()
 			: CameraToUse->GetActorLocation();
 		for (AActor* Body : Bodies)
 		{
-			if (!HasStarMapCamera(Body))
+			if (!AStarMapCameraPawn::HasStarMapCamera(Body))
 			{
 				continue;
 			}
@@ -823,7 +703,7 @@ void AStellarEraPlayerController::ToggleStarMap()
 		Subsystem->SetSelectedBody(FocusBody);
 		CameraToUse->FocusOn(
 			FocusBody,
-			CameraToUse->GetPlanetFocusRadiusScale() * ResolveBodyRadiusCm(FocusBody));
+			CameraToUse->GetPlanetFocusRadiusScale() * StarMapPicking::GetBodyRadiusCm(FocusBody));
 	}
 }
 
@@ -849,275 +729,11 @@ void AStellarEraPlayerController::FinishStarMapExit(APawn* ReturnPawn)
 	}
 }
 
-void AStellarEraPlayerController::OnStarMapSelectStarted(const FInputActionValue& Value)
-{
-	// 编辑模式（角色或星图）：按钮优先，其次一次笔刷操作。按钮命中不能顺带挖到脚下的地形。
-	// 矿物透视激活期间左键归图例：短路编辑分支，否则左键会挖/填体素。
-	UPlanetEditComponent* Edit = GetActiveMineralView() ? nullptr : GetEditComponentInEditMode();
-	if (Edit)
-	{
-		double MouseX = 0.0;
-		double MouseY = 0.0;
-		if (!GetMousePosition(MouseX, MouseY))
-		{
-			return;
-		}
-		const FVector2D MousePosition(MouseX, MouseY);
-
-		// AHUD::Canvas 只在 PostRender 期间有效（HUD.h 里写明 "Only valid during
-		// PostRender() event"），而输入回调跑在 tick 里 —— 问 HUD 要视口尺寸永远
-		// 拿到 (0,0)，按钮命中会全部落空。所以这里从控制器自己查视口。
-		// 绘制侧仍用 HUD 的 GetViewportSize()，那里 Canvas 是有效的。
-		int32 ViewportSizeX = 0;
-		int32 ViewportSizeY = 0;
-		GetViewportSize(ViewportSizeX, ViewportSizeY);
-		const FVector2D ViewportSize(
-			static_cast<float>(ViewportSizeX), static_cast<float>(ViewportSizeY));
-
-		AStellarEraHUD* StellarHUD = Cast<AStellarEraHUD>(GetHUD());
-
-		int32 ButtonIndex = INDEX_NONE;
-		if (ViewportSize.X > 0.0 && ViewportSize.Y > 0.0 &&
-			PlanetEditUI::HitTestBrushButton(ViewportSize, MousePosition, ButtonIndex))
-		{
-			const bool bSphere = ButtonIndex == 0;
-			Edit->SetBrushShape(bSphere ? EPlanetBrushShape::Sphere : EPlanetBrushShape::Cube);
-			if (StellarHUD)
-			{
-				StellarHUD->ShowNotice(bSphere ? TEXT("笔刷：球体") : TEXT("笔刷：正方体"));
-			}
-			return;
-		}
-
-		// 这次点击归不归编辑，由「射线打没打到行星」回答。不能用 DigAtScreenPosition
-		// 的返回值判断：打到了行星但没改到任何体素（比如往空气里挖）也会返回 false，
-		// 那一下就会漏到松开的选中逻辑里。
-		FPlanetEditTarget Target;
-		if (Edit->TryResolveTarget(MousePosition, Target))
-		{
-			// 星图：Shift+左键按住 = 连续挖（移动光标沿路径挖）；Ctrl+左键 = 填一次；
-			// 左键 = 挖一次。角色没有连续挖，也没把「填」挪到 Ctrl —— 仍是右键点放。
-			const bool bStarMap = Cast<AStarMapCameraPawn>(GetPawn()) != nullptr;
-			const bool bShift =
-				IsInputKeyDown(EKeys::LeftShift) || IsInputKeyDown(EKeys::RightShift);
-			const bool bCtrl =
-				IsInputKeyDown(EKeys::LeftControl) || IsInputKeyDown(EKeys::RightControl);
-
-			if (bStarMap && bShift)
-			{
-				// 按下先挖一次，之后交给组件的 Tick 节流。
-				Edit->SetContinuousDigging(true);
-				Edit->DigAtScreenPosition(MousePosition);
-			}
-			else if (bStarMap && bCtrl)
-			{
-				Edit->PlaceAtScreenPosition(MousePosition);
-			}
-			else
-			{
-				Edit->DigAtScreenPosition(MousePosition);
-			}
-			return;
-		}
-
-		// 星图编辑模式下左键只归挖掘 / 填充：连「按下的位置」都不记。
-		// 否则点在行星轮廓边上一圈（射线没打到地表，但落在拾取的像素半径内）时，
-		// 松开那一下会把当前聚焦的天体取消选中 —— 挖着挖着焦点就没了。
-		// 想换选中就退出编辑模式（G）。角色不走这里：它下面本来就没有选择逻辑。
-		if (Cast<AStarMapCameraPawn>(GetPawn()))
-		{
-			return;
-		}
-
-		// 没打到行星：星图继续走下面的「记录按下位置」，松开时照常拾取天体；
-		// 角色没有选择逻辑，会被下面的 `if (!Cast<AStarMapCameraPawn>(GetPawn())) return;`
-		// 接住 —— 与改动前一致。
-	}
-
-	if (!Cast<AStarMapCameraPawn>(GetPawn()))
-	{
-		return;
-	}
-
-	if (UPlanetMineralViewComponent* MineralView = GetActiveMineralView())
-	{
-		double MouseX = 0.0;
-		double MouseY = 0.0;
-		if (!GetMousePosition(MouseX, MouseY))
-		{
-			return;
-		}
-
-		// 与绘制同一份纯函数：视口尺寸从控制器查（Canvas 只在 PostRender 有效）。
-		int32 ViewportSizeX = 0;
-		int32 ViewportSizeY = 0;
-		GetViewportSize(ViewportSizeX, ViewportSizeY);
-		const FVector2D ViewportSize(
-			static_cast<float>(ViewportSizeX), static_cast<float>(ViewportSizeY));
-
-		FStarMapPanelRect Panel;
-		TArray<FStarMapPanelRect> RowRects;
-		UStarMapUISystem::ComputeMineralLegendLayout(
-			ViewportSize, MineralView->NumElements(), Panel, RowRects);
-
-		const int32 RowIndex = UStarMapUISystem::HitTestMineralLegendRow(
-			RowRects, FVector2D(MouseX, MouseY));
-		if (RowRects.IsValidIndex(RowIndex))
-		{
-			MineralView->ToggleElement(RowIndex);
-		}
-
-		// 观察模式下左键不再拾取天体，也不转视角（转视角归右键）。
-		return;
-	}
-
-	// 用 double 重载，是为了后面直接喂给 FVector2D（UE5 里是双精度）时少一次转换。
-	// **但精度上并不占便宜**：引擎那个重载（PlayerController.cpp:6186）内部就是
-	// `float X, Y; GetMousePosition(X, Y);` —— 先过 float 再展宽，真正决定精度的
-	// 是底层的 UGameViewportClient::GetMousePosition，两个重载拿到的是同一个值。
-	double MouseX = 0.0;
-	double MouseY = 0.0;
-	if (GetMousePosition(MouseX, MouseY))
-	{
-		StarMapPressPosition = FVector2D(MouseX, MouseY);
-		bStarMapSelectHeld = true;
-	}
-}
-
-void AStellarEraPlayerController::OnStarMapSelectCompleted(const FInputActionValue& Value)
-{
-	// 连续挖必须在所有早退之前关掉：按下时命中了行星走的是上面的「消费点击」
-	// 分支，bStarMapSelectHeld 没被置位，下面的早退会把它跳过。
-	// 按当前 Pawn 查组件不会漏：现有的每条退出路径（M、G、H、登船）都经过
-	// SetEditMode(false)，它会顺手清掉连挖标志（见 UPlanetEditComponent::SetEditMode）。
-	// 这不是穷举——新增退出路径时必须同样保证连挖被关掉，否则标志会残留到
-	// 下一次进编辑模式。
-	if (UPlanetEditComponent* Edit = GetEditComponentInEditMode())
-	{
-		Edit->SetContinuousDigging(false);
-
-		// 编辑模式下按下时不会记位置（Started 里直接返回），这里也不拾取：
-		// 挖矿期间左键只挖，焦点不该被点没。顺手清掉可能残留的标志 ——
-		// 进编辑模式前就按着的左键，松开时不该补一次选中切换。
-		if (Cast<AStarMapCameraPawn>(GetPawn()))
-		{
-			bStarMapSelectHeld = false;
-			return;
-		}
-	}
-
-	if (GetActiveMineralView())
-	{
-		// 观察模式下左键只用来点图例，松手不做任何事。
-		return;
-	}
-
-	if (!bStarMapSelectHeld)
-	{
-		return;
-	}
-	bStarMapSelectHeld = false;
-
-	if (!Cast<AStarMapCameraPawn>(GetPawn()))
-	{
-		return;
-	}
-
-	double MouseX = 0.0;
-	double MouseY = 0.0;
-	if (!GetMousePosition(MouseX, MouseY))
-	{
-		return;
-	}
-
-	// 按下与松开的位移大于阈值 → 这是「拖拽转视角」的收尾，不改选中。
-	const double MovedSq = FVector2D::DistSquared(
-		StarMapPressPosition, FVector2D(MouseX, MouseY));
-	if (MovedSq > StellarEraInput::ClickMoveThresholdPx * StellarEraInput::ClickMoveThresholdPx)
-	{
-		return;
-	}
-
-	// 点空白什么都不做（spec §5.2：取消选中会让相机停止跟随、丢失目标，
-	// 绑在误点很容易触发的动作上不划算）。要取消就明确地点回它自己。
-	AActor* Picked = PickBodyUnderScreenPosition(FVector2D(MouseX, MouseY));
-	if (!Picked)
-	{
-		return;
-	}
-
-	UCosmosSimulationSubsystem* Subsystem =
-		GetWorld() ? GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>() : nullptr;
-	if (!Subsystem)
-	{
-		return;
-	}
-
-	Subsystem->SetSelectedBody(
-		Subsystem->GetSelectedBody() == Picked ? nullptr : Picked);
-}
-
-/**
- * 天体的世界半径（厘米）。体素星球用它的地表半径；其它天体退回碰撞半径。
- * 取不到（非正）返回 0 —— 调用方按「没算出来」处理。
- */
-static double ResolveBodyRadiusCm(const AActor* Body)
-{
-	if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(Body))
-	{
-		return Planet->GetSurfaceRadiusCm();
-	}
-	return Body ? double(Body->GetSimpleCollisionRadius()) : 0.0;
-}
-
-bool AStellarEraPlayerController::MakeScreenCandidate(
-	AActor* Body, FStarMapScreenCandidate& Out) const
-{
-	Out = FStarMapScreenCandidate();
-	if (!IsValid(Body))
-	{
-		return false;
-	}
-
-	const FVector Center = Body->GetActorLocation();
-	if (!ProjectWorldLocationToScreen(Center, Out.ScreenPosition))
-	{
-		return false;
-	}
-
-	// 视线右向：算「与视线垂直」的半径必须用它，不能用固定世界轴。
-	FVector ViewLocation;
-	FRotator ViewRotation;
-	GetPlayerViewPoint(ViewLocation, ViewRotation);
-	const FVector ViewRight = FRotationMatrix(ViewRotation).GetUnitAxis(EAxis::Y);
-
-	// 盘面半径 = |投影(中心) − 投影(中心 + 右向 × 世界半径)|。
-	// 边缘点投不出来（越过后平面等）就留 0，退回固定像素容差。
-	const double WorldRadiusCm = ResolveBodyRadiusCm(Body);
-	if (WorldRadiusCm > 0.0)
-	{
-		FVector2D EdgePosition;
-		if (ProjectWorldLocationToScreen(Center + ViewRight * WorldRadiusCm, EdgePosition))
-		{
-			// 直接投影「中心 + 右向 × R」量到的是 f·R/d，比切线决定的真实轮廓半径
-			// 小一个 cos α（见 SilhouetteRadiusScale）。系数为 0 表示相机在球内
-			// 或贴着球面，此时留 0、退回固定像素容差。
-			const double CameraDistanceCm = FVector::Dist(ViewLocation, Center);
-			Out.ScreenRadiusPx = float(
-				FVector2D::Distance(Out.ScreenPosition, EdgePosition)
-				* AStarMapCameraPawn::SilhouetteRadiusScale(CameraDistanceCm, WorldRadiusCm));
-		}
-	}
-
-	Out.Actor = Body;
-	return true;
-}
-
 bool AStellarEraPlayerController::ProjectBodyToScreen(
 	AActor* Body, FVector2D& OutCenter, float& OutRadiusPx) const
 {
 	FStarMapScreenCandidate Candidate;
-	if (!MakeScreenCandidate(Body, Candidate))
+	if (!StarMapPicking::MakeScreenCandidate(this, Body, Candidate))
 	{
 		return false;
 	}
@@ -1142,39 +758,14 @@ bool AStellarEraPlayerController::GetStarMapMousePositionPx(FVector2D& OutPositi
 AActor* AStellarEraPlayerController::PickBodyUnderScreenPosition(
 	const FVector2D& ScreenPosition) const
 {
-	UCosmosSimulationSubsystem* Subsystem =
-		GetWorld() ? GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>() : nullptr;
-	if (!Subsystem)
-	{
-		return nullptr;
-	}
-
-	TArray<AActor*> Bodies;
-	Subsystem->GetRegisteredBodies(Bodies);
-
-	// 投影留在调用方，拾取函数才能是纯函数、才能无头测。
-	//
-	// 只有挂了星图相机的天体可被点中（见 HasStarMapCamera）：星图的相机是「照某颗
-	// 天体」的视点，选中即焦点，没有相机的天体（飞船）不该抢走焦点。它的标记仍由
-	// HUD 画出来，只是点不中。
-	TArray<FStarMapScreenCandidate> Candidates;
-	Candidates.Reserve(Bodies.Num());
-	for (AActor* Body : Bodies)
-	{
-		if (!HasStarMapCamera(Body))
-		{
-			continue;
-		}
-
-		FStarMapScreenCandidate Candidate;
-		if (MakeScreenCandidate(Body, Candidate))
-		{
-			Candidates.Add(Candidate);
-		}
-	}
-
-	return AStarMapCameraPawn::PickBodyAtScreenPosition(
-		Candidates, ScreenPosition, SelectionPixelRadius);
+	// 拾取本身已下沉到 Pawns（相机输入组件与 HUD 悬停共用同一份）。容差取相机上
+	// 的值；相机不在手上（例如 HUD 在非星图帧查询）时退回默认值。
+	const AStarMapCameraPawn* Camera = Cast<AStarMapCameraPawn>(GetPawn());
+	const float PixelTolerance = Camera
+		? Camera->GetSelectionPixelRadius()
+		: StarMapPicking::DefaultPixelTolerance;
+	return StarMapPicking::PickBodyUnderScreenPosition(
+		GetWorld(), this, ScreenPosition, PixelTolerance);
 }
 
 void AStellarEraPlayerController::ShowPrompt(const FString& Text)

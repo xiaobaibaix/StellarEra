@@ -21,6 +21,9 @@ void FPlanetCharacterInputActions::Build(UObject* Outer, UInputMappingContext* C
 	Zoom = StellarEraInput::MakeAction(Outer, TEXT("IA_Character_Zoom"), EInputActionValueType::Axis1D);
 	EditModeToggle = StellarEraInput::MakeAction(Outer, TEXT("IA_Character_EditModeToggle"), EInputActionValueType::Boolean);
 	BrushSize = StellarEraInput::MakeAction(Outer, TEXT("IA_Character_BrushSize"), EInputActionValueType::Axis1D);
+	EditPrimary = StellarEraInput::MakeAction(Outer, TEXT("IA_Character_EditPrimary"), EInputActionValueType::Boolean);
+	Interact = StellarEraInput::MakeAction(Outer, TEXT("IA_Character_Interact"), EInputActionValueType::Boolean);
+	StarMapToggle = StellarEraInput::MakeAction(Outer, TEXT("IA_Character_StarMapToggle"), EInputActionValueType::Boolean);
 
 	// WASD 合成一个二维向量：W/S 走 X 轴，A/D 先用 Swizzle 搬到 Y 轴再取反。
 	// 修饰器按数组顺序依次作用，所以 A 是“先 Swizzle 再 Negate”。
@@ -52,4 +55,11 @@ void FPlanetCharacterInputActions::Build(UObject* Outer, UInputMappingContext* C
 	StellarEraInput::MapKey(Context, BrushSize, EKeys::LeftBracket, { StellarEraInput::MakeNegate(Outer) });
 	StellarEraInput::MapKey(Context, BrushSize, EKeys::Hyphen, { StellarEraInput::MakeNegate(Outer) });
 	StellarEraInput::MapKey(Context, BrushSize, EKeys::Subtract, { StellarEraInput::MakeNegate(Outer) });
+
+	// 左键 / E / M 在别的表里也有同名按键的动作（星图相机、飞船各造各的）。
+	// 同一个 IMC 里的动作互不吞输入，真正响应的是被 Possess 那个 Pawn 绑的那条。
+	// 左键在角色这里只服务编辑：点笔刷按钮、挖掘。
+	StellarEraInput::MapKey(Context, EditPrimary, EKeys::LeftMouseButton);
+	StellarEraInput::MapKey(Context, Interact, EKeys::E);
+	StellarEraInput::MapKey(Context, StarMapToggle, EKeys::M);
 }

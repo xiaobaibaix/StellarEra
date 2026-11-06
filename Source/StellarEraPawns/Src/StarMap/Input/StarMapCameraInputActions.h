@@ -10,7 +10,7 @@ class UInputAction;
 class UInputMappingContext;
 
 /**
- * 星图相机用到的动作（视角、缩放、编辑、矿物透视）。
+ * 星图相机用到的动作（视角、缩放、编辑、矿物透视、选择、星图开关）。
  *
  * 由 FStellarEraInputActions 组合持有、由控制器构造，相机在
  * `UStarMapCameraInputComponent::SetupPlayerInputComponent` 里绑。
@@ -19,8 +19,9 @@ class UInputMappingContext;
  * 对象名带 `IA_StarMap_` 前缀：三张表共用同一个 Outer，同名会被引擎改名成
  * 不可预测的 `_1` / `_0`，前缀保证每张表的动作能按名字认出来。
  *
- * 星图里「左键选择 / 拖拽绕行」不在这张表里：那是控制器的 StarMapSelect，
- * 跨 Pawn 的状态，见 FControllerInputActions。
+ * 左键与 M 在角色 / 飞船表里也各有一条：进星图之后 Possess 的是本相机，
+ * 退出必须由它自己绑；而角色 / 飞船要能按 M 进来、角色编辑模式要能用左键。
+ * 同一个 IMC 里的同名按键互不吞输入，谁被 Possess 谁那条生效。
  */
 USTRUCT()
 struct STELLARERAPAWNS_API FStarMapCameraInputActions
@@ -66,6 +67,14 @@ struct STELLARERAPAWNS_API FStarMapCameraInputActions
 	/** 数字键 0：全部打开。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> MineralShowAll;
+
+	/** 主键（鼠标左键）：选中天体 / 拖拽绕行。按下与松开的位移区分两者。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> StarMapSelect;
+
+	/** 星图模式开关（M）。进星图后 Possess 的是本相机，它必须自己绑这条才退得出去。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> StarMapToggle;
 
 	/** 构造动作并往 Context 里注册按键映射。已经构造过就直接返回。 */
 	void Build(UObject* Outer, UInputMappingContext* Context);

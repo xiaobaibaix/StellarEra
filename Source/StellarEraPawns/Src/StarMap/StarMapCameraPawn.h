@@ -116,6 +116,9 @@ public:
 	/** 焦点是行星时相机拉远的倍率（地表半径 × 本值）。控制器按 M 进场聚焦时用。 */
 	double GetPlanetFocusRadiusScale() const { return PlanetFocusRadiusScale; }
 
+	/** 左键拾取天体的像素容差。相机输入组件与 HUD 悬停查询共用。 */
+	float GetSelectionPixelRadius() const { return SelectionPixelRadius; }
+
 	/** 进入星图模式时由控制器调用：把相机放到给定位置，并重置为「未选中」。 */
 	void EnterFrom(const FVector& InCameraLocation, const FRotator& InCameraRotation);
 
@@ -258,6 +261,57 @@ public:
 		TArrayView<const FStarMapScreenCandidate> Candidates,
 		const FVector2D& ScreenPoint,
 		float PixelRadius);
+
+	// ── 天体 / 相机解析（纯查询，能无头测）──
+
+	/**
+	 * 这个天体身上（含它的挂载物）有没有星图相机。
+	 *
+	 * 星图的聚焦目标**只认带相机的天体**：相机是「照这颗天体的视点」，没有相机的
+	 * 天体（飞船）在星图里既不被进场自动聚焦，也点不中。
+	 */
+	static bool HasStarMapCamera(const AActor* Body);
+
+	/**
+	 * 「进图时的参考行星」：进星图该借用谁的星图相机。
+	 *
+	 * 驾驶中 → 飞船的参考行星（ASpaceshipPawn::GetPlanetActor，子系统每帧维护）；
+	 * 步行 → 角色当前所在的行星（APlanetCharacter::PlanetActor）；
+	 * 其他 Pawn / 空 → 空。**只做类型解析，不做距离搜索** —— 那是 Pawn 自己的职责。
+	 */
+	static AVoxelPlanetActor* ResolveReferencePlanet(const APawn* EnteringPawn);
+
+	/**
+	 * 在 Owner 的组件里找「行星自带的星图相机」：第一台作为
+	 * UChildActorComponent 子 Actor 存在的 AStarMapCameraPawn。
+	 *
+	 * BP_VoxelPlanet 挂一个 Child Actor Component（子类 BP_StarMapCameraPawn），
+	 * 「星球 + 它的星图相机」就成了一个可整体复制、每个实例可单独换类（Details
+	 * 里 Child Actor Class 可编辑）的组合 —— 这是 B2 路线（用户选定，2026-11-01）。
+	 *
+	 * 注意 CAC 的子 Actor 在类默认对象（CDO）里不存在、实例化才创建，所以
+	 * 本函数对 CDO 恒返回空 —— 这是 CAC 的机制，不是 bug。
+	 */
+	static AStarMapCameraPawn* FindChildStarMapCamera(const AActor* PlanetOwner);
+
+	/**
+	 * 在 Owner 上找直接 Attach 的第一台 AStarMapCameraPawn。
+	 *
+	 * 这条路径覆盖「相机是关卡里的独立 Actor、手动 Attach 到星球」的旧摆法
+	 * （UniverseMap 里现存的 3 台就是这种）。CAC 的子 Actor 其实也会 Attach 到
+	 * 宿主，所以本函数同样能取到 CAC 相机 —— 保留它是为了让 CAC 尚未普及、
+	 * 或临时手摆一台相机的关卡也能正常工作。
+	 *
+	 * 不递归子挂载物，避免飞船 / 角色 / 采矿平台上挂的相机被误认成行星相机。
+	 */
+	static AStarMapCameraPawn* FindAttachedStarMapCamera(const AActor* PlanetOwner);
+
+	/**
+	 * 上面两步的串联：进星图时优先用焦点行星自带的相机。
+	 * 先认 CAC（显式声明的那台），没有再退回附加关系（手动摆的那台）；
+	 * 都没有、或进图时解析不出行星（深空）→ 返回空，调用方退回单例相机。
+	 */
+	static AStarMapCameraPawn* ResolvePlanetStarMapCamera(const APawn* EnteringPawn);
 
 	/**
 	 * 球体「屏幕轮廓半径」相对于「投影(中心 + 右向 × 半径)」的放大系数。
@@ -534,6 +588,17 @@ protected:
 	 */
 	UPROPERTY(EditAnywhere, Category = "StarMap", meta = (ClampMin = "0.0"))
 	double PlanetFocusRadiusScale = 3.0;
+
+	/**
+	 * 左键拾取天体的像素容差。20 像素保证远处的星球也点得中。
+	 *
+	 * 夹到 ≥ 0：负值在拾取里没有意义，而且**新旧行为不同** —— 旧代码把
+	 * `PixelRadius * PixelRadius` 当半径平方用，`-5` 会被当成 `5`；现在逐候选取
+	 * `max(PixelRadius, ScreenRadiusPx)`，`-5` 被当成 `0`。这个字段是 EditAnywhere，
+	 * 编辑器里能被改成负数，所以在这里挡住。
+	 */
+	UPROPERTY(EditAnywhere, Category = "StarMap", meta = (ClampMin = "0.0"))
+	float SelectionPixelRadius = 20.f;
 
 	/**
 	 * 绕行视角的灵敏度下限（倍率），见 OrbitLookScale。

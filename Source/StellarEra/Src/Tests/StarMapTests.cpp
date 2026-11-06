@@ -481,7 +481,7 @@ bool FStellarEraStarMapFocusTargetTest::RunTest(const FString& Parameters)
 
 	// ── 空指针：不是崩 ──
 	TestFalse(TEXT("空 Actor → 不可聚焦"),
-		AStellarEraPlayerController::HasStarMapCamera(nullptr));
+		AStarMapCameraPawn::HasStarMapCamera(nullptr));
 
 	// ── 飞船（真实关卡里的情形：有 4 个体素调用器，但没有星图相机）──
 	ASpaceshipPawn* Ship = World->SpawnActor<ASpaceshipPawn>(
@@ -491,7 +491,7 @@ bool FStellarEraStarMapFocusTargetTest::RunTest(const FString& Parameters)
 		return false;
 	}
 	TestFalse(TEXT("飞船没有星图相机 → 不可聚焦"),
-		AStellarEraPlayerController::HasStarMapCamera(Ship));
+		AStarMapCameraPawn::HasStarMapCamera(Ship));
 
 	// ── 裸 Actor：什么都没有 ──
 	AActor* Plain = MakeActor();
@@ -500,7 +500,7 @@ bool FStellarEraStarMapFocusTargetTest::RunTest(const FString& Parameters)
 		return false;
 	}
 	TestFalse(TEXT("普通 Actor → 不可聚焦"),
-		AStellarEraPlayerController::HasStarMapCamera(Plain));
+		AStarMapCameraPawn::HasStarMapCamera(Plain));
 
 	// ── 挂了 CAC 子相机（BP_VoxelPlanet 的摆法）──
 	AActor* CacPlanet = MakeActor();
@@ -512,7 +512,7 @@ bool FStellarEraStarMapFocusTargetTest::RunTest(const FString& Parameters)
 	CameraCac->SetChildActorClass(AStarMapCameraPawn::StaticClass());
 	CameraCac->RegisterComponent();
 	TestTrue(TEXT("挂了 CAC 星图相机 → 可聚焦"),
-		AStellarEraPlayerController::HasStarMapCamera(CacPlanet));
+		AStarMapCameraPawn::HasStarMapCamera(CacPlanet));
 
 	// ── 手动 Attach 的旧摆法也要认 ──
 	AActor* AttachedPlanet = MakeActor();
@@ -526,7 +526,7 @@ bool FStellarEraStarMapFocusTargetTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("相机挂到行星上"),
 		AttachedCamera->AttachToActor(AttachedPlanet, FAttachmentTransformRules::KeepRelativeTransform));
 	TestTrue(TEXT("手动附加的星图相机 → 可聚焦"),
-		AStellarEraPlayerController::HasStarMapCamera(AttachedPlanet));
+		AStarMapCameraPawn::HasStarMapCamera(AttachedPlanet));
 
 	return true;
 }
@@ -878,7 +878,7 @@ bool FStellarEraStarMapPlanetCameraTest::RunTest(const FString& Parameters)
 
 	// ── 空 Owner / 没挂 CAC：返回空，不是崩 ──
 	TestTrue(TEXT("CAC: 空 Owner → 空"),
-		AStellarEraPlayerController::FindChildStarMapCamera(nullptr) == nullptr);
+		AStarMapCameraPawn::FindChildStarMapCamera(nullptr) == nullptr);
 
 	AActor* NoCacOwner = MakeActor(TEXT("没挂 CAC 的行星"));
 	if (!TestNotNull(TEXT("没挂 CAC 的行星"), NoCacOwner))
@@ -886,7 +886,7 @@ bool FStellarEraStarMapPlanetCameraTest::RunTest(const FString& Parameters)
 		return false;
 	}
 	TestTrue(TEXT("CAC: 没挂 CAC → 空"),
-		AStellarEraPlayerController::FindChildStarMapCamera(NoCacOwner) == nullptr);
+		AStarMapCameraPawn::FindChildStarMapCamera(NoCacOwner) == nullptr);
 
 	// ── CAC 子类不是星图相机：不认 ──
 	// AActor 是抽象类，用具体可生成的 APawn 当「错的子类」。
@@ -899,7 +899,7 @@ bool FStellarEraStarMapPlanetCameraTest::RunTest(const FString& Parameters)
 	WrongCac->SetChildActorClass(APawn::StaticClass());
 	WrongCac->RegisterComponent();
 	TestTrue(TEXT("CAC: 子类不是星图相机 → 空"),
-		AStellarEraPlayerController::FindChildStarMapCamera(WrongCacOwner) == nullptr);
+		AStarMapCameraPawn::FindChildStarMapCamera(WrongCacOwner) == nullptr);
 
 	// ── CAC 子类是星图相机：返回子 Actor，且归属是行星 Actor ──
 	AActor* CacPlanet = MakeActor(TEXT("挂了 CAC 的行星"));
@@ -912,7 +912,7 @@ bool FStellarEraStarMapPlanetCameraTest::RunTest(const FString& Parameters)
 	CameraCac->RegisterComponent();
 
 	AStarMapCameraPawn* ChildCamera =
-		AStellarEraPlayerController::FindChildStarMapCamera(CacPlanet);
+		AStarMapCameraPawn::FindChildStarMapCamera(CacPlanet);
 	if (!TestNotNull(TEXT("CAC: 挂了相机 → 解析到子相机"), ChildCamera))
 	{
 		return false;
@@ -935,13 +935,13 @@ bool FStellarEraStarMapPlanetCameraTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("旧相机挂到同一颗行星上"),
 		LegacyCamera->AttachToActor(CacPlanet, FAttachmentTransformRules::KeepRelativeTransform));
 	TestTrue(TEXT("CAC: 两种相机都在时优先取 CAC 的"),
-		AStellarEraPlayerController::FindChildStarMapCamera(CacPlanet) == ChildCamera);
+		AStarMapCameraPawn::FindChildStarMapCamera(CacPlanet) == ChildCamera);
 
 	// ══ 二、附加 Actor 兜底扫描：手动 Attach 的旧摆法 ══
 
 	// ── 空 Owner / 没挂任何 Actor：返回空，不是崩 ──
 	TestTrue(TEXT("附加: 空 Owner → 空"),
-		AStellarEraPlayerController::FindAttachedStarMapCamera(nullptr) == nullptr);
+		AStarMapCameraPawn::FindAttachedStarMapCamera(nullptr) == nullptr);
 
 	AActor* Plain = MakeActor(TEXT("普通 Actor"));
 	if (!TestNotNull(TEXT("普通 Actor"), Plain))
@@ -949,7 +949,7 @@ bool FStellarEraStarMapPlanetCameraTest::RunTest(const FString& Parameters)
 		return false;
 	}
 	TestTrue(TEXT("没挂附加 Actor → 空"),
-		AStellarEraPlayerController::FindAttachedStarMapCamera(Plain) == nullptr);
+		AStarMapCameraPawn::FindAttachedStarMapCamera(Plain) == nullptr);
 
 	// ── 挂了东西但不是星图相机：不认 ──
 	AActor* WrongOwner = MakeActor(TEXT("错误子类 Owner"));
@@ -962,7 +962,7 @@ bool FStellarEraStarMapPlanetCameraTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("非相机也能挂上去"),
 		WrongChild->AttachToActor(WrongOwner, FAttachmentTransformRules::KeepRelativeTransform));
 	TestTrue(TEXT("附加的不是星图相机 → 空"),
-		AStellarEraPlayerController::FindAttachedStarMapCamera(WrongOwner) == nullptr);
+		AStarMapCameraPawn::FindAttachedStarMapCamera(WrongOwner) == nullptr);
 
 	// ── 直接挂星图相机：返回它，且父 Actor 是行星 ──
 	AActor* PlanetOwner = MakeActor(TEXT("行星 Owner"));
@@ -980,7 +980,7 @@ bool FStellarEraStarMapPlanetCameraTest::RunTest(const FString& Parameters)
 		AttachedCamera->AttachToActor(PlanetOwner, FAttachmentTransformRules::KeepRelativeTransform));
 
 	AStarMapCameraPawn* Resolved =
-		AStellarEraPlayerController::FindAttachedStarMapCamera(PlanetOwner);
+		AStarMapCameraPawn::FindAttachedStarMapCamera(PlanetOwner);
 	if (!TestNotNull(TEXT("挂了星图相机 → 解析到它"), Resolved))
 	{
 		return false;
@@ -1004,11 +1004,11 @@ bool FStellarEraStarMapPlanetCameraTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("相机挂到挂载物上"),
 		NestedCamera->AttachToActor(Middle, FAttachmentTransformRules::KeepRelativeTransform));
 	TestTrue(TEXT("隔一层挂的相机 → 空（不递归）"),
-		AStellarEraPlayerController::FindAttachedStarMapCamera(OuterPlanet) == nullptr);
+		AStarMapCameraPawn::FindAttachedStarMapCamera(OuterPlanet) == nullptr);
 
 	// ── 串联：进图 Pawn → 参考行星 → 相机 ──
 	TestTrue(TEXT("空 Pawn → 无行星相机"),
-		AStellarEraPlayerController::ResolvePlanetStarMapCamera(nullptr) == nullptr);
+		AStarMapCameraPawn::ResolvePlanetStarMapCamera(nullptr) == nullptr);
 
 	ASpaceshipPawn* Ship = World->SpawnActor<ASpaceshipPawn>(
 		ASpaceshipPawn::StaticClass(), FTransform::Identity);
@@ -1019,7 +1019,7 @@ bool FStellarEraStarMapPlanetCameraTest::RunTest(const FString& Parameters)
 	// 编辑器世界不走 BeginPlay，PlanetActor 还是空 —— 正好覆盖「解析不出行星」
 	// 的分支（深空进图 → 退回单例相机，见 ToggleStarMap 进入分支）。
 	TestTrue(TEXT("飞船无参考行星 → 无行星相机"),
-		AStellarEraPlayerController::ResolvePlanetStarMapCamera(Ship) == nullptr);
+		AStarMapCameraPawn::ResolvePlanetStarMapCamera(Ship) == nullptr);
 
 	return true;
 }
