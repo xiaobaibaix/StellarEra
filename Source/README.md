@@ -166,9 +166,9 @@ UI 声明自己需要什么，Game 去实现，于是 UI 不需要 include 控�
 | 加一种天体类型/单位制 | `StellarEraCosmos/Src/CosmosTypes.h` |
 | 改 HUD 显示内容 | `StellarEraUI/Src/StellarEraHUD.cpp` |
 | 改星图交互 | `StellarEraUI/Src/StarMapUISystem.cpp` |
-| 改按键映射（哪个键是哪个动作） | `StellarEraPawns/Src/StellarEraInputActions.cpp` 的 `Build` |
+| 改按键映射（哪个键是哪个动作） | 按归属找四张表各自的 `Build`：角色 `Src/Character/PlanetCharacterInputActions.cpp` / 飞船 `Src/Spaceship/SpaceshipInputActions.cpp` / 星图相机 `Src/StarMap/StarMapCameraInputActions.cpp` / 控制器 `Src/StellarEraInputActions.cpp` |
 | 改角色 / 飞船 / 星图相机对输入的响应 | `StellarEraPawns/Src/Character/PlanetCharacterInputComponent.cpp` / `Src/Spaceship/SpaceshipInputComponent.cpp` / `Src/StarMap/StarMapCameraInputComponent.cpp`（三个输入组件都在 Pawn 的构造函数里 `CreateDefaultSubobject`，`SetupPlayerInputComponent` 只调 `Bind`） |
-| 改星图开关 / 模式键（E M G H 数字键）的绑定 | `StellarEra/Src/StellarEraPlayerController.cpp` 的 `SetupInputComponent`（星图视角与缩放在 `StarMapCameraInputComponent.cpp`） |
+| 改控制器级按键（E 上下船 / M 星图 / 左键选择）的绑定 | 绑在 `StellarEra/Src/StellarEraPlayerController.cpp` 的 `SetupInputComponent`，键位在 `StellarEraPawns/Src/StellarEraInputActions.cpp` 的 `FControllerInputActions::Build` |
 
 ---
 
