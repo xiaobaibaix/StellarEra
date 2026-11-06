@@ -241,7 +241,7 @@ UCosmosSimulationSubsystem* Simulation =
 |---|---|---|
 | `IVoxelViewpointInvokers` | `StellarEraPlanet/Src/Invokers/` | 实现方是 Pawns 的两个 Pawn 与星图相机（2026-11-06 起相机也在 `Pawns/Src/StarMap/`），使用方是 Controller。三方都已依赖 Planet，放这里不需要任何新依赖 |
 | `ICosmosBody` | `StellarEraCosmos/Src/CosmosBody.h` | 实现方是 `ASpaceshipPawn`（8 个纯虚）。Cosmos 是消费方且在低层（L2），放在 Cosmos 才不会让 `Pawns → Cosmos` 反向 |
-| `IStarMapLookContext` | `StellarEraPawns/Src/StarMap/StarMapCameraInputComponent.h` | 实现方是 Controller（`IsStarMapSelectHeld` / `IsMineralViewActive` 两个方法）。星图输入组件住 Pawns，问控制器状态只能走接口 |
+| `IStarMapLookContext` | `StellarEraPawns/Src/StarMap/StarMapCameraInputComponent.h` | 实现方是 Controller（`IsStarMapSelectHeld` 查询 + `ShowStarMapPrompt` 弹提示）。星图输入组件住 Pawns，问控制器状态只能走接口 |
 | `IStarMapUIInputs` | `StellarEraUI/Src/` | 明确属于 UI 的使用方契约，由 Controller（L5）实现 |
 
 另外两条接口同理，只是不在跨层主路径上：`IStellarEraInputSource`（`Pawns/Src/StellarEraInputActions.h`，
@@ -274,9 +274,9 @@ HUD 实现，Pawn 用它弹提示）。
 |---|---|---|
 | `APlanetCharacter` | `UPlanetCharacterInputComponent`（`Pawns/Src/Character/`） | 移动、视角、跳跃、冲刺、缩放、右键点放 |
 | `ASpaceshipPawn` | `USpaceshipInputComponent`（`Pawns/Src/Spaceship/`） | 视角、推力、滚转、升降、加速、巡航、调试视角、缩放 |
-| `AStarMapCameraPawn` | `UStarMapCameraInputComponent`（`Pawns/Src/StarMap/`） | 星图视角（绕行 / 转头）与缩放 |
+| `AStarMapCameraPawn` | `UStarMapCameraInputComponent`（`Pawns/Src/StarMap/`） | 星图视角（绕行 / 转头）、缩放、编辑（G）与笔刷尺寸、矿物透视（H 与 0..9） |
 
-`AStellarEraPlayerController` 只绑**控制器级**输入：上下船、星图开关与选择、编辑、矿物透视。
+`AStellarEraPlayerController` 只绑**控制器级**输入：上下船、星图开关与选择。
 星图的分派规则（`EStarMapLookMode`）、`UStarMapCameraInputComponent::ResolveLookMode` 与
 `IStarMapLookContext` 都放在 `StarMap/StarMapCameraInputComponent.h` —— 星图的鼠标位移属于
 星图相机，不属于控制器。

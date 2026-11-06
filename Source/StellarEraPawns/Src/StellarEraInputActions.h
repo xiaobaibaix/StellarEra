@@ -164,9 +164,9 @@ class UStellarEraInputSource : public UInterface
  *
  *   - APlanetCharacter 绑 Move / Look / Jump / Sprint / Zoom / 右键点放 / G 编辑 / 笔刷尺寸；
  *   - ASpaceshipPawn 绑 Look / 推力 / 滚转 / 升降 / 加速 / 巡航 / 缩放 / B；
- *   - AStarMapCameraPawn 绑星图视角（绕行 / 转头）、缩放、G 编辑与笔刷尺寸，
- *     见 UStarMapCameraInputComponent；
- *   - 上下船、星图开关与选择、矿物透视仍绑在控制器上 —— 它们的状态与流程跨 Pawn。
+ *   - AStarMapCameraPawn 绑星图视角（绕行 / 转头）、缩放、G 编辑、笔刷尺寸，
+ *     以及 H 矿物透视与 0..9 数字键，见 UStarMapCameraInputComponent；
+ *   - 上下船、星图开关与选择仍绑在控制器上 —— 它们的状态与流程跨 Pawn。
  *
  * 这样「当前 Possess 的是谁，就由谁响应输入」由引擎的 Pawn 输入栈完成，
  * 控制器里不再有 `Cast<APlanetCharacter>` / `Cast<ASpaceshipPawn>` 的三路分派。

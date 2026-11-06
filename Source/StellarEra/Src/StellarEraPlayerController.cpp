@@ -100,9 +100,9 @@ void AStellarEraPlayerController::SetupInputComponent()
 		return;
 	}
 
-	// 角色 / 飞船 / 星图相机的移动、视角、推力、编辑与笔刷由各自的 Pawn 在自己的
-	// SetupPlayerInputComponent 里绑定；这里只留控制器自己的那几条 ——
-	// 上下船、星图开关与**选择**、矿物透视。
+	// 角色 / 飞船 / 星图相机的移动、视角、推力、编辑、笔刷、矿物透视由各自的 Pawn
+	// 在自己的 SetupPlayerInputComponent 里绑定；这里只留控制器自己的那几条 ——
+	// 上下船、星图开关与**选择**。
 	EnhancedInput->BindAction(Input.StarMapToggle, ETriggerEvent::Started,
 		this, &AStellarEraPlayerController::ToggleStarMap);
 	EnhancedInput->BindAction(Input.StarMapSelect, ETriggerEvent::Started,
@@ -112,18 +112,6 @@ void AStellarEraPlayerController::SetupInputComponent()
 
 	EnhancedInput->BindAction(Input.Interact, ETriggerEvent::Started,
 		this, &AStellarEraPlayerController::OnInteract);
-
-	EnhancedInput->BindAction(Input.MineralViewToggle, ETriggerEvent::Started,
-		this, &AStellarEraPlayerController::OnMineralViewToggle);
-
-	// 数字键用变参 payload：同一个回调按下标分派，省掉九个一模一样的函数。
-	for (int32 ElementIndex = 0; ElementIndex < Input.MineralFilter.Num(); ++ElementIndex)
-	{
-		EnhancedInput->BindAction(Input.MineralFilter[ElementIndex], ETriggerEvent::Started,
-			this, &AStellarEraPlayerController::OnMineralFilter, ElementIndex);
-	}
-	EnhancedInput->BindAction(Input.MineralShowAll, ETriggerEvent::Started,
-		this, &AStellarEraPlayerController::OnMineralShowAll);
 }
 
 void AStellarEraPlayerController::BeginPlay()
@@ -150,10 +138,17 @@ const FStellarEraInputActions& AStellarEraPlayerController::GetStellarEraInputAc
 
 void AStellarEraPlayerController::OnPossess(APawn* InPawn)
 {
+	// 先拍下旧 Pawn：Super 会在内部 UnPossess 并清空 GetPawn()，
+	// 之后再想找「刚被换下的星图相机」就找不到了。
+	APawn* const PreviousPossessed = GetPawn();
 	Super::OnPossess(InPawn);
 
 	// 换 Pawn（登船 / 离船 / 进出星图 / DebugPossessShip）一律退出矿物透视。
-	ExitMineralViewIfActive();
+	// 会话状态住在相机 Pawn 上，这里只是命令那台旧相机收尾。
+	if (AStarMapCameraPawn* PreviousCamera = Cast<AStarMapCameraPawn>(PreviousPossessed))
+	{
+		PreviousCamera->ExitMineralViewIfActive();
+	}
 
 	// 换视点：只有新 Pawn 的体素调用器参与 LOD 与碰撞。这是所有换 Pawn 路径的
 	// 唯一收口，所以门控挂在这里，而不是登船 / 离船 / 星图三处各写一遍。
@@ -266,9 +261,17 @@ bool AStellarEraPlayerController::IsStarMapSelectHeld() const
 	return bStarMapSelectHeld;
 }
 
-bool AStellarEraPlayerController::IsMineralViewActive() const
+UPlanetMineralViewComponent* AStellarEraPlayerController::GetActiveMineralView() const
 {
-	return ActiveMineralView != nullptr;
+	// 会话状态住在星图相机上：只有相机被操控时才可能有激活的矿物透视。
+	const AStarMapCameraPawn* Camera = Cast<AStarMapCameraPawn>(GetPawn());
+	return Camera ? Camera->GetActiveMineralView() : nullptr;
+}
+
+void AStellarEraPlayerController::ShowStarMapPrompt(
+	const FString& Text, const float Seconds)
+{
+	ShowPromptFor(Text, Seconds);
 }
 
 void AStellarEraPlayerController::ForceExitEditMode(APawn* InPawn)
@@ -351,20 +354,24 @@ void AStellarEraPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);
 
-	// 矿物透视绑在「选中的那颗行星」上。焦点被改选、或 Pawn 已经不是星图相机，
-	// 就立刻退出 —— 否则球壳与矿体会跟着一颗已取消选中的行星。
-	if (ActiveMineralView)
+	// 矿物透视绑在「选中的那颗行星」上。焦点被改选就立刻命令相机退出 ——
+	// 否则球壳与矿体会跟着一颗已取消选中的行星。换 Pawn 的退出在 OnPossess 收口，
+	// 相机不 Tick，所以「选中变了没有」这条巡检留在这里。
+	if (AStarMapCameraPawn* Camera = Cast<AStarMapCameraPawn>(GetPawn()))
 	{
-		UCosmosSimulationSubsystem* ViewSubsystem = GetWorld()
-			? GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>()
-			: nullptr;
-		// 视图行星本身也要非空：两颗都为空时 == 会判成「同一颗」，视图就退不出去。
-		const AVoxelPlanetActor* ViewPlanet = ActiveMineralView->GetViewPlanet();
-		const bool bSamePlanet = ViewSubsystem && ViewPlanet != nullptr &&
-			ViewSubsystem->GetSelectedBody() == ViewPlanet;
-		if (!Cast<AStarMapCameraPawn>(GetPawn()) || !bSamePlanet)
+		if (UPlanetMineralViewComponent* MineralView = Camera->GetActiveMineralView())
 		{
-			ExitMineralViewIfActive();
+			UCosmosSimulationSubsystem* ViewSubsystem = GetWorld()
+				? GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>()
+				: nullptr;
+			// 视图行星本身也要非空：两颗都为空时 == 会判成「同一颗」，视图就退不出去。
+			const AVoxelPlanetActor* ViewPlanet = MineralView->GetViewPlanet();
+			const bool bSamePlanet = ViewSubsystem && ViewPlanet != nullptr &&
+				ViewSubsystem->GetSelectedBody() == ViewPlanet;
+			if (!bSamePlanet)
+			{
+				Camera->ExitMineralViewIfActive();
+			}
 		}
 	}
 
@@ -614,84 +621,6 @@ AStarMapCameraPawn* AStellarEraPlayerController::ResolvePlanetStarMapCamera(cons
 	return FindAttachedStarMapCamera(PlanetOwner);
 }
 
-void AStellarEraPlayerController::OnMineralViewToggle()
-{
-	if (!Cast<AStarMapCameraPawn>(GetPawn()))
-	{
-		return;
-	}
-
-	if (ActiveMineralView)
-	{
-		ExitMineralViewIfActive();
-		return;
-	}
-
-	UCosmosSimulationSubsystem* Subsystem = GetWorld()
-		? GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>()
-		: nullptr;
-	AVoxelPlanetActor* Planet = Subsystem
-		? Cast<AVoxelPlanetActor>(Subsystem->GetSelectedBody())
-		: nullptr;
-	UPlanetMineralViewComponent* MineralView =
-		Planet ? Planet->FindComponentByClass<UPlanetMineralViewComponent>() : nullptr;
-	if (!MineralView)
-	{
-		ShowPromptFor(TEXT("矿物观察只支持行星"), 2.f);
-		return;
-	}
-
-	if (!MineralView->Activate(Planet))
-	{
-		// 失败只有三种：没有地质场、采样参数非法、观察体/材质创建失败
-		// （后两种会先打 Error 日志）。
-		ShowPromptFor(TEXT("该行星没有矿物分布"), 2.f);
-		return;
-	}
-
-	// 观察里左键只点图例、右键转视角：若此前按过 G，先退出编辑模式。
-	ForceExitEditMode(GetPawn());
-
-	// 只拉远、不改朝向：按 H 前看哪儿，进入后还是那个角度（spec §3）。
-	// 距离与按 M 进场聚焦行星用同一个倍率，两种进入方式构图一致。
-	if (AStarMapCameraPawn* StarMap = Cast<AStarMapCameraPawn>(GetPawn()))
-	{
-		StarMap->FocusOn(Planet, StarMapPlanetFocusRadiusScale * Planet->GetSurfaceRadiusCm());
-	}
-
-	ActiveMineralView = MineralView;
-}
-
-void AStellarEraPlayerController::OnMineralFilter(
-	const FInputActionValue& Value, int32 ElementIndex)
-{
-	if (!ActiveMineralView)
-	{
-		return;
-	}
-	ActiveMineralView->ToggleElement(ElementIndex);
-}
-
-void AStellarEraPlayerController::OnMineralShowAll(const FInputActionValue& Value)
-{
-	if (!ActiveMineralView)
-	{
-		return;
-	}
-	ActiveMineralView->SetAllElementsVisible(true);
-}
-
-void AStellarEraPlayerController::ExitMineralViewIfActive()
-{
-	if (!ActiveMineralView)
-	{
-		return;
-	}
-
-	ActiveMineralView->Deactivate();
-	ActiveMineralView = nullptr;
-}
-
 /** 天体的世界半径（厘米）。定义在拾取那一节，这里先声明 —— 进场聚焦要用。 */
 static double ResolveBodyRadiusCm(const AActor* Body);
 
@@ -718,7 +647,8 @@ void AStellarEraPlayerController::ToggleStarMap()
 		}
 
 		// 先退矿物透视再换 Pawn：它隐藏了行星网格、关了碰撞与大气，必须在恢复视角之前还原。
-		ExitMineralViewIfActive();
+		// 状态住在相机上，由那台正在被操控的相机自己收尾。
+		CurrentStarMapPawn->ExitMineralViewIfActive();
 
 		Subsystem->SetSelectedBody(nullptr);
 		Subsystem->SetStarMapActive(false);
@@ -849,7 +779,8 @@ void AStellarEraPlayerController::ToggleStarMap()
 	// 焦点天体：只有挂了星图相机的天体才能被聚焦，飞船没有相机 → 不让它当焦点。
 	//
 	// 行星相机就挂在行星身上，所以「借用谁的相机」与「聚焦谁」是同一颗：沿进场
-	// 视线把它拉远到 StarMapPlanetFocusRadiusScale 倍地表半径，整颗行星进画面。
+	// 视线把它拉远到相机自己的 PlanetFocusRadiusScale 倍地表半径（默认 3），整颗
+	// 行星进画面。
 	// 用的是深空单例相机（没有宿主行星）时，焦点退回离进场 Pawn 最近的、带相机
 	// 的已注册天体；一个都没有就不聚焦，相机停在场点。
 	AActor* FocusBody = CameraToUse->GetAttachParentActor();
@@ -892,7 +823,7 @@ void AStellarEraPlayerController::ToggleStarMap()
 		Subsystem->SetSelectedBody(FocusBody);
 		CameraToUse->FocusOn(
 			FocusBody,
-			StarMapPlanetFocusRadiusScale * ResolveBodyRadiusCm(FocusBody));
+			CameraToUse->GetPlanetFocusRadiusScale() * ResolveBodyRadiusCm(FocusBody));
 	}
 }
 
@@ -922,7 +853,7 @@ void AStellarEraPlayerController::OnStarMapSelectStarted(const FInputActionValue
 {
 	// 编辑模式（角色或星图）：按钮优先，其次一次笔刷操作。按钮命中不能顺带挖到脚下的地形。
 	// 矿物透视激活期间左键归图例：短路编辑分支，否则左键会挖/填体素。
-	UPlanetEditComponent* Edit = ActiveMineralView ? nullptr : GetEditComponentInEditMode();
+	UPlanetEditComponent* Edit = GetActiveMineralView() ? nullptr : GetEditComponentInEditMode();
 	if (Edit)
 	{
 		double MouseX = 0.0;
@@ -1008,7 +939,7 @@ void AStellarEraPlayerController::OnStarMapSelectStarted(const FInputActionValue
 		return;
 	}
 
-	if (ActiveMineralView)
+	if (UPlanetMineralViewComponent* MineralView = GetActiveMineralView())
 	{
 		double MouseX = 0.0;
 		double MouseY = 0.0;
@@ -1027,13 +958,13 @@ void AStellarEraPlayerController::OnStarMapSelectStarted(const FInputActionValue
 		FStarMapPanelRect Panel;
 		TArray<FStarMapPanelRect> RowRects;
 		UStarMapUISystem::ComputeMineralLegendLayout(
-			ViewportSize, ActiveMineralView->NumElements(), Panel, RowRects);
+			ViewportSize, MineralView->NumElements(), Panel, RowRects);
 
 		const int32 RowIndex = UStarMapUISystem::HitTestMineralLegendRow(
 			RowRects, FVector2D(MouseX, MouseY));
 		if (RowRects.IsValidIndex(RowIndex))
 		{
-			ActiveMineralView->ToggleElement(RowIndex);
+			MineralView->ToggleElement(RowIndex);
 		}
 
 		// 观察模式下左键不再拾取天体，也不转视角（转视角归右键）。
@@ -1075,7 +1006,7 @@ void AStellarEraPlayerController::OnStarMapSelectCompleted(const FInputActionVal
 		}
 	}
 
-	if (ActiveMineralView)
+	if (GetActiveMineralView())
 	{
 		// 观察模式下左键只用来点图例，松手不做任何事。
 		return;

@@ -16,10 +16,9 @@ AStarMapCameraPawn* UStarMapCameraInputComponent::GetPawn() const
 	return Cast<AStarMapCameraPawn>(GetOwner());
 }
 
-const IStarMapLookContext* UStarMapCameraInputComponent::GetLookContext() const
+IStarMapLookContext* UStarMapCameraInputComponent::GetLookContext() const
 {
-	// 用非 const 的 AController* 做 Cast，避开「const UObject* 能否 Cast 到接口」这个坑；
-	// 接口方法全是 const，返回值再收窄成 const 指针。
+	// 用非 const 的 AController* 做 Cast，避开「const UObject* 能否 Cast 到接口」这个坑。
 	AController* Controller = GetPawn() ? GetPawn()->GetController() : nullptr;
 	return Cast<IStarMapLookContext>(Controller);
 }
@@ -106,6 +105,17 @@ void UStarMapCameraInputComponent::Bind(UInputComponent* PlayerInputComponent)
 	EnhancedInput->BindAction(Input.EditModeToggle, ETriggerEvent::Started, this, &UStarMapCameraInputComponent::OnEditModeToggle);
 	EnhancedInput->BindAction(Input.BrushSize, ETriggerEvent::Started, this, &UStarMapCameraInputComponent::OnBrushSize);
 
+	// 矿物透视（H）与数字键只在本相机被操控时有意义，会话状态也住在相机 Pawn 上。
+	EnhancedInput->BindAction(Input.MineralViewToggle, ETriggerEvent::Started,
+		this, &UStarMapCameraInputComponent::OnMineralViewToggle);
+	for (int32 ElementIndex = 0; ElementIndex < Input.MineralFilter.Num(); ++ElementIndex)
+	{
+		EnhancedInput->BindAction(Input.MineralFilter[ElementIndex], ETriggerEvent::Started,
+			this, &UStarMapCameraInputComponent::OnMineralFilter, ElementIndex);
+	}
+	EnhancedInput->BindAction(Input.MineralShowAll, ETriggerEvent::Started,
+		this, &UStarMapCameraInputComponent::OnMineralShowAll);
+
 	// 绑定成功也给一条 Verbose：「没报错」不等于「绑上了」，无头跑时用它当正证据。
 	UE_LOG(LogTemp, Verbose, TEXT("[Input] AStarMapCameraPawn(%s) 已绑定星图相机输入"), *Pawn->GetName());
 }
@@ -131,7 +141,7 @@ void UStarMapCameraInputComponent::OnLookInput(const FInputActionValue& Value)
 		bMiddleHeld,
 		Edit != nullptr,
 		Edit && Edit->IsContinuousDigging(),
-		Context && Context->IsMineralViewActive()))
+		Pawn->IsMineralViewActive()))
 	{
 	case EStarMapLookMode::Orbit:
 		Pawn->OrbitLook(DeltaYaw, DeltaPitch);
@@ -178,16 +188,16 @@ void UStarMapCameraInputComponent::OnZoomInput(const FInputActionValue& Value)
 
 void UStarMapCameraInputComponent::OnEditModeToggle(const FInputActionValue& Value)
 {
+	AStarMapCameraPawn* Pawn = GetPawn();
+
 	// 矿物透视下左键归图例：编辑模式会抢左键并改写体素，所以直接忽略切换，
 	// 保持进入观察时强制退出的状态。
-	const IStarMapLookContext* Context = GetLookContext();
-	if (Context && Context->IsMineralViewActive())
+	if (!Pawn || Pawn->IsMineralViewActive())
 	{
 		return;
 	}
 
-	AStarMapCameraPawn* Pawn = GetPawn();
-	if (UPlanetEditComponent* Edit = Pawn ? Pawn->GetPlanetEditComponent() : nullptr)
+	if (UPlanetEditComponent* Edit = Pawn->GetPlanetEditComponent())
 	{
 		Edit->ToggleEditMode();
 	}
@@ -214,5 +224,30 @@ void UStarMapCameraInputComponent::OnBrushSize(const FInputActionValue& Value)
 		const bool bCoarse = PC
 			&& (PC->IsInputKeyDown(EKeys::LeftControl) || PC->IsInputKeyDown(EKeys::RightControl));
 		Edit->AdjustBrushSizeByStep(Axis > 0.f, bCoarse);
+	}
+}
+
+void UStarMapCameraInputComponent::OnMineralViewToggle(const FInputActionValue& Value)
+{
+	if (AStarMapCameraPawn* Pawn = GetPawn())
+	{
+		Pawn->ToggleMineralView();
+	}
+}
+
+void UStarMapCameraInputComponent::OnMineralFilter(
+	const FInputActionValue& Value, const int32 ElementIndex)
+{
+	if (AStarMapCameraPawn* Pawn = GetPawn())
+	{
+		Pawn->ToggleMineralElement(ElementIndex);
+	}
+}
+
+void UStarMapCameraInputComponent::OnMineralShowAll(const FInputActionValue& Value)
+{
+	if (AStarMapCameraPawn* Pawn = GetPawn())
+	{
+		Pawn->ShowAllMineralElements();
 	}
 }

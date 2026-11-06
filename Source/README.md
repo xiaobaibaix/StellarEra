@@ -96,8 +96,10 @@ StellarEraPawns/Src/
 且都实现 `IVoxelViewpointInvokers`。放在一起，换视点的逻辑才有唯一归属地。
 
 三个可操控对象各有自己的输入组件（角色 / 飞船 / 星图相机），Pawn 的
-`SetupPlayerInputComponent` 只做转发；控制器只绑控制器级输入（上下船、星图开关与选择、
-矿物透视），编辑（G）与笔刷尺寸（`[` / `]`）随各自 Pawn 绑。星图的分派规则
+`SetupPlayerInputComponent` 只做转发；控制器只绑控制器级输入（上下船、星图开关与选择），
+编辑（G）、笔刷尺寸（`[` / `]`）与矿物透视（H 与数字键）随各自 Pawn 绑 —— 星图的
+矿物透视会话状态也住在相机 Pawn 上，控制器只在换 Pawn / 退出星图 / 选中变化时命令它收尾。
+星图的分派规则
 `EStarMapLookMode`、`ResolveLookMode` 与 `IStarMapLookContext` 都在
 `StarMap/StarMapCameraInputComponent.h`。
 

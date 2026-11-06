@@ -31,16 +31,17 @@ struct FStarMapScreenCandidate;
  *   - **角色 / 飞船 / 星图相机**在自己的 `SetupPlayerInputComponent` 里绑移动、视角、
  *     推力、编辑与笔刷等，动作表由本类经 `IStellarEraInputSource` 提供 —— 所以这里
  *     没有按 Pawn 类型分派的三路 `Cast`，新增一种可操控 Pawn 也不用改本类；
- *   - **本类**只绑控制器级的东西：E 上下船、M 星图、H 矿物、数字键，
- *     以及星图模式下的**选择**（左键按下 / 拖拽 / 连挖收尾）；星图的视角与缩放归
- *     相机自己的 `UStarMapCameraInputComponent`。
+ *   - **本类**只绑控制器级的东西：E 上下船、M 星图，以及星图模式下的**选择**
+ *     （左键按下 / 拖拽 / 连挖收尾）。星图的视角、缩放、编辑、矿物透视（H 与
+ *     数字键）都归相机自己的 `UStarMapCameraInputComponent`；矿物透视的会话状态
+ *     也住在相机 Pawn 上，本类只在换 Pawn / 退出星图 / 选中变化时命令它退出。
  *
- * 同时实现三个跨模块接口，全部是**依赖倒置**的查询钩子：声明方在 Pawns / UI
+ * 同时实现三个跨模块接口，全部是**依赖倒置**的钩子：声明方在 Pawns / UI
  * （下游），实现方是本类（Game，最上层），消费方各自 `Cast<接口>(Controller)`。
  *   - `IStellarEraInputSource`：三个 Pawn 的输入组件来取运行时构造的动作表；
  *   - `IStarMapUIInputs`：HUD / 星图面板查询鼠标位置、屏幕拾取、矿物透视；
- *   - `IStarMapLookContext`：星图相机判「鼠标位移该绕行还是转头」时问的两句状态。
- * 三者都只读、不改状态。再加接口前先确认：这个状态是不是真的只有控制器知道。
+ *   - `IStarMapLookContext`：星图相机问「左键是否按住」，以及失败时借控制器弹提示。
+ * 除了那条提示出口，其余都只读。再加接口前先确认：这个状态是不是真的只有控制器知道。
  */
 UCLASS()
 class AStellarEraPlayerController : public APlayerController, public IStarMapUIInputs,
@@ -72,14 +73,16 @@ public:
 	virtual AActor* PickBodyUnderScreenPosition(const FVector2D& ScreenPosition) const override;
 
 	/** 当前激活的矿物透视组件；未激活时为空。星图 UI 用它画图例、喂矿体显隐。 */
-	virtual UPlanetMineralViewComponent* GetActiveMineralView() const override { return ActiveMineralView; }
+	virtual UPlanetMineralViewComponent* GetActiveMineralView() const override;
 
 	virtual bool GetStarMapMousePositionPx(FVector2D& OutPosition) const override;
 	//~ End IStarMapUIInputs Interface
 
 	//~ Begin IStarMapLookContext Interface
 	virtual bool IsStarMapSelectHeld() const override;
-	virtual bool IsMineralViewActive() const override;
+
+	/** 相机没有 HUD：矿物透视进不去时借这里弹一条带时长的提示。 */
+	virtual void ShowStarMapPrompt(const FString& Text, float Seconds) override;
 	//~ End IStarMapLookContext Interface
 
 	// ── 静态查询（无状态，能无头测）──
@@ -233,28 +236,6 @@ protected:
 	/** 投影单颗天体。拾取与选中面板锚点共用这一条路径。 */
 	bool MakeScreenCandidate(AActor* Body, FStarMapScreenCandidate& Out) const;
 
-	// ── 输入：矿物透视 ──
-
-	/**
-	 * H 键：进入 / 退出矿物透视。只在星图里生效。
-	 *
-	 * 进入条件：当前选中的是体素行星、且它带地质场。失败时给 2 秒提示，不改变状态。
-	 * 退出条件：再按一次 H、退出星图、换 Pawn、或选中天体变了（见 PlayerTick）。
-	 */
-	void OnMineralViewToggle();
-
-	/** 数字键 1..9：切换第 ElementIndex 个元素的显示（下标从 0 起）。 */
-	void OnMineralFilter(const FInputActionValue& Value, int32 ElementIndex);
-
-	/** 数字键 0：全部打开。 */
-	void OnMineralShowAll(const FInputActionValue& Value);
-
-	/**
-	 * 退出矿物透视（幂等）。退出星图 / 换 Pawn / 选中变化都走这里；
-	 * 关卡结束时由组件自身的 EndPlay 兜底恢复，控制器不覆写 EndPlay。
-	 */
-	void ExitMineralViewIfActive();
-
 	// ── 提示 ──
 
 	/** 在屏幕上显示一行提示（每帧刷新，duration 0）。 */
@@ -314,10 +295,6 @@ protected:
 	UPROPERTY(Transient)
 	FStellarEraInputActions Input;
 
-	/** 当前激活的矿物透视组件。行星销毁时 GC 会把它置空。 */
-	UPROPERTY(Transient)
-	TObjectPtr<UPlanetMineralViewComponent> ActiveMineralView;
-
 	// ── 可调参数 ──
 
 	/**
@@ -330,15 +307,6 @@ protected:
 	 */
 	UPROPERTY(EditAnywhere, Category = "StarMap", meta = (ClampMin = "0.0"))
 	float SelectionPixelRadius = 20.f;
-
-	/**
-	 * 焦点是行星时（按 M 进场、按 H 进矿物透视），相机拉远到「地表半径 × 本倍率」。
-	 *
-	 * 3 倍半径能把整颗行星连同它附近的空间一起框进画面，是这个项目里行星构图的
-	 * 默认档。实际距离仍会被 AStarMapCameraPawn 的「不穿行星」区间夹住。
-	 */
-	UPROPERTY(EditAnywhere, Category = "StarMap", meta = (ClampMin = "0.0"))
-	double StarMapPlanetFocusRadiusScale = 3.0;
 
 	/**
 	 * 退出星图时视点混合的时长（秒）。0 = 立刻切回（旧行为）。

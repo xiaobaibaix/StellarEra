@@ -11,6 +11,7 @@ class AVoxelPlanetActor;
 class UCameraComponent;
 class UCosmosSimulationSubsystem;
 class UPlanetEditComponent;
+class UPlanetMineralViewComponent;
 class UStarMapCameraInputComponent;
 class UVoxelSimpleInvokerComponent;
 
@@ -86,6 +87,34 @@ public:
 	 * 最大编辑距离都在它的类默认值里配。原生实例没有编辑功能，调用方按空处理。
 	 */
 	UPlanetEditComponent* GetPlanetEditComponent() const;
+
+	// ── 矿物透视 ──
+
+	/**
+	 * H 键：进入 / 退出矿物透视。
+	 *
+	 * 进入条件：当前选中的是体素行星、且它带矿物透视组件。失败时经控制器弹提示，
+	 * 不改变状态。退出条件：再按一次 H、退出星图、换 Pawn（控制器在 OnPossess /
+	 * 退出星图时调用 ExitMineralViewIfActive），或选中天体变了（控制器 PlayerTick）。
+	 */
+	void ToggleMineralView();
+
+	/** 退出矿物透视（幂等）。状态住在相机上，换 Pawn 时由控制器命令相机执行。 */
+	void ExitMineralViewIfActive();
+
+	bool IsMineralViewActive() const { return ActiveMineralView != nullptr; }
+
+	/** 当前激活的矿物透视组件；未激活时为空。控制器用它转发给星图 UI 画图例。 */
+	UPlanetMineralViewComponent* GetActiveMineralView() const { return ActiveMineralView; }
+
+	/** 数字键 1..9：切换第 Index 个元素的显示（下标从 0 起；未激活时空操作）。 */
+	void ToggleMineralElement(int32 Index);
+
+	/** 数字键 0：全部打开（未激活时空操作）。 */
+	void ShowAllMineralElements();
+
+	/** 焦点是行星时相机拉远的倍率（地表半径 × 本值）。控制器按 M 进场聚焦时用。 */
+	double GetPlanetFocusRadiusScale() const { return PlanetFocusRadiusScale; }
 
 	/** 进入星图模式时由控制器调用：把相机放到给定位置，并重置为「未选中」。 */
 	void EnterFrom(const FVector& InCameraLocation, const FRotator& InCameraRotation);
@@ -480,6 +509,10 @@ protected:
 	UPROPERTY(Transient)
 	TWeakObjectPtr<AActor> LastSeenSelected;
 
+	/** 当前激活的矿物透视组件。行星销毁时 GC 会把它置空。 */
+	UPROPERTY(Transient, VisibleAnywhere, Category = "StarMap|State")
+	TObjectPtr<UPlanetMineralViewComponent> ActiveMineralView;
+
 	// ── 可调参数 ──
 
 	/**
@@ -491,6 +524,16 @@ protected:
 	 */
 	UPROPERTY(EditAnywhere, Category = "StarMap")
 	double ZoomStepFactor = 1.15;
+
+	/**
+	 * 焦点是行星时（按 M 进场、按 H 进矿物透视），相机拉远到「地表半径 × 本倍率」。
+	 *
+	 * 3 倍半径能把整颗行星连同它附近的空间一起框进画面，是这个项目里行星构图的
+	 * 默认档。实际距离仍会被「不穿行星」区间夹住。两种进入方式共用这一个值，
+	 * 构图才一致 —— 所以它住在相机上，而不是控制器各存一份。
+	 */
+	UPROPERTY(EditAnywhere, Category = "StarMap", meta = (ClampMin = "0.0"))
+	double PlanetFocusRadiusScale = 3.0;
 
 	/**
 	 * 绕行视角的灵敏度下限（倍率），见 OrbitLookScale。

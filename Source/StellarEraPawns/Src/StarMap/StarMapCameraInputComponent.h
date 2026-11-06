@@ -34,14 +34,14 @@ class UStarMapLookContext : public UInterface
 };
 
 /**
- * 星图相机判「鼠标位移该拿去干什么」时要问控制器的那两句话。
+ * 星图相机需要控制器配合的两件事：查询选择状态、弹失败提示。
  *
- * 左键按住与矿物透视都是控制器的状态（选择逻辑、图例面板都在那边），
- * 组件住 StellarEraPawns、控制器住 StellarEra，直接 include 会反向依赖
- * Game 模块。做法照 ICosmosBody：游戏模块单向依赖 Pawns，实现放控制器上。
+ * 左键按住的选择逻辑在控制器（图例面板也在那边）；相机没有 HUD，矿物透视
+ * 进不去时的提示只能经控制器转出去。组件住 StellarEraPawns、控制器住
+ * StellarEra，直接 include 会反向依赖 Game 模块。做法照 ICosmosBody：
+ * 游戏模块单向依赖 Pawns，实现放控制器上。
  *
- * 只有这两个：编辑模式与连续挖直接从相机 Pawn 自己的
- * GetPlanetEditComponent() 读，不绕控制器。
+ * 编辑模式、连续挖、矿物透视是否激活都直接从相机 Pawn 自己读，不绕控制器。
  */
 class STELLARERAPAWNS_API IStarMapLookContext
 {
@@ -51,8 +51,8 @@ public:
 	/** 星图里左键是否按住（选择用的按下 / 拖拽判定）。 */
 	virtual bool IsStarMapSelectHeld() const = 0;
 
-	/** 矿物透视（图例）是否激活；激活时左键归图例，不归绕行。 */
-	virtual bool IsMineralViewActive() const = 0;
+	/** 在屏幕上弹一条带时长的提示。相机没有 HUD，用它报「进不了矿物透视」的原因。 */
+	virtual void ShowStarMapPrompt(const FString& Text, float Seconds) = 0;
 };
 
 /**
@@ -104,8 +104,8 @@ private:
 	/** 所属相机；组件只可能挂在星图相机上。 */
 	AStarMapCameraPawn* GetPawn() const;
 
-	/** 控制器的星图视角状态；拿不到时为空。 */
-	const IStarMapLookContext* GetLookContext() const;
+	/** 控制器的星图上下文；拿不到时为空。 */
+	IStarMapLookContext* GetLookContext() const;
 
 	/** 相机 Pawn 自己的编辑组件，且只在编辑模式下才返回。 */
 	UPlanetEditComponent* GetEditComponentInEditMode() const;
@@ -122,6 +122,15 @@ private:
 
 	/** `[` / `]`：编辑模式下调笔刷尺寸（±1，按住 Ctrl ×10）。非编辑模式下无反应。 */
 	void OnBrushSize(const FInputActionValue& Value);
+
+	/** H 键：进入 / 退出矿物透视。状态与逻辑都在相机 Pawn 上。 */
+	void OnMineralViewToggle(const FInputActionValue& Value);
+
+	/** 数字键 1..9：切换第 ElementIndex 个元素（下标从 0 起）。 */
+	void OnMineralFilter(const FInputActionValue& Value, int32 ElementIndex);
+
+	/** 数字键 0：全部打开。 */
+	void OnMineralShowAll(const FInputActionValue& Value);
 
 	/** 右键是否按住（Aim 转头）。 */
 	bool bLookHeld = false;

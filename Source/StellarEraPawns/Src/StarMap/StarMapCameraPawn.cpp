@@ -6,6 +6,7 @@
 #include "CosmosSimulationSubsystem.h"
 #include "Engine/World.h"
 #include "PlanetEditComponent.h"
+#include "PlanetMineralViewComponent.h"
 #include "PlanetSurfaceRay.h"
 #include "StarMapCameraInputComponent.h"
 #include "VoxelPlanetActor.h"
@@ -150,6 +151,88 @@ UPlanetEditComponent* AStarMapCameraPawn::GetPlanetEditComponent() const
 {
 	// 组件由 BP_StarMapCameraPawn 挂载，现查不缓存（同 APlanetCharacter 的理由）。
 	return FindComponentByClass<UPlanetEditComponent>();
+}
+
+void AStarMapCameraPawn::ToggleMineralView()
+{
+	if (ActiveMineralView)
+	{
+		ExitMineralViewIfActive();
+		return;
+	}
+
+	UCosmosSimulationSubsystem* Subsystem = GetWorld()
+		? GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>()
+		: nullptr;
+	AVoxelPlanetActor* Planet = Subsystem
+		? Cast<AVoxelPlanetActor>(Subsystem->GetSelectedBody())
+		: nullptr;
+	UPlanetMineralViewComponent* MineralView =
+		Planet ? Planet->FindComponentByClass<UPlanetMineralViewComponent>() : nullptr;
+
+	// 提示归控制器：相机没有 HUD，失败原因经 IStarMapLookContext 转出去。
+	IStarMapLookContext* Context = Cast<IStarMapLookContext>(GetController());
+	if (!MineralView)
+	{
+		if (Context)
+		{
+			Context->ShowStarMapPrompt(TEXT("矿物观察只支持行星"), 2.f);
+		}
+		return;
+	}
+
+	if (!MineralView->Activate(Planet))
+	{
+		// 失败只有三种：没有地质场、采样参数非法、观察体/材质创建失败
+		// （后两种会先打 Error 日志）。
+		if (Context)
+		{
+			Context->ShowStarMapPrompt(TEXT("该行星没有矿物分布"), 2.f);
+		}
+		return;
+	}
+
+	// 观察里左键只点图例、右键转视角：若此前按过 G，先退出编辑模式。
+	if (UPlanetEditComponent* Edit = GetPlanetEditComponent())
+	{
+		if (Edit->IsEditMode())
+		{
+			Edit->SetEditMode(false);
+		}
+	}
+
+	// 只拉远、不改朝向：按 H 前看哪儿，进入后还是那个角度（spec §3）。
+	// 距离与按 M 进场聚焦行星用同一个倍率，两种进入方式构图一致。
+	FocusOn(Planet, PlanetFocusRadiusScale * Planet->GetSurfaceRadiusCm());
+
+	ActiveMineralView = MineralView;
+}
+
+void AStarMapCameraPawn::ExitMineralViewIfActive()
+{
+	if (!ActiveMineralView)
+	{
+		return;
+	}
+
+	ActiveMineralView->Deactivate();
+	ActiveMineralView = nullptr;
+}
+
+void AStarMapCameraPawn::ToggleMineralElement(const int32 Index)
+{
+	if (ActiveMineralView)
+	{
+		ActiveMineralView->ToggleElement(Index);
+	}
+}
+
+void AStarMapCameraPawn::ShowAllMineralElements()
+{
+	if (ActiveMineralView)
+	{
+		ActiveMineralView->SetAllElementsVisible(true);
+	}
 }
 
 void AStarMapCameraPawn::EnterFrom(const FVector& InCameraLocation, const FRotator& InCameraRotation)

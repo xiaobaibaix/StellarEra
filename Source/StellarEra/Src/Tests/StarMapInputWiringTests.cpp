@@ -1,6 +1,6 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 //
-// 星图相机的键鼠输入真的接到了相机身上，而控制器不再绑视角、缩放与编辑键。
+// 星图相机的键鼠输入真的接到了相机身上，而控制器不再绑视角、缩放、编辑与矿物透视键。
 //
 // 守的是这次搬运最容易哑掉的一环：`AStarMapCameraPawn::SetupPlayerInputComponent`
 // 只是四行转发，整个 override 删掉、或里面的 `PlayerInput->Bind(...)` 被删，
@@ -65,10 +65,11 @@ bool FStellarEraStarMapInputWiringTest::RunTest(const FString& Parameters)
 	// 它有自己的 EnhancedActionEventBindings —— 读错容器会得到恒 0。
 	const TArray<TUniquePtr<FEnhancedInputActionEventBinding>>& Bindings = Input->GetActionEventBindings();
 
-	// 星图视角与编辑的八条：Look / LookActivate(Started,Completed) /
-	// LookMiddle(Started,Completed) / Zoom / EditModeToggle / BrushSize。
+	// 星图视角、编辑与矿物透视共十九条：Look / LookActivate(Started,Completed) /
+	// LookMiddle(Started,Completed) / Zoom / EditModeToggle / BrushSize /
+	// MineralViewToggle / MineralFilter×9 / MineralShowAll。
 	// 少一条就是某个键静默失灵。
-	if (!TestEqual(TEXT("星图相机绑定的动作数"), Bindings.Num(), 8))
+	if (!TestEqual(TEXT("星图相机绑定的动作数"), Bindings.Num(), 19))
 	{
 		return false;
 	}
@@ -79,6 +80,9 @@ bool FStellarEraStarMapInputWiringTest::RunTest(const FString& Parameters)
 	int32 ZoomCount = 0;
 	int32 EditModeCount = 0;
 	int32 BrushSizeCount = 0;
+	int32 MineralViewToggleCount = 0;
+	int32 MineralFilterCount = 0;
+	int32 MineralShowAllCount = 0;
 	for (const TUniquePtr<FEnhancedInputActionEventBinding>& Binding : Bindings)
 	{
 		const UInputAction* Action = Binding ? Binding->GetAction() : nullptr;
@@ -89,6 +93,9 @@ bool FStellarEraStarMapInputWiringTest::RunTest(const FString& Parameters)
 		ZoomCount += ActionName == TEXT("IA_Zoom") ? 1 : 0;
 		EditModeCount += ActionName == TEXT("IA_EditModeToggle") ? 1 : 0;
 		BrushSizeCount += ActionName == TEXT("IA_BrushSize") ? 1 : 0;
+		MineralViewToggleCount += ActionName == TEXT("IA_MineralViewToggle") ? 1 : 0;
+		MineralFilterCount += ActionName.ToString().StartsWith(TEXT("IA_MineralFilter")) ? 1 : 0;
+		MineralShowAllCount += ActionName == TEXT("IA_MineralShowAll") ? 1 : 0;
 	}
 
 	TestEqual(TEXT("IA_Look 绑定数"), LookCount, 1);
@@ -97,6 +104,9 @@ bool FStellarEraStarMapInputWiringTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("IA_Zoom 绑定数"), ZoomCount, 1);
 	TestEqual(TEXT("IA_EditModeToggle 绑定数"), EditModeCount, 1);
 	TestEqual(TEXT("IA_BrushSize 绑定数"), BrushSizeCount, 1);
+	TestEqual(TEXT("IA_MineralViewToggle 绑定数"), MineralViewToggleCount, 1);
+	TestEqual(TEXT("IA_MineralFilter1..9 绑定数"), MineralFilterCount, 9);
+	TestEqual(TEXT("IA_MineralShowAll 绑定数"), MineralShowAllCount, 1);
 
 	return true;
 }
