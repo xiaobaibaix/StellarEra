@@ -3,6 +3,7 @@
 #include "Camera/PlayerCameraManager.h"
 #include "Components/LightComponent.h"
 #include "Components/SceneComponent.h"
+#include "Components/DirectionalLightComponent.h"
 #include "Engine/DirectionalLight.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
@@ -24,6 +25,9 @@ namespace
 	const TCHAR* const AtmosphereMaterialPath = TEXT("/Game/Code/Planet/Materials/M_PlanetAtmosphere");
 
 	const TCHAR* const PlanetShadowMaterialPath = TEXT("/Game/Code/Planet/Materials/M_PlanetShadowLightFunction");
+
+	/** 天光补光那盏定向光的标识：与关卡里 Actor 的标签一致。 */
+	const TCHAR* const SkyFillTag = TEXT("SkyFill");
 
 	// 行星阴影光函数的参数名，必须与 PlanetShadowLightFunctionBuilder.cpp 里的一致。
 	const FName ParamShadowSunDirection(TEXT("SunDirection"));
@@ -488,6 +492,86 @@ void UPlanetAtmosphereComponent::DriveSunLights(const TArray<FPlanetSun>& Suns)
 	}
 }
 
+void UPlanetAtmosphereComponent::ApplySkyFill()
+{
+	UWorld* World = GetWorld();
+	if (!World || !World->IsGameWorld())
+	{
+		return;
+	}
+
+	if (!SkyFillLight)
+	{
+		for (TActorIterator<ADirectionalLight> It(World); It; ++It)
+		{
+			if (It->ActorHasTag(SkyFillTag))
+			{
+				SkyFillLight = *It;
+				break;
+			}
+		}
+		if (!SkyFillLight)
+		{
+			// 灯得在关卡里摆出来（本项目不用代码生成资产），空手上阵只会留一圈硬边等高线。
+			if (!bLoggedMissingSkyFill)
+			{
+				bLoggedMissingSkyFill = true;
+				UE_LOG(LogTemp, Warning,
+					TEXT("[大气] 关卡里没有 SkyFill 标签的定向光，直射光没人补，晨昏线会剩硬边等高线。"));
+			}
+			return;
+		}
+	}
+
+	UDirectionalLightComponent* LightComponent =
+		Cast<UDirectionalLightComponent>(SkyFillLight->GetLightComponent());
+	if (!LightComponent)
+	{
+		return;
+	}
+	// 补光不能投影：它代表整天穹，被地形挡出阴影就成了会移动的硬斑，还多一张阴影图。
+	LightComponent->SetCastShadows(false);
+	// 略偏蓝：瑞利散射后的天光本色，但别过头成蓝紫。
+	LightComponent->SetLightColor(FLinearColor(0.62f, 0.75f, 1.0f), /*bSRGB=*/false);
+	LightComponent->SetIntensity(SkyFillIntensity);
+
+	if (SkyFillIntensity <= 0.0f)
+	{
+		// 0 = 关闭。必须在保证强度已写进去之后才早退，否则关掉会留着上一帧的亮度。
+		return;
+	}
+
+	const APlayerController* PlayerController = World->GetFirstPlayerController();
+	const APlayerCameraManager* CameraManager =
+		PlayerController ? PlayerController->PlayerCameraManager : nullptr;
+	if (!CameraManager)
+	{
+		// 没有视口就定不了「当地天顶」，朝向是错的还不如不动。
+		return;
+	}
+	const FVector Up = (CameraManager->GetCameraLocation() - GetComponentLocation()).GetSafeNormal();
+	if (Up.IsNearlyZero())
+	{
+		return;
+	}
+
+	if (USceneComponent* LightRoot = SkyFillLight->GetRootComponent())
+	{
+		if (LightRoot->Mobility != EComponentMobility::Movable)
+		{
+			// 静态灯拒绝运行时转向并逐帧刷 Mobility 警告。
+			LightRoot->SetMobility(EComponentMobility::Movable);
+		}
+	}
+
+	// 定向光的 forward 是**传播**方向：从当地天顶照下 = 反向。
+	const FRotator Desired = (-Up).Rotation();
+	if (!SkyFillLight->GetActorRotation().Equals(Desired, 0.01f))
+	{
+		SkyFillLight->SetActorRotation(Desired);
+	}
+}
+
 void UPlanetAtmosphereComponent::ApplyPlanetShadow(UWorld* World)
 {
 	// 定向光阴影图只覆盖相机附近（本关 400 m），而挡住太阳的球体离被照点 17~20 km，
@@ -533,8 +617,9 @@ void UPlanetAtmosphereComponent::ApplyPlanetShadow(UWorld* World)
 	for (TActorIterator<ADirectionalLight> It(World); It; ++It)
 	{
 		ADirectionalLight* Light = *It;
-		if (!IsValid(Light))
+		if (!IsValid(Light) || Light->ActorHasTag(SkyFillTag))
 		{
+			// 补光代表整天穹，不该被行星自遮挡成一块黑影。
 			continue;
 		}
 		ULightComponent* LightComponent = Light->GetLightComponent();
@@ -574,6 +659,7 @@ void UPlanetAtmosphereComponent::TickComponent(float DeltaTime, ELevelTick TickT
 		DriveSunLights(CachedSuns);
 		// 阴影与「驱动灯」正交：灯不由 C++ 驱动时也必须挂上，否则夜面没有遮挡。
 		ApplyPlanetShadow(GetWorld());
+		ApplySkyFill();
 	}
 
 	if (!bAtmosphereEnabled)

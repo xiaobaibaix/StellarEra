@@ -153,7 +153,8 @@ ADirectionalLight* UStarBodyComponent::ResolveSunLight()
 	for (TActorIterator<ADirectionalLight> It(World); It; ++It)
 	{
 		ADirectionalLight* Candidate = *It;
-		if (!IsValid(Candidate))
+		// 带 SkyFill 标签的是大气补光，不是太阳灯位。
+		if (!IsValid(Candidate) || Candidate->ActorHasTag(TEXT("SkyFill")))
 		{
 			continue;
 		}

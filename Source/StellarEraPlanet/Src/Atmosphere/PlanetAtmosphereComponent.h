@@ -56,6 +56,14 @@ public:
 	UPROPERTY(EditAnywhere, Category = "StellarEra|Atmosphere", meta = (ClampMin = "0.0"))
 	float BaseLightIntensity = 10.0f;
 
+	/** 天光补光强度（定向光单位）：每帧把打了 SkyFill 标签的那盏定向光转到当地天顶方向，
+	 *  N·L=0 的暗面全靠它填。0 = 关闭。
+	 *  不用 SkyLight：RealTimeCapture 只认 SkyAtmosphere / 体积云 / IsSky 网格体，本项目的大气壳
+	 *  三者都不是，抓到的是黑图（引擎会直接弹那条警告）。
+	 *  量级参照：太阳仰角 8° 时平地的直射只有 10 × sin8° ≈ 1.4，补光比它略低才压不住明暗对比。 */
+	UPROPERTY(EditAnywhere, Category = "StellarEra|Atmosphere", meta = (ClampMin = "0.0"))
+	float SkyFillIntensity = 2.0f;
+
 	/** 大气总开关：关掉 = 壳不可见、飞船密度比恒为 0（无阻力、HUD 显示真空）。运行中可切，可见性与重算由 TickComponent 兜底。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "StellarEra|Atmosphere")
 	bool bAtmosphereEnabled = true;
@@ -156,6 +164,9 @@ private:
 	/** 给世界里每盏定向光挂行星遮挡光函数（仅游戏世界）。与 DriveSunLights 正交 —— 不读 bDrivesDirectionalLight，方向取灯自己 forward 的反向。 */
 	void ApplyPlanetShadow(UWorld* World);
 
+	/** 驱动关卡里打了 SkyFill 标签的定向光（仅游戏世界）：直射贴地时暗面全靠它，否则 N·L=0 是一圈硬边。 */
+	void ApplySkyFill();
+
 	/** 每帧复用的缓冲，避免 CollectSunsFor 每帧重新分配。 */
 	TArray<FPlanetSun> CachedSuns;
 
@@ -170,8 +181,15 @@ private:
 	UPROPERTY(Transient)
 	TMap<TObjectPtr<ADirectionalLight>, TObjectPtr<UMaterialInstanceDynamic>> PlanetShadowMIDs;
 
+	/** 关卡里的补光（带 SkyFill 标签的一盏定向光），缺失时为空。 */
+	UPROPERTY(Transient)
+	TObjectPtr<ADirectionalLight> SkyFillLight;
+
 	/** 材质缺失只报一次，免得每帧刷同一条 Warning。 */
 	bool bLoggedMissingPlanetShadowMaterial = false;
+
+	/** 补光缺失同样只报一次。 */
+	bool bLoggedMissingSkyFill = false;
 
 	/** 几何与材质参数是否已按当前启用状态算过一遍（含三条失败分支）。TickComponent 只在它为假时重算：
 	 *  不能每帧无条件调，也不能拿 IsVisible() 当判据（失败分支本就不可见）。 */
