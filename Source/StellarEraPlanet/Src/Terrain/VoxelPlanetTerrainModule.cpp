@@ -9,10 +9,7 @@
 
 TVoxelSharedRef<FVoxelGeneratorInstance> UVoxelPlanetTerrainModule::GetInstance(const FVoxelPlanetTerrainContext& Context)
 {
-	// 基类兜底：返回纯球。
-	//
-	// 走得到这里说明有子类没重写 GetInstance。用 checkNoEntry 而不是 check ——
-	// 编辑器里误建一个空模块不该炸掉整个关卡，给一颗光滑球是更有用的失败方式。
+	// 基类兜底返回纯球。用 checkNoEntry 而非 check：编辑器误建空模块不该炸掉关卡。
 	checkNoEntry();
 	return MakeVoxelShared<FVoxelPlanetSphereTerrainInstance>(Context);
 }
@@ -33,15 +30,11 @@ void UVoxelPlanetTerrainModule::PostEditChangeProperty(FPropertyChangedEvent& Pr
 {
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 
-	// 遍历所有已加载世界里的行星，把引用本模块的重建一遍。
-	//
-	// 用 InvalidateAndRebuild 而不是直接调 RebuildPlanet：后者有一道「参数哈希
-	// 没变就跳过」的守卫，而地形参数并不参与那个哈希（变的是资产，不是行星自己的
-	// 属性），守卫会把这次重建整个吞掉。
+	// 用 InvalidateAndRebuild 而非 RebuildPlanet：后者有哈希守卫，而地形参数不参与
+	// 哈希（变的是资产），守卫会把重建整个吞掉。
 	for (TObjectIterator<AVoxelPlanetActor> It; It; ++It)
 	{
-		// TObjectIterator 默认连类默认对象一起遍历。对 CDO 调重建会去碰它没有的
-		// 世界，必须跳过。Archetype 同理 —— 它不是关卡里真实存在的那颗行星。
+		// TObjectIterator 会遍历 CDO 与 Archetype；对它们重建会碰没有的世界，必须跳过。
 		if (!It->GetWorld() || It->HasAnyFlags(RF_ClassDefaultObject | RF_ArchetypeObject))
 		{
 			continue;

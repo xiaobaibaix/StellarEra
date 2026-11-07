@@ -11,9 +11,8 @@ AStarBodyActor::AStarBodyActor()
 {
 	PrimaryActorTick.bCanEverTick = false;
 
-	// 根是空场景组件而不是网格：下面的 ×200000 视觉缩放会沿层级传给挂在根下的
-	// 星图相机（BP_Star 的 ChildActor）与轨迹线，把相机和轨迹一起放大 200000 倍。
-	// 缩放只让 StarMesh 自己吃，其余组件挂在根上保持 1 倍。
+	// 根是空场景组件而不是网格：×200000 视觉缩放会沿层级传给挂在根下的星图相机
+	// 与轨迹线。缩放只让 StarMesh 自己吃。
 	StarRoot = CreateDefaultSubobject<USceneComponent>(TEXT("StarRoot"));
 	SetRootComponent(StarRoot);
 
@@ -30,12 +29,9 @@ AStarBodyActor::AStarBodyActor()
 		StarMesh->SetStaticMesh(SphereMesh.Object);
 	}
 
-	// BasicShapes/Sphere 半径 50cm。×200000 = 1e7cm = 100 公里半径。
-	//
-	// 关卡里行星轨道半径就是 1e8cm（100 公里），所以日面正好穿过行星球心 ——
-	// 这是 2026-11-02 明确选定的观感（"恒星应该很大"），不是笔误：行星有半个
-	// 身子埋在日面里。恒星材质是单面的，从行星上看不到日面内侧。
-	// 想退回"真太阳"视角（0.57°）就把这里和 BP_Star 的 StarMesh 缩放一起改回 10000。
+	// BasicShapes/Sphere 半径 50cm，×200000 = 100 公里。行星轨道半径也是 1e8cm，
+	// 所以日面正好穿过行星球心 —— 这是选定的观感（行星半个身子埋在日面里），不是
+	// 笔误；恒星材质单面，从行星上看不到内侧。想退回「真太阳」（0.57°）改回 10000。
 	StarMesh->SetRelativeScale3D(FVector(200000.0f));
 
 	// 恒星不参与碰撞，也不投阴影：它是自发光体，阴影只由 DirectionalLight 产生。

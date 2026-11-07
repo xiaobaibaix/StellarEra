@@ -7,12 +7,7 @@
 #include "PlanetGeologyDistribution.h"
 #include "PlanetGeologyDisseminatedDistribution.generated.h"
 
-/**
- * 浸染状分布。
- *
- * 成本随 GrainCount 线性涨；每粒在观测视图里的角点数 ∝ 粒径²，
- * 所以想更密先加 GrainRadius，再加数量。
- */
+/** 浸染状分布。成本随 GrainCount 线性涨；每粒角点数 ∝ 粒径²，所以想更密先加 GrainRadius 再加数量。 */
 UCLASS(DisplayName = "浸染（散布）", EditInlineNew)
 class STELLARERAPLANET_API UPlanetGeologyDisseminatedDistribution
 	: public UPlanetGeologyDistribution

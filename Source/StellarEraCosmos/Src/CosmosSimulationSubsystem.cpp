@@ -4,7 +4,7 @@
 
 #include "CosmosOrbitComponent.h"
 #include "VoxelPlanetActor.h"
-#include "SpaceshipPawn.h"
+#include "CosmosBody.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Pawn.h"
@@ -12,8 +12,7 @@
 
 void UCosmosSimulationSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
-	// 引擎在 PostInitProperties 里已经按 UCLASS(Config = Game) 载入过一次。
-	// 这里再显式载一次，是为了让「这些值从 ini 来」这件事在代码里看得见。
+	// 引擎已在 PostInitProperties 按 UCLASS(Config = Game) 载入过，这里再显式载一次让「值从 ini 来」看得见。
 	LoadConfig();
 
 	Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
@@ -35,10 +34,7 @@ void UCosmosSimulationSubsystem::Deinitialize()
 
 bool UCosmosSimulationSubsystem::DoesSupportWorldType(const EWorldType::Type WorldType) const
 {
-	// 只在 PIE 与打包世界里跑。
-	//
-	// 编辑器世界里体素星球走的是预览路径，天体没必要动、也不该动 ——
-	// 动了会把关卡里手工摆好的位置改掉，每次打开地图都漂一点。
+	// 只在 PIE 与打包世界里跑。编辑器世界里天体走预览路径，动了会把手工摆好的位置改掉。
 	return WorldType == EWorldType::Game || WorldType == EWorldType::PIE;
 }
 
@@ -80,14 +76,8 @@ void UCosmosSimulationSubsystem::UnregisterBody(UCosmosOrbitComponent* Component
 		}
 	}
 
-	// 只从列表里摘掉，求解器里的那个天体留着不动 —— 中途把它从数组里删掉会让
-	// 后面所有索引整体前移，其余组件已存的 SimulatorIndex 全部失效。
-	// 本项目的天体在整局游戏里不增不减，这个取舍是安全的。
-	//
-	// 但要把「每帧由组件写进去」的那几个字段清零：否则按住 W 销毁飞船时，那颗
-	// 幽灵天体会一直带着最后一帧的外力与阻尼飞下去。物理上这点力可以忽略，
-	// 真正的问题是 bHasForcedBodies 下一帧就变回 false —— 诊断里的 ⚠ 跟着消失，
-	// 等于诊断在撒谎。
+	// 只从列表摘掉，求解器里的天体留着 —— 删它会让后面所有索引前移、SimulatorIndex 全失效。
+	// 但必须清外力与阻尼：否则销毁飞船后那颗幽灵天体一直带着最后一帧的力飞，还让诊断 ⚠ 消失。
 	if (Component->SimulatorIndex != INDEX_NONE
 		&& Component->SimulatorIndex < Simulator.GetNumBodies())
 	{
@@ -95,13 +85,10 @@ void UCosmosSimulationSubsystem::UnregisterBody(UCosmosOrbitComponent* Component
 		Body.ExternalAcceleration = FVector3d::ZeroVector;
 		Body.LinearDamping = 0.0;
 
-		// 角向同理：飞船的角加速度与角阻尼也是每帧写入的，不一起清掉，销毁后那颗
-		// 幽灵天体仍会带着最后一帧的角加速度自转。
+		// 角向同理；角速度不会自己衰减（阻尼刚被清零），探针也得清 —— 否则幽灵天体继续
+		// 拿上百个探针和行星做接触求解，结果既不写回也没人看。
 		Body.ExternalAngularAcceleration = FVector3d::ZeroVector;
 		Body.AngularDamping = 0.0;
-
-		// 角速度是这一支新增的，且**不会自己衰减**（阻尼刚被清零）。探针不清的话，
-		// 幽灵天体还会拿上百个探针继续和行星做接触求解 —— 结果既不写回也没人看，纯烧时间。
 		Body.AngularVelocity = FVector3d::ZeroVector;
 		Body.SetContactProbes({});
 	}
@@ -115,12 +102,7 @@ void UCosmosSimulationSubsystem::AddBodyToSimulator(UCosmosOrbitComponent* Compo
 		return;
 	}
 
-	// ── 初态 = 关卡里的摆放 + 组件上的 InitialVelocityKmPerSecond ──
-	// 这一段只**读**，不写：位置取 Actor 当前所在，速度取组件上的初速，
-	// 组件不搬运任何东西。关卡里怎么摆，运行后就从什么样开始跑。
-	//
-	// 单位边界就在下面几行：设计层是 M⊕ / km/s，求解器是 M☉ / AU每年。
-	// 换算只走 CosmosUnits，调用点不写常数（见 spec §3.1）。
+	// 初态 = 关卡摆放（位置）+ 组件初速，只读不写。单位边界：设计层 M⊕ / km/s → 求解器 M☉ / AU每年。
 	if (!FMath::IsFinite(Component->MassEarth) || Component->MassEarth <= 0.0)
 	{
 		UE_LOG(LogTemp, Error,
@@ -136,40 +118,28 @@ void UCosmosSimulationSubsystem::AddBodyToSimulator(UCosmosOrbitComponent* Compo
 	State.Mass = CosmosUnits::EarthMassToSolarMass(Component->MassEarth);
 	State.OwnerActor = BodyActor;
 
-	// ── 单向引力 ──
-	// 关掉 bExertsGravity 的天体是「测试粒子」：作为引力源质量为 0（不拽别人），
-	// 但自己仍被所有天体吸引。求解器那边的判定在 GravitationalSourceMass。
-	// Mass 保持真实值 —— 接触解算与惯性诊断用的是它，不是引力源质量。
+	// 单向引力：bExertsGravity 关掉的是测试粒子，引力源质量按 0 算、自己仍被吸引；Mass 保持真实值供接触与诊断用。
 	State.bTestParticle = !Component->bExertsGravity;
 
-	// 半径只对**有「地表」这个概念的天体**有意义 —— 就是下面这两个分支：星球
-	// 与飞船。其余天体留 0 即可（点质量、永不接触）。携带判定走的是
-	// CarryRiders 里的 Cast<AVoxelPlanetActor>，与这里写不写半径无关。
+	// 半径只对「有地表」的天体（星球、飞船）有意义，其余留 0 = 点质量永不接触。
 	if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(BodyActor))
 	{
-		// 这里先给平均球半径当**兜底**：第一次 Tick 就会由
-		// RefreshPlanetContactRadii 换成朝最近天体那个方向的地形半径。
-		// 保留它是因为开局日志要打一行半径，那时还没刷过。
+		// 平均球半径只是兜底：第一次 Tick 会被 RefreshPlanetContactRadii 换成地形半径。
 		State.Radius = double(Planet->GetSurfaceRadiusCm()) / CentimetersPerAu;
 	}
-	else if (const ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(BodyActor))
+	else if (const ICosmosBody* Ship = Cast<ICosmosBody>(BodyActor))
 	{
-		// 这里先给 300 cm 球当**兜底**：第一次 Tick 就会由 RefreshShipContactProbes
-		// 换成船体凸包生成的接触探针（Radius 同时置 0）。只有网格没导 Simple
-		// Collision 时才真的用这个球。
+		// 300 cm 球只是兜底：第一次 Tick 会被 RefreshShipContactProbes 换成凸包探针（Radius 置 0）。
 		State.Radius = double(Ship->GetContactRadiusCm()) / CentimetersPerAu;
 
-		// 刚体：姿态归求解器，Actor 的 Rotation 每帧从这里写回。
+		// 刚体：姿态归求解器，Actor 的 Rotation 每帧从这里写回；关卡摆放朝向是初态。
+		// FQuat 与 FQuat4d 精度不同，逐个分量转。
 		State.bRigidBody = true;
-
-		// 关卡的摆放朝向是初态。FQuat 与 FQuat4d 精度不同，逐个分量转。
-		const FQuat InitialRotation = Ship->GetActorQuat();
+		const FQuat InitialRotation = BodyActor->GetActorQuat();
 		State.Orientation = FQuat4d(
 			InitialRotation.X, InitialRotation.Y, InitialRotation.Z, InitialRotation.W);
 
-		// 逐步退出的老开关：bZeroVelocityOnContact 会把整条速度钉成行星的速度
-		// （撞地即停）。刚体接触靠摩擦停，不再需要它 —— 留着位不置，行星间接触
-		// 仍走默认的光滑硬球语义。
+		// 不再置 bZeroVelocityOnContact（撞地即停）：刚体接触靠摩擦停。
 	}
 
 	Component->SimulatorIndex = Simulator.AddBody(State);
@@ -187,8 +157,7 @@ void UCosmosSimulationSubsystem::RefreshPlanetContactRadii()
 			continue;
 		}
 
-		// 只有最近的那个天体可能进到接触距离内，所以只需要朝它那个方向的地表高度。
-		// 其它方向就算矮了 80 米也不会有人碰到，不必白算。
+		// 只有最近的那个天体可能进到接触距离内，只算朝它那个方向的地表高度。
 		int32 NearestIndex = INDEX_NONE;
 		double NearestDistanceSq = 0.0;
 
@@ -214,8 +183,7 @@ void UCosmosSimulationSubsystem::RefreshPlanetContactRadii()
 			continue;
 		}
 
-		// 方向 = 星球中心 → 最近天体。AU 空间与世界空间只差一个等比缩放、没有旋转，
-		// 所以方向可以原样交给地形查询（它内部会归一化）。
+		// 方向 = 星球中心 → 最近天体。AU 与世界空间只差等比缩放、没有旋转，可原样交给地形查询。
 		const FVector Direction =
 			FVector(Simulator.GetBody(NearestIndex).Position - Simulator.GetBody(Index).Position);
 
@@ -231,7 +199,8 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 {
 	for (UCosmosOrbitComponent* Component : Bodies)
 	{
-		ASpaceshipPawn* Ship = Component ? Cast<ASpaceshipPawn>(Component->GetOwner()) : nullptr;
+		AActor* OwnerActor = Component ? Component->GetOwner() : nullptr;
+		ICosmosBody* Ship = Cast<ICosmosBody>(OwnerActor);
 		if (!Ship || Component->SimulatorIndex == INDEX_NONE)
 		{
 			continue;
@@ -252,27 +221,18 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 			State.SetContactProbes({});
 			State.Radius = double(Ship->GetContactRadiusCm()) / CentimetersPerAu;
 
-			// 按 spec §3.4 退回球体惯量（Radius 刚写好，已是 AU）。
+			// 按 spec §3.4 退回球体惯量。当前是空转：探针已清空，接触走球-球分支，而那条
+			// 分支不施加角冲量。写它只为将来球-球开始做旋转接触时不必回头找。
 			//
-			// 注意它当前是**空转**：这条分支清空了探针，接触会走球-球分支，而球-球
-			// 分支从不施加角冲量，惯量取什么都看不出差别。写它只为两件事 —— 与 spec
-			// 对齐，以及将来球-球分支若开始做旋转接触时不必回头再找。
-			//
-			// 这条兜底路径的**行为也变了**：旧的 bZeroVelocityOnContact 会让飞船撞上就
-			// 停，而运行期的飞船已不再置位它 —— 球-球分支只抹法向、没有摩擦，飞船会
-			// 贴着地表一直滑。只在 Hull 没导 Simple Collision 时才会走到。
+			// ⚠ 行为变了：旧 bZeroVelocityOnContact 会让飞船撞上就停，现在球-球只抹法向、
+			// 没有摩擦，飞船会贴着地表一直滑。只在 Hull 没导 Simple Collision 时才会走到。
 			State.InverseInertiaLocal = FCosmosBodyState::InverseInertiaFromSphere(
 				State.Mass, FMath::Max(State.Radius, 1.0e-9));
 			continue;
 		}
 
-		// 本地厘米 → 世界厘米（只取旋转+缩放，不加 Actor 位置：探针相对船心）→ AU。
-		// 每帧重算是为了跟上船的转向：横着贴地和倒着贴地，碰到的探针不是同一批。
-		//
-		// 用的是 Actor 的变换，而不是直接读 State.Orientation：稳态下 Actor 的旋转
-		// 就是上一帧写回的 State.Orientation，也正是求解器本帧推进前的朝向 ——
-		// 两者没有滞后。取 Scene 变换是因为 TransformVector 会一并带上世界缩放。
-		const FTransform ShipTransform = Ship->GetActorTransform();
+		// 本地厘米 → 世界厘米（只取旋转+缩放，探针相对船心）→ AU。每帧重算是为了跟上船的转向。
+		const FTransform ShipTransform = OwnerActor->GetActorTransform();
 		TArray<FVector3d> Probes;
 		Probes.Reserve(LocalProbes.Num());
 		for (const FVector& LocalProbe : LocalProbes)
@@ -284,13 +244,9 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 		State.SetContactProbes(MoveTemp(Probes));
 		State.Radius = 0.0;
 
-		// 惯性张量：用探针点的本地 AABB 当长方体。探针集就是船体凸包的代表点，
-		// AABB 即船体包围盒；按包围盒算惯量足以决定「哪条边着地时翻得多快」，
-		// 而且不需要读网格资产。
-		//
-		// ⚠ 这里用的是**未缩放**的本地探针，而上面的探针走 TransformVector（含 Actor
-		// 世界缩放）。当前关卡飞船 scale = 1 所以两者一致；若哪天飞船被缩放，惯量得
-		// 按缩放后的半边长算 —— 别只缩放探针不缩放这里。
+		// 惯性张量：用探针点的本地 AABB 当长方体。探针即船体凸包代表点，AABB 就是船体包围盒，
+		// 不必读网格资产。⚠ 这里用**未缩放**的本地探针，而上面的探针走了世界缩放；飞船 scale=1
+		// 时两者一致，哪天飞船被缩放，惯量得按缩放后的半边长算。
 		FBox ProbeBox(ForceInit);
 		for (const FVector& LocalProbe : LocalProbes)
 		{
@@ -305,20 +261,13 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 		}
 		else
 		{
-			// 探针全落在一个平面 / 一条线上：长方体公式退化。
-			// 退回均匀球，至少不会给出零惯量（零惯量 = 撞了也不转）。
+			// 探针全落在一个平面 / 一条线上：长方体公式退化，退回均匀球，至少不会是零惯量。
 			State.InverseInertiaLocal = FCosmosBodyState::InverseInertiaFromSphere(
 				State.Mass, FMath::Max(State.ContactProbeRadius, 1.0e-9));
 		}
 
-		// ── 逐探针的真实地表半径 ────────────────────────────────────────────
-		// 求解器每个子步都会重算接触（一帧最多 MaxStepsPerFrame = 200 步），
-		// 所以体素查询只能在这里做一次、查完缓存 —— 不能放进 ResolveProbeContact。
-		//
-		// SetContactProbes 已经把这两项清空；没有行星在范围内时就让它们保持空。
-
-		// 粗筛：船心到最近行星的距离要落在包围球（1.25 × 基准半径，与
-		// RaycastSurfaceCm 同一份余量）加最远探针之内，否则探针碰不到体素地表。
+		// 逐探针地表半径必须在推进前查一次并缓存 —— 一帧最多 200 个子步，体素查询绝不能放进去。
+		// 粗筛：距离 < 包围球（1.25 × 基准半径）+ 最远探针。
 		int32 NearestPlanetIndex = INDEX_NONE;
 		double NearestPlanetDistance = 0.0;
 
@@ -361,8 +310,7 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 			Cast<AVoxelPlanetActor>(Simulator.GetBody(NearestPlanetIndex).OwnerActor.Get());
 		const FVector3d PlanetPosition = Simulator.GetBody(NearestPlanetIndex).Position;
 
-		// 方向量化的尺度：一格 ≈ 地表 1 体素。船体投影到地表通常只有个位数格，
-		// 所以一帧真正 march 的次数是个位数，不是探针数。
+		// 方向量化：一格 ≈ 地表 1 体素。船体投影到地表通常只有个位数格，真正 march 的次数也是。
 		const double BaseRadiusVoxels =
 			double(Planet->GetSurfaceRadiusCm()) / FMath::Max(double(Planet->VoxelSize), 1.0);
 
@@ -416,8 +364,7 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 					double(Planet->GetVoxelSurfaceRadiusCmAtDirection(UnitDirection));
 			}
 
-			// 体素查询出错（非有限 / 非正）时退回解析半径：NaN 会让求解器的穿透量变成
-			// NaN，那个探针就静默不接触了 —— 退化到改动前的行为，而不是静默失效。
+			// 体素查询出错时退回解析半径：NaN 会让穿透量变成 NaN、探针静默不接触。
 			if (!FMath::IsFinite(SurfaceRadiusCm) || SurfaceRadiusCm <= 0.0)
 			{
 				SurfaceRadiusCm = double(Planet->GetSurfaceRadiusCmAtDirection(UnitDirection));
@@ -438,9 +385,7 @@ void UCosmosSimulationSubsystem::ApplyControlledBodyForces(float DeltaSeconds)
 {
 	bHasForcedBodies = false;
 
-	// 换算集中在 CosmosUnits。这里只检查标定值合法性：
-	// TimeScale = 0 时 AdvanceAccumulator 每帧只加 0，求解器根本不推进，跳过外力无所谓；
-	// CentimetersPerAu = 0 会让换算除零，必须挡。
+	// 只检查标定合法性：TimeScale = 0 时求解器根本不推进；CentimetersPerAu = 0 会除零。
 	if (CentimetersPerAu <= 0.0 || TimeScale <= 0.0)
 	{
 		return;
@@ -453,14 +398,13 @@ void UCosmosSimulationSubsystem::ApplyControlledBodyForces(float DeltaSeconds)
 			continue;
 		}
 
-		ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(Component->GetOwner());
+		ICosmosBody* Ship = Cast<ICosmosBody>(Component->GetOwner());
 		if (!Ship)
 		{
 			continue;
 		}
 
-		// 求解器的 GetBodyMutable 是裸的 Bodies[Index]，越界不报错、直接是 UB ——
-		// 校验只能在这一层做，与 GetBodyVelocityGameUnits 同一个理由。
+		// GetBodyMutable 是裸的 Bodies[Index]，越界是 UB —— 校验只能在这一层做。
 		if (Component->SimulatorIndex >= Simulator.GetNumBodies())
 		{
 			continue;
@@ -468,9 +412,8 @@ void UCosmosSimulationSubsystem::ApplyControlledBodyForces(float DeltaSeconds)
 
 		FCosmosBodyState& Body = Simulator.GetBodyMutable(Component->SimulatorIndex);
 
-		// 大气随行星平移（行星自身不自转），阻力要按相对行星的速度算。飞船不能
-		// 反向依赖本子系统（会成环），所以由这里把参考行星的中心速度推进去。
-		// PlanetActor 为空或尚未注册时给零向量 —— 相对速度退化为绝对速度。
+		// 大气随行星平移（行星不自转），阻力按相对行星的速度算。飞船不能反向依赖本子系统
+		// （成环），由这里推参考速度；无行星时给零向量 = 退化为绝对速度。
 		FVector ReferenceVelocity = FVector::ZeroVector;
 		if (const AVoxelPlanetActor* Planet = Ship->GetPlanetActor())
 		{
@@ -485,28 +428,23 @@ void UCosmosSimulationSubsystem::ApplyControlledBodyForces(float DeltaSeconds)
 		}
 		Ship->SetReferencePlanetVelocity(ReferenceVelocity);
 
-		// 帧时长原样转给飞船：它的制动要按「本帧满推力能改变多少速度」收敛，
-		// 见 ASpaceshipPawn::GetThrustAccelerationWorldCmPerS2。
+		// 帧时长原样转给飞船：制动按「本帧满推力能改变多少速度」收敛。
 		Body.ExternalAcceleration = FVector3d(CosmosUnits::WorldCmPerS2ToGameAcceleration(
 			FVector3d(Ship->GetThrustAccelerationWorldCmPerS2(DeltaSeconds)),
 			CentimetersPerAu, TimeScale));
 
-		// τ 是真实秒，求解器的时间单位是模拟年，所以除一个 TimeScale。
-		//
-		// ⚠ 阻尼作用在**惯性系**速度上，不是相对携带天体的速度 —— 求解器不知道
-		// 谁携带谁（那是 CarryRiders 的事，而且是单向的）。行星自己在跑时，阻尼
-		// 抽走的是 k·v_行星 那个量级；后果见 spec §7。
+		// τ 是真实秒、求解器用模拟年，所以除 TimeScale。
+		// ⚠ 阻尼作用在惯性系速度上，不是相对携带天体 —— 行星自己在跑时它会抽走 k·v_行星。
 		const float DampingTime = Ship->GetDampingTime();
 		Body.LinearDamping = DampingTime > 0.f
 			? 1.0 / (double(DampingTime) * TimeScale)
 			: 0.0;
 
-		// 角速度先写给飞船：横滚的「到顶衰减」要读实际角速度，而读的必须是
-		// 上一帧写回的值 —— 求解器单位（rad/模拟年）→ 真实单位（rad/秒）。
+		// 实际角速度先写给飞船：横滚的「到顶衰减」要读它，且必须读上一帧写回的值。
+		// 求解器单位（rad/模拟年）→ 真实单位（rad/秒）。
 		Ship->SetCosmosAngularVelocity(FVector(Body.AngularVelocity * TimeScale));
 
-		// 角加速度：真实 rad/s² → 求解器 rad/模拟年²。多除一个 TimeScale 是因为
-		// 它是 dt 的二阶量（α·dt² 才是角度）。
+		// 角加速度：真实 rad/s² → 求解器 rad/模拟年²。多除一个 TimeScale 因为它是 dt 的二阶量。
 		Body.ExternalAngularAcceleration =
 			FVector3d(Ship->GetAngularAccelerationWorldRadPerS2(DeltaSeconds))
 			/ (TimeScale * TimeScale);
@@ -532,44 +470,26 @@ void UCosmosSimulationSubsystem::FinalizeRegistration()
 		return;
 	}
 
-	// 按质量降序注册：中心天体先进求解器。
-	// N 体是同时求解的，顺序不影响结果，这样只是让日志更好读。
+	// 按质量降序注册：中心天体先进求解器。N 体同时求解，顺序不影响结果，只为日志好读。
 	Bodies.Sort([](const UCosmosOrbitComponent& A, const UCosmosOrbitComponent& B)
 	{
 		return A.MassEarth > B.MassEarth;
 	});
 
-	// 注册完就完事：位置取自关卡摆放、速度取自 InitialVelocityKmPerSecond，**不需要（也不该）
-	// 在开局写回一次位置**。
-	//
-	// 早先这里有一次「立即同步」，那是为了掩盖轨道根数算出的位置与摆放位置对不上
-	// 造成的跳变。轨道根数已经删了，那次同步就只剩副作用：厘米 → AU → 厘米的往返
-	// 会把摆放位置按 float 精度挪动一点 —— 正是要消灭的「组件改变初始状态」。
-	//
-	// 删掉它之后，第一次 Tick 的写回仍会做同一趟往返（求解器只认 AU），但那是
-	// 亚厘米级的取整，且方向是「Actor 向求解器对齐」而不是反过来。
+	// 注册完就完事，**不要在开局写回一次位置**：厘米 → AU → 厘米的往返会按 float 精度挪动摆放位置。
 	for (UCosmosOrbitComponent* Component : Bodies)
 	{
 		AddBodyToSimulator(Component);
 	}
 
-	// ── 自动步长 ──
-	// 轨道周期不再来自手填的半长轴，而是由**实际几何**反推：对每一对天体 (i, j)，
-	// 把它们的间距 r 当成圆轨道半径，算出这对天体相互绕转的周期
-	//     T = 2π√(r³ / (G·(m_i + m_j)))
-	// 再取其中最短的一条除以 StepsPerOrbit。
-	//
-	// 为什么取最短的那条：它就是这个系统里最快的动力学时标，积分步长必须跟着它走。
-	// 具体数值逐关卡不同（改质量、改初始位置都会变）—— 要看就去看开局日志那行，
-	// 「最短周期」与「步长」两个字段都在上面。
+	// ── 自动步长：由实际几何反推，最短配对周期 / StepsPerOrbit，数值看开局日志 ──
 	double ShortestPeriod = TNumericLimits<double>::Max();
 
 	for (int32 I = 0; I < Simulator.GetNumBodies(); ++I)
 	{
 		for (int32 J = I + 1; J < Simulator.GetNumBodies(); ++J)
 		{
-			// 与求解器里 EstimateOrbitalPeriod 用的是同一个函数 —— 两处曾经各写
-			// 一遍同样的公式，抽出来之后就只有一个定义。
+			// 与 EstimateOrbitalPeriod 共用同一份公式，避免两处各写一遍。
 			const double PairPeriod = FNBodySimulator::PairOrbitalPeriod(
 				Simulator.GetBody(I), Simulator.GetBody(J),
 				CosmosUnits::GravitationalConstant_Game);
@@ -581,9 +501,7 @@ void UCosmosSimulationSubsystem::FinalizeRegistration()
 		}
 	}
 
-	// 与 BaseTimeStep 同源，但**分开判**：下面那一支还额外要求 StepsPerOrbit > 0，
-	// 而最短周期本身是个独立的量 —— StepsPerOrbit 填 0 时步长退回默认值，最短周期
-	// 照样有效，预测窗口的上限还要用它。没算出任何正周期时它保持 0。
+	// 与 BaseTimeStep 分开判：StepsPerOrbit = 0 时步长退回默认值，但最短周期仍有效（预测窗口要用）。
 	if (FMath::IsFinite(ShortestPeriod) && ShortestPeriod > 0.0)
 	{
 		ShortestPeriodYears = ShortestPeriod;
@@ -600,17 +518,8 @@ void UCosmosSimulationSubsystem::FinalizeRegistration()
 		TEXT("[Cosmos] 初始化完成：%d 个天体，最短周期 %.6f 年，步长 %.6e 年，TimeScale %.5f 年/秒，1 AU = %.0f 厘米"),
 		Simulator.GetNumBodies(), ShortestPeriod, BaseTimeStep, TimeScale, CentimetersPerAu);
 
-	// ── 每个天体一行初态，只在开局打这一次 ──
-	//
-	// 有这三样就够手算了：质量给 M，位置给 r，速度给 v —— 由它们能算出逃逸速度
-	// √(2M/r) 与束缚能 v²/2 − M/r。「轨道为什么不闭合」「预测窗口为什么这么长」
-	// 这两个问题都从这里开始查，不必再跑一遍模拟。
-	//
-	// 最近邻单独列出来，因为**它才是预测窗口的来源**：窗口 = 1.05 × 该天体的
-	// 最短周期，而最短周期 = min over j 的 PairOrbitalPeriod，即与最近邻的那一对。
-	// 上面那行「最短周期」是全系统的最小值，不一定属于这个天体。
-	//
-	// 每帧打会淹掉日志，而初态本来就不变，所以只在这里打一次。
+	// ── 每个天体一行初态，只在开局打这一次。最近邻才是该天体预测窗口的来源；
+	// 上面的「最短周期」是全系统最小值，不一定属于它 ──
 	for (int32 Index = 0; Index < Simulator.GetNumBodies(); ++Index)
 	{
 		const FCosmosBodyState& Body = Simulator.GetBody(Index);
@@ -658,25 +567,13 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 	}
 
 	// ── 0. 刷新接触形状 ──
-	// 接触形状必须在推进之前：接触解算发生在 StepExact 内部，读的就是这一刻的
-	// Radius / ContactProbes。放到推进之后，这一帧的接触用的还是上一帧的地形高度
-	// 和上一帧的船头朝向。
-	//
-	// 外力不在这里读 —— 它只在**真正会推进**的帧里读取，见下面 NumSteps > 0 那一支。
+	// 必须在推进之前：接触解算发生在 StepExact 内部，读的就是这一刻的 Radius / ContactProbes。
+	// 外力不在这里读 —— 只在真正会推进的帧里读，见下面 NumSteps > 0 那一支。
 	RefreshPlanetContactRadii();
 	RefreshShipContactProbes();
 
-	// ── 1. 时间推进 ──
-	// 真实秒 × TimeScale = 需要模拟的天文年数。
-	//
-	// 余量必须跨帧累积。步长固定是辛积分器的前提（变步长会破坏辛性质、让能量
-	// 漂移失去上界），而每帧要推进的年数不是步长的整数倍 —— 本关卡 60fps 下
-	// 每帧需要 1.81 步。直接 floor 丢掉余量的话每帧只跑 1 步，实际速度只有
-	// 名义值的 55%，而且随帧率漂移：名义「公转一圈 300 秒」会变成 540 秒，
-	// 帧率一掉还要更慢。
-	//
-	// 单帧的推进量另设上限：加载或卡顿之后不该让模拟去补一大段（那既没有
-	// 意义，又会让 TimeScale 因为连续超限而永久掉下去）。
+	// ── 1. 时间推进：真实秒 × TimeScale = 模拟年数 ──
+	// 余量必须跨帧累积（固定步长是辛积分的前提）；单帧另设上限，加载/卡顿后不补一大段。
 	const double MaxAdvancePerFrame =
 		double(FMath::Max(MaxStepsPerFrame - 1, 1)) * BaseTimeStep;
 	AdvanceAccumulator += FMath::Min(double(DeltaTime) * TimeScale, MaxAdvancePerFrame);
@@ -686,21 +583,11 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 	{
 		const int32 StepsToRun = FMath::Min(NumSteps, MaxStepsPerFrame);
 
-		// 外力只在**真正会推进**的帧里读取。零子步帧（帧率高于 1 / (BaseTimeStep /
-		// TimeScale) 时成批出现）里如果也读，待发角速度冲量会被取走清零，却没有任何
-		// StepExact 消费写进去的 ExternalAngularAcceleration —— 下一帧它又被覆盖，
-		// 整帧鼠标输入静默丢失（144 Hz 下约一半帧，且损失随帧率变）。
+		// 外力只在真正会推进的帧里读：零子步帧里读会清掉飞船的待发角速度冲量，却没有 StepExact
+		// 消费写进去的角加速度，整帧鼠标输入静默丢失（144 Hz 下约一半帧）。
 		//
-		// 跳过的帧里冲量自然累加到下一帧（Look() 是 +=），所以这里必须传**本帧真正
-		// 要消费的真实秒**，而不是当前帧的 DeltaTime：跳过 N 帧后冲量是 N 帧的量，
-		// 而实际推进的真实秒是 T_c = StepsToRun·BaseTimeStep/TimeScale ≈ N·DeltaTime。
-		// GetAngularAccelerationWorldRadPerS2 用 Δt 把「到目标转速还差多少」折成角
-		// 加速度，若除数仍是单帧 DeltaTime，Δω = (target−current)·T_c/DeltaTime 就是
-		// N 倍 —— 帧率越高甩得越狠。传 T_c 时 Δω = target−current，与帧率无关。
-		// （线性质推力是真正的加速度、不除以 Δt；但 S 制动 taper 要按「本帧满推力
-		// 能改变多少速度」收敛，它消费 DeltaSeconds，换 T_c 同样是对的 —— 旧版按
-		// 单帧时长估、按 T_c 施加，帧率突变那一下会过冲成反向。横滚走真实角加速度，
-		// 本来就按 T_c 施力。）
+		// 传**本帧真正消费的真实秒**而不是帧时长：跳过的帧里冲量是累加的，除数若还是单帧
+		// DeltaTime，Δω = (target−current)·T_c/DeltaTime 会放大成 N 倍，帧率越高甩得越狠。
 		const double StepRealSeconds = double(StepsToRun) * BaseTimeStep / TimeScale;
 		ApplyControlledBodyForces(float(StepRealSeconds));
 
@@ -712,14 +599,7 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 			Simulator.StepExact(BaseTimeStep);
 		}
 
-		// 兜底，正常配置下不会触发：AdvanceAccumulator 每帧最多只加
-		// (MaxStepsPerFrame − 1) 步的量，而它每次又只扣掉整数步，余量恒小于一个
-		// 步长，所以 floor 之后最多就是 MaxStepsPerFrame − 1 步。真正约束单帧
-		// 开销的是上面那道推进上限，不是这里。
-		//
-		// 只有 MaxStepsPerFrame 被直接改 ini 成 0 或负数时才会持续超限 ——
-		// 属性上的 ClampMin = 1 挡的是编辑器那条路，这段留着兜 ini 那条路：
-		// 宁可让 TimeScale 掉下去，也不要让帧率崩掉。
+		// 兜底，正常不会触发（只把 MaxStepsPerFrame 填成 0/负数时才持续超限）：宁可掉 TimeScale 也不崩帧率。
 		if (NumSteps > MaxStepsPerFrame)
 		{
 			TimeScale *= 0.9;
@@ -744,11 +624,8 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 		{
 			const FCosmosBodyState& State = Simulator.GetBody(Component->SimulatorIndex);
 
-			// 刚体（飞船）：位置 + 朝向一起写回。朝向的权威在求解器 —— 这里不写
-			// 就没人写，而谁在别处 AddActorLocalRotation 就是两个写入方互相抹。
-			//
-			// 非刚体天体只写位置：它们的 Orientation 恒为单位四元数，若也走
-			// SetActorTransform，关卡里摆好的行星朝向会被瞬间抹成零。
+			// 刚体（飞船）位置 + 朝向一起写回。非刚体只写位置：它们的 Orientation 恒为单位四元数，
+			// 走 SetActorTransform 会把关卡里摆好的行星朝向瞬间抹成零。
 			if (State.bRigidBody)
 			{
 				BodyActor->SetActorTransform(
@@ -766,26 +643,21 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 					Simulator.ToWorldLocation(State.Position), /*bSweep=*/false);
 			}
 
-			// 受控天体（飞船）：把求解器速度一并写回 Actor。
-			// ASpaceshipPawn::GetVelocity() 的覆写读的就是它 —— 体素调用器的预测、
-			// IsLanded() 的阈值判断、HUD 的速度显示都走那一处收口。
-			if (ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(BodyActor))
+			// 受控天体（飞船）：速度经 ICosmosBody::SetCosmosVelocity 写回 Actor，体素调用器、IsLanded() 与 HUD 都读那一处。
+			if (ICosmosBody* Ship = Cast<ICosmosBody>(BodyActor))
 			{
 				Ship->SetCosmosVelocity(ToWorldVelocityScaled(State.Velocity));
 			}
 		}
 
-		// 位移取 Actor 的**实际**变化量，而不是求解器算出的差值：
-		// bSimulated 为假的天体在求解器里会漂、在 Actor 上不动，用实际变化量
-		// 两边都自洽（那种天体的位移恒为零）。
+		// 位移取 Actor 实际变化量而非求解器差值：bSimulated 为假时求解器在漂、Actor 不动，取实际才两边自洽。
 		const FVector Delta = BodyActor->GetActorLocation() - PreviousLocation;
 		if (Delta.IsNearlyZero())
 		{
 			continue;
 		}
 
-		// 体素世界就是星球 Actor 自己（AVoxelPlanetActor 直接继承 AVoxelWorld），
-		// 移动 Actor 即移动世界 —— 没有第二个变换要同步。
+		// 体素世界就是星球 Actor 自己（继承 AVoxelWorld），移动 Actor 即移动世界。
 
 		// 顺序要紧：先把星球自己搬到新位置，再把人按同样的位移带过去。
 		CarryRiders(BodyActor, Delta);
@@ -813,9 +685,7 @@ void UCosmosSimulationSubsystem::LogDiagnostics() const
 		TimeScale, TimeScale > 0.0 ? 1.0 / TimeScale : 0.0);
 	UE_LOG(LogTemp, Log, TEXT("[Cosmos] 已模拟    : %.6f 年"), Simulator.GetSimulatedTime());
 
-	// 有受控天体时，总能量与总动量这两项都不再守恒，这个漂移值于是不再是积分
-	// 误差：推力做功把它推正，阻尼与接触耗散把它拉负（接触抹的是相对法向速度，
-	// 只吃能量、不动总动量）。加一句提醒，免得看日志的人去查积分器。
+	// 有受控天体时能量/动量都不再守恒，漂移值不是积分误差：推力推正、阻尼与接触耗散拉负。
 	UE_LOG(LogTemp, Log, TEXT("[Cosmos] 能量漂移  : %.6e  （辛积分应 < 1e-5）%s"),
 		Simulator.GetEnergyDriftRatio(),
 		bHasForcedBodies ? TEXT("  ⚠ 含受控天体，此值不守恒") : TEXT(""));
@@ -823,9 +693,7 @@ void UCosmosSimulationSubsystem::LogDiagnostics() const
 	UE_LOG(LogTemp, Log, TEXT("[Cosmos] 角动量    : %.6e"), Simulator.GetTotalAngularMomentum().Size());
 	UE_LOG(LogTemp, Log, TEXT("[Cosmos] 1 AU      : %.0f 厘米"), CentimetersPerAu);
 
-	// 受控天体（飞船）单独一行，值非零才打 —— 它的存在本身就是
-	// 「子系统真的下来读到飞船了」的证据：没有输入时外力为 0，但阻尼是
-	// 1/(DampingTime × TimeScale) = 3.0030e+04 /年，非零。
+	// 受控天体单独一行，值非零才打：没有输入时外力为 0，但阻尼恒非零，这行就是「读到了飞船」的证据。
 	for (int32 Index = 0; Index < Simulator.GetNumBodies(); ++Index)
 	{
 		const FCosmosBodyState& Body = Simulator.GetBody(Index);
@@ -845,8 +713,7 @@ bool UCosmosSimulationSubsystem::PredictTrajectoryWorld(int32 SimulatorIndex, do
 {
 	OutWorldPositions.Reset();
 
-	// 输出走调用方给的数组；AU → 厘米 的中间结果用一个局部数组接一下。
-	// 每帧每个天体多两次分配，N ≤ 10 时无关紧要。
+	// AU → 厘米的中间结果用局部数组接一下；每帧每个天体两次分配，N ≤ 10 无所谓。
 	TArray<FVector3d> GameUnitPositions;
 	if (!Simulator.PredictTrajectory(SimulatorIndex, HorizonYears, NumSamples, GameUnitPositions))
 	{
@@ -873,8 +740,7 @@ bool UCosmosSimulationSubsystem::PredictClosedOrbitWorld(int32 SimulatorIndex,
 		return false;
 	}
 
-	// 闭环是相对主导天体的：把它锚回主导天体 t=0 的位置，再转世界坐标。
-	// 不能直接用世界坐标去闭合 —— 主导天体自己也在动，绝对路径是摆线。
+	// 闭环相对主导天体：锚回它 t=0 的位置再转世界坐标。主导天体自己也在动，绝对路径是摆线。
 	OutWorldPositions.Reserve(Prediction.RelativePositions.Num());
 	for (const FVector3d& Relative : Prediction.RelativePositions)
 	{
@@ -895,8 +761,7 @@ double UCosmosSimulationSubsystem::GetOrbitalPeriodYears(int32 SimulatorIndex) c
 
 FVector3d UCosmosSimulationSubsystem::GetBodyVelocityGameUnits(int32 SimulatorIndex) const
 {
-	// 求解器的 GetBody 是裸的 Bodies[Index]，越界不会断言、直接是 UB ——
-	// 所以校验只能在这一层做，不能省。
+	// GetBody 是裸的 Bodies[Index]，越界是 UB —— 校验只能在这一层做。
 	if (SimulatorIndex < 0 || SimulatorIndex >= Simulator.GetNumBodies())
 	{
 		return FVector3d::ZeroVector;
@@ -907,7 +772,7 @@ FVector3d UCosmosSimulationSubsystem::GetBodyVelocityGameUnits(int32 SimulatorIn
 
 FVector3d UCosmosSimulationSubsystem::GetBodyGravityGameUnits(int32 SimulatorIndex) const
 {
-	// 与 GetBodyVelocityGameUnits 同一个校验理由：GetBody 越界是 UB。
+	// 理由同上：GetBody 越界是 UB。
 	if (SimulatorIndex < 0 || SimulatorIndex >= Simulator.GetNumBodies())
 	{
 		return FVector3d::ZeroVector;
@@ -953,8 +818,7 @@ void UCosmosSimulationSubsystem::GetRegisteredBodies(TArray<AActor*>& Out) const
 
 void UCosmosSimulationSubsystem::CarryRiders(AActor* BodyActor, const FVector& Delta)
 {
-	// 只有 AVoxelPlanetActor 携带人；不是它的天体没有「地表」这个概念，
-	// 站在上面的东西靠自身重力待着就行。
+	// 只有 AVoxelPlanetActor 携带人；其它天体没有「地表」，站在上面的东西靠自身重力待着。
 	const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(BodyActor);
 	if (!Planet)
 	{
@@ -979,30 +843,16 @@ void UCosmosSimulationSubsystem::CarryRiders(AActor* BodyActor, const FVector& D
 			continue;
 		}
 
-		// 已经挂在别的 Actor 上的 Pawn 一律跳过，两个理由：
-		//   1. 挂在**这颗星球**上的：星球移动时附着关系本来就把它带走了，
-		//      再加一次位移就是走两步；
-		//   2. 挂在**别的 Pawn** 上的（登船后的角色挂在飞船下）：那个 Pawn
-		//      如果也被本函数推着走，附着关系已经带走了它，同样会走两步。
-		// TActorIterator 的遍历顺序不保证，靠顺序去重是不可靠的，所以按附着
-		// 关系去重。
-		//
-		// 本项目有两处 AttachToActor：登船时角色挂到飞船下；平时角色挂在行星下
-		// （APlanetCharacter::SetRidePlanet），由附着层级搬运。行星角色的位移
-		// 因此**不经过本函数** —— 本函数是兜底，只负责那些没有附着父级、却仍
-		// 够得着判定球的 Pawn。
+		// 已挂在别的 Actor 上的 Pawn 一律跳过：附着关系本来就会带走它，再位移就是走两步。
+		// TActorIterator 顺序不保证，按附着关系去重才可靠。本函数是兜底，只管没有附着父级
+		// 却仍够得着判定球的 Pawn。
 		if (Rider->GetAttachParentActor())
 		{
 			continue;
 		}
 
-		// 自身就是 N 体天体的 Pawn 也跳过：本函数上方已经用 SetActorLocation 把它
-		// 搬到新位置了，这里再按星球位移叠一次就是走两步。飞船属于这一类
-		// —— 它挂 UCosmosOrbitComponent，位置由求解器决定，不是被星球「带着」的乘客。
-		//
-		// 判据用 SimulatorIndex 而不是「有没有挂组件」：组件可能存在但还没注册进
-		// 求解器（FinalizeRegistration 之前），那种 Pawn 求解器不管，仍该按乘客
-		// 处理，否则它会掉在原地不动。
+		// 自身是 N 体天体的 Pawn 也跳过（上方 SetActorLocation 已搬过）。判据用 SimulatorIndex：
+		// 注册前的组件求解器不管，那种 Pawn 仍算乘客。
 		if (const UCosmosOrbitComponent* RiderOrbit =
 			Rider->FindComponentByClass<UCosmosOrbitComponent>())
 		{
@@ -1019,24 +869,8 @@ void UCosmosSimulationSubsystem::CarryRiders(AActor* BodyActor, const FVector& D
 			continue;
 		}
 
-		// 最近者独占。判定球理论上可能重叠：RideRadiusScale 是子系统级的，同关卡里
-		// 地表半径相同的星球判定半径就相同，两颗靠近到「判定半径之和」以内时，重叠
-		// 区里的 Pawn 会被两颗星各推一次，位移叠加成两倍。
-		//
-		// 本关卡三颗行星地表半径都是 0.075 AU 量级、彼此相隔 10 AU，判定球远够不着
-		// 对方，碰不到重叠；这条规则是为将来星球挨得近时准备的。
-		//
-		// 这条规则依赖「所有体素星球的判定半径相同」（RideRadiusScale 是子系统级
-		// 配置）。将来若加入半径更小的星球，「更近」就不再蕴含「够得着」：站在大星
-		// 判定球内、却离小星更近的 Pawn 会被两颗星同时放弃。届时要把比较条件改成
-		// 「更近**且**够得着」。
-		//
-		// 所以只由「离 Pawn 最近的携带者」推它，其余天体的调用跳过。不是
-		// AVoxelPlanetActor 的天体不是携带者，它的远近与本规则无关，不能参与
-		// 比较、更不能否决行星。
-		//
-		// 距离相等时按 (距离平方, UniqueID) 取最小，保证同帧恰好一颗星携带：
-		// 只比距离的话，正好落在两个等半径判定球中点的 Pawn 会被推两次。
+		// 最近者独占：判定球重叠时 Pawn 会被推两次。只由最近的 AVoxelPlanetActor 推，距离相等按
+		// (距离平方, UniqueID) 取最小。该规则依赖「所有星球判定半径相同」，加更小星球要重写。
 		const double SelfDistanceSq = FVector::DistSquared(RiderLocation, PlanetLocation);
 		const uint32 SelfUniqueId = BodyActor->GetUniqueID();
 		bool bIsNearestCarrier = true;
@@ -1071,7 +905,6 @@ void UCosmosSimulationSubsystem::CarryRiders(AActor* BodyActor, const FVector& D
 		}
 
 		// 不用 Sweep：Pawn 本来就在地面上，硬扫会把它从地形里挤出去。
-		// 这一帧星球平移多少，Pawn 就跟着平移多少，相对关系原样保留。
 		Rider->AddActorWorldOffset(Delta, /*bSweep=*/false);
 	}
 }

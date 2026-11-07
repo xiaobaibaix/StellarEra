@@ -7,10 +7,8 @@
 #include "PlanetHydrologyTypes.h"
 
 /**
- * 水文烘焙的唯一入口。
- *
- * 刻意做成自由函数而不是 UObject：它只做一次纯计算，输入是回调 + 参数 + 半径，
- * 不认识任何地形子类（不 include Terrain），因此可以在后台线程或测试里直接调用。
+ * 水文烘焙的唯一入口。刻意做成自由函数而不是 UObject：只做一次纯计算，输入是
+ * 回调 + 参数 + 半径，不认识任何地形子类，可在后台线程或测试里直接调用。
  */
 namespace FPlanetHydrologyBake
 {

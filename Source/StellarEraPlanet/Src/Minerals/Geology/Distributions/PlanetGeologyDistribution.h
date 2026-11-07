@@ -49,9 +49,7 @@ struct STELLARERAPLANET_API FPlanetGeologyDistributionNoise
 		float InLacunarity, float InGain, float InVeinThreshold);
 
 	/**
-	 * 原始分形噪声，[0,1]，**不做阈值、也不再缩放**：入参已经是噪声空间坐标，
-	 * 缩放由调用方按自己的特征尺度做（`EvaluateVein` 用 ShapeDetail 折频；
-	 * 片层的域扭曲用 `Local / 厚度 × WarpScale`）。
+	 * 原始分形噪声 [0,1]，不做阈值也不缩放：入参已是噪声空间坐标，缩放由调用方按特征尺度做（脉用 ShapeDetail 折频，片层用 Local / 厚度 × WarpScale）。
 	 */
 	float EvaluateAt(const FVector& NoiseSpacePoint) const;
 
@@ -60,7 +58,7 @@ struct STELLARERAPLANET_API FPlanetGeologyDistributionNoise
 
 	float FeatureRadius = 0.f;
 	float ShapeDetail = 3.f;
-	/** Init 会把它烘进 FVoxelFastNoise 的 FractalBounding；改它必须重新 Init，否则分形不再归一化。 */
+	/** Init 会烘进 FVoxelFastNoise 的 FractalBounding；改它必须重新 Init，否则分形不再归一化。 */
 	int32 Octaves = 2;
 	float VeinThreshold = 0.f;
 
@@ -69,11 +67,8 @@ private:
 };
 
 /**
- * 带权深度放置：返回归一化球内的位置（|P| ≤ 1）。
- *
- * 随机流顺序与旧 PlacePods 逐位一致（方向 → 初始半径 → 可选拒绝采样循环），
- * 迁移保真测试依赖这一点 —— 所以**调用方必须先抽半径抖动**（旧 PlacePods 的第一步），
- * 少抽一次就整体错位。
+ * 带权深度放置：返回归一化球内位置（|P| ≤ 1）。随机流顺序与旧 PlacePods 逐位一致（迁移保真测试依赖），
+ * 调用方必须先抽半径抖动，少抽一次就整体错位。
  */
 STELLARERAPLANET_API FVector SamplePlanetGeologyPlacement(FRandomStream& Rng,
 	float DepthBias, float DepthCenter, float DepthSpread);
@@ -91,12 +86,7 @@ struct FPlanetGeologyDistributionBuildContext
 	int32 DistributionIndex = 0;
 };
 
-/**
- * 分布生成器基类。子类只实现 BuildRuntime；噪声参数归实例所有。
- *
- * 嵌套编辑通知：编辑 Instanced 子对象时引擎不会调用外层预设的
- * PostEditChangeProperty，所以基类主动找外层并广播（见 .cpp）。
- */
+/** 分布生成器基类，子类只实现 BuildRuntime，噪声参数归实例所有。编辑 Instanced 子对象时引擎不会调外层预设的 PostEditChangeProperty，基类主动找外层广播。 */
 UCLASS(Abstract, EditInlineNew, DefaultToInstanced, BlueprintType)
 class STELLARERAPLANET_API UPlanetGeologyDistribution : public UObject
 {
@@ -124,11 +114,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Noise", meta = (ClampMin = "0.0", ClampMax = "0.95"))
 	float VeinThreshold = 0.5f;
 
-	/**
-	 * 迁移专用：Seed 即使为 0 也按字面值使用。
-	 * 旧公式 `Hash(Id) & 0x7fffffff` 理论上可能得到 0，普通 Seed=0 又会触发派生，
-	 * 所以迁移数据用这个位标记「不要再派生」。
-	 */
+	/** 迁移专用：Seed 即使为 0 也按字面值使用（旧公式 Hash(Id) & 0x7fffffff 可能得 0，而普通 Seed=0 会触发派生）。 */
 	UPROPERTY()
 	bool bSeedExplicit = false;
 
@@ -136,7 +122,7 @@ public:
 	int32 ResolveSeed(FName ElementId, int32 DistributionIndex) const;
 
 	// 不能写 `= 0`：UHT 的 GENERATED_BODY() 会实例化 UCLASS，纯虚声明让 gen.cpp 编不过（C2259）。
-	// PURE_VIRTUAL 是 UE 的等价写法：UHT 可实例化，漏实现则在调用点 fatal。
+	// PURE_VIRTUAL 是等价写法：UHT 可实例化，漏实现则在调用点 fatal。
 	virtual TSharedPtr<const FPlanetGeologyDistributionRuntime> BuildRuntime(
 		const FPlanetGeologyDistributionBuildContext& Context) const
 		PURE_VIRTUAL(UPlanetGeologyDistribution::BuildRuntime, return nullptr;);

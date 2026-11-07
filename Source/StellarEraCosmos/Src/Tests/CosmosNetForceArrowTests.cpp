@@ -9,11 +9,9 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-// 回归测试：操控飞船时那根实体引力合力箭头。
-//
-// 这里只测纯函数部分 —— 颜色映射与「圆柱 + 圆锥」两个部件的变换。
-// 真正的显示门控（本地玩家操控 + 不在星图）要在 PIE 里验：编辑器世界的
-// TickComponent 走的是离线预览分支，碰不到这条路径。
+// 回归测试：操控飞船时那根实体引力合力箭头。这里只测纯函数（颜色映射与
+// 「圆柱 + 圆锥」两个部件的变换）；真正的显示门控要在 PIE 里验 —— 编辑器世界的
+// TickComponent 走离线预览分支，碰不到那条路径。
 
 namespace
 {
@@ -51,8 +49,7 @@ bool FStellarEraNetForceArrowColorTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("超过上端仍夹在暖色"),
 		ColorsClose(Comp::NetForceArrowColor(1.0e6, ColdAt, HotAt, TestCold, TestHot), TestHot));
 
-	// 对数刻度：几何中点（√(ColdAt·HotAt)）才应该是冷暖各一半。
-	// 线性刻度下这个值会贴着冷色，正是这段代码要避免的行为。
+	// 对数刻度：几何中点（√(ColdAt·HotAt)）才应是冷暖各一半；线性刻度下它会贴着冷色。
 	const double GeometricMean = FMath::Sqrt(ColdAt * HotAt);
 	TestTrue(TEXT("几何中点取中间色"),
 		ColorsClose(Comp::NetForceArrowColor(GeometricMean, ColdAt, HotAt, TestCold, TestHot),

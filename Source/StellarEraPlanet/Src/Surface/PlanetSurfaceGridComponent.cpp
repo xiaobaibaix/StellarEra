@@ -9,9 +9,7 @@
 #include "GameFramework/PlayerController.h"
 #include "SceneTypes.h"
 #include "TimerManager.h"
-// FVoxelData::GetValue 是头文件里的 inline 转调，模板定义在 VoxelData.inl 里。
-// 只含 VoxelData.h 能编过、但链接时找不到 FVoxelData::Get<FVoxelValue>；
-// VoxelDataIncludes.h 是插件给的伞形头，把 .inl 与锁一起带进来。
+// 只含 VoxelData.h 能编过但链接时找不到 Get<FVoxelValue>；伞形头把 .inl 与锁带进来。
 #include "VoxelData/VoxelDataIncludes.h"
 #include "VoxelVector.h"
 
@@ -20,9 +18,8 @@ UPlanetSurfaceGridComponent::UPlanetSurfaceGridComponent()
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.bStartWithTickEnabled = false;
 
-	// 必须排在 N 体子系统之后：子系统在 FTickableGameObject::TickObjects 里把
-	// 行星搬到本帧位置，而相机更新在它之后。排进 TG_PostUpdateWork 的组件
-	// 能读到本帧最终位置，绘制出的网格不会比行星慢一帧。
+	// 必须排在 N 体子系统之后：它在本帧把行星搬到最终位置，早于本组的组件
+	// 会画出一帧前的网格。
 	PrimaryComponentTick.TickGroup = TG_PostUpdateWork;
 }
 
@@ -137,17 +134,10 @@ void UPlanetSurfaceGridComponent::RebuildCache()
 	TArray<FPlanetEditGridLine> Lines;
 	PlanetEditGrid::BuildLines(GridStepDegrees, Lines);
 
-	// GetSurfaceRadiusCmAtDirection 的解析半径已经应用了与密度场相同的
-	// ComputeRawPlanetOffset，所以它离真实地表只差约一个体素 —— 这里向外留的余量
-	// 不是给噪声的，是给**编辑**的：笔刷能把地形抬高，采样必须覆盖抬升后的表面。
-	// 再加上 FindRadiusVoxels 向外 / 向内各探 SearchSteps 步，锁必须覆盖「所有
-	// 方向解析半径的最大值 + 编辑与搜索余量」，否则采样点会落在锁外，读到未
-	// 同步的数据。
-	//
-	// 方向空间前提：这里的 Direction 是**体素空间**方向；GetSurfaceRadiusCmAtDirection
-	// 接受世界方向。两者能直接共用，只因为行星 Actor 不带旋转（见
-	// VoxelPlanetActor.cpp 中 GetSurfaceRadiusCmAtDirection 的说明）。若将来行星
-	// 会自转，必须先把方向变换到世界空间再查询。
+	// 解析半径已含噪声位移，离真实地表只差约一个体素；外留余量是给**编辑**的
+	// （笔刷能抬高地形），再加 FindRadiusVoxels 各探 SearchSteps 步，锁必须覆盖
+	// 「所有方向解析半径最大值 + 编辑与搜索余量」，否则读到锁外未同步的数据。
+	// Direction 是体素空间方向而接口收世界方向，能共用只因为行星无旋转。
 	float MaxGuessVoxels = BaseRadiusVoxels;
 	for (const FPlanetEditGridLine& Line : Lines)
 	{
@@ -174,8 +164,8 @@ void UPlanetSurfaceGridComponent::RebuildCache()
 
 	const auto FindRadiusVoxels = [&](const FVector& Direction) -> float
 	{
-		// 解析猜测与 GetValue 都在**数据空间**；只有 AVoxelWorld::WorldOffset 为零时
-		// 数据空间 == 局部空间（本项目从不启用自定义 rebasing，见调用点说明）。
+		// 解析猜测与 GetValue 都在**数据空间**；WorldOffset 为零时它等于局部空间
+		// （本项目从不启用自定义 rebasing）。
 		const float Guess = Planet->GetSurfaceRadiusCmAtDirection(Direction) / VoxelSize;
 		const bool bGuessEmpty = SampleEmpty(Direction, Guess);
 
@@ -284,9 +274,7 @@ void UPlanetSurfaceGridComponent::DrawCachedLines()
 	FRotator ViewRotation = FRotator::ZeroRotator;
 	PlayerController->GetPlayerViewPoint(ViewLocation, ViewRotation);
 
-	// CameraDirection 是**世界空间**方向，而缓存方向是体素空间方向。两者能直接比较，
-	// 同样只因为行星 Actor 不带旋转；若将来会自转，必须先用
-	// InverseTransformVectorNoScale 把它换到体素空间。
+	// CameraDirection 是世界空间而缓存方向是体素空间，能直接比较只因为行星无旋转。
 	const FVector CameraDirection =
 		(ViewLocation - Planet->GetActorLocation()).GetSafeNormal();
 	if (CameraDirection.IsNearlyZero())

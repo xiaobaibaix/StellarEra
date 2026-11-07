@@ -8,8 +8,7 @@
 
 UCosmosOrbitComponent::UCosmosOrbitComponent()
 {
-	// 组件只存参数，不 Tick：位置/速度由读取方（星图 UI）按需从 Actor 与
-	// 求解器换算，不再为了两个回显字段每帧跑一遍。
+	// 组件只存参数、不 Tick：位置/速度由读取方按需从 Actor 与求解器换算。
 	PrimaryComponentTick.bCanEverTick = false;
 }
 
@@ -43,8 +42,7 @@ void UCosmosOrbitComponent::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// 组件自己找上门注册，而不是让子系统去遍历全关卡的 Actor：
-	// 遍历全世界既慢，又会漏掉运行期生成的 Actor。
+	// 组件自己注册，而不是让子系统遍历全关卡：遍历既慢又会漏掉运行期生成的 Actor。
 	if (const UWorld* OwningWorld = GetWorld())
 	{
 		if (UCosmosSimulationSubsystem* CosmosSubsystem = OwningWorld->GetSubsystem<UCosmosSimulationSubsystem>())

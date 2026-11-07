@@ -5,6 +5,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/HUD.h"
+#include "StellarEraNoticeSink.h"
 #include "StellarEraHUD.generated.h"
 
 class ASpaceshipPawn;
@@ -13,23 +14,12 @@ class UStarMapUISystem;
 struct FSpaceshipStatus;
 
 /**
- * 纯 C++ 的调试 HUD。
- *
- * 用 AHUD + Canvas 直接画，不建 UMG 资产：与本项目「输入资产也在 C++ 里造」的
- * 做法一致 —— 零手工步骤，改完代码立刻能跑。
- *
- * 依赖方向：本类在 StellarEraUI 模块，飞船在 StellarEraSpaceship 模块。Build.cs 里
- * 后者是 **私有**依赖，所以这里只前置声明 ASpaceshipPawn / FSpaceshipStatus，
- * 真正的 include 放在 .cpp —— 否则本头文件（公开头）就要求把 StellarEraSpaceship
- * 提升成公开依赖，整个依赖层级都要跟着改。
- *
- * 字体用的是引擎默认字体（GEngine->GetMediumFont()），与
- * AStellarEraPlayerController::ShowPrompt 走 AddOnScreenDebugMessage 时同一个。
- * 项目 Content 下没有任何字体资产，所以中文能不能显示取决于该字体有没有中文字形
- * —— 若屏幕上的「按 E 登船」显示正常，这里就正常。
+ * 纯 C++ 的调试 HUD：Canvas 直接画，不建 UMG 资产。
+ * 飞船是私有依赖，只前置声明、include 放 .cpp，否则会逼着提成公开依赖。
+ * 字体用引擎默认字体，中文能否显示取决于它有没有中文字形。
  */
 UCLASS()
-class STELLARERAUI_API AStellarEraHUD : public AHUD
+class STELLARERAUI_API AStellarEraHUD : public AHUD, public IStellarEraNoticeSink
 {
 	GENERATED_BODY()
 
@@ -38,38 +28,34 @@ public:
 
 	/**
 	 * 弹一条提示，NoticeDuration 秒后自动消失（末尾 NoticeFadeDuration 秒淡出）。
-	 * 重复调用会替换掉上一条，不排队。
+	 * 重复调用替换上一条，不排队。飞船（下游模块）拿不到本类类型，经接口调进来。
 	 */
-	void ShowNotice(const FString& Text);
+	virtual void ShowNotice(const FString& Text) override;
 
 	/** 当前画布尺寸（像素）；没有 Canvas 时返回零向量。 */
 	FVector2D GetViewportSize() const;
 
 	/**
 	 * 帧率面板的一行文案，例如 `帧率      59.9 FPS（16.7 ms）`。
-	 * 帧率无效（<= 0 或非有限值）时返回占位符 `帧率      --`。
+	 * 帧率无效（<= 0 或非有限值）时返回占位符。
 	 */
 	static FString FormatFrameRateLine(float SmoothedFps);
 
 	/**
 	 * 指数平滑帧率（一阶低通）：SmoothingTau 秒内收敛到瞬时值。
-	 * CurrentSmoothedFps <= 0 表示还没有样本，直接采用 1/DeltaSeconds。
-	 * DeltaSeconds <= 0（暂停、时间回绕）时保持原值不变。
+	 * 无样本（<= 0）时直接采用 1/DeltaSeconds；DeltaSeconds <= 0 时保持原值。
 	 */
 	static float UpdateSmoothedFps(float CurrentSmoothedFps, float DeltaSeconds, float SmoothingTau);
 
 	/**
 	 * 重力读数的一行文案，例如 `重力      43.78 km/s²（43776 m/s²）`。
-	 * GravityKmPerS2 < 0 或非有限值（子系统还没注册/没有索引）时返回占位符。
-	 * 大于 MaxThrustKmPerS2 时追加「超出推力」—— 那一栏就是「为什么抬不起来」。
+	 * GravityKmPerS2 < 0 或非有限值时返回占位符；大于 MaxThrustKmPerS2 时追加「超出推力」。
 	 */
 	static FString FormatGravityLine(float GravityKmPerS2, float MaxThrustKmPerS2);
 
 	/**
-	 * 两条速度文案：绝对速度（含当前生效的上限）与相对参考行星的速度。
-	 *
-	 * MaxKmPerSecond <= 0 表示没有上限；bHasReferencePlanet = false 时相对速度
-	 * 印占位符（太空里没有「相对行星」可言）。非有限值不能印成 nan/inf。
+	 * 两条速度文案：绝对速度与相对参考行星的速度。MaxKmPerSecond <= 0 表示没有上限；
+	 * 无参考行星时相对速度印占位符；非有限值不能印成 nan/inf。
 	 */
 	static void FormatSpeedLines(float AbsoluteKmPerSecond, float RelativeKmPerSecond,
 		float MaxKmPerSecond, bool bHasReferencePlanet,
@@ -112,20 +98,13 @@ private:
 	/** 当前 Possess 的 Pawn 是飞船就返回它，否则返回空（此时不画状态条）。 */
 	ASpaceshipPawn* GetViewedShip() const;
 
-	/**
-	 * 当前视角下开着的编辑组件：角色或星图相机上的那个，没开着就 nullptr。
-	 *
-	 * 两种 Pawn 的组件类型相同，面板与提示行不需要分两套代码。
-	 */
+	/** 当前视角下开着的编辑组件（角色或星图相机上的），没开着就 nullptr。 */
 	const UPlanetEditComponent* GetViewedEditComponent() const;
 
 	/** 画底部居中的两个笔刷按钮与提示。角色与星图的编辑模式下都会调用。 */
 	void DrawPlanetEditPanel(const UPlanetEditComponent& Edit);
 
-	/**
-	 * 飞船当前位置受到的合引力大小（世界 km/s²）。
-	 * 读的是求解器本帧刚算出的值，不是重新求一遍。拿不到时返回 -1。
-	 */
+	/** 飞船当前位置的合引力（世界 km/s²），读求解器本帧刚算出的值；拿不到返回 -1。 */
 	float GetShipGravityKmPerS2(const ASpaceshipPawn* Ship) const;
 
 	/** 画左上角的状态条。GravityKmPerS2 < 0 表示当地重力未知。 */

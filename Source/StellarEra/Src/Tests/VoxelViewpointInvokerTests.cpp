@@ -1,8 +1,6 @@
 ﻿// 视点门控：只有当前视点 Pawn 的体素调用器参与 LOD。
-//
 // 这里验「开关本身」与「谓词合成」。BeginPlay 那一条验不了 —— 编辑器世界的
-// SpawnActor 只走 OnRegister（自动启用），不走 BeginPlay。BeginPlay 的效果
-// 只能在 PIE 里看日志，见计划任务 3。
+// SpawnActor 只走 OnRegister，只能在 PIE 里看日志。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -113,10 +111,9 @@ bool FStellarEraInvokerViewpointShipTest::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	// 编辑器世界里 OnRegister 之后是**关闭**的：编辑器世界不跑 BeginPlay、
-	// 也没有 OnPossess，视点门控一次都到不了这里，所以 AlwaysLocal 子类在
-	// OnRegister 里主动关掉（否则摆在关卡里的飞船会在编辑视口里参与 LOD）。
-	// PIE / Game 是另一个世界、组件重新注册，那一步不触发，门控照常接管。
+	// 编辑器世界里 OnRegister 之后是**关闭**的：这里不跑 BeginPlay、也没有
+	// OnPossess，所以 AlwaysLocal 子类在 OnRegister 里主动关掉（否则摆在关卡里的
+	// 飞船会在编辑视口里参与 LOD）。PIE 是另一个世界、组件重新注册，门控照常接管。
 	TestTrue(TEXT("编辑器世界里生成后是关闭的"), AllDisabled(Invokers));
 
 	TArray<FString> Messages;
@@ -157,9 +154,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraInvokerViewpointCharacterTest,
 
 bool FStellarEraInvokerViewpointCharacterTest::RunTest(const FString& Parameters)
 {
-	// 角色同时受「登船」与「视点」两条规则约束。谓词是「与」：
-	// 登船中即使拿到视点也必须保持关闭，否则登船期间脚下 200 米的精细块
-	// 会跟着飞船高速平移、每帧重网格化。
+	// 角色同时受「登船」与「视点」两条规则约束，谓词是「与」：登船中即使拿到
+	// 视点也必须保持关闭，否则脚下 200 米的精细块会跟着飞船高速平移、每帧重网格化。
 	FScopedInvokerTestWorld Scoped;
 	if (!TestTrue(TEXT("测试世界"), Scoped.Create()))
 	{
@@ -199,15 +195,14 @@ bool FStellarEraInvokerViewpointCharacterTest::RunTest(const FString& Parameters
 	Character->SetViewpointInvokersActive(false);
 	TestTrue(TEXT("地面且非视点 → 关闭"), AllDisabled(Invokers));
 
-	// 登船（与 BoardShip 同序：先挂后设）+ 拿到视点 → 仍关。
-	// 判据是 bBoarded，不是附着关系 —— 角色平时就挂在行星下，只 Attach
-	// 不等于登船（c539b78 起谓语改成显式 bBoarded，这条一直没跟上）。
+	// 登船（与 ASpaceshipPawn::Board 同序：先挂后设）+ 拿到视点 → 仍关。
+	// 判据是 bBoarded，不是附着关系 —— 角色平时就挂在行星下。
 	Character->AttachToActor(Ship, FAttachmentTransformRules::KeepWorldTransform);
 	Character->SetBoarded(true);
 	Character->SetViewpointInvokersActive(true);
 	TestTrue(TEXT("登船中即使拿到视点也保持关闭"), AllDisabled(Invokers));
 
-	// 离船（与 LeaveShip 同序：先摘后设）+ 仍是视点 → 开
+	// 离船（与 ASpaceshipPawn::DisembarkCrew 同序：先摘后设）+ 仍是视点 → 开
 	Character->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
 	Character->SetBoarded(false);
 	Character->SetViewpointInvokersActive(true);

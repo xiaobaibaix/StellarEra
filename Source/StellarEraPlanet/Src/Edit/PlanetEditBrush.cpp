@@ -85,8 +85,7 @@ FPlanetEditBox PlanetEditBrush::MakeBox(const FVector& LocalCenterVoxels, const 
 	const int32 MinSize, const int32 MaxSize)
 {
 	const int32 Size = ClampSize(SizeVoxels, MinSize, MaxSize);
-	// FVector 的分量是 double，FMath::RoundToInt(double) 返回 int64；
-	// FIntVector 收 int32。本项目警告即错误，必须显式窄化。
+	// FVector 分量是 double，RoundToInt 返回 int64，FIntVector 收 int32；警告即错误，须显式窄化。
 	const FIntVector Center(
 		static_cast<int32>(FMath::RoundToInt(LocalCenterVoxels.X)),
 		static_cast<int32>(FMath::RoundToInt(LocalCenterVoxels.Y)),
@@ -120,10 +119,8 @@ bool PlanetEditBrush::IsValidVoxelBox(const FPlanetEditVoxelBox& Box)
 FPlanetEditVoxelBox PlanetEditBrush::MakeSphereEditVoxelBox(
 	const FVector& CenterVoxels, const float RadiusVoxels)
 {
-	// 按 double 算：插件的 v_flt 是 double（VoxelDefinitions.h 里
-	// VOXEL_DOUBLE_PRECISION 默认 1），所以 GetBounds 里的
-	// `Position - Radius - 3` 是在 double 上做的。降到 float 会在行星体素坐标
-	// 这种大数上丢掉小数位，取整后整个盒子偏一格。
+	// 按 double 算：插件的 v_flt 是 double，GetBounds 也在 double 上做；降到 float 会在
+	// 行星体素坐标这种大数上丢小数位，取整后整个盒子偏一格。
 	const double MinX = CenterVoxels.X - static_cast<double>(RadiusVoxels) - 3.0;
 	const double MinY = CenterVoxels.Y - static_cast<double>(RadiusVoxels) - 3.0;
 	const double MinZ = CenterVoxels.Z - static_cast<double>(RadiusVoxels) - 3.0;
@@ -132,9 +129,8 @@ FPlanetEditVoxelBox PlanetEditBrush::MakeSphereEditVoxelBox(
 	const double MaxZ = CenterVoxels.Z + static_cast<double>(RadiusVoxels) + 3.0;
 
 	FPlanetEditVoxelBox Box;
-	// 右端是 CeilToInt(Max) + 1（FVoxelIntBox 从浮点构造时就是 FloorToInt(Min)
-	// 与 CeilToInt(Max) + 1）。不能写成 FloorToInt(Max) + 1：Max 非整数时差一格。
-	// FMath::FloorToInt/CeilToInt 对 double 返回 int64，FIntVector 收 int32，显式窄化。
+	// 右端是 CeilToInt(Max)+1（FVoxelIntBox 从浮点构造时如此），不能写成 FloorToInt(Max)+1，
+	// 否则 Max 非整数时差一格。FMath 返回 int64，FIntVector 收 int32，显式窄化。
 	Box.Min = FIntVector(
 		static_cast<int32>(FMath::FloorToInt(MinX)),
 		static_cast<int32>(FMath::FloorToInt(MinY)),
@@ -158,8 +154,7 @@ void PlanetEditBrush::SplitVoxelBoxIntoChunks(
 
 	const int32 ChunkSize = FMath::Max(ChunkSizeVoxels, 1);
 
-	// 用 int64 步进：ChunkSize 允许是 MAX_int32（同步路径传「一块到底」），
-	// int32 的 X + ChunkSize 会溢出成负数，循环随即失控。
+	// 用 int64 步进：ChunkSize 可能是 MAX_int32，int32 的 X + Step 会溢出成负数、循环失控。
 	const int64 Step = ChunkSize;
 
 	// 三轴分别按 ChunkSize 步进，笛卡尔积得到块；最后一块按盒子右端裁。
@@ -181,9 +176,7 @@ void PlanetEditBrush::SplitVoxelBoxIntoChunks(
 		}
 	}
 
-	// 按块中心到盒子中心的距离升序。用整数平方距离：1280³ 的盒子里分量差
-	// 能到 640，平方和只有几百万，int64 富余。块中心用「两倍」表示，
-	// 避免整除带来的半格误差。
+	// 按块中心到盒中心的整数平方距离升序；块中心用「两倍」表示，避免整除的半格误差。
 	const FIntVector BoxCenterTimes2(
 		Box.Min.X + Box.MaxExclusive.X,
 		Box.Min.Y + Box.MaxExclusive.Y,
@@ -286,8 +279,7 @@ void PlanetEditBrush::BuildSpherePreviewSegments(const FVector& Center, const FV
 	FVector Forward = FVector::ZeroVector;
 	Up.FindBestAxisVectors(Right, Forward);
 
-	// 纬线：极角 θ = kπ/(K+1)，k = 1..K。K 为奇数时 k = (K+1)/2 那条 θ = π/2，
-	// 正好是赤道 —— 笔刷落在地面上时它就是「贴地的那一圈」。
+	// 纬线：θ = kπ/(K+1)。K 为奇数时中间那条 θ = π/2 正好是赤道 —— 贴地的那一圈。
 	for (int32 Parallel = 1; Parallel <= PreviewParallels; ++Parallel)
 	{
 		const float Theta = PI * static_cast<float>(Parallel) / (PreviewParallels + 1);
@@ -308,12 +300,8 @@ void PlanetEditBrush::BuildSpherePreviewSegments(const FVector& Center, const FV
 		}
 	}
 
-	// 经线：方位角 φ = 2πm/M 处的半圆，从北极沿 φ 方向绕到南极。
-	//
-	// 每条只画半圈（北极→南极），所以它只覆盖 φ 这一个方位；球面「背面」那条
-	// 经线（φ+π）是**另一条**半圆，不会顺带画出来。因此 φ 必须扫满 2π：
-	// 写成 mπ/M 时 M 条全挤在半个球上，星图沿地表法线俯视（极轴正对镜头）时
-	// 屏幕上只有一侧有经线，看起来就是「经线只有一半」。
+	// 经线：φ = 2πm/M 处的半圆，从北极到南极。每条只覆盖一个方位，所以 φ 必须扫满 2π:
+	// 写成 mπ/M 时 M 条全挤在半个球上，星图沿法线俯视时一侧经线全没了。
 	for (int32 Meridian = 0; Meridian < PreviewMeridians; ++Meridian)
 	{
 		const float Phi = 2.f * PI * static_cast<float>(Meridian) / PreviewMeridians;
@@ -373,8 +361,7 @@ bool PlanetEditBrush::ShouldDigNow(
 {
 	const float Interval = FMath::Max(IntervalSeconds, 0.01f);
 
-	// 负 delta 按 0：系统时间回拨或调用方传错时，累加器最多原地不动。
-	// 若直接累加负数，已经把攒下的时间倒扣回去，等于凭空多等一截。
+	// 负 delta 按 0：时间回拨或传错时累加器最多原地不动，不会把攒下的时间倒扣回去。
 	AccumulatorSeconds += FMath::Max(DeltaSeconds, 0.f);
 
 	// 用 < 表示「还没到」：累加器恰好等于间隔也算到达，这一帧就挖。

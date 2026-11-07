@@ -1,9 +1,4 @@
-﻿// 水文接线的回归测试：没有水的行星不该烘焙，也不该凭空长出水面。
-//
-// 两个方向都在这里：Plumbing 钉「空」的一侧（纯球模块早退、不烘焙），
-// Cache 钉「有水」的一侧 —— 用真实噪声地形模块（分辨率降到 16）真正走进
-// 烘焙分支，验证缓存键（模块指针 + 半径 + 水体配置）在命中、失效、参数变化
-// 三种情况下的行为。
+﻿// 水文接线回归：没有水的行星不该烘焙，也不该凭空长出水面（Plumbing / Cache 两个方向）。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -61,12 +56,8 @@ bool FStellarEraHydrologyPlumbingTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 「有水」的一侧：缓存键必须真的被比较。
-//
-// 这条用例是 Plumbing 的补集。Plumbing 用空模块，RefreshHydrology 在
-// GetWaterConfig 的早退处就返回了，缓存键一个都没读过 —— 那里的所有断言在
-// 空缓存上都恒真。这里换一个真会返回 true 的地形模块（真实噪声地形，
-// 分辨率降到 16），字段才被真正读写。
+// 「有水」的一侧：Plumbing 在 GetWaterConfig 早退处就返回，缓存键一个都没读过，
+// 那里的断言在空缓存上恒真。这里换真会返回 true 的噪声地形（分辨率 16）走进烘焙分支。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraHydrologyCacheTest,
 	"StellarEra.Planet.Hydrology.Cache",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -78,8 +69,7 @@ bool FStellarEraHydrologyCacheTest::RunTest(const FString& Parameters)
 	{
 		return false;
 	}
-	// 16 格/面：烘焙仍是完整流水线，但只有 6×18² ≈ 1944 格，毫秒级。
-	// ClampMin 32 只是编辑器面板的提示，运行时不受它限制；Bake 只要求 ≥ 4。
+	// 16 格/面：烘焙仍是完整流水线，但只有 6×18² ≈ 1944 格，毫秒级（Bake 只要求 ≥ 4）。
 	Terrain->HydrologyResolution = 16;
 	Terrain->bEnableWater = true;
 

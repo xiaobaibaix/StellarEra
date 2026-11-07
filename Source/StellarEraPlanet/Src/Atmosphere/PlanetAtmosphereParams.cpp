@@ -58,9 +58,8 @@ FShellScatteringParams ComputeShellScatteringParams(
 	const float EarthTauMie =
 		(EarthMieScatteringScale + EarthMieAbsorptionScale) * EarthMieScaleHeightKm;
 
-	// 反推系数：τ = β × H → β = τ / H。
-	// 地球的 RayleighScatteringScale 是 B 通道的原始值，所以这里得到的是 B 通道系数，
-	// 再乘归一化颜色得到 RGB。
+	// 反推系数：τ = β × H → β = τ / H。地球的 RayleighScatteringScale 是 B 通道原始值，
+	// 得到 B 通道系数，再乘归一化颜色得 RGB。
 	const float RayleighBetaB = EarthTauRayleigh / Out.RayleighScaleHeightCm;
 	Out.RayleighBeta = EarthRayleighScatteringColor * RayleighBetaB;
 

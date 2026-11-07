@@ -41,8 +41,7 @@ FPlanetEditOp FPlanetProgressiveEdit::MakeOp(const FPlanetEditRequest& Request)
 	}
 	else
 	{
-		// 与 PlanetBrushApplicator 同一套：先按四舍五入的体素中心取两端都含的盒，
-		// 再换成右端开。方块没有半径的概念，上面留的就是 0。
+		// 与 PlanetBrushApplicator 同一套：取两端都含的盒再换成右端开；方块没有半径概念，上面留 0。
 		Op.SquaredRadiusPlus2 = 0.f;
 		Op.SquaredRadiusMinus2 = 0.f;
 		const FPlanetEditBox Box = PlanetEditBrush::MakeBox(
@@ -71,8 +70,7 @@ bool FPlanetProgressiveEdit::MakeRequest(
 		return false;
 	}
 
-	// 世界 → 体素：与 UVoxelSphereTools 内部同一个函数（GetRealPosition 就是
-	// VoxelWorld->GlobalToLocalFloat），不自己除 VoxelSize —— 那会漏掉缩放。
+	// 世界 → 体素用插件同一函数（GetRealPosition 即 GlobalToLocalFloat），不自己除 VoxelSize，否则漏缩放。
 	const FVoxelVector RealPosition =
 		FVoxelToolHelpers::GetRealPosition(InPlanet, CenterWorld, /*bConvertToVoxelSpace=*/true);
 
@@ -88,8 +86,7 @@ bool FPlanetProgressiveEdit::MakeRequest(
 
 	if (InShape == EPlanetBrushShape::Sphere)
 	{
-		// 半径和包围盒都按插件那一套算：半径先夹到区间的半边长（厘米），
-		// 再除 VoxelSize 换到体素。
+		// 半径按插件那一套：先夹到区间的半边长（厘米），再除 VoxelSize 换到体素。
 		const float VoxelSize = FMath::Max(InPlanet->VoxelSize, 1.f);
 		const float RadiusCm = PlanetEditBrush::GetHalfExtentCm(
 			InSizeVoxels, VoxelSize, InMinSizeVoxels, InMaxSizeVoxels);
@@ -106,8 +103,7 @@ bool FPlanetProgressiveEdit::MakeRequest(
 
 bool FPlanetProgressiveEdit::SetupFromRequest(const FPlanetEditRequest& Request)
 {
-	// ResetState 只清几何，不动 Planet。这里必须自己清：公开入口可能被复用到
-	// 新的行星上，留着旧行星就会把新几何写到旧星上。
+	// ResetState 只清几何不动 Planet；这里必须自己清，否则复用会把新几何写到旧星上。
 	Planet.Reset();
 	ResetState();
 	Shape = Request.Shape;
@@ -182,8 +178,7 @@ bool FPlanetProgressiveEdit::ApplyNextChunk()
 	AVoxelPlanetActor* const Target = Planet.Get();
 	if (!IsValid(Target) || !Target->IsCreated())
 	{
-		// 行星没了（被销毁 / 换关）：剩下的块不再有意义，直接判完成，
-		// 否则调用方的队列会拿着一个永远推不动的 job。
+		// 行星没了（被销毁 / 换关）：剩下的块直接判完成，否则队列会拿着永远推不动的 job。
 		NextChunkIndex = Chunks.Num();
 		return false;
 	}
@@ -214,19 +209,16 @@ void FPlanetProgressiveEdit::ApplyChunk(const FPlanetEditChunk& Chunk)
 	FVoxelData& WorldData = Target->GetData();
 	const FVoxelIntBox ChunkBounds(Chunk.Bounds.Min, Chunk.Bounds.MaxExclusive);
 
-	// 块只认自己创建时的前缀。夹一下只是防御：NumOps 由 TryMerge 在游戏线程写，
-	// 不会超过 Ops.Num()。
+	// 块只认创建时的前缀；夹一下只是防御，NumOps 由 TryMerge 在游戏线程写，不会超过 Ops.Num()。
 	const int32 NumOps = FMath::Clamp(Chunk.NumOps, 0, Ops.Num());
 
-	// 写锁只围住数据写入，渲染刷新在锁外 —— 与插件工具完全一致
-	//（VoxelGeneratedTools.h 的 GENERATED_TOOL_CALL）。
+	// 写锁只围数据写入，渲染刷新在锁外 —— 与插件工具完全一致。
 	{
 		FVoxelWriteScopeLock Lock(WorldData, ChunkBounds, ProgressiveEditLockName);
 
 		std::atomic<bool>& Changed = bChangedAnything;
 		const bool bAdd = bPlace;
-		// 捕获裸指针 + 数量：lambda 跑在任务图线程上，不能碰可能被重分配的容器。
-		// op 只在游戏线程的 TryMerge 里增长，与 ApplyChunk 不重叠。
+		// 捕获裸指针 + 数量：lambda 跑在任务图线程，不能碰可能重分配的容器；op 只在游戏线程增长。
 		const FPlanetEditOp* const OpData = Ops.GetData();
 
 		WorldData.ParallelSet<FVoxelValue>(ChunkBounds,
@@ -252,15 +244,13 @@ void FPlanetProgressiveEdit::ApplyChunk(const FPlanetEditChunk& Chunk)
 bool FPlanetProgressiveEdit::TryMerge(
 	const FPlanetEditRequest& Request, const int32 MaxOps)
 {
-	// 没装配过、或已经做完：没有可并的目标。做完的 job 马上会被移出队列，
-	// 往它后面追加块永远不会被执行。
+	// 没装配过或已做完：没可并的目标；做完的 job 马上被移出队列，追加的块永远不执行。
 	if (Ops.Num() == 0 || Chunks.Num() == 0 || IsFinished())
 	{
 		return false;
 	}
 
-	// 参数必须完全兼容。挖填混排、中途改笔刷尺寸都不合并 —— 挖与填在同一格上
-	// 不是同一种操作，混起来「合并结果 == 依次执行」就不再成立。
+	// 参数必须全兼容：挖填混排或中途改尺寸都不并 —— 挖与填在同一格不是同一种操作。
 	if (Request.Shape != Shape
 		|| Request.SizeVoxels != SizeVoxels
 		|| Request.bPlace != bPlace
@@ -275,15 +265,13 @@ bool FPlanetProgressiveEdit::TryMerge(
 		return false;
 	}
 
-	// 只合并包围盒相交的落笔：否则整笔范围会膨胀成一片没挖过的大区域，
-	// 每次刷新都要重建它。
+	// 只合并包围盒相交的落笔，否则整笔范围会膨胀成没挖过的大区域，每次刷新都要重建。
 	if (!PlanetEditBrush::VoxelBoxesIntersect(NewOp.Bounds, FullBounds))
 	{
 		return false;
 	}
 
-	// 去重放在 op 上限之前：同一片区域连点，不管点多少下都该被吸收，
-	// 而不是在到上限之后突然开始排新任务。
+	// 去重放在 op 上限之前：同一片区域连点该被吸收，而不是到上限后突然开始排新任务。
 	for (const FPlanetEditOp& Existing : Ops)
 	{
 		if (Existing.Bounds.Min == NewOp.Bounds.Min

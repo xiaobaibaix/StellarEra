@@ -13,11 +13,9 @@
 namespace
 {
 	/**
-	 * Task 7 的 PlanetWaterMaterialBuilder 生成资产的固定路径。
-	 *
-	 * 全工程没有硬引用指向它（组件是运行期加载的），所以打包时靠
-	 * `Config/DefaultGame.ini` 里的 `DirectoriesToAlwaysCook=(Path="/Game/Code/Planet/Materials")`
-	 * 保底，否则 cook 会把它剔掉、打包版静默没有水。
+	 * PlanetWaterMaterialBuilder 生成资产的固定路径。全工程没有硬引用指向它，
+	 * 打包靠 DefaultGame.ini 的 DirectoriesToAlwaysCook 保底，否则 cook 会把它
+	 * 剔掉、打包版静默没有水。
 	 */
 	const TCHAR* const PlanetWaterComponentMaterialPath =
 		TEXT("/Game/Code/Planet/Materials/M_PlanetWater.M_PlanetWater");
@@ -27,8 +25,8 @@ UPlanetWaterComponent::UPlanetWaterComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
 
-	// 组件本身没有碰撞体：碰撞是下面那张 DynamicMesh 的事（USceneComponent 没有
-	// 碰撞接口）。水面是纯视觉，角色会直接走到海底（设计 §1）。
+	// 组件本身没有碰撞体（USceneComponent 没有碰撞接口）：水面是纯视觉，
+	// 角色会直接走到海底。
 }
 
 void UPlanetWaterComponent::RebuildWater(
@@ -47,7 +45,6 @@ void UPlanetWaterComponent::RebuildWater(
 		return;
 	}
 
-	// 细节面板没设过材质时按默认路径取一次。资产是 Task 7 的编辑器构建器生成的；
 	// 没跑过构建器（或没 cook）时只警告、不生成水面，而不是让整个组件崩掉。
 	if (!WaterMaterial)
 	{
@@ -66,8 +63,7 @@ void UPlanetWaterComponent::RebuildWater(
 	BuildParams.OceanResolution = OceanResolution;
 
 	// 地形高度只给湖泊用：湖冠的 2 格余量必须落在地形高过水位的地方，否则那圈
-	// 水面底下是空气。地表半径与水文烘焙同一条公式：
-	//   半径 = 基准半径 + Amplitude × 归一化位移。
+	// 水面底下是空气。地表半径与水文烘焙同一条公式：基准半径 + Amplitude × 归一化位移。
 	if (Terrain)
 	{
 		BuildParams.TerrainAmplitude = Config.Params.Amplitude;
@@ -94,9 +90,8 @@ void UPlanetWaterComponent::ClearWaterMeshes()
 	{
 		if (IsValid(Mesh))
 		{
-			// 分量用的是固定名字（Water_Ocean 等）。销毁只是标脏，名字要到 GC 才
-			// 释放；下一次重建再 NewObject 同名对象会撞上旧名字槽位。先把旧的挪到
-			// 瞬态包并改成唯一名，把 Owner 下的名字腾出来。
+			// 固定名字要到 GC 才释放；下一次重建再 NewObject 同名对象会撞上旧名字
+			// 槽位。先把旧的挪到瞬态包并改成唯一名，把 Owner 下的名字腾出来。
 			const FName TrashName = MakeUniqueObjectName(
 				GetTransientPackage(), UDynamicMeshComponent::StaticClass(), TEXT("WaterMesh_Trash"));
 			Mesh->Rename(*TrashName.ToString(), GetTransientPackage(),
@@ -119,9 +114,8 @@ void UPlanetWaterComponent::AddWaterMesh(
 		return;
 	}
 
-	// RF_Transient：这张分量只属于本次运行。不标的话，PIE 的内存复制会把所有
-	// 非 Transient 的 OwnedComponents 一起复制进 PIE 世界，而 ClearWaterMeshes
-	// 只认识本数组里的那些 —— 结果是两份水面叠在一起。
+	// RF_Transient：不标的话，PIE 的内存复制会把非 Transient 的 OwnedComponents
+	// 复制进 PIE 世界，而 ClearWaterMeshes 只认识本数组里的 —— 两份水面叠在一起。
 	UDynamicMeshComponent* Component = NewObject<UDynamicMeshComponent>(
 		GetOwner(), FName(MeshName), RF_Transient);
 	if (!Component)

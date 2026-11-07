@@ -9,10 +9,8 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-// 用具名命名空间而不是匿名命名空间：UBT 默认开 unity build，本文件的 .cpp 会与
-// Atmosphere/PlanetAtmosphereComponent.cpp 落进同一个 TU，两边匿名命名空间里的
-// AtmosphereMaterialPath 撞名（C2086 / C2374）。与 Star/SunMaterialBuilder.cpp 的
-// 做法一致：具名命名空间在任何 unity 分组下都不冲突。
+// 用具名命名空间而非匿名：unity build 会把本文件与 PlanetAtmosphereComponent.cpp 塞进
+// 同一 TU，两边匿名命名空间的 AtmosphereMaterialPath 撞名（C2086/C2374）。具名命名空间在任何分组下都不冲突。
 namespace StellarEraAtmosphereMaterialTests
 {
 	/** 与 PlanetAtmosphereComponent.cpp 的 AtmosphereMaterialPath 是同一个资产。 */
@@ -31,9 +29,8 @@ namespace StellarEraAtmosphereMaterialTests
 	}
 } // namespace StellarEraAtmosphereMaterialTests
 
-// 锁死"资产真的按 PlanetAtmosphereMaterialBuilder.cpp 当前的样子重建过"。
-// 改生成器代码忘了重跑 StellarEra.BuildAtmosphereMaterial，就会红在这里，
-// 而不是等到 PIE 里发现天空还是黑的。
+// 锁死「资产真的按 PlanetAtmosphereMaterialBuilder.cpp 重建过」：改了生成器忘了重跑
+// StellarEra.BuildAtmosphereMaterial 会红在这里，而不是等到 PIE 里发现天空是黑的。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraAtmosphereMaterialStructureTest,
 	"StellarEra.Planet.AtmosphereMaterial.Structure",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -73,7 +70,7 @@ bool FStellarEraAtmosphereMaterialStructureTest::RunTest(const FString& Paramete
 	Material->GetAllVectorParameterInfo(VectorInfos, VectorIds);
 
 	const TCHAR* const VectorNames[] = {
-		TEXT("RayleighBeta"), TEXT("MieBeta"), TEXT("PlanetCenter"), TEXT("SunIntensity"),
+		TEXT("RayleighBeta"), TEXT("MieBeta"), TEXT("SunIntensity"),
 		TEXT("SunDirection0"), TEXT("SunDirection1"), TEXT("SunDirection2"), TEXT("SunDirection3"),
 		TEXT("SunRadiance0"), TEXT("SunRadiance1"), TEXT("SunRadiance2"), TEXT("SunRadiance3")
 	};
@@ -83,19 +80,21 @@ bool FStellarEraAtmosphereMaterialStructureTest::RunTest(const FString& Paramete
 			StellarEraAtmosphereMaterialTests::HasParameter(VectorInfos, FName(Name)));
 	}
 
+	// 行星中心由渲染侧的 ObjectPositionWS 提供，留着参数等于两套中心、材质里只认一套。
+	TestFalse(TEXT("旧的 PlanetCenter 参数已删除"),
+		StellarEraAtmosphereMaterialTests::HasParameter(VectorInfos, FName(TEXT("PlanetCenter"))));
+
 	// 单数形式必须已经消失：留着它等于两套太阳方向，HLSL 只认其中一套。
 	TestFalse(TEXT("旧的单数 SunDirection 已删除"),
 		StellarEraAtmosphereMaterialTests::HasParameter(VectorInfos, FName(TEXT("SunDirection"))));
 
-	// 槽位数是两份字面量（不是单一来源，耦合点见 PlanetCloudParams.h）：
-	// C++ 的 MaxSuns 与 HLSL 的 PLANET_MAX_SUNS 必须一致。
+	// 槽位数是两份字面量（耦合点见 PlanetCloudParams.h）：C++ MaxSuns 与 HLSL PLANET_MAX_SUNS 必须一致。
 	TestEqual(TEXT("PlanetClouds::MaxSuns"), PlanetClouds::MaxSuns, 4);
 
 	return true;
 }
 
-// HLSL 里出现这两个名字，说明生成器真的加上了面剔除与深度截断，
-// 而不只是把材质开关改了。
+// HLSL 里出现这两个名字，说明生成器真的加了面剔除与深度截断，不只是改材质开关。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraAtmosphereMaterialHlslTest,
 	"StellarEra.Planet.AtmosphereMaterial.Hlsl",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -126,10 +125,9 @@ bool FStellarEraAtmosphereMaterialHlslTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("HLSL 含面剔除"), Custom->Code.Contains(TEXT("TwoSidedSign")));
 	TestTrue(TEXT("HLSL 含场景深度截断"), Custom->Code.Contains(TEXT("SceneDepthCm")));
 
-	// 云：Code 是 CustomExpressionN 的**函数体**，不能定义函数，所以函数体里只能有
-	// 调用点；函数本体必须在 .ush，靠 IncludeFilePaths 在全局作用域展开。
-	// 这条断言就是"生成器真的把 .ush 挂上了"的证据 —— 如果虚拟目录没映射，
-	// MaterialCachedData::Validate 会把这一项删掉，资产里就查不到了。
+	// 云：Code 是 CustomExpressionN 的**函数体**，不能定义函数，函数本体必须在 .ush
+	// 并靠 IncludeFilePaths 全局展开。虚拟目录没映射时 MaterialCachedData::Validate
+	// 会把这一项删掉，所以这条就是「生成器真的挂上了 .ush」的证据。
 	TestTrue(TEXT("Custom 节点引了 PlanetClouds.ush"),
 		Custom->IncludeFilePaths.Contains(TEXT("/Project/PlanetClouds.ush")));
 
@@ -148,8 +146,7 @@ bool FStellarEraAtmosphereMaterialHlslTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("ush 含云相位函数"), CloudUsh.Contains(TEXT("float CloudPhase(")));
 	TestTrue(TEXT("ush 含分段积分"), CloudUsh.Contains(TEXT("CloudAtmoSegment(")));
 	TestTrue(TEXT("ush 含云段加密步数"), CloudUsh.Contains(TEXT("CLOUD_STEPS")));
-	// 夜面不该有辉光：没有这一段，本影里照样散射，暗面会挂一圈蓝边。
-	// 积分搬进 .ush 之后这条也跟着搬了。
+	// 夜面不该有辉光：没有 SunVis，本影里照样散射、暗面挂一圈蓝边。
 	TestTrue(TEXT("ush 含太阳遮挡"), CloudUsh.Contains(TEXT("SunVis")));
 	TestTrue(TEXT("ush 含太阳集合结构"), CloudUsh.Contains(TEXT("FPlanetSunSet")));
 	TestTrue(TEXT("ush 含固定槽位数"), CloudUsh.Contains(TEXT("PLANET_MAX_SUNS 4")));
@@ -158,10 +155,9 @@ bool FStellarEraAtmosphereMaterialHlslTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("ush 含云自遮挡步数"), CloudUsh.Contains(TEXT("CLOUD_SHADOW_STEPS")));
 
 	// 下面两条是踩过的坑，删掉任何一条画面都不会报错、只会变坏。
-	//
-	// 1) 覆盖率必须映射到噪声的实际取值区间。用教科书的 Thresh = 1-Coverage
-	//    时，CloudFbm 的分布（均值 0.497、标准差 0.050）让 Coverage=0.45 落在
-	//    +1σ，只有三分之一穿过阈值且平均密度 0.07，画出来是一层灰雾而不是云。
+	// 1) 覆盖率必须映射到噪声实际取值区间：教科书式 Thresh = 1−Coverage 时，
+	//    CloudFbm 分布（均值 0.497、σ 0.050）让 Coverage=0.45 落在 +1σ，只三分之一
+	//    穿过阈值、平均密度 0.07，画出来是灰雾而不是云。
 	TestTrue(TEXT("ush 覆盖率映射到噪声取值范围"),
 		CloudUsh.Contains(TEXT("CLOUD_THRESHOLD_AT_ZERO")) &&
 		CloudUsh.Contains(TEXT("CLOUD_THRESHOLD_AT_ONE")));

@@ -5,12 +5,13 @@
 #include "CosmosOrbitComponent.h"
 #include "CosmosSimulationSubsystem.h"
 #include "CosmosTypes.h"
-#include "SpaceshipPawn.h"
+#include "CosmosBody.h"
 #include "VoxelPlanetActor.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
+#include "GameFramework/Pawn.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "UObject/Package.h"
 #include "UObject/UObjectGlobals.h"
@@ -21,11 +22,8 @@
 namespace
 {
 	/**
-	 * 线宽。**必须传 0**。
-	 *
-	 * 行批把 Thickness = 0 走成真正的 1 像素 GPU 线（BatchedElements.cpp:167），
-	 * 而正值走的是「世界单位」的四边形（行批把 bScreenSpace 写死成 false）。
-	 * 传正值的话近了变成粗带、远了直接消失；0 则任何距离都是 1 像素，正是想要的。
+	 * 线宽。**必须传 0**：0 走真正的 1 像素 GPU 线，正值走「世界单位」四边形
+	 * （bScreenSpace 写死为 false）—— 近了变粗带、远了直接消失。
 	 */
 	constexpr float LineThickness = 0.0f;
 
@@ -41,10 +39,7 @@ namespace
 	/** 有限预测的采样点数。步长 = 窗口 / (该值 - 1)。 */
 	constexpr int32 PredictionSamples = 256;
 
-	/**
-	 * 闭合轨道每圈的采样点数。旧有限路径是「半圈 256 点」，这里用 512/圈
-	 * 保持同样的步长密度 —— 闭环跨整整一圈，点数太少会画出多边形的棱角。
-	 */
+	/** 闭合轨道每圈的采样点数。与有限路径的半圈 256 点同密度，点数太少会看到棱角。 */
 	constexpr int32 ClosedOrbitSamples = 512;
 
 	/** 自动预测窗口 = 该系数 × 估算周期。略大于 1，让画出的椭圆首尾相接。 */
@@ -81,10 +76,7 @@ void UCosmosTrajectoryComponent::OnRegister()
 
 void UCosmosTrajectoryComponent::OnUnregister()
 {
-	// 只清线，不销毁行批：组件可能只是被重注册（蓝图重编译、组件重建），
-	// 下次 OnRegister 还要按名字把它找回来复用。行批的 outer 是 Actor，
-	// 不随本组件销毁；如果这里不 Flush，下一次注册会新建一个行批，旧的
-	// 带着上一版预测线留在场景里。
+	// 只清线，不销毁行批：outer 是 Actor、重注册时要按名字复用。不 Flush 的话旧的会带着上一版预测线留在场景里。
 	if (IsValid(LineBatch))
 	{
 		LineBatch->Flush();
@@ -116,18 +108,11 @@ ULineBatchComponent* UCosmosTrajectoryComponent::EnsureLineBatch()
 		return nullptr;
 	}
 
-	// 线批组件自己造、自己注册。**不挂到任何父组件下**：行批的线是用世界坐标
-	// 直接交给 PDI 的（LineBatchComponent.cpp 里 DrawTranslucentLine(Line.Start,
-	// Line.End, ...)），所以它自己的变换只影响包围盒、不影响线。挂在移动中的
-	// 星球下面反而会让包围盒跟着跑、算错。引擎自己的行批也是这么造的。
-	//
-	// 名字里带本组件的名字：同一组件被重注册时能找回上一次的行批并复用，而不是
-	// 每注册一次就 NewObject 一个。行批的 outer 是 Actor（不是本组件），组件重建
-	// 时它不会被一起销毁，旧版本因此会不断累积带旧线的行批。
+	// 自己造、自己注册，**不挂到任何父组件下**：线用世界坐标直接交给 PDI，行批自身变换
+	// 只影响包围盒，挂在移动中的星球下反而会算错。名字带组件名，重注册时才能找回复用。
 	const FName BatchName(*FString::Printf(TEXT("CosmosTrajectoryLineBatch_%s"), *GetName()));
 
-	// FindObjectFast 取 FName 直接查，不会像 FindObject 那样按路径解析（UE 5.8 的
-	// FindObject 只接受 FStringView / FTopLevelAssetPath，不接受 FName）。
+	// 用 FindObjectFast 直接查 FName：UE 5.8 的 FindObject 只接受 FStringView / FTopLevelAssetPath。
 	LineBatch = FindObjectFast<ULineBatchComponent>(Owner, BatchName);
 	if (!IsValid(LineBatch))
 	{
@@ -156,8 +141,7 @@ void UCosmosTrajectoryComponent::DestroyStaleLineBatches()
 		return;
 	}
 
-	// 只有「本 Actor 只有一个轨迹组件」时才敢清理：多个轨迹组件各有自己的行批，
-	// 无法凭名字判断哪些是遗留的，删错会把别人的线一起清掉。
+	// 只有「本 Actor 只有一个轨迹组件」时才敢清理：多组件时无法凭名字判断哪些是遗留的。
 	TArray<UCosmosTrajectoryComponent*> TrajectoryComponents;
 	Owner->GetComponents<UCosmosTrajectoryComponent>(TrajectoryComponents);
 	if (TrajectoryComponents.Num() != 1)
@@ -171,8 +155,7 @@ void UCosmosTrajectoryComponent::DestroyStaleLineBatches()
 	{
 		if (Batch && Batch != LineBatch)
 		{
-			// 老版本按默认名 NewObject 出来的遗留行批（outer = Actor，不随轨迹
-			// 组件重建而销毁）。清掉它们，旧预测线才会立刻消失。
+			// 老版本按默认名创建的遗留行批（outer = Actor）。清掉，旧预测线才会消失。
 			Batch->DestroyComponent();
 		}
 	}
@@ -180,9 +163,7 @@ void UCosmosTrajectoryComponent::DestroyStaleLineBatches()
 
 UCosmosOrbitComponent* UCosmosTrajectoryComponent::GetOrbitComponent()
 {
-	// 懒解析并缓存。兄弟 Orbit 组件在关卡加载时就已就位，这里第一次 Tick 时找一次
-	// 就够；找不到（挂错 Actor）就一直是 null，每帧重试也无妨 —— 成本是
-	// FindComponentByClass 一次哈希查找，可忽略。
+	// 懒解析并缓存。找不到（挂错 Actor）就一直重试，成本只是一次哈希查找。
 	if (Orbit)
 	{
 		return Orbit;
@@ -217,9 +198,7 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	}
 
 	// ── 编辑器态（不 Play）：走离线重建，完全不碰子系统 ──
-	// 编辑器世界里子系统不 Tick（DoesSupportWorldType 只认 Game/PIE），天体也没
-	// 注册进求解器（SimulatorIndex 恒为 INDEX_NONE）。下面的运行期路径全依赖
-	// 求解器的当前状态，拿到的只会是零向量，所以必须先在这里分流。
+	// 编辑器里子系统不 Tick、天体没注册（SimulatorIndex 恒为 INDEX_NONE），运行期路径只会拿到零向量。
 	const UWorld* World = GetWorld();
 	if (World && !World->IsGameWorld())
 	{
@@ -292,19 +271,16 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	const bool bWantHillSphere = bInStarMapView && bDrawHillSphere;
 	const bool bWantDominance = bInStarMapView && bDrawDominancePartition;
 
-	// ── 实体合力箭头：独立的门控，与上面六条互不牵连 ──
-	//
-	// 它属于「操控飞船」这个状态，不属于星图：上船出现、下船走角色消失、进星图
-	// 也消失。所以**不**读 bInStarMapView，也不受 bShowOutsideStarMap 影响 ——
-	// 那个开关会把预测线和速度箭头一起拖进游戏画面，与本需求无关。
-	//
-	// 另外还要求飞船的调试视角（B 键）开着：箭头不再一上船就常驻。
-	const ASpaceshipPawn* ControlledShip = Cast<ASpaceshipPawn>(OwnerActor);
+	// ── 实体合力箭头：独立门控 ──
+	// 属于「操控飞船」而非星图：**不**读 bInStarMapView，也不受 bShowOutsideStarMap 影响
+	// （那个开关会把预测线一并拖进游戏画面）。另要求调试视角开着，不再一上船就常驻。
+	const APawn* ControlledPawn = Cast<APawn>(OwnerActor);
+	const ICosmosBody* ControlledBody = Cast<ICosmosBody>(OwnerActor);
 	const bool bWantsNetForceArrow = ShouldShowNetForceArrow(
 		bDrawNetForceArrow,
-		ControlledShip != nullptr && ControlledShip->IsLocallyControlled(),
+		ControlledPawn != nullptr && ControlledPawn->IsLocallyControlled(),
 		Subsystem->IsStarMapActive(),
-		ControlledShip != nullptr && ControlledShip->IsDebugViewMode());
+		ControlledBody != nullptr && ControlledBody->IsDebugViewMode());
 
 	if (bWantsNetForceArrow)
 	{
@@ -323,10 +299,7 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	}
 
 	// ── 预测：每帧重算 ──
-	//
-	// 先试闭合轨道：能在主导天体参考系里跑满一圈，就画闭环。这与 PredictionYears
-	// 无关 —— 闭合优先。密切轨道非椭圆 / 被三体扰动拽走时，才退回有限窗口；
-	// PredictionYears 只决定那个有限窗口的长度。
+	// 先试闭合轨道（与 PredictionYears 无关）；非椭圆或被拽走时才退回有限窗口。
 	PredictedWorld.Reset();
 	if (bWantPrediction && OrbitComponent->SimulatorIndex != INDEX_NONE)
 	{
@@ -460,10 +433,7 @@ double UCosmosTrajectoryComponent::ResolvePredictionHorizonYears(
 		}
 	}
 
-	// 手填与自动吃同一个上限：窗口相对该天体自身的动力学时标太长时，预测副本的
-	// 固定步长会粗到把轨道画错（快天体直接画成一条飞出去的直线）。上限按**自身**
-	// 周期而不是全系统最短 —— 否则一艘悬在中心星上方的飞船会把所有行星的窗口
-	// 压到它的 0.03 年，椭圆只剩一小段。
+	// 手填与自动吃同一上限：窗口太长时固定步长会粗到画错轨道。上限按**自身**周期而非全系统最短。
 	return ClampPredictionHorizonYears(Horizon, OwnPeriod, MaxAutoPredictionPeriods);
 }
 
@@ -586,8 +556,7 @@ void UCosmosTrajectoryComponent::AppendGravityArrow(const UCosmosSimulationSubsy
 bool UCosmosTrajectoryComponent::ShouldShowNetForceArrow(bool bDrawArrow,
 	bool bControlledShip, bool bInStarMap, bool bDebugViewMode)
 {
-	// 拆成独立纯函数的理由很简单：门控原来内联在 Tick 里，只能靠 PIE 肉眼验；
-	// 抽出来之后「少任何一个条件都不显示」可以无头断言。
+	// 抽成纯函数：内联在 Tick 里只能靠 PIE 肉眼验，「少任何一个条件都不显示」无法断言。
 	return bDrawArrow && bControlledShip && !bInStarMap && bDebugViewMode;
 }
 
@@ -640,8 +609,7 @@ bool UCosmosTrajectoryComponent::ComputeNetForceArrowTransforms(
 	const double HeadLength = TotalLengthCm * Fraction;
 	const double ShaftLength = TotalLengthCm - HeadLength;
 
-	// 锥头是「底在下、尖在上」，所以要把它整体前移到杆的末端；两者都以自身
-	// 中点定位，缩放 Z 就是「实际长度 / 100」。
+	// 锥头「底在下、尖在上」，整体前移到杆末端；两者都以自身中点定位，Z 缩放 = 实际长度/100。
 	const FRotator Rotation = FRotationMatrix::MakeFromZ(Dir).Rotator();
 	const double RadialScale = 1.0 / BasicShapeRadius;
 
@@ -676,9 +644,8 @@ bool UCosmosTrajectoryComponent::EnsureNetForceArrowMeshes()
 	UStaticMesh* ConeMesh = LoadObject<UStaticMesh>(nullptr,
 		TEXT("/Engine/BasicShapes/Cone.Cone"));
 
-	// 尾端钉在 Actor 原点（船体几何中心），整根箭头都在舰体内部，所以材质必须
-	// 关掉深度测试，像 HUD 一样画在船体之上 —— 否则玩家一个像素也看不到。
-	// 这是 M_PlanetGhost 的副本，只多勾了 Disable Depth Test。
+	// 尾端钉在 Actor 原点（船体几何中心），整根箭头埋在舰体内，材质必须关深度测试才能看到。
+	// M_PlanetGhostOverlay 只比 M_PlanetGhost 多勾了这一项。
 	UMaterialInterface* ArrowMaterial = LoadObject<UMaterialInterface>(nullptr,
 		TEXT("/Game/Code/Planet/Materials/M_PlanetGhostOverlay.M_PlanetGhostOverlay"));
 	if (!ArrowMaterial)
@@ -727,8 +694,7 @@ bool UCosmosTrajectoryComponent::EnsureNetForceArrowMeshes()
 		return false;
 	}
 
-	// MID 的 Outer 给瞬态包：指示物不该把资产包拖脏，也不该在切图时被旧世界
-	// 的引用链挂住（参见仓库里「给体素相关物建 MID / 纹理，Outer 一律给瞬态包」）。
+	// MID 的 Outer 给瞬态包：否则会把资产包拖脏，切图时还可能被旧世界的引用链挂住。
 	NetForceArrowMID = UMaterialInstanceDynamic::Create(ArrowMaterial, GetTransientPackage());
 	if (NetForceArrowMID)
 	{
@@ -741,11 +707,8 @@ bool UCosmosTrajectoryComponent::EnsureNetForceArrowMeshes()
 
 void UCosmosTrajectoryComponent::SetNetForceArrowVisible(bool bVisible)
 {
-	// 不能按上次的状态早退：两个箭头部件挂在根组件（Hull）下，任何一处
-	// SetVisibility(..., bPropagateToChildren=true) 藏船体，都会把它们的
-	// bVisible 一并改成 false，而本类缓存的 bNetForceArrowVisible 仍是
-	// true —— 早退会让箭头永久消失。SetVisibility 自己会判等，重复调用
-	// 不产生额外开销。
+	// 不能按缓存状态早退：部件挂在 Hull 下，藏船体的 SetVisibility(..., bPropagateToChildren=true)
+	// 会把它们一并改成 false，而缓存仍是 true —— 早退会让箭头永久消失。SetVisibility 自己判等。
 	bNetForceArrowVisible = bVisible;
 
 	if (IsValid(NetForceArrowShaft))
@@ -788,8 +751,7 @@ void UCosmosTrajectoryComponent::UpdateNetForceArrow(const UCosmosSimulationSubs
 		return;
 	}
 
-	// 默认 Offset 为 0：尾端钉在 Actor 原点（需求就是「起点放在飞船的 0,0,0」）。
-	// 调大 Offset 会把整根箭头抬到船背上方，尾端与船之间会出现一段悬空空隙。
+	// 默认 Offset 为 0（起点钉在飞船 0,0,0）；调大会把箭头抬到船背上方、露出悬空段。
 	const FVector Anchor = OwnerActor->GetActorLocation()
 		+ OwnerActor->GetActorUpVector() * NetForceArrowOffsetCm;
 
@@ -1082,8 +1044,7 @@ void UCosmosTrajectoryComponent::AppendHillSphere(const FVector& Center, double 
 bool UCosmosTrajectoryComponent::ShouldDrawDominancePair(double SelfMassEarth,
 	double OtherMassEarth, const AActor& SelfActor, const AActor& OtherActor) const
 {
-	// 对方有没有开着的剖分组件：有就交给「较重者/名字」规则去重；
-	// 没有就本组件负责，否则只开一个组件时什么都画不出来。
+	// 对方有开着的剖分组件就交给「较重者/名字」规则去重；没有则本组件负责，否则只开一个时画不出来。
 	const bool bEditorWorld = GetWorld() != nullptr && !GetWorld()->IsGameWorld();
 	bool bOtherEnabled = false;
 	TArray<UCosmosTrajectoryComponent*> OtherTrajectories;
@@ -1400,23 +1361,16 @@ void UCosmosTrajectoryComponent::DrawInEditor()
 		State.Mass = CosmosUnits::EarthMassToSolarMass(Component->MassEarth);
 		State.OwnerActor = OwnerActor;
 
-		// 与 AddBodyToSimulator 同口径：单向引力的天体在编辑器预览里也不拽别人，
-		// 否则不 Play 时看到的行星轨迹会被飞船拉偏，一进 PIE 又不动。
+		// 与 AddBodyToSimulator 同口径：单向引力天体在预览里也不拽别人，否则会看着行星被飞船拉偏。
 		State.bTestParticle = !Component->bExertsGravity;
 
-		// 接触形状也必须跟运行期一致。不给半径时预览里全是点质量：
-		// 飞船初始就悬在中心星（半径 2 AU）表面上方，会直接穿过星体扎进软化核，
-		// 被数值踢成一条几十到几千 AU 的直线 —— 这正是「预测线乱画」的来源。
-		// PIE 里有接触（飞船停在表面），编辑器预览没有，两边画的不是一回事。
-		//
-		// 半径来源与 AddBodyToSimulator 相同：星球取平均球半径，飞船取兜底接触半径。
-		// 运行期第一次 Tick 会把星球半径换成朝最近天体方向的地形半径，预览不做
-		// 那一步 —— 它每次重画都从零重建，拿不到那份缓存，用平均球半径即可。
+		// 接触形状必须跟运行期一致：全是点质量时飞船会穿过中心星扎进软化核、被踢成一条
+		// 直线。半径来源同 AddBodyToSimulator；预览从零重建，用平均球半径即可。
 		if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(OwnerActor))
 		{
 			State.Radius = double(Planet->GetSurfaceRadiusCm()) / CmPerAu;
 		}
-		else if (const ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(OwnerActor))
+		else if (const ICosmosBody* Ship = Cast<ICosmosBody>(OwnerActor))
 		{
 			State.Radius = double(Ship->GetContactRadiusCm()) / CmPerAu;
 
@@ -1460,9 +1414,7 @@ void UCosmosTrajectoryComponent::DrawInEditor()
 	{
 		PredictedWorld.Reset();
 
-		// 先试闭合（与 PredictionYears 无关）：在主导天体参考系里跑满一整圈，首尾逐位
-		// 相接；再把相对位置锚到主导天体 t=0 的位置转世界坐标。密切轨道非椭圆、或一圈内
-		// 被三体扰动拽走时，才退回有限窗口。
+		// 先试闭合（与 PredictionYears 无关），相对位置锚到主导天体 t=0 处再转世界坐标。
 		FCosmosClosedOrbitPrediction ClosedOrbit;
 		const bool bUsedClosedOrbit =
 			EditorSimulator.PredictClosedOrbit(SelfIndex, ClosedOrbitSamples, ClosedOrbit);
@@ -1478,9 +1430,7 @@ void UCosmosTrajectoryComponent::DrawInEditor()
 		}
 		else
 		{
-			// 手填优先；自动 = 1.05 × **该天体自身**的最短周期（不是全系统最短 ——
-			// 一艘悬在中心星上方的飞船会把这个值压到 0.03 年，行星的椭圆就只剩一小段）。
-			// 有限回退窗口仍吃同一个上限：窗口不得超过该天体自身最短周期的一部分。
+			// 手填优先；自动 = 1.05 × **自身**最短周期（不是全系统最短，否则飞船会把行星的椭圆压成一小段）。
 			double Horizon = PredictionYears > 0.0 ? PredictionYears : FallbackPredictionYears;
 			const double OwnPeriod = EditorSimulator.EstimateOrbitalPeriod(SelfIndex);
 			if (PredictionYears <= 0.0 && OwnPeriod > 0.0 && FMath::IsFinite(OwnPeriod))

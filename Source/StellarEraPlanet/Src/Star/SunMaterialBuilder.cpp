@@ -23,29 +23,14 @@
 #include "UObject/SavePackage.h"
 
 // ===========================================================================
-// 恒星表面材质：一个球 + 一个 Unlit 材质，不依赖任何贴图与粒子。
-//
-// 构图分三层，全部在这一个材质里：
-//   1. 光球湍流 —— 两组 3D 噪声（对流胞 + 慢速翻涌）叠加
-//   2. 米粒组织 —— Voronoi 高频细胞，压出硬边
-//   3. 临边 —— 边缘压暗（limb darkening）+ 日冕辉光（limb brightening）
-//
-// 为什么用引擎内置的 Noise 节点而不是全塞进 Custom 的 HLSL：
-// Custom 节点的代码是被**插进像素着色函数体内部**的，里面不能定义函数，
-// 想把 value noise / fbm 写成可复用的 helper 就得整个手工展开三遍，改一次动全身。
-// 所以噪声交给引擎节点（GradientALU 无贴图依赖、Voronoi 出细胞状米粒），
-// Custom 只留直线计算：色带映射 + 临边。
-//
-// 为什么坐标必须走物体空间（TransformPosition World→Local）：
-// 一是恒星自转时纹理会跟着转，用世界坐标会“漂”；
-// 二是精度 —— 这颗恒星的世界坐标在 5e7 量级，float 在这个量级上的有效位数
-// 只剩个位，喂给噪声就是一片死平；物体空间的坐标只有半径量级，精度够。
+// 恒星表面材质：一个球 + 一个 Unlit 材质，无贴图无粒子。三层：光球湍流（两组
+// 3D 噪声）、米粒组织（Voronoi 高频细胞）、临边（压暗 + 日冕辉光）。
+// 噪声走引擎节点而非 Custom HLSL：Custom 代码被插进着色函数体，不能定义子函数。
+// 坐标必须走物体空间：世界坐标 5e7 量级 float 精度只剩个位，噪声会一片死平。
 // ===========================================================================
 
-// 用具名命名空间而不是匿名命名空间：UBT 默认开 unity build，会把本模块多个
-// .cpp 合成一个 TU。匿名的 AddScalarParam / AddVectorParam / AddCustomInput 与
-// Atmosphere/PlanetAtmosphereMaterialBuilder.cpp 里的同名函数撞名（C2084）。
-// 名字前缀保证在任何 unity 分组下都不冲突。
+// 用具名命名空间：unity build 下匿名的 AddScalarParam 等会与
+// Atmosphere/PlanetAtmosphereMaterialBuilder.cpp 撞名（C2084）。
 namespace StellarEraSunMaterialBuilder
 {
 
@@ -54,10 +39,8 @@ const TCHAR* const SunMaterialPath = TEXT("/Game/Code/Res/Star/Materials/M_Sun")
 const TCHAR* const SunMaterialName = TEXT("M_Sun");
 
 // ---------------------------------------------------------------------------
-// 色带 + 临边。输入都是已归一化到 [0,1] 的标量，输出直接进 Emissive。
-//
-// 注意：这里的代码会被拼进像素着色器函数体，**不能定义子函数**，
-// 也只能 return（末尾必须自己 return，UE 不会再补一层）。
+// 色带 + 临边，输入是 [0,1] 标量，输出直接进 Emissive。代码会被拼进像素着色器
+// 函数体：**不能定义子函数**，末尾必须自己 return。
 // ---------------------------------------------------------------------------
 const TCHAR* const SunSurfaceHLSL = TEXT(R"(
 // 两组湍流按 55:55 混合再减 0.05：两个噪声的均值都在 0.5 附近，
@@ -86,7 +69,6 @@ Col += HotColor.rgb * pow(1.0 - NdotV, max(CoronaPower, 0.01)) * CoronaIntensity
 return Col * Brightness;
 )");
 
-/** 建一个标量参数节点并登记到材质。 */
 UMaterialExpressionScalarParameter* AddSunScalarParam(UMaterial* Material, const TCHAR* Name,
 	float Default, int32 PosX, int32 PosY)
 {
@@ -100,7 +82,6 @@ UMaterialExpressionScalarParameter* AddSunScalarParam(UMaterial* Material, const
 	return Expr;
 }
 
-/** 建一个向量参数节点并登记到材质。 */
 UMaterialExpressionVectorParameter* AddSunVectorParam(UMaterial* Material, const TCHAR* Name,
 	FLinearColor Default, int32 PosX, int32 PosY)
 {
@@ -114,7 +95,6 @@ UMaterialExpressionVectorParameter* AddSunVectorParam(UMaterial* Material, const
 	return Expr;
 }
 
-/** 建一个常量节点。 */
 UMaterialExpressionConstant* AddConstant(UMaterial* Material, float Value, int32 PosX, int32 PosY)
 {
 	UMaterialExpressionConstant* Expr = NewObject<UMaterialExpressionConstant>(Material);
@@ -126,7 +106,6 @@ UMaterialExpressionConstant* AddConstant(UMaterial* Material, float Value, int32
 	return Expr;
 }
 
-/** 乘法节点的统一入口。 */
 UMaterialExpressionMultiply* AddMultiply(UMaterial* Material, UMaterialExpression* A,
 	UMaterialExpression* B, int32 PosX, int32 PosY)
 {
@@ -142,7 +121,6 @@ UMaterialExpressionMultiply* AddMultiply(UMaterial* Material, UMaterialExpressio
 	return Expr;
 }
 
-/** 除法节点：A / B。 */
 UMaterialExpressionDivide* AddDivide(UMaterial* Material, UMaterialExpression* A,
 	UMaterialExpression* B, int32 PosX, int32 PosY)
 {
@@ -158,7 +136,6 @@ UMaterialExpressionDivide* AddDivide(UMaterial* Material, UMaterialExpression* A
 	return Expr;
 }
 
-/** 加法节点。 */
 UMaterialExpressionAdd* AddAdd(UMaterial* Material, UMaterialExpression* A,
 	UMaterialExpression* B, int32 PosX, int32 PosY)
 {
@@ -199,9 +176,7 @@ bool SaveAsset(UPackage* Package, UObject* Asset, const TCHAR* LongPackageName, 
 	return true;
 }
 
-/**
- * 建主材质 M_Sun。参数全部暴露，实例只覆盖值不动节点。
- */
+/** 建主材质 M_Sun。参数全部暴露，实例只覆盖值不动节点。 */
 UMaterial* BuildSunMaterial(FString& OutError)
 {
 	UPackage* Package = CreatePackage(SunMaterialPath);
@@ -225,7 +200,6 @@ UMaterial* BuildSunMaterial(FString& OutError)
 	Material->PreEditChange(nullptr);
 	Material->GetExpressionCollection().Empty();
 
-	// --- 物体空间坐标：噪声的锚点 ---
 	UMaterialExpressionWorldPosition* WorldPos = NewObject<UMaterialExpressionWorldPosition>(Material);
 	WorldPos->Material = Material;
 	WorldPos->WorldPositionShaderOffset = WPT_Default; // "Absolute World Position"
@@ -243,9 +217,8 @@ UMaterial* BuildSunMaterial(FString& OutError)
 	ObjPos->MaterialExpressionEditorY = -900;
 	Material->GetExpressionCollection().AddExpression(ObjPos);
 
-	// --- 尺度 ---
-	// BodyRadius 必须等于恒星网格的实际半径（uu）。噪声坐标 = 物体空间 / 半径，
-	// 于是 SurfaceScale 的含义就变成「每半径几团湍流」，换网格尺寸只要改一个数。
+	// BodyRadius 必须等于网格实际半径：噪声坐标 = 物体空间 / 半径，于是
+	// SurfaceScale 的含义变成「每半径几团湍流」，换网格尺寸只改一个数。
 	UMaterialExpressionScalarParameter* BodyRadius = AddSunScalarParam(Material, TEXT("BodyRadius"), 100.0f, -1600, -700);
 	UMaterialExpressionScalarParameter* SurfaceScale = AddSunScalarParam(Material, TEXT("SurfaceScale"), 8.0f, -1600, -600);
 
@@ -277,7 +250,6 @@ UMaterial* BuildSunMaterial(FString& OutError)
 	UMaterialExpressionMultiply* OffsetB = AddMultiply(Material, OffsetA, BackB, -1000, -400);
 	UMaterialExpressionAdd* PosB = AddAdd(Material, ScaledB, OffsetB, -900, -700);
 
-	// --- 噪声 1/2：对流胞本体 ---
 	UMaterialExpressionNoise* NoiseA = NewObject<UMaterialExpressionNoise>(Material);
 	NoiseA->Material = Material;
 	NoiseA->Position.Expression = PosA;
@@ -310,7 +282,6 @@ UMaterial* BuildSunMaterial(FString& OutError)
 	NoiseB->MaterialExpressionEditorY = -650;
 	Material->GetExpressionCollection().AddExpression(NoiseB);
 
-	// --- 米粒组织：Voronoi 细胞，频率单独给参数 ---
 	UMaterialExpressionScalarParameter* GranuleScale = AddSunScalarParam(Material, TEXT("GranuleScale"), 34.0f, -1600, -200);
 	UMaterialExpressionMultiply* ScaledG = AddMultiply(Material, Scaled, GranuleScale, -1050, -250);
 
@@ -329,22 +300,19 @@ UMaterial* BuildSunMaterial(FString& OutError)
 	NoiseG->MaterialExpressionEditorY = -450;
 	Material->GetExpressionCollection().AddExpression(NoiseG);
 
-	// --- 临边需要的两个几何量 ---
 	UMaterialExpressionVertexNormalWS* NormalWS = NewObject<UMaterialExpressionVertexNormalWS>(Material);
 	NormalWS->Material = Material;
 	NormalWS->MaterialExpressionEditorX = -1600;
 	NormalWS->MaterialExpressionEditorY = 100;
 	Material->GetExpressionCollection().AddExpression(NormalWS);
 
-	// 相机位置取视图 uniform，不由 C++ 每帧写参数（跟着大气材质踩过的坑，见
-	// PlanetAtmosphereMaterialBuilder.cpp 的注释：编辑器里 Tick 早于视口，会慢一帧）。
+	// 相机位置取视图 uniform，不由 C++ 每帧写：编辑器里 Tick 早于视口，会慢一帧。
 	UMaterialExpressionCameraPositionWS* CameraPos = NewObject<UMaterialExpressionCameraPositionWS>(Material);
 	CameraPos->Material = Material;
 	CameraPos->MaterialExpressionEditorX = -1600;
 	CameraPos->MaterialExpressionEditorY = 250;
 	Material->GetExpressionCollection().AddExpression(CameraPos);
 
-	// --- 颜色与强度参数 ---
 	UMaterialExpressionVectorParameter* CoolColor = AddSunVectorParam(Material, TEXT("CoolColor"),
 		FLinearColor(1.0f, 0.18f, 0.02f, 1.0f), -1600, 400);
 	UMaterialExpressionVectorParameter* MidColor = AddSunVectorParam(Material, TEXT("MidColor"),
@@ -358,7 +326,6 @@ UMaterial* BuildSunMaterial(FString& OutError)
 	UMaterialExpressionScalarParameter* LimbDarkening = AddSunScalarParam(Material, TEXT("LimbDarkening"), 0.35f, -1600, 1100);
 	UMaterialExpressionScalarParameter* Brightness = AddSunScalarParam(Material, TEXT("Brightness"), 40000.0f, -1600, 1200);
 
-	// --- Custom：色带 + 临边 ---
 	UMaterialExpressionCustom* Custom = NewObject<UMaterialExpressionCustom>(Material);
 	Custom->Material = Material;
 	Custom->Description = TEXT("SunSurface");
@@ -387,15 +354,12 @@ UMaterial* BuildSunMaterial(FString& OutError)
 
 	Custom->RebuildOutputs();
 
-	// --- 材质本体 ---
 	Material->BlendMode = BLEND_Opaque;    // 恒星本体不透明，避免半透明排序问题
 	Material->SetShadingModel(MSM_Unlit);  // 自发光天体不受光照影响
 	Material->TwoSided = false;
 
-	// 不开 bUseEmissiveForDynamicAreaLighting：
-	// 恒星照亮行星由平行光（或后续的恒星光照组件）负责。让 Lumen 从一颗
-	// 几万强度的超大自发光球上做表面缓存采样，代价极高，而且会和已有的
-	// 太阳方向光重复照明。
+	// 不开 bUseEmissiveForDynamicAreaLighting：照亮行星由平行光负责，
+	// 让 Lumen 从几万强度的超大自发光球采样代价极高且会和方向光重复照明。
 	Material->bUseEmissiveForDynamicAreaLighting = false;
 
 	UMaterialEditorOnlyData* EditorData = Material->GetEditorOnlyData();
@@ -421,9 +385,8 @@ UMaterial* BuildSunMaterial(FString& OutError)
 }
 
 /**
- * 一颗预设恒星。参数按黑体色温排：色温越高，HotColor 越偏蓝白、亮度越高。
- * 数值是观感值不是物理值 —— 真按普朗克曲线算出来的色带在 UE 的色调映射下
- * 会全部挤到白，反而丢掉层次。
+ * 一颗预设恒星，参数按色温排。数值是观感值不是物理值：按普朗克曲线算出来的
+ * 色带在 UE 色调映射下会全挤到白，反而丢掉层次。
  */
 struct FSunPreset
 {
@@ -439,10 +402,8 @@ struct FSunPreset
 
 const FSunPreset SunPresets[] =
 {
-	// Brightness / CoronaIntensity 跟着「日面在屏幕上占多大」走，不是恒星的物理亮度：
-	// 2026-11-02 恒星半径从 5 km 放大到 100 km，而行星轨道才 100 km，日面直接铺满
-	// 视野。原来几千到十几万的自发光会把整屏连同 Bloom 焊成一片白，所以整体压了
-	// 两个数量级。以后改恒星大小时，这两个数要跟着调。
+	// Brightness / CoronaIntensity 跟着「日面在屏幕上占多大」走，不是物理亮度：
+	// 恒星半径放大到 100 km 后日面铺满视野，故整体压低两个数量级。改恒星大小须重调。
 	// 红矮星（M2V）：暗、偏红、对流胞大而少 → 米粒组织弱
 	{
 		TEXT("MI_Sun_M2V"), TEXT("红矮星 M2V"),

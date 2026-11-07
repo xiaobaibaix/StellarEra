@@ -1,8 +1,5 @@
-﻿// 把一个元素的矿物场接进 VoxelFree。
-//
-// 每元素一个本类实例。它自己**不产生任何几何定义** —— 判定全在
-// PlanetMineralVoxel::EvaluateVoxel 里，这里只负责把参数搬进生成器实例、
-// 并把区间查询翻译成「这整块是不是纯空气」。
+﻿// 把一个元素的矿物场接进 VoxelFree。每元素一个实例；本类不产生几何定义，
+// 判定全在 PlanetMineralVoxel::EvaluateVoxel，这里只搬参数并把区间查询翻成「整块是否纯空气」。
 
 #pragma once
 
@@ -12,13 +9,7 @@
 #include "VoxelMinimal.h"
 #include "PlanetMineralVoxelGenerator.generated.h"
 
-/**
- * 生成器实例。
- *
- * 模板第二个参数是**宿主类型**，必须是 UVoxelGenerator 子类：
- * TVoxelGeneratorInstanceHelper 会把它作为 UStaticClass 交给基类，
- * 构造期 checkf 它确实派生自 UVoxelGenerator。
- */
+/** 生成器实例。模板第二个参数是宿主类型，必须是 UVoxelGenerator 子类（构造期 checkf）。 */
 class FPlanetMineralVoxelInstance
 	: public TVoxelGeneratorInstanceHelper<FPlanetMineralVoxelInstance, UPlanetMineralVoxelGenerator>
 {
@@ -35,12 +26,8 @@ public:
 	TVoxelRange<v_flt> GetValueRangeImpl(const FVoxelIntBox& Bounds, int32 LOD, const FVoxelItemStack& Items) const;
 
 	/**
-	 * 必需：FVoxelGeneratorInstance::GetUpVector 是**纯虚**的
-	 * （VoxelGeneratorInstance.h:100），而 TVoxelGeneratorInstanceHelper 只转发了
-	 * 值/材质/区间三件套，不提供默认实现 —— 缺了它本类就是抽象类，
-	 * MakeVoxelShared 当场报 C2259。
-	 *
-	 * 插件的放置器与 PackWorldUpInUVs 用它给物体/UV 定向。
+	 * 必需：FVoxelGeneratorInstance::GetUpVector 是纯虚的，而 TVoxelGeneratorInstanceHelper 不提供默认实现 ——
+	 * 缺了本类就是抽象类，MakeVoxelShared 报 C2259。插件的放置器与 PackWorldUpInUVs 用它定向。
 	 */
 	virtual FVector GetUpVector(v_flt X, v_flt Y, v_flt Z) const override final;
 	//~ End FVoxelGeneratorInstance Interface
@@ -50,26 +37,16 @@ private:
 	FLinearColor Color;
 
 	/**
-	 * 区域盒换算到体素索引空间后的**逐个**盒子。GetValueRangeImpl 用它做整块判空。
-	 *
-	 * 存逐个盒子而不是并集 AABB：一个元素的区域可能散得很开（地球预设的铀是 140 颗
-	 * 半径 0.0015 的浸染颗粒、铺满整个壳层），并集会退化成整个壳层的包围盒，
-	 * 于是壳内几乎每个块都被判成「相交」、被完整求值 —— 性能杠杆全丢。
-	 * 每块做 N 次 AABB 求交，相对被跳过那块的 32³ = 32768 次体素求值可以忽略。
-	 *
-	 * 这也让区间判空与 EvaluateVoxel 里的 IsInsideAnyRegion 完全等价。
-	 *
-	 * 构造期换一次就够：区间查询按块调用，逐次重建在块数量级上是纯浪费。
+	 * 区域盒换算到体素索引空间的逐个盒子，GetValueRangeImpl 用它整块判空。
+	 * 存逐个盒而非并集 AABB：区域可能散得很开（铀 140 颗颗粒铺满壳层），并集会退化成整壳包围盒，性能杠杆全丢。
+	 * 每块 N 次 AABB 求交，相对跳过那块的 32³ = 32768 次求值可忽略；构造期换一次即可。
 	 */
 	TArray<FBox3d> RegionBoxesVoxels;
 };
 
 /**
- * 一个元素的矿物生成器。
- *
- * 参数**不走** UVoxelGenerator 的属性系统：VoxelFree 的 GetParameters 会枚举
- * 可编辑属性并构造 FVoxelGeneratorParameterType，而它只认 9 种类型。全部参数
- * 由 UPlanetMineralViewComponent 在 CreateWorld 之前用 Configure 直接赋值。
+ * 一个元素的矿物生成器。参数不走 UVoxelGenerator 的属性系统：GetParameters 会枚举可编辑属性且只认 9 种类型；
+ * 全部参数由 UPlanetMineralViewComponent 在 CreateWorld 前用 Configure 直接赋值。
  */
 UCLASS()
 class STELLARERAPLANET_API UPlanetMineralVoxelGenerator : public UVoxelGenerator

@@ -1,5 +1,5 @@
-﻿// cubemap 栅格的索引约定。烘焙、采样、水面几何三处共用同一份 —— 抄一份就必然会
-// 有一处对不上，而错位一格表现为「水面比地面高/低一格」，很难定位。
+﻿// cubemap 栅格的索引约定。烘焙、采样、水面几何共用同一份 —— 抄一份必然有一处
+// 对不上，错位一格表现为「水面比地面高/低一格」，很难定位。
 
 #pragma once
 
@@ -22,11 +22,8 @@ namespace PlanetHydrologyGrid
 	}
 
 	/**
-	 * 格 → 归一化 UV。**只有一个定义**，烘焙与采样都从这里取。
-	 *
-	 * U = (Index - 0.5) / N：Index = 0 落在面外半格处，Index = N+1 落在另一侧面外
-	 * 半格处 —— 幽灵格因此是向外的线性延拓，可以直接喂给 FaceUVToDirection
-	 * （它不夹 U/V）。
+	 * 格 → 归一化 UV。U = (Index - 0.5) / N：幽灵格因此是向外的线性延拓，
+	 * 可直接喂给 FaceUVToDirection（它不夹 U/V）。
 	 */
 	FORCEINLINE float CellToU(int32 Index, int32 Resolution)
 	{
@@ -62,11 +59,8 @@ namespace PlanetHydrologyGrid
 	}
 
 	/**
-	 * 方向 → 最近的格。
-	 *
-	 * 幽灵格的方向外插之后，最靠近的格有可能落在 [0, N+1] 之外（差 1 格），
-	 * 所以夹到边界而不是断言。夹出来的最坏结果是「邻接到自己」—— 调用方必须丢弃
-	 * 自环（见 PlanetHydrologyBake 的邻接表构造）。
+	 * 方向 → 最近的格。幽灵格外插后最近格可能差 1 格，所以夹到边界而不是断言；
+	 * 最坏结果是自环，调用方必须丢弃（见 PlanetHydrologyBake 的邻接表构造）。
 	 */
 	FORCEINLINE int32 DirectionToCell(const FVector& UnitDir, int32 Resolution)
 	{

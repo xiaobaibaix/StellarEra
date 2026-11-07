@@ -1,0 +1,89 @@
+﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
+// 角色的键鼠输入：绑在角色身上，代码不住在角色类里。
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Components/ActorComponent.h"
+#include "PlanetCharacterInputComponent.generated.h"
+
+class APlanetCharacter;
+class APlayerController;
+class UInputComponent;
+class UPlanetEditComponent;
+struct FInputActionValue;
+
+/**
+ * APlanetCharacter 的全部输入：绑定、回调、只服务输入的状态。做成 UObject 组件是因为
+ * BindAction 的成员函数重载要求接收者是 UObject（换 lambda 会丢 GC 安全与反射检查），
+ * 由角色构造时 CreateDefaultSubobject，生命周期跟着角色。
+ */
+UCLASS()
+class STELLARERAPAWNS_API UPlanetCharacterInputComponent : public UActorComponent
+{
+	GENERATED_BODY()
+
+public:
+	/**
+	 * 把控制器给的动作表绑到本组件上。由 APlanetCharacter::SetupPlayerInputComponent
+	 * 调用（引擎只在本地 Possess 时走到那里）。
+	 */
+	void Bind(UInputComponent* PlayerInputComponent);
+
+	/** 鼠标灵敏度（度/像素）。 */
+	UPROPERTY(EditAnywhere, Category = "Input")
+	float LookSensitivity = 1.2f;
+
+	/** 上下视角反向。觉得鼠标上下颠倒时把它改成 true。 */
+	UPROPERTY(EditAnywhere, Category = "Input")
+	bool bInvertLookY = false;
+
+private:
+	/** 所属角色；组件只可能挂在角色上。 */
+	APlanetCharacter* GetPawn() const;
+
+	void OnMoveInput(const FInputActionValue& Value);
+	void OnLookInput(const FInputActionValue& Value);
+	void OnLookRightStarted(const FInputActionValue& Value);
+	void OnLookRightCompleted(const FInputActionValue& Value);
+	void OnJumpInput(const FInputActionValue& Value);
+	void OnSprintStarted(const FInputActionValue& Value);
+	void OnSprintCompleted(const FInputActionValue& Value);
+	void OnZoomInput(const FInputActionValue& Value);
+
+	/** G 键：切换本角色的编辑模式。编辑组件没挂（原生角色 / 蓝图没加）时无反应。 */
+	void OnEditModeToggle(const FInputActionValue& Value);
+
+	/** `[` / `]`：编辑模式下调笔刷尺寸（±1，按住 Ctrl ×10）。非编辑模式下无反应。 */
+	void OnBrushSize(const FInputActionValue& Value);
+
+	/**
+	 * 左键按下：只服务编辑（笔刷按钮 + 挖掘）。用角色表自己的 `EditPrimary`，
+	 * 不是星图相机那条 `StarMapSelect` —— 同一个键、语义不同，各造各的动作。
+	 */
+	void OnEditPrimary(const FInputActionValue& Value);
+
+	/** M：进星图。换 Possess 的实现住在控制器，经 IStellarEraSessionCommands 转发。 */
+	void OnStarMapToggle(const FInputActionValue& Value);
+
+	/** E：登船。实现同样在控制器上。 */
+	void OnInteract(const FInputActionValue& Value);
+
+	/** 缓存的玩家控制器；拿不到时为空。 */
+	APlayerController* GetPlayerController() const;
+
+	/** 弹一条提示（HUD 在下游模块，只能走 IStellarEraNoticeSink）。 */
+	void ShowNotice(const FString& Text) const;
+
+	/** 当前打开的编辑组件；不在编辑模式、或蓝图没挂组件时为空。 */
+	UPlanetEditComponent* GetEditComponentInEditMode() const;
+
+	/** 右键是否按住。松开时视角不响应鼠标，走动时相机不会被拖走。 */
+	bool bLookHeld = false;
+
+	/** 编辑模式右键按下的屏幕位置。松开时用它区分「点击放置」与「拖拽转视角」。 */
+	FVector2D EditRightPressPosition = FVector2D::ZeroVector;
+
+	/** 右键按下时是否记下了编辑位置（不是编辑模式 / 没拿到鼠标时为 false）。 */
+	bool bEditRightPressValid = false;
+};

@@ -10,10 +10,7 @@
 class AVoxelPlanetActor;
 
 /**
- * 一次落笔的完整参数。
- *
- * **op 只追加、不修改**：一个执行块只认自己创建时的那个前缀（见
- * FPlanetEditChunk::NumOps），靠的就是这条不变式。
+ * 一次落笔的完整参数。op 只追加、不修改：执行块只认创建时的前缀（FPlanetEditChunk::NumOps）。
  */
 struct FPlanetEditOp
 {
@@ -34,12 +31,7 @@ struct FPlanetEditChunk
 	int32 NumOps = 0;
 };
 
-/**
- * 一次落笔的请求：全是体素空间的纯数据。
- *
- * 存在的理由：生产路径要先经过行星做「世界 → 体素」换算，而合并判定本身
- * 只跟体素空间有关。把两者拆开，合并就能在无头测试里被直接驱动。
- */
+/** 一次落笔的请求：纯体素数据。生产路径先经行星做世界→体素换算，合并判定只跟体素空间有关；拆开后合并能在无头测试里直接驱动。 */
 struct FPlanetEditRequest
 {
 	EPlanetBrushShape Shape = EPlanetBrushShape::Sphere;
@@ -54,54 +46,29 @@ struct FPlanetEditRequest
 	int32 ChunkSizeVoxels = 128;
 };
 
-/**
- * 编辑队列的推进策略。
- *
- * 放在这里而不是组件里，是因为组件是 UObject：纯函数独立出来才能无头测试。
- * 规则只有一条 —— 0 号是队首，由「队首优先」阶段独占，轮转只碰 1..N-1。
- */
+/** 编辑队列的推进策略。放在这里而非组件，是因为组件是 UObject：纯函数才能无头测试；
+ *  规则只有一条：0 号队首由「队首优先」独占，轮转只碰 1..N-1。 */
 namespace PlanetEditSchedule
 {
 	/** 除队首外可轮转的笔数。队列 ≤ 1 时为 0。 */
 	STELLARERAPLANET_API int32 GetFairCandidateCount(int32 QueueSize);
 
-	/**
-	 * 下一个轮转下标：夹到 [1, QueueSize-1] 并回绕；没有候选时返回 INDEX_NONE。
-	 *
-	 * 越界只夹不取模：队列长度在帧与帧之间会变，「Cursor % N」会让游标指到
-	 * 另一笔身上，看起来像跳笔。
-	 */
+	/** 下一个轮转下标：夹到 [1, QueueSize-1] 并回绕；无候选返回 INDEX_NONE。越界只夹不取模 ——
+	 *  队列长度逐帧变，「Cursor % N」会让游标指到另一笔身上像跳笔。 */
 	STELLARERAPLANET_API int32 GetNextFairIndex(int32 Cursor, int32 QueueSize);
 }
 
-/**
- * 一笔渐进式编辑。
- *
- * 存在理由：体素工具的代价是包围盒 Size³，一次 1280 体素的挖掘要扫 2×10⁹ 格，
- * 全在游戏线程上一口气做完就是几秒的冻结。本类把同一笔编辑切成块，
- * 由调用方每帧只推进几块，帧时间因此有上限。
- *
- * **逐格语义与插件完全相同**：谓词照抄 SphereEdit / BoxEdit（见私有头
- * PlanetProgressiveEditKernel.h），分块只改变「谁在什么时候调 ParallelSet」，
- * 不改变任何一格写进去的值 —— 前提是块不重叠且并集等于整盒
- *（PlanetEditBrush::SplitVoxelBoxIntoChunks 保证，单测钉住）。
- *
- * **不碰渲染**：本类只改体素数据。块写完后由调用方决定怎么刷
- *（GetLastChunkBounds 给出刚写完的那一块；整笔的完整范围是 GetFullBounds）。
- * 这正是「逐帧看见洞从光标处长大」能实现的原因 —— 渲染刷新必须留在调用方。
- *
- * 生命周期：Setup 成功后由调用方独占持有（组件用 TSharedPtr 排队），
- * 非 UObject，用完即丢。
- */
+/** 一笔渐进式编辑。体素工具代价是包围盒 Size³，1280 体素挖掘要扫 2×10⁹ 格，一口气做完即数秒冻结；
+ *  切成块每帧推进几块，帧时间有上限。
+ *  逐格语义与插件完全相同（谓词照抄 SphereEdit / BoxEdit），分块只改变「谁在何时调 ParallelSet」，
+ *  前提是块不重叠且并集等于整盒（SplitVoxelBoxIntoChunks 保证）。
+ *  不碰渲染：只改体素数据，块写完由调用方决定怎么刷。生命周期：调用方独占持有，非 UObject。 */
 class STELLARERAPLANET_API FPlanetProgressiveEdit
 {
 public:
 	FPlanetProgressiveEdit() = default;
 
-	/**
-	 * 世界空间入口：换算成体素后交给 SetupFromRequest。
-	 * 行星无效 / 未创建、包围盒退化时返回 false 且状态清零。
-	 */
+	/** 世界空间入口：换算成体素后交给 SetupFromRequest。行星无效 / 未创建、包围盒退化时返回 false 且状态清零。 */
 	bool Setup(
 		AVoxelPlanetActor* InPlanet,
 		const FVector& CenterWorld,
@@ -113,31 +80,15 @@ public:
 		int32 ChunkSizeVoxels,
 		bool bMultiThreaded);
 
-	/**
-	 * 纯几何装配：建第一个 op 并切块。
-	 *
-	 * 公开只为一件事：自动化测试要在没有体素世界的情况下构造 job
-	 *（AVoxelPlanetActor 需要一个带 Voxel LOD 管理器的 UWorld 才 IsCreated()）。
-	 * 生产路径一律走 Setup()。
-	 */
+	/** 纯几何装配：建第一个 op 并切块。公开只为自动化测试能在没有体素世界时构造 job；生产路径一律走 Setup()。 */
 	bool SetupFromRequest(const FPlanetEditRequest& Request);
 
-	/**
-	 * 纯策略合并：把一个请求并进本 job。
-	 *
-	 * 包围盒不相交、参数不兼容（形状 / 尺寸 / 挖填 / 多线程）、op 数到 MaxOps
-	 * → false（调用方另起一笔）。
-	 * 完全重复的落笔（包围盒一致）→ true 且不追加任何东西：挖取 max、填取 min，
-	 * 重复一次是同值。
-	 *
-	 * **进度不丢**靠插入位置：新块插在 NextChunkIndex 上，已做前缀一个都不动。
-	 */
+	/** 纯策略合并：把一个请求并进本 job。包围盒不相交、参数不兼容、op 数到 MaxOps → false；
+	 *  完全重复的落笔 → true 且不追加（挖取 max、填取 min）。进度不丢靠插入位置：新块插在
+	 *  NextChunkIndex 上，已做前缀不动。 */
 	bool TryMerge(const FPlanetEditRequest& Request, int32 MaxOps);
 
-	/**
-	 * 世界空间版的 TryMerge：换算成体素后交给 TryMerge。
-	 * 行星不是本 job 的行星、或本 job 已做完 → false。
-	 */
+	/** 世界空间版：换算成体素后交给 TryMerge。行星不是本 job 的、或本 job 已做完 → false。 */
 	bool TryMergeWorld(
 		AVoxelPlanetActor* InPlanet,
 		const FVector& CenterWorld,
@@ -150,11 +101,7 @@ public:
 		bool bInMultiThreaded,
 		int32 MaxOps);
 
-	/**
-	 * 应用下一块。返回 true = 还有剩余块；false = 已完成（或行星已失效）。
-	 * 每块内部开一个只覆盖该块的写锁，锁的持有时间因此与块大小成正比，
-	 * 而不是与整笔编辑成正比。
-	 */
+	/** 应用下一块。true = 还有剩余块；false = 已完成（或行星已失效）。每块内部只锁该块，锁持有时间与块大小成正比。 */
 	bool ApplyNextChunk();
 
 	/** 一次跑完剩余块，返回是否真的改到了体素。存档 / 退出前的安全点用。 */
@@ -170,13 +117,7 @@ public:
 	const TArray<FPlanetEditChunk>& GetChunks() const { return Chunks; }
 
 #if WITH_DEV_AUTOMATION_TESTS
-	/**
-	 * 测试专用：把进度游标设到指定块，模拟「已经做了一部分」。
-	 *
-	 * 生产路径推不动进度就没法钉「新块插在已做前缀之后」这条不变量
-	 *（ApplyNextChunk 在没有行星时直接判完成），所以留这一个受
-	 * WITH_DEV_AUTOMATION_TESTS 保护的缝。
-	 */
+	/** 测试专用：把进度游标设到指定块。生产路径推不动进度（ApplyNextChunk 无行星时直接判完成），没法钉「新块插在已做前缀之后」。 */
 	void SetNextChunkIndexForTest(const int32 Index)
 	{
 		NextChunkIndex = FMath::Clamp(Index, 0, Chunks.Num());
@@ -186,12 +127,7 @@ public:
 	/** 笔刷尺寸（体素数）。日志用。 */
 	int32 GetSizeVoxels() const { return SizeVoxels; }
 
-	/**
-	 * 有没有任何一格的值真的变了。
-	 *
-	 * 由写入谓词逐格比对旧值得到（线程安全）。比「中心格前后是否相同」准：
-	 * 大笔刷挖到的常常是外圈而中心格本来就已经是空气。
-	 */
+	/** 有没有任何一格的值真的变了（写入谓词逐格比对旧值，线程安全）。比「中心格前后是否相同」准：大笔刷挖的常是外圈。 */
 	bool DidChangeAnything() const { return bChangedAnything.load(std::memory_order_relaxed); }
 
 	/** 已应用的块的并集（体素空间，右端开区间）。无效 = 一块都没做。 */

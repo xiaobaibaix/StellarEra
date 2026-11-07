@@ -20,9 +20,8 @@ bool FStellarEraCloudParamsRadiiTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("云底 = 表面半径 × 1.02"), Radii.BaseCm, 2040000.0f, Tolerance);
 	TestEqual(TEXT("云顶 = 表面半径 × 1.07"), Radii.TopCm, 2140000.0f, Tolerance);
 
-	// 这条是真正的回归守卫：漏掉 (1 + …) 时云层落到地面以下，
-	// HLSL 里 h 恒大于 1、密度恒 0，画面完全看不见云 —— 而上面两条
-	// 若跟着实现一起写错，照样是绿的。
+	// 真正的回归守卫：漏掉 (1 + …) 时云层落到地面以下、HLSL 里密度恒 0 看不见云，
+	// 而上面两条若跟着实现一起写错，照样是绿的。
 	TestTrue(TEXT("云底在地表之上"), Radii.BaseCm > SurfaceRadiusCm);
 	TestTrue(TEXT("云顶在地表之上"), Radii.TopCm > SurfaceRadiusCm);
 
@@ -48,9 +47,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraCloudParamsCoverageTest,
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FStellarEraCloudParamsCoverageTest::RunTest(const FString& Parameters)
 {
-	// 阈值在噪声的**实测取值区间**上线性映射，不是教科书的 1 - Coverage。
-	// CloudFbm 实测均值 0.497、标准差 0.050、区间 [0.243, 0.631]；用 1 - Coverage
-	// 时覆盖率 0.45 落在 +1σ，画面是一层灰雾而不是云。
+	// 阈值在噪声的**实测取值区间**上线性映射，不是教科书的 1 - Coverage（后者覆盖率
+	// 0.45 落在 +1σ，画面是一层灰雾）。CloudFbm 实测均值 0.497、区间 [0.243, 0.631]。
 	TestEqual(TEXT("覆盖率 0 → 阈值 0.63（晴空）"),
 		PlanetClouds::CoverageToNoiseThreshold(0.0f),
 		PlanetClouds::CloudNoiseThresholdAtZeroCoverage, KINDA_SMALL_NUMBER);

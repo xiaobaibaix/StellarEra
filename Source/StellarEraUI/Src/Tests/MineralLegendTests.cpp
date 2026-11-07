@@ -3,6 +3,7 @@
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
+#include "StarMapPanelLayout.h"
 #include "StarMapUISystem.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -14,7 +15,7 @@ namespace MineralLegendTest
 	void BuildLayout(FStarMapPanelRect& OutPanel, TArray<FStarMapPanelRect>& OutRows,
 		int32 Entries = EntryCount)
 	{
-		UStarMapUISystem::ComputeMineralLegendLayout(
+		StarMapPanelLayout::ComputeMineralLegendLayout(
 			FVector2D(1920.f, 1080.f), Entries, OutPanel, OutRows);
 	}
 }
@@ -74,24 +75,24 @@ bool FMineralLegendHitTestTest::RunTest(const FString& Parameters)
 
 	const FVector2D RowCenter(Rows[1].X + Rows[1].W * 0.5f, Rows[1].Y + Rows[1].H * 0.5f);
 	TestEqual(TEXT("行中心命中该行"),
-		UStarMapUISystem::HitTestMineralLegendRow(Rows, RowCenter), 1);
+		StarMapPanelLayout::HitTestMineralLegendRow(Rows, RowCenter), 1);
 
 	const FVector2D FirstRowCenter(Rows[0].X + Rows[0].W * 0.5f, Rows[0].Y + Rows[0].H * 0.5f);
 	TestEqual(TEXT("第一行中心命中第一行"),
-		UStarMapUISystem::HitTestMineralLegendRow(Rows, FirstRowCenter), 0);
+		StarMapPanelLayout::HitTestMineralLegendRow(Rows, FirstRowCenter), 0);
 
 	// 面板右侧之外：不能命中任何行。
 	TestEqual(TEXT("面板外不命中"),
-		UStarMapUISystem::HitTestMineralLegendRow(Rows,
+		StarMapPanelLayout::HitTestMineralLegendRow(Rows,
 			FVector2D(Panel.X + Panel.W + 5.f, RowCenter.Y)), INDEX_NONE);
 
 	// 两行的接缝（上行的下沿 / 下行的上沿）：留了 HitInsetY 缩进，哪一行都不算。
 	const FVector2D Seam(RowCenter.X, Rows[1].Y);
 	TestEqual(TEXT("行接缝不命中"),
-		UStarMapUISystem::HitTestMineralLegendRow(Rows, Seam), INDEX_NONE);
+		StarMapPanelLayout::HitTestMineralLegendRow(Rows, Seam), INDEX_NONE);
 
 	TestEqual(TEXT("空矩形表返回 INDEX_NONE"),
-		UStarMapUISystem::HitTestMineralLegendRow(
+		StarMapPanelLayout::HitTestMineralLegendRow(
 			TArray<FStarMapPanelRect>(), RowCenter), INDEX_NONE);
 
 	return true;
@@ -162,10 +163,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMineralLegendSpacingTest,
 
 bool FMineralLegendSpacingTest::RunTest(const FString& Parameters)
 {
-	// 断言的是「高度预算与排布同源」：提示分隔线不得压到最后一行的命中带，
-	// 提示文字不得越出面板底边的内边距。提示区块的落点全部取自
-	// MineralLegendLayout::Hint*，测试不另写一份公式。
-	// 三个 N 都跑：1 是占位边界、3 是常规、9 是长表，防「只在某个 N 恰好对上」。
+	// 断言「高度预算与排布同源」：提示分隔线不压最后一行，提示文字不越出内边距。
+	// 提示落点全取自 MineralLegendLayout::Hint*，测试不另写公式。三个 N 都跑防特例。
 	const int32 EntryCounts[] = { 1, 3, 9 };
 	for (const int32 EntryCount : EntryCounts)
 	{

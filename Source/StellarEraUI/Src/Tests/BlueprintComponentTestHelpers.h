@@ -1,9 +1,7 @@
 ﻿// 蓝图 SCS 的测试辅助：从蓝图资产里取某个组件的「类默认值」模板。
 //
-// 为什么不能查 CDO：蓝图 SCS 里挂的组件**不在 CDO 的 OwnedComponents 里** ——
-// 它们要等 Actor 构造（ExecuteConstruction）时才实例化，CDO 上只有 C++ 构造函数
-// 造出来的那几个。要验证「蓝图里挂了这个组件、参数是这些值」，得看 SCS 节点的
-// ComponentTemplate —— 那才是运行时被复制给实例的那份模板。
+// 不能查 CDO：SCS 里挂的组件**不在 CDO 的 OwnedComponents 里**，要等
+// ExecuteConstruction 时才实例化。SCS 节点的 ComponentTemplate 才是运行时被复制给实例的那份。
 
 #pragma once
 
@@ -17,10 +15,7 @@
 namespace StellarEraTest
 {
 	/**
-	 * 在蓝图的 SCS 里找指定组件类的模板。
-	 *
-	 * @param BlueprintObjectPath 蓝图资产路径，形如 "/Game/Code/Planet/BP_VoxelPlanet.BP_VoxelPlanet"
-	 * @param ComponentClass      目标组件类，子类也算命中
+	 * 在蓝图的 SCS 里找指定组件类的模板（子类也算命中）。
 	 * @return 组件模板；蓝图没加载上、没有 SCS、或没挂这类组件时返回 nullptr
 	 */
 	inline UActorComponent* FindBlueprintComponentTemplate(

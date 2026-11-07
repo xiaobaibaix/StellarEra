@@ -2,14 +2,8 @@
 
 #include "NBodySimulator.h"
 
-// AActor 的完整定义：头文件里 TWeakObjectPtr<AActor> 的成员函数实例化需要它。
-// 以前靠模块依赖 Engine 时 UBT 选的 SharedPCH.Engine.h 顺带带进来，那是巧合，
-// 现在显式引入，换 PCH 策略也不会突然编不过。
+// TWeakObjectPtr<AActor> 的成员函数实例化需要 AActor 完整定义，显式引入以免换 PCH 策略后编不过。
 #include "GameFramework/Actor.h"
-
-// double 版三角函数（Sin / Cos / Atan2 / Sqrt）由 CoreMinimal.h 经
-// HAL/PlatformMath.h → GenericPlatformMath.h 提供，FMath 已有 double 重载，
-// 传 double 不会被截断成 float，因此这里不需要任何额外的数学头文件。
 
 FNBodySimulator::FNBodySimulator()
 {
@@ -96,8 +90,7 @@ void FNBodySimulator::ComputeAccelerations()
 				continue;
 			}
 
-			// 软化：给距离加一个下限，彻底消除 r→0 时的奇点。
-			// 没有这一项，两颗星擦肩而过时加速度会趋于无穷大，数值直接溢出。
+			// 软化：给距离加下限，彻底消除 r→0 的奇点，否则擦肩而过时数值溢出。
 			const double Soft = Bodies[i].SofteningOverride > 0.0
 				? Bodies[i].SofteningOverride
 				: SofteningLength;
@@ -107,22 +100,12 @@ void FNBodySimulator::ComputeAccelerations()
 			const double InvR = 1.0 / FMath::Sqrt(R2);
 			const double InvR3 = InvR * InvR * InvR;
 
-			// 用「引力源质量」而非 Mass：测试粒子（飞船）作为源不吸引别人，
-			// 但它自己被别的天体吸引这一项不受影响（i 的加速度只看 j 的源质量）。
+			// 用引力源质量而非 Mass：测试粒子作为源不吸引别人。
 			Sum += GravitationalSourceMass(Bodies[j]) * InvR3 * Delta;
 		}
 
-		// 外力与阻尼都是**逐子步**求值的：阻尼那一项用的是本步此刻的 Velocity，
-		// 而 StepVelocityVerlet 在步骤②重算加速度时速度还没被踢 —— 所以阻尼是
-		// 显式欧拉，每步放大因子 1 − k·dt。稳定性要求 k·dt < 2。
-		//
-		// 判据只写公式，不代具体步长：dt 是逐关卡派生的（最短周期 / StepsPerOrbit，
-		// 另有钳制与默认值兜底），换关卡、甚至同关卡改初始条件都会变。飞船的
-		// k = 3.0e4 /年，本关卡 dt 在 1e-7 年量级，于是 k·dt 在 1e-3 量级 ——
-		// 远小于上限 2，余量两到三个数量级。
-		//
-		// 引力单独存一份（GravitationalAcceleration），不和外力/阻尼混 —— 星图里
-		// 的「引力合力箭头」读它，才能画出纯引力方向、不被推力搅混。
+		// 外力与阻尼逐子步求值（显式欧拉，dt 逐关卡派生、不可硬编码）。引力单独存一份
+		// 供星图箭头读，不和外力/阻尼混，否则推力会搅混方向。
 		Bodies[i].GravitationalAcceleration = G * Sum;
 		Accelerations[i] = G * Sum
 			+ Bodies[i].ExternalAcceleration
@@ -146,19 +129,14 @@ void FNBodySimulator::StepVelocityVerlet(double Dt)
 		return;
 	}
 
-	// ── 辛积分的核心：位置半步 → 速度全步 → 位置半步 ──
-	// 这样做的关键是保持相空间体积，误差有界不累积。
-
-	// ① 用当前加速度推位置（半步）
+	// ── 辛积分核心：位置半步 → 速度全步 → 位置半步，保持相空间体积、误差有界 ──
 	for (int32 i = 0; i < N; ++i)
 	{
 		Bodies[i].Position += Bodies[i].Velocity * (Dt * 0.5);
 	}
 
-	// ② 在新位置重算加速度
 	ComputeAccelerations();
 
-	// ③ 用新加速度推速度（全步），再用新速度补完位置（半步）
 	for (int32 i = 0; i < N; ++i)
 	{
 		Bodies[i].Velocity += Bodies[i].Acceleration * Dt;
@@ -170,8 +148,7 @@ void FNBodySimulator::StepVelocityVerlet(double Dt)
 
 void FNBodySimulator::StepEuler(double Dt)
 {
-	// 显式欧拉法：一阶方法，误差同向累积。
-	// 轨道会在可观时间内螺旋坠入中心天体。这里仅用于对比验证。
+	// 显式欧拉：一阶、误差同向累积，轨道会螺旋坠入中心天体。仅用于对比验证。
 	ComputeAccelerations();
 
 	for (int32 i = 0; i < Bodies.Num(); ++i)
@@ -189,15 +166,9 @@ void FNBodySimulator::StepEuler(double Dt)
 void FNBodySimulator::ComputeContactShares(double MassI, double MassJ,
                                            double& OutShareI, double& OutShareJ)
 {
-	// 「谁轻谁让路」：位移按对方质量占两者之和的比例分。
-	//
-	// 质量 ≤ 0 的是测试粒子：它让全部、对方一点都不让。**不能写成
-	// m_j/(m_i+m_j)** —— 那样在 m_i = 0 时会让对方承担 100%（正好反了），
-	// 两个都 ≤ 0 时还是 0/0。
-	//
-	// 本项目的飞船**是**测试粒子（UCosmosOrbitComponent::bExertsGravity = false），
-	// 但这里不看那个标志：它仍按真实质量比让路。MassEarth = 0.332946 相对行星的
-	// 290740.84 等于让全部，行为上仍是「行星纹丝不动」。
+	// 「谁轻谁让路」：位移按对方质量占比分。质量 ≤ 0 是测试粒子，它让全部、对方不让。
+	// **不能写成 m_j/(m_i+m_j)** —— m_i = 0 时会反成对方承担 100%，两个都 ≤ 0 时 0/0。
+	// 飞船虽是测试粒子，这里仍按真实质量比让路（相对行星等于让全部）。
 	const bool bRealI = MassI > 0.0;
 	const bool bRealJ = MassJ > 0.0;
 
@@ -236,22 +207,19 @@ namespace
 		/** 球心 → 接触点的单位方向。 */
 		FVector3d Normal = FVector3d::ZeroVector;
 
-		/** 接触点所在的那层地表半径：球侧力臂 = Normal × SurfaceRadius。 */
+		/** 接触点所在那层地表半径：球侧力臂 = Normal × SurfaceRadius。 */
 		double SurfaceRadius = 0.0;
 
 		/** 穿透深度（> 0）。 */
 		double Depth = 0.0;
 
-		/** 迭代开始前的法向相对速度，恢复系数用它判「接近」而不是迭代中途的值。 */
+		/** 迭代开始前的法向相对速度；恢复系数按它判「接近」，不受迭代中途值影响。 */
 		double InitialNormalVelocity = 0.0;
 
-		/** 本接触点已累计的法向冲量，摩擦锥的上限。 */
+		/** 本点已累计的法向冲量，也就是摩擦锥的半径。 */
 		double AccumulatedNormalImpulse = 0.0;
 
-		/**
-		 * 固定的切向正交基（跨迭代不变）。切向冲量必须在同一组基上累计 ——
-		 * 每轮按当前切向速度重算方向的话，「累计」就没了参照，摩擦锥夹不住。
-		 */
+		/** 固定的切向正交基。跨迭代不变，否则切向冲量没有累计参照，摩擦锥夹不住。 */
 		FVector3d TangentU = FVector3d::ZeroVector;
 		FVector3d TangentV = FVector3d::ZeroVector;
 
@@ -261,13 +229,12 @@ namespace
 	};
 
 	/**
-	 * 每对天体最多解几个接触点。飞船有上百个探针（`StellarEra.Spaceship.ShipContactProbes`
-	 * 只断言非空，具体个数随 Hull 网格变），机腹平贴地面时同时穿透的点会超过 16，
-	 * 所以这里必须**边收集边截断**：满了就替换最浅的那个，全程不扩容、不排序。
+	 * 每对天体最多解几个接触点。飞船有上百个探针，机腹平贴地面时同时穿透的会超过 16，
+	 * 所以边收集边截断：满了替换最浅的那个，全程不扩容、不排序。
 	 */
 	constexpr int32 MaxContactPointsPerPair = 16;
 
-	/** 顺序冲量迭代次数。4 次在「一对天体、≤16 点」的规模下已收敛到 1e-3。 */
+	/** 顺序冲量迭代次数。一对天体、≤16 点在 4 次内已收敛到 1e-3。 */
 	constexpr int32 ContactIterations = 4;
 
 	double InverseMassOf(const FCosmosBodyState& Body)
@@ -282,19 +249,18 @@ namespace
 	}
 
 	/**
-	 * 球侧的力臂：球心 → 接触点。长度是**该探针脚下的地表半径**（地形抬高时
-	 * 它比球半径大），不是探针体的 −Offset —— 两者只在「探针体中心与球心重合
-	 * 且 |Probe| == R_s」时才碰巧相等。
+	 * 球侧力臂：球心 → 接触点，长度取**该探针脚下的地表半径**（地形抬高时大于球半径），
+	 * 不是探针体的 −Offset —— 两者只在探针中心与球心重合时才碰巧相等。
 	 */
 	FVector3d SphereLeverArm(const FProbeContactPoint& Contact)
 	{
 		return Contact.Normal * Contact.SurfaceRadius;
 	}
 
-	/** 由法线构造一组固定的切向正交基（确定性，无分支依赖状态）。 */
+	/** 由法线构造固定切向正交基（确定性，不依赖状态）。 */
 	void BuildTangentBasis(const FVector3d& Normal, FVector3d& OutU, FVector3d& OutV)
 	{
-		// 挑一个与法线夹角最大的世界轴当叉乘的把手，避免退化。
+		// 挑与法线夹角最大的世界轴当叉乘把手，避免退化。
 		const FVector3d Helper = FMath::Abs(Normal.Z) < 0.9
 			? FVector3d(0.0, 0.0, 1.0)
 			: FVector3d(1.0, 0.0, 0.0);
@@ -304,10 +270,8 @@ namespace
 
 	/**
 	 * 沿 Direction 的接触有效质量：1 / (1/m₁ + 1/m₂ + 角项)。
-	 *
-	 * 两侧的角项都用**各自的**力臂（探针侧的 Offset、球侧的 SphereOffset）。
-	 * 力臂为零或一方不是刚体时（ApplyInverseInertia 自己判 bRigidBody），
-	 * 对应的角项就是零，退化成经典的两体冲量。
+	 * 两侧各用自己的力臂；非刚体（ApplyInverseInertia 返回零）的角项为零，
+	 * 退化成经典两体冲量。
 	 */
 	double EffectiveMassAlong(
 		const FCosmosBodyState& ProbeBody, const FCosmosBodyState& SphereBody,
@@ -322,7 +286,7 @@ namespace
 		InverseMass += FVector3d::DotProduct(Direction, FVector3d::CrossProduct(
 			ProbeBody.ApplyInverseInertia(ProbeArm), ProbeOffset));
 
-		// 球侧：力臂是球心 → 接触点。
+		// 球侧同理，力臂是球心 → 接触点。
 		const FVector3d SphereArm = FVector3d::CrossProduct(SphereOffset, Direction);
 		InverseMass += FVector3d::DotProduct(Direction, FVector3d::CrossProduct(
 			SphereBody.ApplyInverseInertia(SphereArm), SphereOffset));
@@ -363,8 +327,7 @@ void FNBodySimulator::ResolveContacts()
 			const bool bProbeI = Bodies[i].ContactProbes.Num() > 0;
 			const bool bProbeJ = Bodies[j].ContactProbes.Num() > 0;
 
-			// 探针接触：一方是凸包探针、另一方是球体。双方都带探针（凸包 vs 凸包）
-			// 目前不存在，退回球-球分支 —— 那时 Radius 必须由调用方给对。
+			// 一方探针一方球体走探针分支；双方都带探针不存在，会退回球-球分支 —— 那时 Radius 必须由调用方给对。
 			if (bProbeI != bProbeJ)
 			{
 				const int32 ProbeIndex = bProbeI ? i : j;
@@ -380,8 +343,7 @@ void FNBodySimulator::ResolveContacts()
 			const double ContactDistance = Bodies[i].Radius + Bodies[j].Radius;
 			if (ContactDistance <= 0.0)
 			{
-				// 两个都是点质量。本项目的恒星、以及所有没设半径的天体走这一支，
-				// 所以接触项对它们是完全无操作的。
+				// 两个都是点质量（恒星与没设半径的天体都走这一支，接触项对它们无操作）。
 				continue;
 			}
 
@@ -394,8 +356,7 @@ void FNBodySimulator::ResolveContacts()
 
 			const double Distance = FMath::Sqrt(DistanceSq);
 
-			// 完全重合时 Delta 没有方向可言，任取一个轴。这里只需要「有个方向」
-			// 把它们分开 —— 下一次解算看到的就已经是真实的分离方向了。
+			// 完全重合时 Delta 没有方向，任取一个轴 —— 下一次解算看到的已是真实分离方向。
 			const FVector3d Normal = Distance > 1e-12
 				? Delta / Distance
 				: FVector3d(1.0, 0.0, 0.0);
@@ -404,28 +365,18 @@ void FNBodySimulator::ResolveContacts()
 			double ShareJ = 0.0;
 			ComputeContactShares(Bodies[i].Mass, Bodies[j].Mass, ShareI, ShareJ);
 
-			// ① 位置：推开到刚好相切。**不留穿透余量** —— 余量会让天体每步往下
-			//    陷一点点，长期看就是「地表在漏」。
+			// ① 位置：推开到刚好相切，**不留穿透余量** —— 余量会让天体每步下陷，长期看是「地表在漏」。
 			const double Overlap = ContactDistance - Distance;
 			Bodies[i].Position -= Normal * (Overlap * ShareI);
 			Bodies[j].Position += Normal * (Overlap * ShareJ);
 
-			// ② 速度：默认只抹掉「相互接近」的法向分量，切向留着 —— 接触面是
-			//    光滑的，天体沿地表滑。抹的是**相对**速度而不是各自的速度：后者会把
-			//    整个系统的总动量吃掉，而总动量是这个求解器自己的诊断量之一。
-			//
-			//    若某一方带 bZeroVelocityOnContact（**仅**球-球分支的显式配置；
-			//    飞船走探针分支、不再置位），则走「撞上即停」的特例：把它整条速度
-			//    设成对方的速度（相对速度归零，随行星一起动），不再保留切向滑行分量。
+			// ② 速度：默认只抹相对接近的法向分量、切向留着（光滑面滑行）。抹**相对**速度
+			//    而非各自的，后者会吃掉总动量。带 bZeroVelocityOnContact 的走「撞上即停」特例。
+			//    飞船改走探针冲量后不再置位；仍置位的是编辑器态离线轨迹预览与测试。
 			const bool bZeroI = Bodies[i].bZeroVelocityOnContact;
 			const bool bZeroJ = Bodies[j].bZeroVelocityOnContact;
 
-			// 只有**一方**要求清零才走「撞上即停」特例。双方都要求清零是误配
-			// （没有可参照的速度），退回默认的法向抹除。
-			//
-			// 运行期已没有天体置位本开关（飞船改走探针冲量）。仍然置位的只有两处，
-			// 而且**确实会进入这里**：编辑器态的离线轨迹预览（CosmosTrajectoryComponent
-			// 重建 State 时置位，走球-球分支），以及测试。
+			// 只有一方要求清零才走特例；双方都要求是误配，退回默认法向抹除。
 			if (bZeroI != bZeroJ)
 			{
 				// 把带开关的那一方整条速度钉到对方上（相对速度归零，随行星一起动）。
@@ -459,15 +410,13 @@ void FNBodySimulator::ResolveProbeContact(int32 ProbeIndex, int32 SphereIndex)
 
 	const double SphereRadius = SphereBody.Radius;
 
-	// 逐探针地表半径只在「算它的那颗球」上有效：索引对不上、或数量对不上
-	// （探针重建过）时一律退回球面 —— 与加这个字段之前逐字等价。
+	// 逐探针地表半径只在「算它的那颗球」上有效：索引或数量对不上时退回球面。
 	const bool bUsePerProbe =
 		ProbeBody.ContactSurfaceSphereIndex == SphereIndex
 		&& ProbeBody.ContactProbeSurfaceRadii.Num() == ProbeBody.ContactProbes.Num();
 
-	// 快速排除：中心距 ≥ 排除半径 + 最远探针时不可能有探针进入表面。
-	// 抬高地形时逐探针半径会**大于**球半径，所以排除半径取两者的较大者，
-	// 否则那条接触会被整个漏掉。
+	// 快速排除：中心距 ≥ 排除半径 + 最远探针时不可能接触。抬高地形时逐探针半径会大于
+	// 球半径，排除半径取两者较大者，否则那条接触会被整个漏掉。
 	double RejectRadius = SphereRadius;
 	if (bUsePerProbe)
 	{
@@ -483,11 +432,8 @@ void FNBodySimulator::ResolveProbeContact(int32 ProbeIndex, int32 SphereIndex)
 		return;
 	}
 
-	// ① 收集穿透的探针。不再是「取最深的一个」：机身侧倾着地时是**两三个**
-	//    探针同时压在地面上，只解一个的话接触力矩为零，船就永远不会翻过去。
-	//
-	//    边收集边截断：槽位固定 MaxContactPointsPerPair 个，满了以后只有「比当前
-	//    最浅者更深」的新点才顶掉它。不 sort、不扩容，热路径上零堆分配。
+	// ① 收集穿透的探针。只解最深一个的话，机身侧倾着地时接触力矩为零，船永远不会翻。
+	//    边收集边截断：槽位固定，满了只有比当前最浅者更深的新点才顶掉它，零堆分配。
 	TArray<FProbeContactPoint, TInlineAllocator<MaxContactPointsPerPair>> Contacts;
 	Contacts.Reserve(MaxContactPointsPerPair);
 
@@ -501,9 +447,8 @@ void FNBodySimulator::ResolveProbeContact(int32 ProbeIndex, int32 SphereIndex)
 		const double Distance = Delta.Size();
 		const double Penetration = ProbeSurfaceRadius - Distance;
 
-		// NaN / Inf（坏几何、坏体素查询）必须当「没有接触」跳过：`<=` 对 NaN 恒为
-		// false，会把它当有效接触收进来，NaN 一路污染速度、位置与截断比较。
-		// 探针正好落在球心（Distance ≈ 0）时法线也无定义，同样跳过。
+		// NaN / Inf 必须当「没有接触」跳过：`<=` 对 NaN 恒为 false，会把它当有效接触收进来，
+		// 一路污染速度与位置。探针正好落在球心时法线也无定义。
 		if (!FMath::IsFinite(Penetration) || !FMath::IsFinite(Distance)
 			|| Penetration <= 0.0 || Distance <= 1.0e-12)
 		{
@@ -573,7 +518,7 @@ void FNBodySimulator::ResolveProbeContact(int32 ProbeIndex, int32 SphereIndex)
 			const double NormalMass = EffectiveMassAlong(
 				ProbeBody, SphereBody, Contact.Offset, SphereOffset, Contact.Normal);
 
-			// 法向冲量只能推不能拉（DeltaLambda > 0），物体不会被「粘」回去。
+			// 法向冲量只能推不能拉，物体不会被「粘」回去。
 			if (NormalMass > 0.0)
 			{
 				const double DeltaLambda = (TargetNormalVelocity - NormalVelocity) * NormalMass;
@@ -592,8 +537,8 @@ void FNBodySimulator::ResolveProbeContact(int32 ProbeIndex, int32 SphereIndex)
 			const double NormalNow = FVector3d::DotProduct(Relative, Contact.Normal);
 			const FVector3d TangentVelocity = Relative - Contact.Normal * NormalNow;
 
-			// 切向有效质量按**固定的**两根基轴分别取（对角近似，忽略面内耦合）。
-			// 球面接触的惯量近似各向同性，这个近似够用，又省掉 2×2 求逆。
+			// 切向有效质量按两根基轴分别取（对角近似，忽略面内耦合）：球面接触的惯量近似
+			// 各向同性，够用又省掉 2×2 求逆。
 			const double TangentMassU = EffectiveMassAlong(
 				ProbeBody, SphereBody, Contact.Offset, SphereOffset, Contact.TangentU);
 			const double TangentMassV = EffectiveMassAlong(
@@ -607,13 +552,8 @@ void FNBodySimulator::ResolveProbeContact(int32 ProbeIndex, int32 SphereIndex)
 				double CandidateV = Contact.AccumulatedTangentV
 					- FVector3d::DotProduct(TangentVelocity, Contact.TangentV) * TangentMassV;
 
-				// 库仑锥：**累计**切向冲量的模长不超过 μ·λ_n。
-				//
-				// 这里刻意偏离规格 §3.5 的伪码（伪码夹的是「本轮增量」）：增量式在
-				// ContactIterations 轮里每个接触点最多能累计 ContactIterations×μλ_n，
-				// 默认 μ=0.6 时等效 μ 可达 ≈2.4，飞船落地会「发粘」—— 与本次改动的
-				// 目标正好相反。评审裁定改为夹累计量。写错的表现是切向滑移过度
-				// （μ 显得偏小），不是发粘。
+				// 库仑锥夹**累计**而非单轮增量：增量式在 4 轮里能累计到 4×μλ_n，等效 μ≈2.4，
+				// 落地会「发粘」。写错的表现是切向滑移过度（μ 显得偏小），不是发粘。
 				const double MaxFriction = Friction * Contact.AccumulatedNormalImpulse;
 				const double CandidateSize =
 					FMath::Sqrt(CandidateU * CandidateU + CandidateV * CandidateV);
@@ -639,18 +579,9 @@ void FNBodySimulator::ResolveProbeContact(int32 ProbeIndex, int32 SphereIndex)
 		}
 	}
 
-	// ③ 位置修正：推**一次**，推掉最深的那份穿透量，方向取所有接触法线按穿透量
-	//    加权的平均。
-	//
-	//    逐个接触点各推一次会和速度冲量叠加成「越推越远」，所以只推一次。但方向
-	//    不能直接取「最深那个点」的法线：机身侧倾、四个探针同时压地时，最深那个
-	//    探针的法线是歪的，照它推一步重心就偏一点，几次之后整机横向「走」出球面、
-	//    接触全部消失，再也不会被拉回来（对称四探针的用例就是这么飘到 z≈9.99 的）。
-	//    按穿透量加权后，深的那份主导方向、浅的那些只做微调，对称接触的横向分量
-	//    互相抵消。
-	//
-	//    单接触点、或多探针共线（法线同向）时，加权平均方向就是那个法线、深度就是
-	//    最深那份 —— 与只取最深点逐字等价，旧用例的精确摆位一条都不变。
+	// ③ 位置修正：只推一次，方向取所有法线按穿透量加权的平均。逐点各推会和速度冲量
+	//    叠加成「越推越远」；直接用最深点的法线则会在侧倾着地时把重心慢慢推偏，
+	//    几次之后整机横着滑出球面、接触全部消失。
 	const FProbeContactPoint* Deepest = &Contacts[0];
 	double DeepestDepth = 0.0;
 	double DepthSum = 0.0;
@@ -668,9 +599,8 @@ void FNBodySimulator::ResolveProbeContact(int32 ProbeIndex, int32 SphereIndex)
 		}
 	}
 
-	// 方向可信度 = |Σdᵢnᵢ| / Σdᵢ ∈ [0, 1]。低于 0.25 说明接触点把球心围在中间、
-	// 方向由几何噪声主导 —— 这时 GetSafeNormal 仍会给出一个长度接近 1 的方向，
-	// 靠 IsZero() 抓不住，必须用相对阈值判。退化时退回最深点的法线。
+	// 方向可信度 = |Σdᵢnᵢ| / Σdᵢ。低于 0.25 说明接触点把球心围住、方向由几何噪声主导，
+	// 此退化成最深点的法线（GetSafeNormal 此时仍给单位向量，IsZero 抓不住）。
 	FVector3d PushNormal = WeightedNormalSum.GetSafeNormal();
 	if (PushNormal.IsZero() || WeightedNormalSum.Size() < 0.25 * DepthSum)
 	{
@@ -703,16 +633,11 @@ void FNBodySimulator::StepExact(double TimeStep)
 		break;
 	}
 
-	// 姿态先于接触积分：接触冲量要读的是**本步**的角速度与朝向，
-	// 用它算力臂，再把力矩写回同一个 ω。
+	// 姿态先于接触积分：接触冲量要读**本步**的角速度与朝向来算力臂，再把力矩写回同一个 ω。
 	IntegrateRigidBodyOrientations(TimeStep);
 
-	// 约束放在积分**之后**：这样三种积分器共用一处，Step 与 PredictTrajectory
-	// 也就自动拿到同样的接触行为（预测跑的是同一个 StepExact 的副本）。
-	//
-	// 位置被钳过之后，缓存里的 Acceleration 对应的是钳制前的位置，下一步的
-	// 第一个半步会用这个带一步滞后的值 —— 这是 Velocity Verlet 本来就有的性质，
-	// 不是接触引入的。
+	// 约束放在积分之后：三种积分器与预测副本共用同一处接触行为。位置被钳过后，缓存里的
+	// Acceleration 对应钳制前的位置 —— 这是 Velocity Verlet 固有的滞后，不是接触引入的。
 	ResolveContacts();
 }
 
@@ -740,7 +665,6 @@ double FNBodySimulator::GetTotalEnergy() const
 
 	for (int32 i = 0; i < Bodies.Num(); ++i)
 	{
-		// 动能 ½mv²
 		Kinetic += 0.5 * Bodies[i].Mass * Bodies[i].Velocity.SizeSquared();
 	}
 
@@ -754,8 +678,7 @@ double FNBodySimulator::GetTotalEnergy() const
 				: SofteningLength;
 			R2 += Soft * Soft;
 
-			// 势能 −Gm_im_j / r —— 也用引力源质量，与 ComputeAccelerations 口径一致，
-			// 否则测试粒子（飞船）会贡献一份实际不存在的势能，能量漂移读数失真。
+			// 势能也用引力源质量，与 ComputeAccelerations 同口径，否则测试粒子会贡献不存在的势能。
 			Potential -= G * GravitationalSourceMass(Bodies[i])
 				* GravitationalSourceMass(Bodies[j]) / FMath::Sqrt(R2);
 		}
@@ -834,21 +757,13 @@ FVector3d FNBodySimulator::ToGameUnitPosition(const FVector& WorldLocation) cons
 	return FVector3d(WorldLocation);
 }
 
-// ── 以下三个换算目前无人调用 ──
-// 本项目只用到位置换算（ToWorldLocation / ToGameUnitPosition）。速度、秒、距离
-// 三个换算在参考项目里也是死代码。保留是为了让搬运保持完整、将来要加拖尾或
-// 速度显示时直接用；改动此处时不要以为有调用方在依赖它。
-//
-// 用之前先看清它们是**实时**换算：1 AU/年 → 1e6 厘米 / 3.15576e7 秒 ≈ 0.032 厘米/秒，
-// 而游戏里 1 模拟年只花 1/TimeScale 真实秒（当前 TimeScale ≈ 0.00333，约 300 秒），
-// 同一个速度按游戏时钟算是 ≈ 3330 厘米/秒。要在屏幕上显示速度，得把这里的实时值再乘
-// YearToSecond · TimeScale ≈ 1.05e5，而不是乘 1/TimeScale —— 后者是模拟时间的压缩比，
-// 换算成「每真实秒」还要再过一道 YearToSecond。否则地球的 209 米/秒会显示成 0.2 厘米/秒。
+// ── 以下三个换算目前无人调用，改动时别以为有调用方在依赖 ──
+// 它们是**实时**换算（1 AU/年 ≈ 0.032 厘米/秒），游戏时钟下还要乘 YearToSecond · TimeScale
+// ≈ 1.05e5（用 1/TimeScale 是错的）。
 FVector FNBodySimulator::ToWorldVelocity(const FVector3d& GameUnitVelocity) const
 {
 	if (UnitSystem == ECosmosUnitSystem::Game)
 	{
-		// AU/年 → cm/s
 		return FVector(GameUnitVelocity) * (CentimetersPerAu / CosmosUnits::YearToSecond);
 	}
 	return FVector(GameUnitVelocity);
@@ -872,8 +787,7 @@ double FNBodySimulator::PairOrbitalPeriod(const FCosmosBodyState& A, const FCosm
 	const double Separation = (B.Position - A.Position).Size();
 	const double Mu = G * (A.Mass + B.Mass);
 
-	// 与 FinalizeRegistration 里原来那段判定完全一致：间距为零或总质量为零时
-	// 这一对没有意义，返回 0 让调用方跳过。
+	// 间距或总质量为零时这一对没有意义，返回 0 让调用方跳过。
 	if (Separation <= 0.0 || Mu <= 0.0)
 	{
 		return 0.0;
@@ -922,11 +836,7 @@ bool FNBodySimulator::PredictTrajectory(int32 BodyIndex, double Horizon, int32 N
 	// 值类型，复制即得一份完整状态（见头文件注释）。
 	FNBodySimulator Copy = *this;
 
-	// 副本会把 ExternalAcceleration / LinearDamping 一起继承过去，于是星图上的
-	// 预测线画成一条「一直加速」的曲线。这里清零 —— 预测的是**松手之后会去哪**
-	// 的纯引力轨迹，那才是玩家要的信息。
-	//
-	// 想要「一直按着 W 会去哪」是另一个特性，应该显式做，不该靠静默继承。
+	// 副本会继承外力与阻尼，不清零预测线就成了「一直加速」的曲线。这里预测松手后的纯引力轨迹。
 	for (FCosmosBodyState& Body : Copy.Bodies)
 	{
 		Body.ExternalAcceleration = FVector3d::ZeroVector;
@@ -937,11 +847,8 @@ bool FNBodySimulator::PredictTrajectory(int32 BodyIndex, double Horizon, int32 N
 		Body.AngularDamping = 0.0;
 	}
 
-	// 步长取 Horizon / (NumSamples - 1)，于是末点**恰好**落在 Horizon 上，
-	// 而不是 Horizon 差一步的位置。
-	//
-	// 局部量叫 StepSize 而不是 Step：后者会遮蔽成员函数 FNBodySimulator::Step，
-	// 而 UE 5.8 把 C4458 当作硬错误。
+	// 步长取 Horizon / (NumSamples - 1)，末点恰好落在 Horizon 上。局部量不能叫 Step：
+	// 遮蔽成员函数，UE 5.8 把 C4458 当硬错误。
 	const double StepSize = Horizon / double(NumSamples - 1);
 
 	OutPositions.Reserve(NumSamples);
@@ -971,13 +878,8 @@ bool FNBodySimulator::PredictClosedOrbit(int32 BodyIndex, int32 NumSamplesPerOrb
 	const FCosmosBodyState& Body = Bodies[BodyIndex];
 
 	// ── 主导天体：引力 M/r² 最大，且必须比本天体重 ──
-	//
-	// 「更重」这一条不是形式主义：允许重天体去绕轻天体，相对坐标也能算出一条
-	// 椭圆，但画出来是一个套在轻天体上的巨环，和实际运动（重天体只在原位微动）
-	// 毫无关系。中心星因此不会被任何行星闭环。
-	//
-	// 用 GravitationalSourceMass 而不是 Mass：测试粒子（飞船）不该因为自己质量
-	// 大就成为别人的「主导天体」，它的引力源质量本来就是 0。
+	// 「更重」不是形式主义：否则重天体绕轻天体会画出一个与实际运动无关的巨环。
+	// 用 GravitationalSourceMass：测试粒子不该因质量大就成为别人的主导天体。
 	int32 PrimaryIndex = INDEX_NONE;
 	double BestPull = 0.0;
 	for (int32 Index = 0; Index < Bodies.Num(); ++Index)
@@ -1026,8 +928,7 @@ bool FNBodySimulator::PredictClosedOrbit(int32 BodyIndex, int32 NumSamplesPerOrb
 		return false;
 	}
 
-	// ── 密切轨道：ε < 0 才是椭圆 ──
-	// ε ≥ 0 是抛物线/双曲线，只该画未来一段，没有「一圈」可闭合。
+	// ── 密切轨道：ε < 0 才是椭圆；ε ≥ 0 是抛物线/双曲线，没有「一圈」可闭合 ──
 	const double SpecificEnergy = 0.5 * SpeedSquared - Mu / Distance;
 	if (!(SpecificEnergy < 0.0) || !FMath::IsFinite(SpecificEnergy))
 	{
@@ -1040,8 +941,7 @@ bool FNBodySimulator::PredictClosedOrbit(int32 BodyIndex, int32 NumSamplesPerOrb
 		return false;
 	}
 
-	// 偏心率。e≈1 是径向/抛物退化（例如贴着行星静止的飞船）：它会「闭合」成
-	// 一条穿过主天体的直线，不是玩家直觉里的闭环。
+	// 偏心率。e≈1 是径向/抛物退化（如贴着行星静止的飞船）：会「闭合」成穿过主天体的直线。
 	const FVector3d EccentricityVector =
 		((SpeedSquared - Mu / Distance) * RelativePosition
 			- FVector3d::DotProduct(RelativePosition, RelativeVelocity) * RelativeVelocity) / Mu;
@@ -1070,18 +970,10 @@ bool FNBodySimulator::PredictClosedOrbit(int32 BodyIndex, int32 NumSamplesPerOrb
 		CopyBody.AngularDamping = 0.0;
 	}
 
-	// ── 用「真正转满一圈后离起点最近」找闭合时刻，而不是照密切周期截断 ──
-	//
-	// 密切周期只是 t=0 的局部线性化。多体系统里别的天体在改变有效 μ，真实返回
-	// 时间可以和密切周期差很多：UniverseMap 的双行星 + 恒星里，靠近近拱点时
-	// 密切周期 0.63 年、实际一圈 1.55 年，相差 2.5 倍。照密切周期截断的话，
-	// 末点会横向漂出 1.5 个半长轴 —— 闭合判据在几乎整圈时间上都失败，玩家看到的
-	// 就是「启动时闭合，跑一会儿预测线断成半截」。
-	//
-	// 所以：密切周期只用来定步长（保持采样密度），持续积分最多 3 个密切周期，
-	// 累计相对位置扫过的角度；转满 2π 之后取离起点最近的采样点作为闭合时刻。
-	// 只认「扫过一整圈」之后的最近点：圆轨道相邻采样点的间距可能本来就小于容差，
-	// 按纯距离找会在刚出发不久误判成闭合。
+	// ── 用「转满一圈后离起点最近」找闭合时刻，而不是照密切周期截断 ──
+	// 密切周期只是 t=0 的局部线性化，多体扰动下差数倍，按它截断会让预测线断成半截。
+	// 它只用来定步长；最多积 3 个周期，扫满 2π 后取离起点最近的采样点。只认一圈之后，
+	// 否则圆轨道相邻采样点间距就可能小于容差，出发不久即误判。
 	const double StepSize = Period / double(NumSamplesPerOrbit - 1);
 	const int32 SearchSamples = NumSamplesPerOrbit * 3;
 	const double ReturnTolerance = 0.05 * SemiMajorAxis;
@@ -1137,10 +1029,7 @@ bool FNBodySimulator::PredictClosedOrbit(int32 BodyIndex, int32 NumSamplesPerOrb
 	Out.PrimaryPosition = Primary.Position;
 	Out.PeriodYears = double(ReturnSample) * StepSize;
 
-	// 首尾逐位相接：末点复制首点，而不是「接近」。
-	//
-	// 必须先拷到局部变量：直接 Add(Out.RelativePositions[0]) 会让 UE 的容器
-	// 别名校验误判为「在修改容器时使用其内部元素」并直接断言。
+	// 首尾逐位相接。必须先拷到局部变量 —— 直接 Add(Out.RelativePositions[0]) 会触发容器别名校验断言。
 	const FVector3d FirstPosition = Out.RelativePositions[0];
 	Out.RelativePositions.Add(FirstPosition);
 	return true;
@@ -1184,21 +1073,19 @@ void FNBodySimulator::IntegrateRigidBodyOrientations(double TimeStep)
 			continue;
 		}
 
-		// ① 角速度：显式欧拉。线速度那边用 Velocity Verlet 是因为有引力这个平滑
-		//    加速度场；角加速度只有外力矩与接触冲量，且一帧最多 200 个子步，
-		//    一阶足够。
+		// 角速度用显式欧拉：线速度那边上 Verlet 是因为有引力这个平滑加速度场，
+		// 角加速度只有外力矩与接触冲量，且一帧最多 200 个子步，一阶足够。
 		Body.AngularVelocity += Body.ExternalAngularAcceleration * TimeStep;
 
-		// ② 阻尼：乘法形式，k·dt ≥ 1 时直接归零。
+		// 乘法形式，k·dt ≥ 1 时直接归零。
 		if (Body.AngularDamping > 0.0)
 		{
 			const double Decay = 1.0 - Body.AngularDamping * TimeStep;
 			Body.AngularVelocity *= Decay > 0.0 ? Decay : 0.0;
 		}
 
-		// ③ 朝向：dq = exp(½·ω·dt) ⊗ q。世界系角速度 → 左乘。
-		//    归一化每步都做：不归一的话几千步之后 Actor 的变换矩阵会慢慢
-		//    变成非正交，表现为缓慢缩放。
+		// dq = exp(½·ω·dt) ⊗ q，世界系角速度 → 左乘。每步归一化，否则几千步后
+		// Actor 的变换矩阵会慢慢非正交，表现为缓慢缩放。
 		const double Speed = Body.AngularVelocity.Size();
 		if (Speed > 0.0)
 		{

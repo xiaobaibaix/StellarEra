@@ -17,17 +17,9 @@ class UPlanetGeologyPreset;
 class FPlanetGeologyField;
 
 /**
- * 行星生成器适配器。
- *
- * 它自己**不产生任何密度**：地形长什么样全部由 Terrain 指向的地形模块决定
- * （见 UVoxelPlanetTerrainModule）。这个类只做一件事 —— 把行星的半径、球心和
- * 基准色打包成 FVoxelPlanetTerrainContext 递给模块，再把模块产出的实例原样交给
- * VoxelWorld。
- *
- * 为什么非要有这一层：插件的 FVoxelGeneratorPicker 只接受 UVoxelGenerator，
- * 而地形模块是 UDataAsset（这样它才能作为内容浏览器里的共享预设存在）。适配器
- * 是唯一同时满足这两边的类型。它同时也是**每颗行星一份**的：模块是可共享的资产，
- * 上下文是每颗行星私有的，两者必须分开存放。
+ * 行星生成器适配器：自己不产生密度，只把半径/球心/基准色打包成上下文递给地形
+ * 模块。这一层不可省：FVoxelGeneratorPicker 只接受 UVoxelGenerator，而模块是
+ * 共享的 UDataAsset。每颗行星一份。
  */
 UCLASS(Blueprintable)
 class UVoxelPlanetGenerator : public UVoxelGenerator
@@ -39,49 +31,28 @@ public:
 	virtual TVoxelSharedRef<FVoxelGeneratorInstance> GetInstance() override;
 	//~ End UVoxelGenerator Interface
 
-	/**
-	 * 当前行星的完整地形上下文。**唯一构造点**：密度场与地表查询都从这里拿，
-	 * 否则新增字段会出现第三份手工拷贝。
-	 */
+	/** 当前行星的完整地形上下文。**唯一构造点**，避免新增字段出现多份手工拷贝。 */
 	FVoxelPlanetTerrainContext MakeTerrainContext();
 
-	/**
-	 * 当前水文场；为空 = 这颗星不要水。
-	 *
-	 * 只在 RefreshHydrology() 之后有效。**不要**在 GetInstance 里懒构建 ——
-	 * 那个调用点会在体素线程的上下文里触发一次秒级烘焙。
-	 */
+	/** 当前水文场；空 = 这颗星不要水。只在 RefreshHydrology() 之后有效。
+	 * **不要**在 GetInstance 里懒构建 —— 那会在体素线程触发一次秒级烘焙。 */
 	TSharedPtr<const FPlanetHydrologyField> GetHydrology() const;
 
-	/**
-	 * 需要时重新烘焙。行星在把 Radius / Terrain 推完之后、取样实例之前调用。
-	 *
-	 * 缓存键 = 地形模块指针 + 半径 + 水体配置。配置整个参与比较，所以即使有人
-	 * 忘了调 InvalidateHydrology，改海平面也会重烘。
-	 */
+	/** 需要时重新烘焙，行星在推完 Radius / Terrain、取样实例之前调用。缓存键 =
+	 * 模块指针 + 半径 + 水体配置；即使忘了 InvalidateHydrology，改海平面也会重烘。 */
 	void RefreshHydrology();
 
 	/** 丢弃缓存；下一次 RefreshHydrology 一定重烘。 */
 	void InvalidateHydrology();
 
-	/**
-	 * 按 GeologyPreset 资产 + Radius 懒加载并缓存。
-	 * - 预设为空 → 返回 nullptr；
-	 * - 预设没有任何元素 → 返回**有效空场**（IsValid() 且 IsEmpty()），并打 Warning；
-	 * - 缓存键是「资产 + 半径 + 资产修订号」，直到 InvalidateGeology()。
-	 *
-	 * 半径进缓存键的原因：归一化坐标要把体素深度换算成半径比例，同一预设
-	 * 装在不同大小的行星上，同一个 Depth 对应的归一化点不同。
-	 */
+	/** 按 GeologyPreset + Radius 懒加载并缓存。预设空 → nullptr；无元素 → 有效空场
+	 * 并打 Warning。半径进缓存键，因为归一化深度要换算成半径比例。 */
 	TSharedPtr<const FPlanetGeologyField> GetGeology();
 
 	/** 丢弃缓存；下次 GetGeology 按当前资产重新构建。 */
 	void InvalidateGeology();
 
-	/**
-	 * 要用的地形模块。为空时退化成一颗光滑球（内部临时造一个纯球模块），
-	 * 因此「没挂地形」不是错误状态，只是最朴素的那种地形。
-	 */
+	/** 地形模块。为空时退化成光滑球（内部临时造纯球模块），不是错误状态。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet")
 	TObjectPtr<UVoxelPlanetTerrainModule> Terrain;
 
@@ -97,14 +68,8 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet")
 	FLinearColor SurfaceColor = FLinearColor(0.18f, 0.42f, 0.16f);
 
-	/**
-	 * 地质预设资产。空 = 关闭地质。
-	 *
-	 * 必须是 **VisibleAnywhere**（= Edit + EditConst），不能是 EditAnywhere：
-	 * VoxelFree 的 UVoxelGenerator::GetParameters 会枚举可编辑属性并构造
-	 * FVoxelGeneratorParameterType。作者入口是 AVoxelPlanetActor::GeologyAsset，
-	 * RebuildPlanet 每次把它推到这里。
-	 */
+	/** 地质预设；空 = 关闭地质。**必须 VisibleAnywhere 不能 EditAnywhere**：
+	 * GetParameters 会枚举可编辑属性并触发 ensure。作者入口在 Actor::GeologyAsset。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Planet|Geology")
 	TObjectPtr<UPlanetGeologyPreset> GeologyPreset;
 
@@ -120,12 +85,7 @@ private:
 	double HydrologyCacheRadius = 0.0;
 	FPlanetHydrologyParams HydrologyCacheParams;
 
-	/**
-	 * Terrain 为空时代理的那个纯球模块。
-	 *
-	 * 做成子对象而不是「另一条分支」：这样无论有没有挂模块，走的都是同一条
-	 * 代码路径，不存在一份只在缺模块时才被执行的、平时没人测的逻辑。
-	 */
+	/** Terrain 为空时代理的纯球模块；做成子对象让有无模块走同一条代码路径。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UVoxelPlanetSphereTerrain> FallbackTerrain;
 };

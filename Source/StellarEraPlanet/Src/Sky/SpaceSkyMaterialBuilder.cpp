@@ -17,26 +17,14 @@
 
 // ===========================================================================
 // 太空背景：一张立方体贴图当成"无穷远的天空"。
-//
-// 节点图只有四个：
-//   (AbsoluteWorldPosition - CameraPositionWS) -> TextureSampleParameterCube
-//   -> * Brightness -> Emissive
-//
-// 为什么采样方向必须算「相机 → 像素」而不是「物体空间位置」：
-// 天球是一个半径 1e9 cm 的球，相机并不在球心（在行星上，离原点 1e8）。
-// 用物体空间位置当方向，等于假设相机在球心，边缘会被拉出最大约
-// arctan(1e8/1e9) ≈ 6° 的畸变；而且天球一挪，画面就整体滑。
-// 用视线方向则与天球的位置和半径完全无关 —— 这正是"无穷远"的含义：
-// 天球只是把天空光栅化出来的一个载体，你把它挪到哪、缩到多大都不影响构图。
-//
-// 为什么不用 Post Process 材质直接铺满屏幕：
-// 大气壳是「关掉深度测试的半透明」，它不写深度。后处理拿不到它的存在，
-// 会按"这里的深度是天空"把宇宙背景盖在大气层上面，球形大气就没了。
-// 几何天球走不透明通道，半透明的大气壳在这之后绘制，遮挡关系自然正确。
+// 采样方向必须是「相机 → 像素」：天球半径 1e9 cm 而相机在距原点 1e8 的行星上，
+// 用物体空间位置当方向等于假设相机在球心，边缘会畸变约 6° 且天球一挪画面就滑。
+// 不用后处理材质：大气壳不写深度，后处理会把它当天空一起盖掉；几何天球走不透明
+// 通道，半透明大气在它之后绘制，遮挡自然正确。
 // ===========================================================================
 
-// 用具名命名空间：UBT 默认 unity build，会把本模块多个 .cpp 合成一个 TU，
-// 匿名命名空间里的 SaveAsset 会和 Star/SunMaterialBuilder.cpp 撞名（C2084）。
+// 用具名命名空间：UBT 的 unity build 会把本模块多个 .cpp 合成一个 TU，
+// 匿名命名空间的 SaveAsset 会与 Star/SunMaterialBuilder.cpp 撞名（C2084）。
 namespace StellarEraSpaceSkyMaterialBuilder
 {
 
@@ -63,10 +51,7 @@ bool SaveAsset(UPackage* Package, UObject* Asset, const TCHAR* LongPackageName, 
 }
 
 /**
- * 建主材质 M_SpaceSkybox。
- *
- * 不建预设实例：亮度只有一个参数，直接改 Brightness 默认值即可，
- * 没必要为每种观感多存一个资产。
+ * 建主材质 M_SpaceSkybox。不建预设实例：只有一个亮度参数，改默认值即可。
  */
 UMaterial* BuildSpaceSkyMaterial(FString& OutError)
 {
@@ -113,8 +98,7 @@ UMaterial* BuildSpaceSkyMaterial(FString& OutError)
 	// --- 视线方向：相机 → 像素 ---
 	UMaterialExpressionWorldPosition* WorldPos =
 		NewObject<UMaterialExpressionWorldPosition>(Material);
-	// 默认就是 Absolute World Position（含 WPO 偏移）。这里**不要**改：
-	// 天球没有 WPO，两者等价，但 Default 才是"眼睛看到的那个点"。
+	// 默认就是 Absolute World Position。**不要**改：Default 才是眼睛看到的那个点。
 	WorldPos->WorldPositionShaderOffset = WPT_Default;
 	AddExpression(WorldPos, -900, 0);
 
@@ -131,8 +115,7 @@ UMaterial* BuildSpaceSkyMaterial(FString& OutError)
 	AddExpression(ViewDirection, -700, 0);
 
 	// --- 立方图采样 ---
-	// 采样器类型必须是 LinearColor：源图 sRGB 是关掉的、压缩是 TC_HDR_COMPRESSED，
-	// 用 Color 会报采样器类型不匹配。
+	// 必须是 LinearColor：源图关 sRGB、压缩为 TC_HDR_COMPRESSED，用 Color 会报类型不匹配。
 	UMaterialExpressionTextureSampleParameterCube* Cube =
 		NewObject<UMaterialExpressionTextureSampleParameterCube>(Material);
 	Cube->ParameterName = TEXT("GalaxyCube");
@@ -144,8 +127,7 @@ UMaterial* BuildSpaceSkyMaterial(FString& OutError)
 	AddExpression(Cube, -450, 0);
 
 	// --- 亮度 ---
-	// 自发光值直接进 Emissive，曝光由关卡的 PostProcessVolume 决定（手动曝光、
-	// +10 EV）。1.0 是实测：星点清晰、星云不糊，再高就变成一张发白的壁纸。
+	// 曝光由关卡 PostProcessVolume 决定（手动 +10 EV）。1.0 是实测值，再高会发白。
 	UMaterialExpressionScalarParameter* Brightness =
 		NewObject<UMaterialExpressionScalarParameter>(Material);
 	Brightness->ParameterName = TEXT("Brightness");

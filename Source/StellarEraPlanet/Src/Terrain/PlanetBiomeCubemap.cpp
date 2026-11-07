@@ -9,10 +9,8 @@
 #include "TextureResource.h"
 
 /**
- * 面 → 主轴 / u 轴 / v 轴。与 D3D 的立方体贴图约定逐项对应（见头文件表格）。
- *
- * 写成表而不是 switch：烘焙与逆映射两处都要用同一张表，写两遍必然写岔一个符号，
- * 而符号错只会表现为「某两面颜色对调」，很难和配色本身的问题区分开。
+ * 面 → 主轴 / u 轴 / v 轴，与 D3D 立方体贴图约定逐项对应。写成表因为烘焙与逆映射
+ * 共用；写两遍必有一个符号写岔，而符号错只表现为某两面颜色对调，很难查。
  */
 namespace
 {
@@ -110,9 +108,7 @@ void PlanetBiomeCubemap::BakeFaceColors(
 			const float U = (float(X) + 0.5f) / float(Resolution);
 			const FVector Dir = FaceUVToDirection(Face, U, V);
 
-			// 颜色函数的深度参数只喂给地质采样。这里取该方向的**真实地表半径**
-			// （基准面 − 下切 + 几何外凸），与生成器在地表采样点上算出的深度同阶
-			// —— 传 0 或传 Radius 都会让矿脉色整体偏一层。
+			// 深度参数只喂地质采样：取该方向真实地表半径，传 0 或 Radius 都会让矿脉色偏。
 			const float RawOffset = ComputeRawPlanetOffset(Params, Dir);
 			// 与生成器采样地表时用的是同一式：基准半径 − 下切。地质色的深度因此不会偏。
 			const double CarveDepth = Hydrology ? double(Hydrology->Sample(Dir).CarveDepth) : 0.0;
@@ -128,10 +124,8 @@ void PlanetBiomeCubemap::BakeFaceColors(
 			const FLinearColor Color = ComputePlanetSurfaceColor(
 				Params, Geology, Hydrology, Radius, Dir, SurfaceRadius);
 
-			// 存 sRGB 编码值，贴图侧 SRGB=true 再解回来，两端落在同一个线性色上：
-			// 顶点色走插件的 FVoxelUtilities::FloatToUINT8（线性量化，shader 直接
-			// 当线性用），所以查表色必须也是**线性**结果，否则材质里 Lerp 的两端
-			// 差一次 gamma，权重 0↔1 之间整颗星会亮暗一遍。
+			// 存 sRGB 编码值、贴图侧 SRGB=true 解回线性：顶点色存的是线性值，
+			// 否则材质 Lerp 两端差一次 gamma，权重 0↔1 之间整颗星会亮暗一遍。
 			OutColors[Y * Resolution + X] = Color.ToFColor(true);
 		}
 	}
@@ -157,17 +151,13 @@ UTextureCube* PlanetBiomeCubemap::BakeTexture(
 		return nullptr;
 	}
 
-	// 数据是 ToFColor(true) 出来的 sRGB 编码值，所以贴图必须按 sRGB 采样把
-	// 它解回线性 —— 顶点色那边（插件 FloatToUINT8）存的就是线性值，两端
-	// 必须都落在线性上，否则整颗星会亮暗一遍。**不要**设 CompressionSettings：
-	// 那只是给离线压缩用的提示，而瞬态贴图不压缩，设成 TC_VectorDisplacementmap
-	// 反而有把 SRGB 关掉的风险。
+	// 数据是 sRGB 编码值，贴图必须 SRGB=true 解回线性。**不要**设
+	// CompressionSettings：瞬态贴图不压缩，设了反而可能把 SRGB 关掉。
 	Texture->SRGB = true;
 	Texture->Filter = TF_Bilinear;
 
-	// 直接写 Mips[0] 的 BulkData，不用 FTextureCubeResource::LockMip：
-	// CreateTransient 之后还没有 RHI 资源，这里写完再 UpdateResource() 一次性建，
-	// 少一次「建资源 → 锁 → 写 → 重建」的往返，也不需要 RHI 线程配合。
+	// 直接写 Mips[0] 的 BulkData，不用 LockMip：CreateTransient 后还没有 RHI 资源，
+	// 写完再 UpdateResource 少一次往返，也不需要 RHI 线程配合。
 	FTexture2DMipMap& Mip = Texture->GetPlatformData()->Mips[0];
 	const int64 FaceBytes = int64(Resolution) * int64(Resolution) * sizeof(FColor);
 

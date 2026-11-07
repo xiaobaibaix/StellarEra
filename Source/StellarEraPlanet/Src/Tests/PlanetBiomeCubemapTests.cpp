@@ -32,11 +32,8 @@ namespace
 	}
 }
 
-// 面 + UV → 方向 → 面 + UV 必须回到原处。
-//
-// 这条钉的是**面表本身**（主轴 / u 轴 / v 轴的符号）：任何一个轴写反，
-// 对应面上就会得到镜像的方向，颜色在整个面上是错的，而错误又长得像「配色
-// 不对」—— 只看画面没法区分是表错了还是配色错了。
+// 面 + UV → 方向 → 面 + UV 必须回到原处。这条钉的是**面表本身**（主轴/u 轴/v 轴符号）：
+// 任一轴写反，对应面就是镜像方向，而错误长得像「配色不对」，只看画面分不出。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraBiomeCubeFaceRoundTripTest,
 	"StellarEra.Planet.BiomeCubemap.FaceRoundTrip",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -79,10 +76,8 @@ bool FStellarEraBiomeCubeFaceRoundTripTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 面的边缘上，两侧算出的**方向**必须相同 —— 这就是「cubemap 无缝」的全部内容。
-//
-// 相邻两面在公共边上的方向若对不上，材质查表会在面边界处看到一条颜色线，
-// 与我们要修的 LOD 接缝长得一模一样，但根因完全不同。所以单独钉一条。
+// 面的边缘上两侧算出的**方向**必须相同 —— 这就是「cubemap 无缝」的全部内容。方向对不上
+// 会在面边界看到一条颜色线，与 LOD 接缝长得一样但根因不同，故单独钉一条。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraBiomeCubeEdgeContinuityTest,
 	"StellarEra.Planet.BiomeCubemap.EdgeContinuity",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -119,11 +114,9 @@ bool FStellarEraBiomeCubeEdgeContinuityTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 烘焙出的每个像素必须等于「同一个方向上的地表配色」。
-//
-// 这条钉的是烘焙侧的接线：深度参数用哪个半径、像素中心怎么取、sRGB 怎么编码。
-// 任何一处偏了，材质查到的颜色和顶点色就不是同一套 —— 接缝会从「采样密度差」
-// 变成「两套配色不一致」，而且只在 LOD 切换的瞬间可见，极难定位。
+// 烘焙出的每个像素必须等于「同一方向上的地表配色」。这条钉烘焙侧接线：深度用哪个半径、
+// 像素中心怎么取、sRGB 怎么编码。任一处偏了材质与顶点色就不是同一套，接缝会从
+// 「采样密度差」变成「两套配色不一致」，且只在 LOD 切换瞬间可见。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraBiomeCubeBakeMatchesColorTest,
 	"StellarEra.Planet.BiomeCubemap.BakeMatchesColorFunction",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -144,9 +137,8 @@ bool FStellarEraBiomeCubeBakeMatchesColorTest::RunTest(const FString& Parameters
 		return false;
 	}
 
-	// 至少两种颜色：噪声起伏跨过海平面，配色必然分岔（水域色 / 陆地各带）。
-	// 全同色的烘焙图意味着参数没生效（例如颜色字段被漏拷），但那条路径
-	// 不会报错，只会让整颗星变成一片纯色。
+	// 至少两种颜色：全同色意味着参数没生效（例如颜色字段被漏拷），而那条路径不报错、
+	// 只会让整颗星变成一片纯色。
 	TSet<uint32> UniqueColors;
 	for (const FColor& Color : Colors)
 	{
@@ -186,8 +178,7 @@ bool FStellarEraBiomeCubeBakeMatchesColorTest::RunTest(const FString& Parameters
 	return true;
 }
 
-// 非法分辨率：烘焙函数必须交出空数组，而不是带着上一次的数据往下走
-// （材质会把那张图当成全黑，整颗星变暗且没有任何报错）。
+// 非法分辨率必须交出空数组，而不是带着上一次的数据往下走（材质会当全黑，整星变暗且不报错）。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraBiomeCubeZeroResolutionTest,
 	"StellarEra.Planet.BiomeCubemap.ZeroResolutionIsEmpty",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

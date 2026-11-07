@@ -1,5 +1,4 @@
 ﻿// 生成器实例的冒烟测试：参数真的进了实例、区间查询会整块判空。
-//
 // 不建体素世界 —— 建世界要跑 BeginPlay，而 editor world 里不存在 BeginPlay。
 
 #include "CoreMinimal.h"
@@ -66,7 +65,6 @@ bool FPlanetMineralVoxelGeneratorInstanceTest::RunTest(const FString& Parameters
 	TestTrue(TEXT("区域内的点是实心"), Inside < 0.0f);
 	TestTrue(TEXT("区域内调了采样回调"), bNormCalled);
 
-	// 盒外（归一化 0.9 → 体素 90）：恒空气
 	bNormCalled = false;
 	const v_flt Outside = Instance->GetValue(90, 0, 0, /*LOD=*/0, FVoxelItemStack::Empty);
 	TestEqual(TEXT("区域外的点是空气"),
@@ -133,11 +131,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralVoxelGeneratorRangeCoversValuesTe
 bool FPlanetMineralVoxelGeneratorRangeCoversValuesTest::RunTest(const FString& Parameters)
 {
 	// 契约的暴力验证：块内每个体素的真实取值都必须落在本块报出的区间内。
-	//
-	// 用的是**主预设的真实参数**（ColorThreshold = 0.05、FadeRange = 0.12，
-	// 见 PlanetGeologyPreset.cpp:206-207）。这组值正是上界最容易被估窄的一支：
-	// Iso / Fade = 0.4167 < AirValue，区间若只按「矿」的值域算，块里那些落在
-	// 区域外、恒返回 AirValue 的体素就被排除在区间之外了。
+	// 用主预设的真实参数（ColorThreshold 0.05、FadeRange 0.12），正是上界最容易被估窄
+	// 的一支：Iso / Fade = 0.4167 < AirValue，只按「矿」的值域算会漏掉区域外恒返 AirValue 的体素。
 	bool bNormCalled = false;
 	UPlanetMineralVoxelGenerator* Generator = MakeConfiguredGenerator(
 		bNormCalled, /*IsoValue=*/0.05, /*FadeRange=*/0.12);

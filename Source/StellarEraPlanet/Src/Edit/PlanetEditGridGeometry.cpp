@@ -22,8 +22,7 @@ void PlanetEditGrid::BuildLines(const float StepDegrees, TArray<FPlanetEditGridL
 
 	const float Step = FMath::Clamp(StepDegrees, 1.f, 90.f);
 
-	// 用 RoundToInt 而不是 floor：360/90 = 4 必须得到 4 条经线。
-	// 实际步长重新均分，保证正好绕一圈。
+	// 用 RoundToInt 而非 floor：360/90 = 4 必须得到 4 条经线；步长再均分，正好绕一圈。
 	const int32 LonCount = FMath::Max(1, FMath::RoundToInt(360.f / Step));
 	const int32 LatCount = FMath::Max(1, FMath::RoundToInt(180.f / Step));
 	const float LonStep = 360.f / LonCount;

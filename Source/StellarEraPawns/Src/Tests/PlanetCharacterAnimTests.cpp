@@ -1,11 +1,8 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 //
-// 角色运动动画的资产级验收测试。
-//
-// 它不跑 PIE：editor world 不执行 BeginPlay，无法断言运行期 Mesh 上的 AnimClass，
-// 所以这里断言两件能静态读到的事实：
-//   1. 四个 AS_ 序列存在、时长与轨道正确；
-//   2. BP_PlanetCharacter 生成类 CDO 的 CharacterAnimClass 已指向 ABP_PlanetCharacter_C。
+// 角色运动动画的资产级验收测试。editor world 不跑 BeginPlay，无法断言运行期 Mesh 的
+// AnimClass，所以静态断言：四个 AS_ 序列存在且轨道正确、CDO 的 CharacterAnimClass
+// 已指向 ABP_PlanetCharacter_C。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -14,9 +11,8 @@
 #include "UObject/UObjectGlobals.h"
 #include "PlanetCharacter.h"
 
-// UAnimSequence::GetDataModel() 与 IAnimationDataModel 只在 WITH_EDITOR 下存在。
-// 本文件用 WITH_DEV_AUTOMATION_TESTS 包着，而 Development 的 Game 目标两个宏取值
-// 不同（测试宏为 1、编辑器宏为 0）—— 不把编辑器宏一起钉住，Game 目标编不过。
+// UAnimSequence::GetDataModel() 只在 WITH_EDITOR 下存在。Development 的 Game 目标里
+// 测试宏为 1、编辑器宏为 0，不把编辑器宏一起钉住就编不过。
 #if WITH_EDITOR
 #include "Animation/AnimData/IAnimationDataModel.h"
 #endif

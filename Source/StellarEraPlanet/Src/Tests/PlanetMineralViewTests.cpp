@@ -17,14 +17,9 @@
 
 namespace
 {
-	/**
-	 * 取编辑器世界。
-	 *
-	 * 不能写 GEngine->GetEditorWorldContext()：那个方法是 UEditorEngine 的，而本模块
-	 * 刻意不带 UnrealEd 依赖（理由见 StellarEraMinerals.Build.cs 顶部）。这里按 WorldType
-	 * 扫一遍 UEngine 的世界上下文，与 UEditorEngine::GetEditorWorldContext 的实现
-	 * （EditorEngine.cpp 里取第一个 EWorldType::Editor）等价。
-	 */
+	/** 取编辑器世界。不能写 GEngine->GetEditorWorldContext() —— 那是 UEditorEngine 的
+	 *  方法，本模块刻意不带 UnrealEd 依赖（见 Build.cs）；按 WorldType 扫 UEngine 的
+	 *  世界上下文等价。 */
 	UWorld* FindMineralViewEditorWorld()
 	{
 		if (!GEngine)
@@ -150,8 +145,7 @@ bool FPlanetMineralViewEmptySlotTest::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	// 槽 0 空、槽 1 一个三角形：空元素仍要占一个组件槽，否则图例、数字键的
-	// 下标会整体错位。
+	// 槽 0 空、槽 1 一个三角形：空元素仍要占槽，否则图例与数字键的下标整体错位。
 	TArray<FPlanetMineralMesh> Meshes;
 	Meshes.SetNum(2);
 	Meshes[1] = MakeMineralViewTriangleMesh(1);
@@ -258,9 +252,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralViewGeologyAssetMirrorTest,
 
 bool FPlanetMineralViewGeologyAssetMirrorTest::RunTest(const FString& Parameters)
 {
-	// 刻意**不** spawn 行星：SpawnActor 会跑 OnConstruction → RebuildPlanet →
-	// 建整个体素世界，无头进程被限 3 FPS 时一条属性转发测试能耗上几分钟。
-	// 这里 NewObject 出未注册的对象，只验转发本身；体素那侧由行星自己的测试覆盖。
+	// 刻意**不** spawn 行星：SpawnActor 会跑 OnConstruction → 建整个体素世界，无头 3 FPS
+	// 下能耗几分钟。这里 NewObject 未注册对象只验转发，体素侧由行星自己的测试覆盖。
 	UPlanetGeologyPreset* PresetA = NewObject<UPlanetGeologyPreset>(GetTransientPackage());
 	UPlanetGeologyPreset* PresetB = NewObject<UPlanetGeologyPreset>(GetTransientPackage());
 	if (!TestNotNull(TEXT("预设 A"), PresetA) || !TestNotNull(TEXT("预设 B"), PresetB))
@@ -273,8 +266,7 @@ bool FPlanetMineralViewGeologyAssetMirrorTest::RunTest(const FString& Parameters
 	{
 		return false;
 	}
-	// 组件的 Owner 由外链推出（UActorComponent 构造时取 GetTypedOuter<AActor>），
-	// 不需要另外挂到 Actor 的组件表上。
+	// 组件 Owner 由外链推出（构造时取 GetTypedOuter<AActor>），不需挂进 Actor 组件表。
 	UPlanetMineralViewComponent* View = NewObject<UPlanetMineralViewComponent>(Planet);
 	if (!TestNotNull(TEXT("矿物组件"), View))
 	{
@@ -336,9 +328,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralViewPresetEditStaleTest,
 
 bool FPlanetMineralViewPresetEditStaleTest::RunTest(const FString& Parameters)
 {
-	// 与 GeologyAssetMirror 同一条理由：不 spawn 行星（SpawnActor 会跑 OnConstruction
-	// 建整个体素世界）。这里验的是「预设改动只标脏、不重建」这条状态机；真正跑一次
-	// 重建要一颗真行星，由 PIE 与编辑器手工验收覆盖。
+	// 与 GeologyAssetMirror 同理不 spawn 行星。这里验「预设改动只标脏、不重建」的状态机；
+	// 真重建要一颗真行星，由 PIE 手工验收覆盖。
 	AVoxelPlanetActor* Planet = NewObject<AVoxelPlanetActor>(GetTransientPackage());
 	if (!TestNotNull(TEXT("行星 Actor"), Planet))
 	{
@@ -356,8 +347,7 @@ bool FPlanetMineralViewPresetEditStaleTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("连发的后续改动不再重复标脏（也就不再打日志）"), View->MarkPreviewStale());
 	TestTrue(TEXT("仍然是脏的"), View->IsPreviewStale());
 
-	// 手动刷新这条路在没有世界、没有地质场的对象上必须安全失败：不崩，并且把
-	// 「过期」清掉 —— 预览都没了，就没有旧矿体可看。
+	// 没有世界/地质场时手动刷新必须安全失败：不崩，且把「过期」清掉（预览都没了）。
 	View->RefreshMineralPreview();
 	TestFalse(TEXT("刷新（这里必然失败）之后不再标脏"), View->IsPreviewStale());
 
@@ -371,10 +361,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralViewStatisticsTest,
 
 bool FPlanetMineralViewStatisticsTest::RunTest(const FString& Parameters)
 {
-	// 统计的对外契约：没有地质场时必须安全失败（返回 0 / 空表），不能崩。
-	//
-	// 用 NewObject 而不是 SpawnActor 出组件：SpawnActor 会跑 OnConstruction，
-	// 那里会建整个行星体素世界，无头进程里能耗上几分钟。
+	// 统计的对外契约：没有地质场时安全失败（返回 0 / 空表），不能崩。用 NewObject
+	// 而非 SpawnActor 出组件 —— 后者跑 OnConstruction 建整个体素世界，无头下能耗几分钟。
 	AVoxelPlanetActor* Planet = NewObject<AVoxelPlanetActor>(GetTransientPackage());
 	UPlanetMineralViewComponent* View = Planet
 		? NewObject<UPlanetMineralViewComponent>(Planet)

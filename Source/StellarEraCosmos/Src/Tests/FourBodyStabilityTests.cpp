@@ -1,6 +1,5 @@
-﻿// 三恒星 + 一行星：跑 10 模拟年，能量漂移与逃逸都要在阈值内。
-//
-// 这是本次改动唯一的「会不会跑飞」的守门测试。参数一改就该重跑它。
+﻿// 三恒星 + 一行星：跑 10 模拟年，能量漂移与逃逸都要在阈值内 ——
+// 这是本次改动唯一的「会不会跑飞」守门测试，参数一改就该重跑。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -76,8 +75,7 @@ bool FStellarEraFourBodyStabilityTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 初速表本身也是事实：把定稿数值钉住，防止有人按二体直觉改回去。
-// （二体公式会给 666 km/s = 140.5 AU/年，比正确值低 11%。）
+// 初速表本身也是事实：钉住定稿数值，防止有人按二体直觉改回去（二体公式给 140.5 AU/年，低 11%）。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraFourBodyVelocitiesTest,
 	"StellarEra.Cosmos.Simulator.FourBodyInitialVelocities",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -93,12 +91,8 @@ bool FStellarEraFourBodyVelocitiesTest::RunTest(const FString& Parameters)
 			ExpectedAuPerYear[Index], 0.01);
 	}
 
-	// 总动量应为零：系统质心不会漂。
-	//
-	// 判据必须用**相对**容差。初速表里 0.5386 只写到四位小数（为平衡行星动量
-	// 的精确值是 250×215.42/1e5 = 0.53855），1e5 M☉ 乘上去就剩 5 M☉·AU/年
-	// 的绝对残差 —— 相比单项动量 5.4e4 只有 1e-4。拿绝对值当判据量的是取整误差，
-	// 不是物理。
+	// 总动量应为零：系统质心不会漂。判据必须用**相对**容差 —— 初速表 0.5386 只写到
+	// 四位小数（精确值 250×215.42/1e5 = 0.53855），乘 1e5 M☉ 后的残差是取整误差，不是物理。
 	FVector Momentum = FVector::ZeroVector;
 	double MomentumScale = 0.0;
 	for (int32 Index = 0; Index < 4; ++Index)

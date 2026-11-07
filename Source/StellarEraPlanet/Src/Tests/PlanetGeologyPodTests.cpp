@@ -99,8 +99,7 @@ bool FPlanetGeologyPodCoverageTest::RunTest(const FString& Parameters)
 	}
 
 	// 0) 矿囊路径的几何幅度必须真的能生效：MaxReachDepth 不设时 SampleGeometryDelta
-	//    会在 Depth > 0 直接早退，GeometryAmplitude 变成死参数。下面这条断言是那个修复的护栏。
-	//（GetMaxReachDepth 访问器已在 Task 3 删除，护栏改由公开的 SampleGeometryDelta 承担。）
+	//    在 Depth > 0 直接早退，GeometryAmplitude 变成死参数；这条断言是修复的护栏。
 	const FPlanetGeologyPod* InnermostPod = nullptr;
 	for (int32 ElementIndex = 0; ElementIndex < 2; ++ElementIndex)
 	{
@@ -423,9 +422,8 @@ bool FPlanetGeologyPodShapeTest::RunTest(const FString& Parameters)
 	}
 	const FPlanetGeologyPod& Pod = Pods[0];
 
-	// 球外 5% 处场值必须精确为 0：这是闭网格的前提。
-	// 朝球心探，避免探针落到单位球外、被球外早退「代为」返 0（那样断言是空转）；
-	// 真落到球外就跳过。
+	// 球外 5% 处场值必须精确为 0（闭网格前提）。朝球心探，避免探针落到球外被
+	// 球外早退代为返 0、让断言空转。
 	const FVector Inward = Pod.Center.IsNearlyZero()
 		? FVector(-1.f, 0.f, 0.f)
 		: (-Pod.Center).GetSafeNormal();
@@ -482,9 +480,8 @@ bool FPlanetGeologyDeterminismTest::RunTest(const FString& Parameters)
 	const auto First = MakeField(*Preset);
 	const auto Second = MakeField(*Preset);
 
-	// 先钉住矿囊真的撒出来了：PlacePods 全失效时两次建场同样「逐点一致」。
-	// 这里必须用返回值提前退出 —— 下面的贴囊探针要对 Pods.Num() 取模，
-	// 矿囊数为 0 时继续跑会是除零崩溃，而这正是本测试要防的回归。
+	// 先钉住矿囊真的撒出来了（PlacePods 全失效时两次建场也「逐点一致」）。必须
+	// 提前退出：下面的贴囊探针要对 Pods.Num() 取模，0 会除零崩溃。
 	const TArray<FPlanetGeologyPod>& PodsA = First->GetPods(0);
 	const TArray<FPlanetGeologyPod>& PodsB = First->GetPods(1);
 	if (!TestEqual(TEXT("元素 a 矿囊数"), PodsA.Num(), 12)
@@ -637,12 +634,9 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyGeneratorParametersTest,
 
 bool FPlanetGeologyGeneratorParametersTest::RunTest(const FString& Parameters)
 {
-	// VoxelFree 的 UVoxelGenerator::GetParameters（VoxelGenerator.cpp:18-63）会把
-	// 每个 CPF_Edit 且非 CPF_EditConst 的属性都塞进 FVoxelGeneratorParameterType
-	//（VoxelGeneratorParameters.cpp:98-178）。后者只认识 Float/Int/Bool/Object/
-	// SoftObject/Struct/Array/Set/Map；FString/FName/FText/FByte 等都会
-	// ensureMsgf(false) —— 在场景大纲里选中行星 Actor 时，Details 里继承来的
-	// Generator 选择器会调 GetParameters，于是每次都弹 ensure。
+	// VoxelFree 的 GetParameters 把每个 CPF_Edit 且非 EditConst 的属性塞进参数
+	// 系统，后者只认 Float/Int/Bool/Object/SoftObject/Struct/Array/Set/Map；
+	// FString 等会 ensureMsgf(false)。选中行星 Actor 时 Details 就会触发。
 	const FProperty* PresetProperty = FindFProperty<FProperty>(
 		UVoxelPlanetGenerator::StaticClass(), TEXT("GeologyPreset"));
 	if (!TestNotNull(TEXT("生成器上有 GeologyPreset 属性"), PresetProperty))
@@ -736,7 +730,6 @@ bool FPlanetGeologyPipelineTest::RunTest(const FString& Parameters)
 		AfterRevision.IsValid() && CachedA.IsValid()
 		&& AfterRevision.Get() != CachedA.Get());
 
-	// Invalidate → 得到新对象。
 	Generator->InvalidateGeology();
 	const TSharedPtr<const FPlanetGeologyField> AfterInvalidate = Generator->GetGeology();
 	TestTrue(TEXT("Invalidate 后得到新对象"),
@@ -912,11 +905,8 @@ bool FPlanetGeologyRangeCoverageTest::RunTest(const FString& Parameters)
 	TestTrue(*FString::Printf(TEXT("GetValueRangeImpl 覆盖所有采样值 %s"), *FailureDetail),
 		bRangeCovers);
 
-	// 注：旧版这条测试还断言「地表查询处的密度约为 0」（角色脚下与看到的同一个面）。
-	// 矿囊模型下它不成立：GetSurfaceRadiusVoxels 只做一次不动点迭代，而矿囊的
-	// delta 沿径向梯度 ≈ GeometryAmplitude / PodRadiusVoxels（本夹具 12 / 10），
-	// 远高于旧高斯矿层，一步迭代收敛不了。实测 max |value| = 0.7983（≈4 体素）。
-	// 那是另一个契约（地表一致性），不在本测试的目标内，已作为顾虑上报，未在此放宽阈值。
+	// 旧版还断言「地表查询处密度约 0」，矿囊模型下不成立：GetSurfaceRadiusVoxels 只做一次
+	// 不动点迭代，矿囊 delta 的径向梯度太高、一步收敛不了（实测 max|value| = 0.7983）。
 
 	return bRangeCovers;
 }
@@ -947,9 +937,8 @@ bool FPlanetGeologyAssetClampsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("负 GeometryAmplitude 夹到 0"), LowField->GetMaxGeometryDelta(), 0.f);
 	TestEqual(TEXT("负 Abundance 夹到 0"), LowField->GetTotalAbundance(), 0.f);
 
-	// 全元素 Abundance = 0 的退化配置：Sample 仍必须给出 DominantNorm/Index，
-	// 与 SampleElementNorms 同源 —— 否则观察体照长、地形照凸，而 Sample 说「没有矿」。
-	// 取该元素唯一矿囊的中心，保证 Norm > 0，避免 0 == 0 的空转。
+	// 全元素 Abundance=0 时 Sample 仍必须给出 DominantNorm/Index，与
+	// SampleElementNorms 同源；取唯一矿囊中心保证 Norm > 0，避免空转。
 	const TArray<FPlanetGeologyPod>& Pods = LowField->GetPods(0);
 	if (TestEqual(TEXT("低丰度夹具仍有矿囊"), Pods.Num(), 1))
 	{

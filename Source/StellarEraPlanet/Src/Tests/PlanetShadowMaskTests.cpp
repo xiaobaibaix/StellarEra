@@ -9,8 +9,8 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-// 具名命名空间：UBT 开 unity build，本文件与 Atmosphere/ 下的 .cpp 可能落进同一个 TU，
-// 匿名命名空间在合并后的 blob 里是同一个作用域（同 PlanetAtmosphereMaterialTests.cpp 的注释）。
+// 具名命名空间：unity build 下本文件与 Atmosphere/ 的 .cpp 可能同 TU，
+// 匿名命名空间合并后是同一作用域（同 PlanetAtmosphereMaterialTests.cpp）。
 namespace StellarEraPlanetShadowTests
 {
 	const TCHAR* const ShadowMaterialPath =
@@ -114,7 +114,7 @@ bool FStellarEraPlanetShadowMaskTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 锁死「资产真的按 PlanetShadowLightFunctionBuilder.cpp 当前的样子重建过」。
+// 锁死「资产真的按 PlanetShadowLightFunctionBuilder.cpp 重建过」：
 // 改生成器忘了重跑 StellarEra.BuildPlanetShadowLightFunction 会红在这里。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraPlanetShadowMaterialTest,
 	"StellarEra.Planet.PlanetShadow.Material",

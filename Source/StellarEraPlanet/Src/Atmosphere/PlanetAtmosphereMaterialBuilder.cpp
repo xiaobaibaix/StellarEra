@@ -24,35 +24,10 @@ namespace
 
 const TCHAR* const AtmosphereAssetPath = TEXT("/Game/Code/Planet/Materials/M_PlanetAtmosphere");
 
-// ---------------------------------------------------------------------------
-// 壳的单次散射。
-//
-// **云必须靠 IncludeFilePaths 引 .ush，不能写在本字符串里**：本字符串会被注入到
-// `CustomExpressionN(...)` 的**函数体**内（HLSLMaterialTranslator.cpp:14338），
-// 而函数体内再定义函数是编译错误 —— "function definition is not allowed here"。
-// 噪声 / 密度 / 相位函数，以及整个积分循环，定义在 /Project/PlanetClouds.ush，
-// 由引擎在 CustomExpressionN 的函数定义**之前**插一行 #include（同文件 14327-14336），
-// 因此它们展开在全局作用域。代价是它们看不见 Custom 节点的输入变量，
-// 每个依赖量都得显式传参 —— 见下面的 CloudAtmosphereRaymarch 调用。
-//
-// 积分循环之所以也搬进 .ush，是因为它必须**按区间分段**跑：整条壳弦均匀
-// 32 步时，云层那段常常只落进一两个采样点，一次 exp(-dC*ds) 就把透过率
-// 按死、而发射项还没积分起来，画面上就是硬边的黑楔形。
-// 虚拟目录 /Project 是引擎自带的：启动时映射到 <项目>/Shaders
-// （LaunchEngineLoop.cpp:2553-2558，仅当该目录存在）。所以磁盘上必须是
-// <项目>/Shaders/PlanetClouds.ush，而虚拟路径里**不再重复** "Shaders"。
-//
-// 不调用引擎的散射函数（那些要 LUT 或全局 Atmosphere uniform，材质里拿不到）。
-//
-// 坐标空间（已从引擎源码钉死，见计划「与规格的偏差」第 4 条）：
-//   WorldPos / CameraPos / PlanetCenter 全是**绝对世界坐标（cm）**。
-//   WorldPosition 节点 WPT_Default 的标题字面就是 "Absolute World Position"；
-//   CameraPos 是视图 uniform（CameraPositionWS），同样在绝对世界坐标下；
-//   PlanetCenter 是 ObjectPositionWS（OriginType = Absolute），按图元变换取值。
-//   三者都从渲染侧取，所以同一帧内自洽，也与壳几何同源。
-//
-// 注意：因为函数体里有 return，UE 不会再自动包一层 return，末尾必须自己 return。
-// ---------------------------------------------------------------------------
+// 壳的单次散射。云 / 密度 / 相位与积分循环必须在 /Project/PlanetClouds.ush：本字符串
+// 注入 CustomExpressionN 的函数体，体内不能定义函数；.ush 在函数定义前 #include。
+// 积分按云层分段跑，否则云段只有一两个采样点，透过率被按死成黑楔形。
+// 坐标统一为绝对世界坐标（cm），WorldPos / CameraPos / PlanetCenter 均从渲染侧取。
 const TCHAR* const AtmosphereHLSL = TEXT(R"(
 // 改 Shaders/PlanetClouds.ush 之后必须把这个数字 +1，否则画面不会有任何变化。
 // 材质资产的 shader map id 只吃 Custom 节点的 Code 与 IncludeFilePaths 两项，
@@ -140,10 +115,8 @@ float4 march = CloudAtmosphereRaymarch(
 return float4(march.rgb * SunIntensity.rgb, march.a);
 )");
 
-// 下面三个 helper 带 Atmo 前缀，是为避开 unity 合并单元里的重定义。
-// Star/SunMaterialBuilder.cpp 与本源文件会落进同一个 Module.StellarEraPlanet.cpp，
-// 两边都在匿名命名空间里定义了同名同签名的 helper，编译报 C2084。
-// 匿名命名空间在 unity blob 里其实是同一个作用域，改名是唯一不牵动对方的办法。
+// helper 带 Atmo 前缀：unity 构建把同模块 .cpp 并进一个编译单元，匿名命名空间也在
+// 同一作用域，与 Star/SunMaterialBuilder.cpp 的同名 helper 会撞 C2084。
 
 /** 建一个标量参数节点并登记到材质。 */
 UMaterialExpressionScalarParameter* AddAtmoScalarParam(UMaterial* Material, const TCHAR* Name,
@@ -214,8 +187,8 @@ bool BuildPlanetAtmosphereMaterial(FString& OutError)
 	WorldPos->MaterialExpressionEditorY = -600;
 	Material->GetExpressionCollection().AddExpression(WorldPos);
 
-	// --- 参数节点。初值与 Task 1 的 ComputeShellScatteringParams 在 0.75km 行星上
-	// --- 算出的量级一致；Task 3 会在 BeginPlay 里按实际行星半径覆盖掉。
+	// --- 参数节点。初值与 0.75km 行星上 ComputeShellScatteringParams 的量级一致，
+	// --- 组件会在 BeginPlay 里按实际行星半径覆盖。
 	UMaterialExpressionScalarParameter* PlanetRadius = AddAtmoScalarParam(Material, TEXT("PlanetRadius"), 75000.0f, -800, -400);
 	UMaterialExpressionScalarParameter* ShellRadius = AddAtmoScalarParam(Material, TEXT("ShellRadius"), 78750.0f, -800, -300);
 	UMaterialExpressionScalarParameter* RayleighScaleHeight = AddAtmoScalarParam(Material, TEXT("RayleighScaleHeight"), 1181.25f, -800, -200);
@@ -228,29 +201,17 @@ bool BuildPlanetAtmosphereMaterial(FString& OutError)
 	UMaterialExpressionVectorParameter* MieBeta = AddAtmoVectorParam(Material, TEXT("MieBeta"),
 		FLinearColor(2.25524e-5f, 2.25524e-5f, 2.25524e-5f, 1.0f), -800, 100);
 
-	// 相机位置取视图 uniform（CameraPositionWS 节点 → MEVP_WorldSpaceCameraPosition，
-	// 渲染器按当前视口逐帧给出），**不再**由 C++ 每帧写 MID 参数。
-	//
-	// 曾经是向量参数：编辑器里组件的 Tick 跑在视口 Tick 之前（EditorEngine.cpp 里
-	// World()->Tick 在视口循环之前），写进 MID 的相机位置永远慢一帧。快速移动视口时
-	// 射线起点落后于真实相机，靠近行星边缘的像素会被算成一条长得多的壳内弦长，
-	// 单次散射饱和成一条硬边暖白色带 —— 静止时相机不动，滞后无害，所以只在运动时出现。
+	// 相机位置取视图 uniform（CameraPositionWS），不由 C++ 每帧写 MID —— 组件 Tick
+	// 早于视口 Tick，写进去的位置总慢一帧，快速移动时行星边缘会出硬边暖白色带。
 	UMaterialExpressionCameraPositionWS* CameraPos = NewObject<UMaterialExpressionCameraPositionWS>(Material);
 	CameraPos->Material = Material;
 	CameraPos->MaterialExpressionEditorX = -800;
 	CameraPos->MaterialExpressionEditorY = 200;
 	Material->GetExpressionCollection().AddExpression(CameraPos);
-	// 行星中心取壳自己的变换（绝对世界坐标），**不是** MID 参数。
-	//
-	// 这里踩过和 CameraPos 一模一样的坑，但后果严重得多：C++ 每帧往 MID 写
-	// GetComponentLocation()，而 UCosmosSimulationSubsystem 是 TickableWorldSubsystem，
-	// 在 UWorld::Tick 末尾才把求解器结果写回 Actor —— 组件 Tick 在它之前，
-	// 于是写进 MID 的中心永远等于**上一帧**的行星位置。行星在 N 体里约 7.8 km/s，
-	// 2.5 FPS 时一帧就走 3.1 km，超过大气层厚度（~1.8 km），整层大气每帧绕着
-	// 行星甩一次，肉眼就是"大气在抖"。
-	// ObjectPositionWS 来自本次绘制用的图元变换，与壳几何完全同源，与帧率无关。
-	// OriginType 显式钉成 Absolute（枚举零值，但别依赖默认值）：
-	// HLSL 里 WorldPos / CameraPos 都是绝对世界坐标，三者必须同一空间。
+	// 行星中心取壳自己的变换（绝对世界坐标），不是 MID 参数：Cosmos 子系统在 UWorld::Tick
+	// 末尾才写回 Actor，组件 Tick 早于它，写进 MID 的中心永远是上一帧位置 —— 7.8 km/s、
+	// 2.5 FPS 时一帧走 3.1 km 超过大气厚度（~1.8 km），整层大气每帧被甩动。OriginType
+	// 钉成 Absolute，与 HLSL 里的 WorldPos / CameraPos 同空间。
 	UMaterialExpressionObjectPositionWS* PlanetCenter = NewObject<UMaterialExpressionObjectPositionWS>(Material);
 	PlanetCenter->Material = Material;
 	PlanetCenter->OriginType = EPositionOrigin::Absolute;
@@ -276,9 +237,8 @@ bool BuildPlanetAtmosphereMaterial(FString& OutError)
 		FLinearColor(1.0f, 1.0f, 1.0f, 1.0f), -800, 900);
 
 	// ---- 云 ----
-	// 初值按 20 km 行星（表面半径 2e6 cm）的默认比例算：云底 0.02、云顶 0.07、
-	// 光学厚度 6。半径以行星中心为原点，所以是 r × (1 + 比例)，不是 r × 比例。
-	// 组件会在 OnRegister / BeginPlay 里按实际行星半径覆盖。
+	// 初值按 20 km 行星（表面半径 2e6 cm）的默认比例算：云底 0.02、云顶 0.07、光学厚度 6。
+	// 半径以行星中心为原点，是 r × (1 + 比例)；组件会在 OnRegister / BeginPlay 覆盖。
 	UMaterialExpressionScalarParameter* CloudBaseRadius =
 		AddAtmoScalarParam(Material, TEXT("CloudBaseRadius"), 2040000.0f, -800, 800);
 	UMaterialExpressionScalarParameter* CloudTopRadius =
@@ -322,10 +282,8 @@ bool BuildPlanetAtmosphereMaterial(FString& OutError)
 	Custom->Material = Material;
 	Custom->Description = TEXT("PlanetAtmosphereSingleScatter");
 	Custom->Code = AtmosphereHLSL;
-	// 引擎会把每项渲染成一行 #include，插在 CustomExpressionN 的函数定义**之前**
-	// （HLSLMaterialTranslator.cpp:14327-14338），所以 .ush 里的函数在全局作用域，
-	// Code 里的调用点能看见它们。路径必须是已映射的虚拟目录，否则
-	// MaterialCachedData::Validate 会把这一项悄悄删掉（只留一条 Warning）。
+	// 引擎把每项渲染成一行 #include，插在 CustomExpressionN 定义之前，故 .ush 的函数在
+	// 全局作用域。路径必须是已映射虚拟目录，否则 Validate 会静默删掉这一项。
 	Custom->IncludeFilePaths.Add(TEXT("/Project/PlanetClouds.ush"));
 	Custom->OutputType = CMOT_Float4;
 	Custom->MaterialExpressionEditorX = -300;
@@ -385,17 +343,15 @@ bool BuildPlanetAtmosphereMaterial(FString& OutError)
 	// --- 材质本体 ---
 	Material->BlendMode = BLEND_Translucent;
 	Material->SetShadingModel(MSM_Unlit);
-	// 双面：球内看到的是背面，不画背面就等于天空是黑的。
-	// 两面会在同一屏幕区域各出一个片元，由 HLSL 里的 TwoSidedSign 早退剔掉多余的一面
-	// （见下一任务）—— 在此之前会有两次混合，这是有意的中间态。
+	// 双面：球内看到的是背面，不画背面天空就是黑的。两面各出一片元，由 HLSL 的
+	// TwoSidedSign 早退剔掉多余的一面。
 	Material->TwoSided = true;
 
-	// 壳在壳半径处，地形比它近。开深度测试的话，球内脚下往上看会被地形挡掉整片，
-	// 只剩"透过地形的缝"。关掉之后由 HLSL 里的场景深度截断负责遮挡与空中透视。
+	// 壳在壳半径处、地形更近：开深度测试球内抬头会被地形挡掉整片，关掉后由场景深度
+	// 截断负责遮挡与空中透视。
 	Material->bDisableDepthTest = true;
-	// 不投影**不在这里设**：UMaterial 上没有 bCastDynamicShadow / bCastStaticShadow，
-	// 那两个是 UPrimitiveComponent 的属性（PrimitiveComponent.h:568/572），写上编译不过。
-	// 由 Task 3 壳组件的 SetCastShadow(false) 负责 —— 投影本来就是组件的属性，不是材质的。
+	// 不投影不在这里设：bCastDynamicShadow / bCastStaticShadow 是 UPrimitiveComponent 的
+	// 属性，UMaterial 上没有；由壳组件的 SetCastShadow(false) 负责。
 
 	UMaterialEditorOnlyData* EditorData = Material->GetEditorOnlyData();
 	if (!EditorData)

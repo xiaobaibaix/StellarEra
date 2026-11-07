@@ -15,14 +15,10 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-// 回归测试：旧版本 OnRegister 每次都用默认名新建行批，而行批的 outer 是 Actor
-// （不是轨迹组件），组件重建时不会跟着销毁。组件每重注册一次就多一个带旧线的
-// 行批、且旧线永不 Flush —— 表现就是「改了天体速度，预测线更新了，旧线还留着」。
-//
-// 本测试不去看画面，直接数 Actor 上的 ULineBatchComponent：
-//   1. 反复 Unregister/Register，行批数量必须恒为 1；
-//   2. 连续 Tick 两次，BatchedLines 不累加（每帧 Flush 后整批重画）；
-//   3. 改 InitialVelocityKmPerSecond 后再 Tick，线段数不变、但几何变了。
+// 回归测试：旧版 OnRegister 每次都用默认名新建行批，而行批的 outer 是 Actor（不是
+// 轨迹组件），组件重建时不会跟着销毁 —— 表现就是「改了速度，预测线更新了，旧线还留着」。
+// 本测试不看画面，只数 Actor 上的 ULineBatchComponent：重注册后恒为 1、连续 Tick 不累加、
+// 改速度后线段数不变但几何变了。
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraTrajectoryLineBatchTest,
 	"StellarEra.Trajectory.LineBatchNoAccumulation",
@@ -41,8 +37,7 @@ namespace
 		return Orbit;
 	}
 
-	// 裸 AActor 没有根组件时 GetActorLocation() 恒为 0 —— SpawnActor 的摆放变换
-	// 读不回来。剖分边界靠摆放位置算，所以必须挂一个 SceneComponent 当根。
+	// 裸 AActor 没有根组件时 GetActorLocation() 恒为 0；剖分边界靠摆放位置算，必须挂 SceneComponent 当根。
 	void AddRootComponent(AActor* Owner, const FVector& Location)
 	{
 		USceneComponent* Root = NewObject<USceneComponent>(Owner, TEXT("Root"));

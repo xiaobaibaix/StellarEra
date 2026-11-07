@@ -1,14 +1,6 @@
-﻿// 行星 LOD 过渡设置回归测试。
-//
-// ChunksDitheringDuration 决定旧 LOD 块在替换块完成后再淡出多久
-// （VoxelDefaultRenderer.cpp:884/900：同 LOD 用 1×，换 LOD 用 2×）。
-// 默认 1 秒 ⇒ 换 LOD 时两套网格共存 2 秒；高速飞行时叠影肉眼可见。
-//
-// MeshUpdatesBudget 是每帧应用已完成块网格的毫秒预算（只在 Game play type
-// 生效，编辑器预览固定 1000）。默认 1000 毫秒意味着一批块同时完成时游戏线程
-// 可以卡满一秒 —— 高速飞行「卡一下」的直接来源。
-//
-// 断言构造函数产出的默认值，防止有人把它们改回插件的默认。
+﻿// 行星 LOD 过渡设置回归：ChunksDitheringDuration 默认 1 s ⇒ 换 LOD 时两套网格共存 2 s，
+// 高速飞行叠影可见；MeshUpdatesBudget 默认 1000 ms ⇒ 一批块同时完成时游戏线程可卡满一秒。
+// 断言构造函数产出的默认值，防止有人改回插件的默认。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"

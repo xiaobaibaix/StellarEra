@@ -6,14 +6,9 @@
 #include "PlanetHydrologyTypes.h"
 
 /**
- * 水文场。
- *
- * **单位一律是体素半径**（到球心的距离，体素）：生成器在体素空间直接比较，
- * 水面几何乘上 VoxelSize 就是本地空间厘米。运行时不需要再乘 Radius。
- *
- * 三个栅格同布局（见 PlanetHydrologyGrid），长度为 CellCount(Resolution)。
- * 场一旦构造就不再改变，可以安全地在后台体素线程上共享 —— 与 FPlanetGeologyField
- * 同一个理由。
+ * 水文场。单位一律是体素半径：生成器在体素空间直接比较，水面几何乘 VoxelSize
+ * 即本地空间厘米，运行时不需要再乘 Radius。三个栅格同布局、长度为
+ * CellCount(Resolution)。构造后不再改变，可安全在后台体素线程共享。
  */
 class STELLARERAPLANET_API FPlanetHydrologyField
 {

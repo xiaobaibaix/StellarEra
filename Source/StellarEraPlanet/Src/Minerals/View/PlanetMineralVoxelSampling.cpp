@@ -26,7 +26,6 @@ double PlanetMineralVoxel::EvaluateVoxel(
 		return AirValue;
 	}
 
-	// ① 区域早退
 	const FVector Normalized(
 		double(VoxelIndex.X) / Params.RadiusVoxels,
 		double(VoxelIndex.Y) / Params.RadiusVoxels,
@@ -37,24 +36,19 @@ double PlanetMineralVoxel::EvaluateVoxel(
 		return AirValue;
 	}
 
-	// ② 密度门：行星被挖空了，矿就不在了
+	// 密度门：行星被挖空的地方矿也不在了。
 	if (Params.IsSolidAtPlanetVoxel && !Params.IsSolidAtPlanetVoxel(VoxelIndex))
 	{
 		return AirValue;
 	}
 
-	// ③ 地质场 + 屏阈
 	const double Norm = double(Params.SampleElementNorm(Normalized));
 
-	// FadeRange 是资产上可编辑的值，0 会让除法爆掉。钳到 1e-4 而不是跳过：
-	// 跳过会把「阈值以上实心、以下空气」变成一个零宽的硬边。
+	// FadeRange 可编辑，0 会让除法爆掉。钳到 1e-4 而不是跳过：跳过会把阈值变成一个零宽的硬边。
 	const double Fade = FMath::Max(Params.FadeRange, 1e-4);
 
-	// 负 = 实心。Norm 越大越负 = 越是矿。
-	//
-	// 夹到 FVoxelValue 的量程是纵深防御，不是在挡当前就会发生的溢出：
-	// 按现在 Fade 的 1e-4 下限与 |Iso - Norm| ≤ 1，量级上限是 1e4，插件那边
-	// 也先把 v_flt 夹到 ±10 再换算。夹子只防以后有人放宽 Fade 下限。
+	// 负 = 实心，Norm 越大越负越是矿。夹到 FVoxelValue 量程（±32767）是纵深防御：当前量级上限 1e4
+	// 且插件已先夹 ±10，只为防以后放宽 Fade 下限。
 	const double Value = (Params.IsoValue - Norm) / Fade;
 	return FMath::Clamp(Value, -double(FVoxelValue::MAX_VOXELVALUE), double(FVoxelValue::MAX_VOXELVALUE));
 }

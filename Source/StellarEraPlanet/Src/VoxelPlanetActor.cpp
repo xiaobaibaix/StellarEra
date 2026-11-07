@@ -56,24 +56,9 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 /**
- * 把当前世界里所有行星的存档按**当前** CVar 设置重存一次。
- *
- * 用途只有一个：把 Special 值格式的旧存档迁到普通格式。
- * `voxel.data.StoreSpecialValueForGeneratorValuesInSaves=1` 时，存档把「与生成器
- * 输出相同的值」写成 FVoxelValue::Special() 哨兵；装填时每个哨兵体素都要重算一次
- * 生成器（VoxelData.cpp:704-727）。UniverseMap 第三颗行星为此实测 36 秒，
- * 设成 0 之后同样内容 3.4 秒。存与读必须同设置，所以只在 ini 里改不够 ——
- * 旧存档还得重写一遍。
- *
- * 迁移必须「按旧格式读、按新格式写」：读的时候那个 CVar 必须还是 1，
- * 否则哨兵值解释不出来、世界是坏的；写之前把它切成 0。之后在 ini 里固化 0，
- * 两端就一致了。
- *
- * 用法：先让 ini 里是 1（或本会话没改过 cvar），进关卡等它加载完，执行
- * `StellarEra.Planet.ResaveAll 0`，再把 ini 改成 0。
- *
- * 命令排到第一个「世界里已经有行星」的 tick 执行 —— -ExecCmds 早于关卡加载，
- * 当场执行只会看到空世界。返回 false 让 ticker 自己摘掉，不用管句柄。
+ * 把当前世界所有行星的存档按**当前** CVar 重存一次，用于把 Special 值格式的旧存档
+ * 迁到普通格式。迁移须「按旧格式读、按新格式写」：读时 CVar 仍为 1，写前切 0 ——
+ * 只改 ini 不够，存读必须同设置。
  */
 static FAutoConsoleCommandWithWorldAndArgs CVoxelPlanetResaveAll(
 	TEXT("StellarEra.Planet.ResaveAll"),
@@ -124,8 +109,7 @@ static FAutoConsoleCommandWithWorldAndArgs CVoxelPlanetResaveAll(
 
 			for (AVoxelPlanetActor* const Planet : Planets)
 			{
-				// SaveEditsToSaveObject 没有「未保存编辑」就早退，而这里要的是无条件
-				// 重存：NotifyVoxelEdited 只负责把那个标志置位。
+				// SaveEditsToSaveObject 无脏编辑就早退；这里要无条件重存，先置脏。
 				Planet->NotifyVoxelEdited();
 				Planet->SaveEditsToSaveObject();
 				UE_LOG(LogTemp, Log, TEXT("重存行星存档：%s 完成。"), *Planet->GetName());
@@ -136,57 +120,33 @@ static FAutoConsoleCommandWithWorldAndArgs CVoxelPlanetResaveAll(
 
 AVoxelPlanetActor::AVoxelPlanetActor()
 {
-	// 基类构造函数已经把 WorldRoot 建好并设成 RootComponent —— 体素世界就是本
-	// Actor 自己，这里不再另建根组件，也没有「PlanetRoot」这个东西了。
+	// 基类构造函数已把 WorldRoot 建成 RootComponent，这里不再另建根组件。
 
-	// 世界由 RebuildPlanet 显式创建。基类的 BeginPlay 会在
-	// bCreateWorldAutomatically 为真时排一个「下一帧 CreateWorld」的定时器，
-	// 那会和我们自己那次撞成建两次（第二次因 already created 被静默忽略，保留
-	// 第一次的生成器快照）。显式关掉，不依赖默认值。
+	// 世界由 RebuildPlanet 显式创建。基类 BeginPlay 会在 bCreateWorldAutomatically
+	// 为真时排一个「下一帧 CreateWorld」，会与我们撞成建两次。显式关掉。
 	bCreateWorldAutomatically = false;
 
-	// 世界线程池由 RebuildPlanet 在 CreateWorld 之前显式建一次（见那里）。
-	// 基类默认 true 会让每颗行星各自抢着建池：先建的那颗定下线程数，后建的就刷
-	// 「already created, NumberOfThreads will be ignored」；若某个实例被改成
-	// false，第一颗反而刷「global pool isn't created」。统一 false，只复用。
-	// （运行时还会在 CreateWorld 前再压一次，防止蓝图实例覆盖。）
+	// 世界线程池由 RebuildPlanet 在 CreateWorld 前建一次。基类默认 true 会让每颗
+	// 行星各自抢建：先建的定线程数、后建的刷 already created。统一 false 只复用。
 	bCreateGlobalPool = false;
 
-	// 这两个是我们的策展默认值，基类的默认不适合本项目：
-	//   - 线程：基类 2 个，喂不饱大行星的流送，背面区块比正面晚到很久，表现为
-	//     表面上的方形空洞；
-	//   - MaxLOD：基类是 ClampMesherDepth(32)，对本项目的 1km 星球过细。
-	//
-	// 写在构造函数里而不是 RebuildPlanet 里：它们现在是**用户自己的**属性
-	//（基类的 NumberOfThreads / MaxLOD），每次重建都去覆盖就等于把面板上的
-	// 控件变成摆设。
+	// 策展默认值：线程基类 2 个喂不饱大行星（背面区块晚到成方形空洞）；MaxLOD
+	// 基类的 32 对本项目 1km 星球过细。写构造函数而非重建流程，避免覆盖用户面板设置。
 	NumberOfThreads = 4;
 	MaxLOD = 6;
 
-	// LOD 切换**不做淡入淡出**：新块一建好就立刻顶掉旧块。
-	//
-	// 基类默认开抖动，新块建好后旧块还要再画 2 × ChunksDitheringDuration
-	// （VoxelDefaultRenderer.cpp:900）才被移除，这段时间里两套不同 LOD 的网格
-	// 同时可见 —— 就是「不同 LOD 的 mesh 重叠在一起」那个画面。关掉之后走的是
-	// NewChunksFinished 的另一条分支（同函数 :895 的 else → RemoveOrHideChunk），
-	// 旧块当场删掉。没有空洞风险：这条路径只在全部替换块都建好（NumNewChunksLeft
-	// == 0）之后才走。
-	//
-	// 代价是 LOD 边界会「啪」地跳一下，不再有过渡。要淡入淡出就把这个改回 true。
-	// 关闭抖动后 ChunksDitheringDuration 不再生效，保留 0.3 只作为改回 true 时的默认。
+	// LOD 切换不做淡入淡出：基类默认开抖动，新旧两套 LOD 网格会同时可见数帧
+	// （mesh 重叠）。关掉后旧块在替换块全建好后当场删除，代价是 LOD 边界会跳。
+	// 改回 true 时 ChunksDitheringDuration 才生效。
 	bDitherChunks = false;
 	ChunksDitheringDuration = 0.3f;
 
-	// 每帧应用已完成块网格的时间预算（毫秒）。基类默认 1000 毫秒，意味着一批
-	// 块同时完成时游戏线程可以卡满一整秒 —— 高速飞行「卡一下」的直接来源。
-	// 8 毫秒把这一批分摊到多帧；代价是 LOD 收敛慢几帧。
-	// 只在 Game play type 生效；编辑器预览由插件固定为 1000。
+	// 每帧应用已完成块网格的时间预算（ms）。基类默认 1000，一批完成时游戏线程
+	// 卡满一整秒；8ms 分摊到多帧，代价是 LOD 收敛慢几帧。只在 Game play type 生效。
 	MeshUpdatesBudget = 8.f;
 
 #if WITH_EDITOR
-	// 每颗行星默认使用项目的顶点色材质。仅编辑器有效：打包后的游戏里
-	// 实例自带序列化值。早于此属性存在的已摆放 Actor 没有对应标签，
-	// 加载时同样会采用这个 CDO 默认值。
+	// 每颗行星默认用项目顶点色材质。仅编辑器有效：打包后实例自带序列化值。
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> PlanetMaterialFinder(
 		TEXT("/Game/Code/Planet/Materials/M_PlanetVertexColor.M_PlanetVertexColor"));
 	if (PlanetMaterialFinder.Succeeded())
@@ -195,16 +155,13 @@ AVoxelPlanetActor::AVoxelPlanetActor()
 	}
 #endif
 
-	// 生成器在 RebuildPlanet 里懒创建：若在构造函数中创建，会在类默认对象上
-	// 实例化一个子对象，摆好的 Actor 保存时就会因引用解析进 /Script 而报
-	// "Illegal reference to private object"。
+	// 生成器在 RebuildPlanet 里懒创建：构造函数里建会在 CDO 上实例化子对象，
+	// 保存时报 "Illegal reference to private object"。
 
-	// LOD Invoker 挂在 WorldRoot 下。它和行星之间是**组件树**关系，变换自动
-	// 跟随 —— 这正是体素世界当子对象时缺的那一环。
+	// LOD Invoker 挂在 WorldRoot 下，变换随组件树自动跟随。
 	LODInvoker = CreateDefaultSubobject<UVoxelSimpleInvokerComponent>(TEXT("PlanetLODInvoker"));
 	LODInvoker->SetupAttachment(RootComponent);
-	// 只做 LOD 基准：碰撞与导航的 Invoker 应由贴近表面的 Pawn 自己携带，
-	// 挂在球心反而会优先喂行星内部的区块。
+	// 只做 LOD 基准；碰撞与导航 Invoker 应由贴近表面的 Pawn 携带。
 	LODInvoker->bUseForLOD = true;
 	LODInvoker->bUseForCollisions = false;
 	LODInvoker->bUseForNavmesh = false;
@@ -214,13 +171,11 @@ AVoxelPlanetActor::AVoxelPlanetActor()
 	LODInvoker->LODToSet = 6;
 	LODInvoker->LODRange = 150000.f;
 
-	// 水面组件。内部的分量（海洋 / 湖泊 / 河流）由它自己在重建时创建；
-	// 这里只建宿主组件，让它随行星的变换走。
+	// 水面组件；海洋/湖泊/河流分量由它自己在重建时创建。
 	WaterComponent = CreateDefaultSubobject<UPlanetWaterComponent>(TEXT("PlanetWater"));
 
-	// 大气壳、矿物观察组件与表面编辑网格都不在这里创建：它们由 BP_VoxelPlanet
-	// 挂载。原生 AVoxelPlanetActor 实例因此不带这三个组件，本项目只用 BP。
-	// 编辑相关的调用一律走 FindEditGrid()，找不到就跳过（见头文件）。
+	// 大气壳、矿物观察与表面编辑网格由 BP_VoxelPlanet 挂载；原生实例不带，
+	// 编辑相关调用走 FindEditGrid()，找不到就跳过。
 }
 
 UPlanetSurfaceGridComponent* AVoxelPlanetActor::FindEditGrid() const
@@ -230,18 +185,9 @@ UPlanetSurfaceGridComponent* AVoxelPlanetActor::FindEditGrid() const
 
 float AVoxelPlanetActor::GetScaledRadiusVoxels() const
 {
-	// 只采用等比缩放。非等比缩放会剪切体素网格，而密度场定义在体素空间中，
-	// 得到的将是扭曲的畸形而非缩放后的行星。
-	//
-	// ⚠ 已知不一致，本次不修（只有缩放 S ≠ 1 时才显形；本关卡所有星球 S = 1）：
-	// 渲染时 AVoxelWorld::LocalToGlobalFloat 是 TransformPosition(VoxelSize · p)，
-	// 那个变换里**已经含** S，所以网格的世界半径是 Radius · S² · VoxelSize，而
-	// GetSurfaceRadiusCm() 返回 Radius · S · VoxelSize。S = 2 时网格 4 km、角色与
-	// 飞船却按 2 km 摆，埋进星体 2 km。
-	//
-	// 改成继承之后这条**没有变好也没有变坏**：本 Actor 自己的变换就是那个变换，
-	// 里面照样含 S。要修得先定下「体素空间半径含不含 S」以及随之而来的哈希 /
-	// 重建契约（见 SDD 台账最终复审小节），不能只改这里一行。
+	// 只采用等比缩放（非等比会剪切体素网格）。已知不一致：网格世界半径是
+	// Radius·S²·VoxelSize，而 GetSurfaceRadiusCm 返回 Radius·S·VoxelSize，
+	// S≠1 时会埋进星体；本关卡 S=1。修法涉及哈希/重建契约，不能只改一行。
 	const float UniformScale = GetActorScale3D().GetAbsMax();
 	return Radius * UniformScale;
 }
@@ -252,9 +198,8 @@ int32 AVoxelPlanetActor::ComputeOrbitLOD() const
 	{
 		return FMath::Clamp(OrbitLOD, 0, 26);
 	}
-	// 自动档：让最粗的表面三角边长（2^LOD 体素）约为半径的 1/16。
-	// 由此弦高误差 ~ (R/16)^2 / (8R) = R/2048，任何尺寸的行星从轨道看都是
-	// 光滑球面；1km 星得到 LOD 6（64m 边长），100m 星得到 LOD 3（8m 边长）。
+	// 自动档：最粗三角边长（2^LOD 体素）约半径 1/16，弦高误差 ~R/2048。
+	// 1km 星得 LOD 6（64m 边长），100m 星得 LOD 3。
 	const float ScaledRadius = FMath::Max(GetScaledRadiusVoxels(), 1.f);
 	return FMath::Clamp(FMath::RoundToInt(FMath::Log2(ScaledRadius / 16.f)), 0, 8);
 }
@@ -271,8 +216,7 @@ void AVoxelPlanetActor::RefreshLODInvoker()
 	const float NewRange =
 		GetScaledRadiusVoxels() * FMath::Max(VoxelSize, 0.0001f) * 1.25f + 1000.f;
 
-	// 拖动星球时本函数每帧都被调用，所以先比较再赋值：RefreshAllVoxelInvokers
-	// 是全局刷新，每帧无条件跑一遍会拖慢编辑器。
+	// 拖动星球时每帧都调，先比较再赋值：全局刷新每帧无条件跑会拖慢编辑器。
 	if (LODInvoker->LODToSet == NewLOD && FMath::IsNearlyEqual(LODInvoker->LODRange, NewRange))
 	{
 		return;
@@ -285,28 +229,10 @@ void AVoxelPlanetActor::RefreshLODInvoker()
 
 void AVoxelPlanetActor::RepairLegacyRootComponent()
 {
-	// ── 这个函数在修什么 ───────────────────────────────────────────────────
-	// 基类 AVoxelWorld 的构造函数把 WorldRoot 立为根组件（VoxelWorld.cpp:83-86），
-	// 渲染器也是拿 WorldRoot 建的体素世界（:866）—— 全部网格组件都挂在它下面。
-	//
-	// 但本类**曾经**不是继承 AVoxelWorld：那时以自己建的 PlanetRoot 为根，把
-	// AVoxelWorld 当子对象持有。改成继承之后，已保存的关卡实例里 RootComponent
-	// 仍是反序列化出来的 PlanetRoot，而基类新建的 WorldRoot 成了游离组件（没有
-	// 父组件，变换恒为单位阵）。同一个体素世界于是被两套变换描述，差了一整个
-	// Actor 位移：
-	//
-	//   - 网格渲染走 WorldRoot 的世界变换              → 画在世界原点 (0,0,0)；
-	//   - GlobalToLocal / LocalToGlobal / invoker 换算走 GetTransform()，而
-	//     AActor::GetTransform() 取的就是 RootComponent（VoxelWorld.cpp:347 /
-	//     367 / 372）                                  → 算的是 Actor 位置。
-	//
-	// 两者相差 4704 体素，而八叉树半径只有 2048 体素：任何 invoker 的 LODBounds
-	// 都不可能和 OctreeBounds 相交，ShouldSubdivideByDistance 于是永不细分。症状
-	// 就是「星球不进行 LOD，相机怎么动都没用」，同时星球画在原点、和 Actor 的
-	// gizmo 对不上 —— 两个看似无关的现象其实是同一个错位。
-	//
-	// 修法：把基类的不变量恢复回来 —— WorldRoot 必须是根组件，位置沿用旧根的，
-	// 摆在关卡里的位置因此原样保留。
+	// 基类构造时把 WorldRoot 立为根组件（全部网格挂其下）；旧实例的 RootComponent
+	// 仍是自建的 PlanetRoot，WorldRoot 游离 → 网格画在世界原点，而 GlobalToLocal /
+	// invoker 换算按 Actor 位置算，两者错位使 LODBounds 永不与 OctreeBounds 相交，
+	// LOD 完全失效。修法：恢复「WorldRoot 是根组件」，沿用旧根的位置。
 	if (!WorldRoot || GetRootComponent() == WorldRoot.Get())
 	{
 		return;
@@ -319,14 +245,13 @@ void AVoxelPlanetActor::RepairLegacyRootComponent()
 		TEXT("AVoxelPlanetActor: %s 的根组件是遗留的 %s 而非 WorldRoot，修正组件树（体素网格此前画在世界原点、LOD 失效）"),
 		*GetName(), *LegacyRoot->GetName());
 
-	// 先脱后摆，顺序不能反：还挂着的时候 SetWorldTransform 写进去的是相对变换，
+	// 先脱后摆，顺序不能反：还挂着时 SetWorldTransform 写的是相对变换，
 	// 紧接着的 SetRootComponent 会把它当成世界变换用。
 	WorldRoot->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
 	WorldRoot->SetWorldTransform(LegacyTransform);
 	SetRootComponent(WorldRoot.Get());
 
-	// LOD Invoker 原本挂在 PlanetRoot 下，跟着搬到新根，并保持世界位置不变 ——
-	// 否则球心会从行星中心偏出去，整颗星的 LOD 基准跟着错。
+	// LOD Invoker 跟着搬到新根并保持世界位置，否则球心偏出行星中心、LOD 基准错。
 	if (LODInvoker && LODInvoker->GetAttachParent() != WorldRoot.Get())
 	{
 		LODInvoker->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
@@ -336,8 +261,7 @@ void AVoxelPlanetActor::RepairLegacyRootComponent()
 
 FString AVoxelPlanetActor::MakePlanetSaveObjectAssetPath(const FString& MapName, const FString& ActorLabel)
 {
-	// PIE 世界名形如 UEDPIE_0_UniverseMap。不剥前缀的话，每次开 PIE 路径都变，
-	// 编辑永远落不到同一个资产上。
+	// PIE 世界名形如 UEDPIE_0_UniverseMap；不剥前缀则每次开 PIE 路径都变。
 	FString Map = MapName;
 	FString PiePrefix;
 	FString PieRest;
@@ -352,8 +276,7 @@ FString AVoxelPlanetActor::MakePlanetSaveObjectAssetPath(const FString& MapName,
 		}
 	}
 
-	// 资产名只允许字母数字与下划线；地图名 / Actor 标签里的空格、冒号、斜杠
-	// 都会让 CreatePackage 失败。
+	// 资产名只允许字母数字与下划线；空格、冒号、斜杠会让 CreatePackage 失败。
 	auto Sanitize = [](const FString& In)
 	{
 		FString Out;
@@ -380,10 +303,8 @@ UMaterialInterface* AVoxelPlanetActor::StripMaterialInstanceDynamic(UMaterialInt
 		return nullptr;
 	}
 
-	// 只沿 MID 往上走。MaterialInstanceConstant 是**合法**父材质（SetParentInternal
-	// 接受它），剥到它就停 —— 再往上剥会丢掉用户在 MIC 里设的参数。
-	//
-	// 上限只是防脏数据里的环：Create 本身拒绝成环，正常链长 1~2 层。
+	// 只沿 MID 往上走，剥到 MaterialInstanceConstant 就停 —— 再剥会丢掉用户在
+	// MIC 里设的参数。上限 8 层只防脏数据成环，正常链长 1~2 层。
 	UMaterialInterface* Current = Candidate;
 	for (int32 Depth = 0; Depth < 8; ++Depth)
 	{
@@ -396,8 +317,7 @@ UMaterialInterface* AVoxelPlanetActor::StripMaterialInstanceDynamic(UMaterialInt
 		Current = Dynamic->Parent;
 		if (!Current)
 		{
-			// 链走到父为空的 MID：什么都剥不出来。返回 nullptr 让调用方走兜底，
-			// 别把这张父为空的 MID 返回去 —— 那正是 ensure 的请柬。
+			// 父为空的 MID 什么都剥不出来：返回 nullptr 让调用方兜底，别递坏 MID。
 			return nullptr;
 		}
 	}
@@ -421,8 +341,7 @@ void AVoxelPlanetActor::EnsureSaveObject()
 	}
 
 	UWorld* World = GetWorld();
-	// PIE 世界里的 Actor 是从编辑器实例复制来的，SaveObject 会继承过来；
-	// 在这里再找一遍资产既没必要，也会让「编辑到底存在哪」变得不可预测。
+	// PIE 世界从编辑器实例复制，SaveObject 会继承；再找一遍既没必要也不可预测。
 	if (!World || World->WorldType != EWorldType::Editor)
 	{
 		return;
@@ -448,8 +367,8 @@ void AVoxelPlanetActor::EnsureSaveObject()
 		if (Loaded)
 		{
 			bCreatedNew = true;
-			// 新建 SaveObject 的 Depth 是 0，而「还没存过任何体素」的压缩存档是 -1。
-			// 不补这一步，CreateWorld → LoadFromSaveObject 会把它当成 Invalid Save Object。
+			// 新建 SaveObject 的 Depth 是 0，而未存过体素的压缩存档是 -1；不补会被
+			// 当成 Invalid Save Object。
 			Loaded->CopyDepthFromSave();
 			FAssetRegistryModule::AssetCreated(Loaded);
 		}
@@ -473,8 +392,7 @@ void AVoxelPlanetActor::EnsureSaveObject()
 
 	UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor %s: 绑定存档资产 %s"), *GetName(), *AssetPath);
 
-	// 新资产此刻只在内存包里；顺手写盘，否则重启编辑器它就不存在了。
-	// 已存在的资产不动：没编辑就重写一遍没有意义，还会平白改磁盘 mtime。
+	// 新资产只在内存包里，顺手写盘；已存在的资产不动，避免白改 mtime。
 	if (bCreatedNew)
 	{
 		SaveSaveObjectToDisk();
@@ -502,8 +420,7 @@ bool AVoxelPlanetActor::SaveSaveObjectToDisk()
 	SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
 	// SAVE_NoError：自动化 / 无头跑不能弹「保存失败」对话框，失败由下面的日志暴露。
 	SaveArgs.SaveFlags = SAVE_NoError;
-	// 不加 SAVE_Async：它只把文件写入挪到写入器线程，序列化仍在调用线程上，
-	// 省的不是主要那块；而异步写不保证在进程退出前写完（见头文件注释）。
+	// 不加 SAVE_Async：它只挪文件写入，序列化仍在调用线程，且不保证进程退出前写完。
 
 	if (UPackage::SavePackage(Package, SaveObject, *FileName, SaveArgs))
 	{
@@ -524,23 +441,20 @@ bool AVoxelPlanetActor::SaveSaveObjectToDisk()
 
 void AVoxelPlanetActor::OnConstruction(const FTransform& Transform)
 {
-	// 先修组件树再让基类跑：基类的 OnConstruction 在 bIsToggled 为真时会当场
-	// 建出预览世界，用错误的根组件建出来的几何也是错的。
+	// 先修组件树再让基类跑：基类 OnConstruction 可能当场按错误根组件建预览世界。
 	RepairLegacyRootComponent();
 
 #if WITH_EDITOR
-	// 必须排在 Super::OnConstruction / RebuildPlanet 之前：后者会 CreateWorld，
-	// 而 CreateWorld 当场就按 SaveObject 加载体素。晚一步赋值，这次运行仍从
-	// 空白世界开始，用户看起来就是「存档没生效」。
+	// 必须排在 Super::OnConstruction / RebuildPlanet 之前：后者 CreateWorld 时
+	// 当场按 SaveObject 加载，晚赋值本次运行仍是空白世界。
 	EnsureSaveObject();
 #endif
 
 	Super::OnConstruction(Transform);
 
 #if WITH_EDITOR
-	// World Partition 会按包围盒把空间加载的 Actor 烘进流送单元。摄像机每跨
-	// 过一次单元边界，该 Actor 就被销毁重建，整个行星生成随之重启。选择退出
-	// 后它会被烘进常驻加载单元；下次保存地图时生效。
+	// World Partition 会按包围盒把空间加载 Actor 烘进流送单元，跨边界就销毁重建。
+	// 退出后烘进常驻单元，下次保存地图生效。
 	if (bAlwaysLoaded && GetIsSpatiallyLoaded() && CanChangeIsSpatiallyLoadedFlag())
 	{
 		Modify();
@@ -560,83 +474,58 @@ void AVoxelPlanetActor::BeginPlay()
 #if WITH_EDITOR
 void AVoxelPlanetActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
-	// 基类先跑：它负责自己那些 meta=(Recreate) / (UpdateLODs) 属性（VoxelSize、
-	// NumberOfThreads、VoxelMaterial、MaxLOD……）。那些属性的世界重建由基类
-	// 自己发起，所以我们**不把它们放进 ComputeParamsHash**，否则同一次编辑会
-	// 触发两次「销毁 + 重建」。
+	// 基类先跑：它负责自己 meta=(Recreate)/(UpdateLODs) 的属性及其世界重建；
+	// 这些属性不放进 ComputeParamsHash，否则同一次编辑会重建两次。
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 
-	// 地质预设换了：通知镜像方（矿物观测组件上的槽）刷新，否则先改行星、
-	// 再选中组件会看到一个过期值。广播不等价于重建 —— 新的预设仍要按
-	// 「重建行星」按钮才生效，这里不改那个语义。
+	// 地质预设换了要通知镜像方（矿物组件上的槽），否则先改行星再选组件会看到
+	// 过期值。新的预设仍需按「重建行星」才生效。
 	if (PropertyChangedEvent.GetPropertyName()
 		== GET_MEMBER_NAME_CHECKED(AVoxelPlanetActor, GeologyAsset))
 	{
 		OnGeologyAssetChanged.Broadcast();
 	}
 
-	// biome cubemap：分辨率 / 混合权重只改一张瞬态贴图和几个材质参数，不该推倒
-	// 体素世界。这里先做一次「不强制重烘」的安装，紧接着的 RebuildPlanet 会因为
-	// 参数哈希未变而早退 —— 于是调这两个旋钮只花一次烘焙的时间。
-	//
-	// 也顺手覆盖了「用户在 Details 里换 VoxelMaterial」：基类先用新材质重建了
-	// 渲染，这里把 MID 换到新父材质上再通知渲染器一次，查表不会因此丢掉。
+	// 分辨率/混合权重只改瞬态贴图与材质参数，不该推倒体素世界：先不强制重烘
+	// 安装一次，随后 RebuildPlanet 因哈希未变早退。也覆盖用户换 VoxelMaterial 的情况。
 	if (InstallBiomeMaterial(/*bForceBake=*/false) && IsCreated())
 	{
 		UVoxelBlueprintLibrary::ApplyNewMaterials(this);
 	}
 
-	// OnConstruction 只在移动/添加时重新执行：否则单纯在细节面板里改参数
-	// 永远不会重建世界，改动会静默失效。
+	// OnConstruction 只在移动/添加时重跑，细节面板改参数要在这里重建。
 	RebuildPlanet();
 }
 #endif
 
 void AVoxelPlanetActor::RebuildPlanet()
 {
-	// 没有世界就没有体素世界可建。蓝图**类默认值对象**（Default__Xxx_C）不在任何
-	// 世界里，GetWorld() 返回 nullptr，而 AVoxelWorld::CreateWorld 第一件事就是
-	// 取 GetWorld()->WorldType（VoxelWorld.cpp:245）—— 空指针当场访问违例。
-	//
-	// 这条路并非只在脚本里能踩到：在蓝图编辑器的「类默认值」面板改 Terrain /
-	// Radius 等任何属性，PostEditChangeProperty 都会落在 CDO 上。下面的哈希守卫
-	// 也拦不住，因为 CDO 上 IsCreated() 恒为 false，每次都会往下走。
-	//
-	// 早退不丢东西：真正进入世界时 OnConstruction 会重新走一遍并把世界建出来。
+	// 没有世界就没有体素世界可建：蓝图 CDO（Default__Xxx_C）不在任何世界，
+	// GetWorld() 为空而 CreateWorld 第一件事就是取其 WorldType，会空指针违例。
+	// 在类默认值面板改属性就会走到这里。早退不丢东西，进世界后 OnConstruction 重建。
 	if (!GetWorld())
 	{
 		return;
 	}
 
-	// 也在这里修一次：OnConstruction 之外还有两条入口（BeginPlay 与
-	// PostEditChangeProperty），它们同样可能撞上未修正的组件树。必须排在下面
-	// 的哈希守卫**之前** —— 守卫在「哈希没变且世界已建好」时会直接返回，把修正
-	// 连同重建一起吞掉。函数自带「已经是新树就早退」，重复调用只是一次指针比较。
+	// 也在这里修一次（BeginPlay / PostEditChangeProperty 入口同样可能撞上旧树），
+	// 且必须排在哈希守卫之前，否则修正会被一起吞掉。函数自带已是新树就早退。
 	RepairLegacyRootComponent();
 
-	// Invoker 先刷新，且排在哈希守卫**之前**：OrbitLOD / 半径 / VoxelSize 只影响
-	// LOD 提示，不影响世界几何，改了不必重建整颗星。函数内部自带「值没变就早退」，
-	// 所以拖动星球这条热路径上它是廉价的。
+	// Invoker 刷新排在哈希守卫之前：这三项只影响 LOD 提示、不必重建整颗星，
+	// 函数自带值没变就早退。
 	RefreshLODInvoker();
 
-	// 水面也有自己的一条刷新路径，同样排在哈希守卫**之前**。
-	//
-	// VoxelSize 不进 ComputeParamsHash（见那里的注释），它只触发基类自己的体素世界
-	// 重建（meta=(Recreate)），IsCreated() 仍为真 —— 随后的哈希守卫会直接返回。
-	// 但水面几何正是用 VoxelSize 把体素半径折成厘米的（见 UPlanetWaterComponent），
-	// 不在这里补一次，改 VoxelSize 后水面就停在旧尺寸、与体素地形错位。
-	//
-	// 水文场以体素为单位、与 VoxelSize 无关，所以这里不需要先 RefreshHydrology()。
-	// 首次重建时生成器还没建，跳过这里，由下面的 3.6 统一建水面。
+	// 水面也有自己的刷新路径，同样在哈希守卫之前：VoxelSize 不进哈希、只触发基类
+	// 重建，IsCreated() 仍为真，守卫会早退；但水面要用它折算厘米，不补就停在旧尺寸。
+	// 水文场以体素为单位、与 VoxelSize 无关，首次重建时生成器未建，由 3.6 建水面。
 	if (PlanetGenerator && !FMath::IsNearlyEqual(LastWaterVoxelSize, VoxelSize))
 	{
 		RebuildWater();
 	}
 
-	// 细节面板的一次编辑会同时触发 PostEditChangeProperty 和重新执行
-	// OnConstruction：没有这道守卫，改一个参数就会把世界重建两次，生成时间
-	// 翻倍，流送重置还会再次打开背面的空洞。这里复查 IsCreated()，保证全新
-	// 的世界（地图加载、PIE 复制）总能构建。
+	// 细节面板一次编辑会同时触发 PostEditChangeProperty 和 OnConstruction；
+	// 没有守卫就重建两次，生成时间翻倍。复查 IsCreated() 保证全新世界总能构建。
 	const uint64 ParamsHash = ComputeParamsHash();
 	if (ParamsHash == LastParamsHash && IsCreated())
 	{
@@ -644,8 +533,7 @@ void AVoxelPlanetActor::RebuildPlanet()
 	}
 	LastParamsHash = ParamsHash;
 
-	// 重建一次打一行：这是「移动星球到底有没有触发重建」的唯一可观测证据。
-	// 正常情况下拖动星球不应该产生新行，若每帧刷屏就说明哈希守卫失效了。
+	// 重建一次打一行：拖动星球不应产生新行，每帧刷屏即哈希守卫失效。
 	UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor: 重建 %s（参数哈希 %llu）"), *GetName(), ParamsHash);
 
 	if (!PlanetGenerator)
@@ -655,63 +543,38 @@ void AVoxelPlanetActor::RebuildPlanet()
 
 	// --- 1. 把参数推入生成器 ---
 	PlanetGenerator->Radius = GetScaledRadiusVoxels();
-	// 球心锚在**体素世界的局部原点**，而体素世界就是本 Actor —— 于是球心恒在
-	// Actor 原点，与 Actor 摆在哪、怎么移动完全无关。这就是「移动星球不需要
-	// 重建」的全部依据。
-	//
-	// 早先这里是 GetCenterInVoxels()：把 Actor 世界位置逆变换成体素坐标喂给
-	// 生成器。那套只在「体素世界是子对象、和行星各有一个位置」时才需要，而且
-	// 正是「移动就得重建」的来源。继承之后它退化成常量零。
+	// 球心锚在体素世界的局部原点，而体素世界就是本 Actor，所以球心恒在 Actor
+	// 原点、移动与重建无关。早先的 GetCenterInVoxels（逆变换 Actor 位置）正是
+	// 「移动即重建」的来源。
 	PlanetGenerator->Center = FVector::ZeroVector;
 	PlanetGenerator->SurfaceColor = SurfaceColor;
-	// 地形模块也推给生成器：生成器是「这颗行星」的，模块是「这种地形」的。
-	// 模块本身不带位置和尺寸，同一份资产可以喂给任意多颗行星。
+	// 模块是「这种地形」，不带位置尺寸，同一份资产可喂给任意多颗行星。
 	PlanetGenerator->Terrain = Terrain;
 	// 地质预设与地形模块一样，是「这颗行星」的参数。
 	PlanetGenerator->GeologyPreset = GeologyAsset;
 
 	// --- 1.5 水文场 ---
-	// 必须在 FVoxelGeneratorPicker 之前：GetInstance 会走 MakeTerrainContext，
-	// 而密度场要读 Context.Hydrology 才知道哪里下切。烘焙是同步的（512 分辨率
-	// 0.5–1 s），所以只在缓存键变化时发生 —— 拖动星球不会重烘。
+	// 必须在 FVoxelGeneratorPicker 之前：密度场要读 Context.Hydrology 才知道
+	// 哪里下切。烘焙同步（512 分辨率 0.5–1 s），只在缓存键变化时发生。
 	PlanetGenerator->RefreshHydrology();
 
 	// --- 2. 把世界边长收到刚好裹住星球 ---
-	// AVoxelWorld 的 RenderOctreeDepth 默认是 10，即世界边长 32768 体素，
-	// 而本星球半径只有 1000 体素 —— 星球只占边长的 6%。
-	//
-	// 致命处在于 FVoxelRenderOctree::ShouldSubdivideByDistance
-	//（VoxelRenderOctree.cpp:601）对 Height > MaxLOD 的节点**无条件** return true，
-	// 跟「那里有没有地形」无关；它唯一的地理判据是 OctreeBounds 与 WorldBounds
-	// 相交，而 WorldBounds 就是上面那个 32768³ 立方体本身。于是整个立方体会被强行
-	// 细分到第 MaxLOD 层：32768 / (32 · 2^6) = 16，即 16³ = 4096 个 chunk、
-	// 约 5 万个任务。2~4 个线程永远追不上，池里任务只增不减，几分钟内拖死机器。
-	//
-	// 收紧到半径的 3 倍（2 倍半径 + 地形起伏余量）再向上取 2 的幂：
-	// 半径 1000 → 3000 → 4096 体素，根 Height = 7，只比 MaxLOD = 6 多一层，
-	// chunk 数从 4096 降到 2³ = 8。半径 10000 的星球得到 32768，行为不变。
-	//
-	// 必须排在 CreateWorld / Toggle 之前：世界边界是在那一刻按 RenderOctreeDepth
-	// 算出并快照进渲染器的。SetWorldSize 自身只写两个字段，不会自己建世界。
+	// WorldSize 默认 32768 体素而星球只占 6%，ShouldSubdivideByDistance 会把整个立方体
+	// 强行切到 MaxLOD 层（4096 chunk / ~5 万任务）。收紧到半径 3 倍并取 2 的幂后降到 8。
+	// 必须在 CreateWorld / Toggle 之前。
 	const int32 DesiredWorldSize = FMath::RoundUpToPowerOfTwo(
 		FMath::CeilToInt(GetScaledRadiusVoxels() * 3.f));
 	SetWorldSize(DesiredWorldSize);
 
-	// 材质不必在这里赋值：VoxelMaterial 现在就是本 Actor 自己的属性，用户设的
-	// 值一直都在。但「必须在 CreateWorld 之前就位」这条约束仍然成立 —— 渲染器
-	// 会在创建时把它快照进各 LOD 的设置里；缺材质构建的世界会记录
-	// "Invalid VoxelMaterial" 并渲染成平面灰色，之后再赋什么都没用。
+	// 材质无须在此赋值（VoxelMaterial 是本 Actor 属性），但必须在 CreateWorld 前
+	// 就位：渲染器会在创建时快照它，缺材质会记 Invalid VoxelMaterial 并渲染成灰。
 
-	// Type=Object 交出一个参数已设置完毕的活实例。
-	// 若用 Type=Class，改动的会是类默认对象，而它被关卡中所有行星全局共享。
+	// Type=Object 交出参数已设好的活实例；Type=Class 会改所有行星共享的 CDO。
 	Generator = FVoxelGeneratorPicker(PlanetGenerator.Get());
 
 	// --- 3. 把生效的八叉树参数钉进日志 ---
-	// 「任务只涨不落」这类问题没法从屏幕上那两个计数定位，必须知道实际生效的世界边长。
-	// 根节点的 Height 就等于 RenderOctreeDepth，而 ShouldSubdivideByDistance 对
-	// Height > MaxLOD 的节点无条件细分 —— 这两个数的差就是「整块立方体被强行切几层」，
-	// 差为 0 时只有 1 个根节点，差为 n 时根层之下有 8^n 个 chunk。
-	// 别删这一行：它是判断 SetWorldSize 有没有生效的唯一证据。
+	// 「任务只涨不落」没法从屏幕计数定位，必须知道实际生效的世界边长。根 Height
+	// 就是 RenderOctreeDepth，与 MaxLOD 的差决定被强行切几层。别删这行日志。
 	UE_LOG(LogTemp, Log,
 		TEXT("AVoxelPlanetActor: 体素世界边长 %u 体素（RenderOctreeDepth %d），星球半径 %.0f 体素，MaxLOD %d，行星 invoker LOD %d 范围 %.0f 厘米"),
 		WorldSizeInVoxel, RenderOctreeDepth,
@@ -721,44 +584,29 @@ void AVoxelPlanetActor::RebuildPlanet()
 
 	// --- 3.5 biome cubemap ---
 	//
-	// 必须排在 CreateWorld / Toggle 之前，理由与 VoxelMaterial 完全相同：渲染器
-	// 在创建那一刻把材质快照进各 LOD 的设置里，之后换材质不会自己重读。
-	//
-	// 放在哈希守卫**之后**：烘焙是一次性的重活（256² × 6 个采样点，每个点要算
-	// 分形噪声和整张地质场），而 RebuildPlanet 在拖动星球时每帧都会被
-	// OnConstruction 调到；摆在这里就只在真正重建时发生一次。
+	// 必须排在 CreateWorld / Toggle 之前（渲染器在创建时快照材质）；但放在哈希
+	// 守卫之后 —— 烘焙很重，拖动星球时本函数每帧被调，只有真正重建才烘一次。
 	InstallBiomeMaterial(/*bForceBake=*/true);
 
 	// --- 3.6 水面 ---
 	//
-	// 排在 CreateWorld **之前**：编辑器世界在上面那个 Toggle() 早退里就 return 了，
-	// 而水面与体素世界无关（它只依赖水文场），所以它必须在这之前装好，
-	// 否则编辑器视口里永远看不到水，只有 PIE 里才有。
+	// 排在 CreateWorld 之前：编辑器世界会在 Toggle() 早退，而水面只依赖水文场；
+	// 不提前装好，编辑器视口里永远看不到水。
 	RebuildWater();
 
 	// --- 4. 重建世界，让新生成器生效 ---
-	// CreateWorld 会报 "already created" 并保留旧生成器实例（它在创建时把
-	// 所有参数快照为 const），因此不先销毁的话，参数编辑会被静默忽略。
+	// CreateWorld 会报 already created 并保留旧生成器（参数在创建时快照），
+	// 不先 DestroyWorld 的话参数编辑被静默忽略。
 	if (IsCreated())
 	{
 		DestroyWorld();
 	}
 
 #if WITH_EDITOR
-	// 编辑器世界里必须走插件自己的「预览开关」Toggle()，不能直接调 CreateWorld()。
-	//
-	// AVoxelWorld::OnPreBeginPIE（VoxelWorld.cpp:1585）在 PlayType == Preview 时
-	// 无条件拆掉体素世界并打 "Unloading world"，而 OnEndPIE（:1593）只在
-	// bIsToggled 为真时才把它建回来。bIsToggled（VoxelWorld.h:767）默认 false，
-	// 且只有 Toggle()（:1326）会置真 —— 我们直接调 CreateWorld() 从没按过那个
-	// 开关，于是 PIE 一结束整颗星就从视口里消失，直到有人手动改一次属性触发
-	// PostEditChangeProperty 才回来。
-	//
-	// 不能改用 Tick 兜底：编辑器世界的 Actor 默认不 Tick
-	//（FTickFunction::bTickInEditor 默认为 false），那种代码在编辑器里从不执行。
-	//
-	// 只在编辑器世界这么做：PIE 与打包世界要的是 PlayType == Game，
-	// 而 Toggle() 会把 PlayType 设成 Preview。
+	// 编辑器世界必须走插件的 Toggle() 而非直接 CreateWorld()：OnPreBeginPIE 在
+	// Preview 下会拆世界，OnEndPIE 只在 bIsToggled 为真时建回来，而只有 Toggle()
+	// 会置真 —— 否则 PIE 结束后整颗星消失。编辑器 Actor 默认不 Tick，无法兜底。
+	// 只在编辑器世界这样做：Toggle() 会把 PlayType 设成 Preview。
 	if (GetWorld() && GetWorld()->WorldType == EWorldType::Editor)
 	{
 		Toggle();
@@ -767,24 +615,9 @@ void AVoxelPlanetActor::RebuildPlanet()
 #endif
 
 	// --- 5. 先统一建世界线程池，再建世界 ---
-	//
-	// 本关卡有多颗行星，每颗都会走到这里 CreateWorld → CreatePool。插件对
-	// 「多体素世界」的约定是：**先由外部建好一个世界池**，各世界把
-	// bCreateGlobalPool 设 false 只复用（VoxelWorld.cpp:838-856）。没人先建时：
-	//   - bCreateGlobalPool=true 的那颗会建池，后面的每颗都刷
-	//     「already created, NumberOfThreads will be ignored」；
-	//   - 被实例改成 false 的那颗若排在前面，则刷
-	//     「global pool isn't created」，池的线程数由它顺手决定。
-	// 两条警告是同一个根因：建池的责任落到了「第一个跑到的行星」身上。
-	//
-	// 放在 CreateWorld 之前而不是 BeginPlay：游戏世界的首次建世发生在
-	// OnConstruction（PIE 里也会跑），BeginPlay 已经太晚。这里是非编辑器
-	// 世界建池的唯一入口 —— 编辑器走上面的 Toggle()（Preview 自建池）已返回。
-	//
-	// 再压一次 bCreateGlobalPool 是因为蓝图实例可能把它覆盖回 true：只改
-	// 构造函数默认值管不到已摆放的实例。
-	// 只对 game / PIE 世界建池：编辑器世界的预览池由 Toggle() 自己按 Preview
-	// 创建，EditorPreview 世界也不该留下一个没人复用的世界池。
+	// 插件约定多体素世界要外部先建全局池，各世界 bCreateGlobalPool=false 只复用；
+	// 否则建池责任落到第一个跑到的行星上，刷 already created / global pool isn't created。
+	// 只对 game/PIE 世界建，编辑器走 Toggle() 自建预览池。
 	UWorld* const World = GetWorld();
 	if (World && World->IsGameWorld())
 	{
@@ -801,18 +634,13 @@ void AVoxelPlanetActor::RebuildPlanet()
 	}
 
 	// --- 6. 存档 ---
-	//
-	// CreateWorld 内部会同步走 LoadFromSaveObject（VoxelWorld.cpp:1107）：
-	// DecompressVoxelSave + FVoxelData::LoadFromSave，全程占着游戏线程。
-	// 这一步的代价几乎全在装填里，取决于存档用哪种格式（见文件顶部的
-	// StellarEra.Planet.ResaveAll）。144 MB 的存档在 Special 格式下是 34 秒，
-	// 普通格式下 3.4 秒；渲染器要等这一段结束才开始网格化，所以「进 PIE 卡半天」
-	// 和「进去瞬间没有网格」是同一个根因。要治的是格式，不是把它挪到别的线程。
+	// CreateWorld 内部同步走 LoadFromSaveObject，代价几乎全在装填、取决于存档格式
+	// （见文件顶部 ResaveAll）：144 MB 在 Special 格式 34 s、普通格式 3.4 s。
+	// 要治的是格式，不是挪线程。
 	CreateWorld(FVoxelWorldCreateInfo());
 
-	// 世界刚被 DestroyWorld + CreateWorld 重建，旧的表面网格采样全部作废。
-	// 这里只刷新网格、**不**调用本 Actor 的 NotifyVoxelEdited()：重建不是编辑，
-	// 不能因此把行星标脏并触发保存。
+	// 世界重建后表面网格采样全部作废。只刷新网格、**不**调 NotifyVoxelEdited()：
+	// 重建不是编辑，不能标脏触发保存。
 	if (UPlanetSurfaceGridComponent* Grid = FindEditGrid())
 	{
 		Grid->NotifyVoxelEdited();
@@ -826,8 +654,7 @@ bool AVoxelPlanetActor::InstallBiomeMaterial(bool bForceBake)
 		return false;
 	}
 
-	// 生成器还没建 = 世界从没建过（RebuildPlanet 的第一步在守卫之后）。
-	// 此时没有参数可烘，等真正的重建再走这条。
+	// 生成器还没建 = 世界从没建过，等真正的重建再烘。
 	if (!PlanetGenerator)
 	{
 		return false;
@@ -837,21 +664,17 @@ bool AVoxelPlanetActor::InstallBiomeMaterial(bool bForceBake)
 		Cast<UVoxelPlanetNoiseTerrain>(PlanetGenerator->Terrain);
 	if (!NoiseTerrain)
 	{
-		// 纯球模块没有配色：颜色来自 SurfaceColor 的顶点色，没有可查的表。
-		// 这不是错误，摆一颗光滑球本来就用不上 cubemap。
+		// 纯球模块没有配色，颜色来自 SurfaceColor 顶点色，不需要 cubemap。
 		return false;
 	}
 
-	// MID 的父材质永远是**用户设的**那个。VoxelMaterial 此刻可能还指着上一次
-	// 重建留下的 MID（PreSave 只在保存那一刻把它换回去），别把 MID 自己当父材质。
+	// 父材质永远是用户设的那个：VoxelMaterial 此刻可能还指着上次重建留下的 MID。
 	if (!BiomeMaterial || VoxelMaterial != BiomeMaterial)
 	{
 		BaseVoxelMaterial = StripMaterialInstanceDynamic(VoxelMaterial);
 
-		// PIE 复制关卡时：VoxelMaterial（非 Transient）被拷成上一轮 MID 的副本，
-		// 而 BiomeMaterial / BaseVoxelMaterial（都 Transient）被清空。副本的父
-		// 还指着真材质，剥一层就能拿到。剥不出来（父为空的期间产物）才退回
-		// 类默认值 —— 那是蓝图里用户原本设的那个材质。
+		// PIE 复制关卡时 VoxelMaterial 被拷成上一轮 MID 的副本，BiomeMaterial /
+		// BaseVoxelMaterial 被清空；副本的父还指着真材质，剥不出才退回类默认值。
 		if (!BaseVoxelMaterial)
 		{
 			const AVoxelPlanetActor* Defaults = GetClass()->GetDefaultObject<AVoxelPlanetActor>();
@@ -863,8 +686,7 @@ bool AVoxelPlanetActor::InstallBiomeMaterial(bool bForceBake)
 	}
 	if (!BaseVoxelMaterial)
 	{
-		// 用户没设材质：世界本来就该报 "Invalid VoxelMaterial"，这里插一脚只会
-		// 把一个明确的错误变成一张看不出原因的纯色星。
+		// 用户没设材质时世界本就该报 Invalid VoxelMaterial，插一脚只会变成纯色星。
 		return false;
 	}
 
@@ -909,10 +731,8 @@ bool AVoxelPlanetActor::InstallBiomeMaterial(bool bForceBake)
 			return false;
 		}
 
-		// 父材质类型不被接受时 Create 不会返回 null：SetParentInternal 静默拒绝，
-		// 留下一张 Parent 为空的 MID。把它交给插件，插件的 CreateMaterialInstance
-		// 会回退到默认材质，在 VoxelRenderUtilities.cpp:518 ensure，整颗星变灰。
-		// 宁可这颗星继续用顶点色，也不能把坏 MID 递出去。
+		// 父材质类型不被接受时 Create 不返回 null，而是留下 Parent 为空的 MID；
+		// 交给插件会在 VoxelRenderUtilities.cpp:518 ensure、整星变灰。宁可继续用顶点色。
 		if (!BiomeMaterial->Parent)
 		{
 			UE_LOG(LogTemp, Warning,
@@ -923,8 +743,7 @@ bool AVoxelPlanetActor::InstallBiomeMaterial(bool bForceBake)
 		}
 	}
 
-	// 参数名与 M_PlanetVertexColor 里的对得上才生效；材质里没有这两个参数时
-	// 这里不会报错，只是查表不生效（表现为回到纯顶点色）。
+	// 参数名须与 M_PlanetVertexColor 对得上；材质里没有时静默不生效（回到纯顶点色）。
 	BiomeMaterial->SetTextureParameterValue(TEXT("BiomeCube"), BiomeCubemap);
 	BiomeMaterial->SetScalarParameterValue(TEXT("BiomeCubeBlend"), BiomeCubemapBlend);
 
@@ -935,8 +754,7 @@ bool AVoxelPlanetActor::InstallBiomeMaterial(bool bForceBake)
 
 void AVoxelPlanetActor::RebuildWater()
 {
-	// 记下这次用的尺寸：RebuildPlanet 在哈希守卫之前拿它做「值变了就刷新」的比较。
-	// 放在组件判空之前 —— 不管有没有组件，尺寸都是这次请求的输入。
+	// 记下本次尺寸：RebuildPlanet 在哈希守卫前拿它比较（组件判空之前也要记）。
 	LastWaterVoxelSize = VoxelSize;
 
 	if (!WaterComponent)
@@ -944,8 +762,7 @@ void AVoxelPlanetActor::RebuildWater()
 		return;
 	}
 
-	// 组件由 C++ 创建，但根组件可能晚于它出现（RepairLegacyRootComponent），
-	// 所以附着放在这里做一次，而不是构造函数里。
+	// 根组件可能晚于组件出现（RepairLegacyRootComponent），附着放在这里做一次。
 	if (!WaterComponent->GetAttachParent() && GetRootComponent())
 	{
 		WaterComponent->AttachToComponent(
@@ -958,7 +775,7 @@ void AVoxelPlanetActor::RebuildWater()
 		&& PlanetGenerator->Terrain->GetWaterConfig(Config)
 		&& PlanetGenerator->GetHydrology().IsValid();
 
-	// 地形模块也传下去：湖泊的 2 格余量要靠它采样地表高度，水面才不会悬在岸外。
+	// 地形模块也传下去：湖泊的 2 格余量要采样地表高度，否则水面悬在岸外。
 	// 没有水时传空 → 组件会拆掉全部分量。
 	WaterComponent->RebuildWater(
 		bHasWater ? PlanetGenerator->GetHydrology().Get() : nullptr,
@@ -970,10 +787,8 @@ void AVoxelPlanetActor::RebuildWater()
 
 void AVoxelPlanetActor::PreSave(FObjectPreSaveContext ObjectSaveContext)
 {
-	// 运行期的 VoxelMaterial 指向一张瞬态 MID（见 InstallBiomeMaterial）。瞬态对象
-	// 不进包，直接存会把 VoxelMaterial 写成一个空引用 —— 下次加载就是
-	// "Invalid VoxelMaterial" 的灰球，而且很难联想到是颜色优化造成的。
-	// 存之前换回用户原本的材质，PostSaveRoot 再换回来（期间渲染仍是 MID）。
+	// 运行期 VoxelMaterial 指向瞬态 MID，直接存会写成空引用、下次加载是灰球。
+	// 存前换回用户材质，PostSaveRoot 再换回来（期间渲染仍是 MID）。
 	if (BiomeMaterial && VoxelMaterial == BiomeMaterial)
 	{
 		VoxelMaterial = BaseVoxelMaterial;
@@ -991,9 +806,7 @@ void AVoxelPlanetActor::PostSaveRoot(FObjectPostSaveRootContext ObjectSaveContex
 	{
 		bRestoreVoxelMaterialAfterSave = false;
 
-		// MID 可能已经被 GC（极端情况：保存期间换了关卡）。为空就保持父材质，
-		// 下次 RebuildPlanet 会重新装一个 —— 这条分支的错误方向是「退回顶点色」，
-		// 不是「材质变空」。
+		// MID 可能已被 GC（保存期间换关卡）；为空就保持父材质，下次重建会重装。
 		if (BiomeMaterial)
 		{
 			VoxelMaterial = BiomeMaterial;
@@ -1003,18 +816,14 @@ void AVoxelPlanetActor::PostSaveRoot(FObjectPostSaveRootContext ObjectSaveContex
 
 void AVoxelPlanetActor::InvalidateAndRebuild()
 {
-	// 地形资产变了，水文场也过期了。RefreshHydrology 自己会比较配置，
-	// 这里显式丢弃是为了让「先失效、后重建」的顺序在调用点上就看得见。
+	// 地形资产变了，水文场也过期；显式失效让「先失效、后重建」的顺序可见。
 	if (PlanetGenerator)
 	{
 		PlanetGenerator->InvalidateHydrology();
 	}
 
-	// 把上次的哈希抹掉再重建。
-	//
-	// RebuildPlanet 顶部有一道「哈希没变且世界已建好就跳过」的守卫，而触发这次
-	// 重建的是**地形资产**里的参数，不是本 Actor 的属性 —— 它根本不参与那个
-	// 哈希。不抹掉的话守卫会把这次重建整个吞掉。
+	// 触发这次重建的是地形资产参数，不参与本 Actor 的哈希；不抹掉 LastParamsHash
+	// 守卫会吞掉重建。
 	LastParamsHash = 0;
 	RebuildPlanet();
 
@@ -1027,8 +836,7 @@ void AVoxelPlanetActor::InvalidateAndRebuild()
 
 void AVoxelPlanetActor::SetEditGridVisible(const bool bVisible)
 {
-	// 组件由蓝图挂载：原生实例（或用户没给 BP_VoxelPlanet 加网格时）静默跳过。
-	// 编辑模式照常可用，只是看不到表面网格基线。
+	// 组件由蓝图挂载，原生实例静默跳过：编辑照常可用，只是看不到网格基线。
 	if (UPlanetSurfaceGridComponent* Grid = FindEditGrid())
 	{
 		Grid->SetGridVisible(bVisible);
@@ -1052,9 +860,8 @@ void AVoxelPlanetActor::RequestSaveEdits()
 		return;
 	}
 
-	// 不在这里清标志：没有 SaveObject / 世界没建时这次保存**没成功**，脏数据
-	// 必须留着，等 SaveObject 后补上（延迟赋值的场景）后由下一次保存或 EndPlay
-	// 再试。「只警告一次」由 bLoggedMissingSaveObject 负责，不靠提前清标志。
+	// 不在这里清标志：没有 SaveObject / 世界没建时保存没成功，脏数据要留着等
+	// 下次或 EndPlay 再试；「只警告一次」由 bLoggedMissingSaveObject 负责。
 	if (!SaveObject)
 	{
 		if (!bLoggedMissingSaveObject)
@@ -1085,12 +892,8 @@ void AVoxelPlanetActor::RequestSaveEdits()
 
 	UWorld* const World = GetWorld();
 
-	// 没有世界就没有定时器可轮询；世界正在拆除时后台任务回来也没人收尾，
-	// 而 Actor 随时会被销毁 —— 两种情况都退回同步。
-	//
-	// 「拆除中」这一条不是防御性代码：PIE 停止时组件与行星的 EndPlay 先后不定，
-	// 若行星先存过（脏标志已清）这里根本走不到；走得到就说明同步那次没成，
-	// 此时再起后台任务只会读到一份正在被释放的体素数据。
+	// 没有世界就没有定时器可轮询，世界拆除中后台任务回来也没人收尾，都退回同步。
+	// 「拆除中」不是防御代码：走到这里说明同步那次没成，再起后台任务会读到正在释放的数据。
 	if (!World || World->bIsTearingDown)
 	{
 		bHasUnsavedEdits = true;
@@ -1110,20 +913,16 @@ void AVoxelPlanetActor::RequestSaveEdits()
 				return nullptr;
 			}
 
-			// GetSave 持体素数据的读锁（与编辑的写锁互斥），CompressVoxelSave
-			// 是纯数据变换 —— 两者都不需要游戏线程。日志里 0.29–1.92 s 的
-			// 那两行原先就压在这条路径上。
-			//
-			// 插件自己的 GetCompressedSaveAsync 也是在工作线程里跑同一段
-			// （VoxelDataTools.cpp:205-209），所以这里不是新开的口子。
+			// GetSave 持读锁、压缩是纯数据变换，都不需要游戏线程；插件自己的
+			// GetCompressedSaveAsync 也是在工作线程跑同一段。
 			TSharedPtr<FVoxelCompressedWorldSave> Compressed =
 				MakeShared<FVoxelCompressedWorldSave>();
 			UVoxelDataTools::GetCompressedSave(Self, *Compressed);
 			return Compressed;
 		});
 
-	// 轮询而不是 AsyncTask(GameThread)：EndPlay 需要「先等它跑完再同步兜底」，
-	// 轮询把先后顺序交给游戏线程自己决定，不依赖任务队列的投递时序。
+	// 轮询而非 AsyncTask(GameThread)：EndPlay 要先等任务跑完再同步兜底，
+	// 轮询把顺序交给游戏线程，不依赖任务队列投递时序。
 	World->GetTimerManager().SetTimer(SavePollTimerHandle,
 		FTimerDelegate::CreateUObject(this, &AVoxelPlanetActor::PollSaveJob),
 		0.05f, /*bLoop=*/true);
@@ -1176,8 +975,7 @@ void AVoxelPlanetActor::FinishSaveJob()
 	SaveObject->MarkPackageDirty();
 
 #if WITH_EDITOR
-	// MarkPackageDirty 只改内存里的脏标志：PIE 结束时那份资产副本直接丢弃，
-	// 用户看到的就是「编辑没存」。
+	// MarkPackageDirty 只改内存脏标志，PIE 结束时资产副本直接丢弃，必须同步落盘。
 	SaveSaveObjectToDisk();
 #endif
 
@@ -1249,8 +1047,7 @@ void AVoxelPlanetActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		World->GetTimerManager().ClearTimer(SavePollTimerHandle);
 	}
 
-	// 后台任务在跑：先等它跑完并收尾，再同步兜底「任务启动之后」的新编辑。
-	// 两步都要 —— 只做后者会和后台任务并发读同一份体素数据，只做前者会丢最后一笔。
+	// 后台任务在跑就先等它收尾，再同步兜底之后的新编辑；两步都要，否则并发读或丢最后一笔。
 	FinishSaveJob();
 	SaveEditsToSaveObject();
 
@@ -1261,31 +1058,18 @@ void AVoxelPlanetActor::PostLoad()
 {
 	Super::PostLoad();
 
-	// 类默认值对象（Default__BP_VoxelPlanet_C）不持有生成器。
-	//
-	// 生成器是每颗行星私有的运行期适配器（见 RebuildPlanet）。一旦 CDO 上出现一个
-	// 名为 VoxelPlanetGenerator 的子对象，关卡里每颗行星的同名子对象在解析 archetype
-	// 时都会**按名字**找到它（UObjectArchetype.cpp:127），把它当自己的原型；保存外部
-	// Actor 包时 harvester 会连带 harvest export 的原型（PackageHarvester.cpp:616），
-	// 于是引用了另一个包里的私有对象，保存直接失败：
-	//   "Illegal reference to private object: '...Default__BP_VoxelPlanet_C:VoxelPlanetGenerator'"
-	//
-	// 兜底而不是主防线：主防线是 RebuildPlanet 开头的「没有世界就早退」，让 CDO 根本
-	// 建不出生成器。这里清掉的是**历史上已经落盘**的那一份 —— CDO 的 PlanetGenerator
-	// 虽然标了 Transient，但 CDO 序列化会连瞬态属性一起写（PackageHarvester.cpp:638），
-	// 所以它会跟着 BP 包一代代传下去；清空后下次存 BP，那个子对象会因为不可达被丢弃。
+	// CDO（Default__BP_VoxelPlanet_C）不持有生成器。CDO 上出现名为 VoxelPlanetGenerator
+	// 的子对象后，各行星的同名子对象会按名字把它当原型（UObjectArchetype.cpp:127），
+	// 保存外部 Actor 包时连带 harvest 出 "Illegal reference to private object"。
+	// 主防线是 RebuildPlanet 的「没有世界就早退」；这里清的是历史上已落盘的那份。
 	if (HasAnyFlags(RF_ClassDefaultObject))
 	{
 		PlanetGenerator = nullptr;
 		Generator = FVoxelGeneratorPicker();
 	}
 
-	// 迁移：旧关卡存的是 JSON 预设名。找不到资产就原样保留字符串，
-	// 不报错 —— 资产可能还没建（Task 6）。
-	//
-	// 这里用同步 TryLoad 是有意的取舍：迁移是一次性的编辑器内容迁移，预设资产只有
-	// 几 KB；cooked build 不收录本路径，靠 Task 6 给三颗行星与 BP 显式赋 GeologyAsset
-	// 硬引用并保存。若将来要在运行时依赖它，必须改成异步加载 + 完成回调。
+	// 迁移：旧关卡存的是 JSON 预设名，找不到资产就保留字符串、不报错（资产可能还没建）。
+	// 同步 TryLoad 是有意取舍：一次性编辑器迁移、预设只有几 KB；将来运行时依赖须改异步。
 	if (!GeologyAsset && !GeologyPreset.IsEmpty())
 	{
 		const FSoftObjectPath LegacyPath = MakeLegacyGeologyAssetPath(GeologyPreset);
@@ -1294,10 +1078,8 @@ void AVoxelPlanetActor::PostLoad()
 			GeologyAsset = Loaded;
 			UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor::PostLoad: %s 的地质预设 '%s' → %s"),
 				*GetName(), *GeologyPreset, *LegacyPath.ToString());
-			// 迁移成功后清空旧字段：清空值会随关卡保存持久化，于是
-			// (a) 之后的加载不再重复迁移；(b) 作者把 GeologyAsset 清空后，才能真正
-			//     得到一颗无矿行星，而不是下次加载又被迁回 earth。
-			// 找不到资产时仍原样保留字符串（Task 6 之前的状态不变）。
+			// 迁移成功后清空旧字段并持久化：之后不再重复迁移；作者清空 GeologyAsset
+			// 后也才能真正得到无矿行星，而不是下次加载又被迁回 earth。
 			GeologyPreset.Reset();
 		}
 	}
@@ -1305,9 +1087,8 @@ void AVoxelPlanetActor::PostLoad()
 
 FSoftObjectPath AVoxelPlanetActor::MakeLegacyGeologyAssetPath(const FString& LegacyName)
 {
-	// 转发，不自己拼：路径规则只有一份，在 UPlanetGeologyPreset::MakeAssetPath。
-	// 迁移目标与 StellarEra.CreateEarthGeologyPreset 建的资产必须逐字一致，
-	// 否则旧关卡永久没矿。
+	// 转发而非自己拼：路径规则只有一份，迁移目标必须与 CreateEarthGeologyPreset
+	// 建的资产逐字一致，否则旧关卡永久没矿。
 	return UPlanetGeologyPreset::MakeAssetPath(LegacyName);
 }
 
@@ -1329,8 +1110,7 @@ float AVoxelPlanetActor::GetSurfaceRadiusCm() const
 
 float AVoxelPlanetActor::GetSurfaceRadiusCmAtDirection(const FVector& WorldDirection) const
 {
-	// 没挂模块（或生成器还没建）时地表就是基准球面 —— 光滑球正是「没有地形」
-	// 的样子，所以这里退回 GetSurfaceRadiusCm 是对的，不是权宜之计。
+	// 没挂模块（或生成器未建）时地表就是基准球面 —— 光滑球正是没有地形的样子。
 	if (!PlanetGenerator || !PlanetGenerator->Terrain)
 	{
 		return GetSurfaceRadiusCm();
@@ -1342,8 +1122,7 @@ float AVoxelPlanetActor::GetSurfaceRadiusCmAtDirection(const FVector& WorldDirec
 		return GetSurfaceRadiusCm();
 	}
 
-	// 上下文由生成器统一构造：地质场必须与密度场那份是同一个，
-	// 否则角色脚下的地面和眼睛看到的地面不是同一个面。
+	// 上下文由生成器统一构造：地质场必须与密度场那份相同，否则脚下与看到的地面不同。
 	const FVoxelPlanetTerrainContext Context = PlanetGenerator->MakeTerrainContext();
 
 	// 体素空间与世界空间之间只差一个等比缩放，没有旋转，方向可以原样传递。
@@ -1365,8 +1144,7 @@ float AVoxelPlanetActor::GetVoxelSurfaceRadiusCmAtDirection(const FVector& World
 		return AnalyticRadiusCm;
 	}
 
-	// 体素空间：球心在原点，单位 = 体素。与世界空间只差等比缩放与平移、没有旋转
-	// （与 RaycastSurfaceCm 里那条说明同源）。本函数同样假定 Actor 缩放 S = 1。
+	// 体素空间：球心在原点，单位 = 体素；与世界空间只差等比缩放与平移。本函数假定 S=1。
 	const double BaseRadiusVoxels = double(GetSurfaceRadiusCm()) / VoxelSize;
 	const double AnalyticRadiusVoxels = double(AnalyticRadiusCm) / VoxelSize;
 	if (AnalyticRadiusVoxels <= 0.0)
@@ -1377,12 +1155,8 @@ float AVoxelPlanetActor::GetVoxelSurfaceRadiusCmAtDirection(const FVector& World
 	// 种子点：解析半径上的那个点（体素坐标）。
 	const FVector HitLocal = Direction * AnalyticRadiusVoxels;
 
-	// 两个方向的预算：向外到 1.25 倍包围球（与 RaycastSurfaceCm 同一份余量），
-	// 向里到球心前一格为止（再往里就穿到对面半球去了）。
-	//
-	// 不复用 ComputeMarchStepRange：它那两个上界是按「调用方给的射线原点在球外」
-	// 定义的，径向线以球心为原点时代入只是把 Inward/Backward 换个名字，读代码
-	// 的人会把方向读反。
+	// 预算：向外到 1.25 倍包围球，向里到球心前一格。不复用 ComputeMarchStepRange：
+	// 它的上界按「射线原点在球外」定义，径向代入会把方向读反。
 	const int32 MaxForwardSteps = FMath::Max(1,
 		FMath::CeilToInt(BaseRadiusVoxels * 1.25 - AnalyticRadiusVoxels));
 	const int32 MaxBackwardSteps = FMath::Max(1,
@@ -1397,8 +1171,7 @@ float AVoxelPlanetActor::GetVoxelSurfaceRadiusCmAtDirection(const FVector& World
 			static_cast<int32>(FMath::FloorToInt(Point.Z)));
 	};
 
-	// 读锁按 128 体素一段取：整条径向线取一把锁会锁住大半棵八叉树，体素线程全被
-	// 卡住（RaycastSurfaceCm 里同一条理由）。步进是单调的，所以「当前段」一个就够。
+	// 读锁按 128 体素一段取：整条径向线一把锁会锁住大半棵八叉树，体素线程全被卡住。
 	constexpr int32 SegmentVoxels = 128;
 	int32 LockedSign = 0;      // 当前锁覆盖的方向（±1），0 = 还没取
 	int32 LockedThrough = 0;   // 已覆盖到 |Step| = LockedThrough
@@ -1418,8 +1191,8 @@ float AVoxelPlanetActor::GetVoxelSurfaceRadiusCmAtDirection(const FVector& World
 			const int32 SegmentEnd =
 				FMath::Min(SegmentBegin + SegmentVoxels - 1, MaxAbsStep);
 
-			// 盒子要盖住 SegmentBegin − 1 到 SegmentEnd 的所有采样点（Step 0 也包在
-			// 第一段里），+2 是取整余量。
+			// 盒子要盖住 SegmentBegin−1 到 SegmentEnd 的采样点（Step 0 在第一段），
+			// +2 是取整余量。
 			const FVector PointA =
 				HitLocal + Direction * (static_cast<double>(Sign) * (SegmentBegin - 1));
 			const FVector PointB =
@@ -1450,8 +1223,7 @@ float AVoxelPlanetActor::GetVoxelSurfaceRadiusCmAtDirection(const FVector& World
 	if (!PlanetSurfaceRay::FindSurfaceBoundaryStep(
 		MaxForwardSteps, MaxBackwardSteps, SampleEmptyAt, BoundaryStep))
 	{
-		// 走完全部预算都没翻转：挖穿了，或整段全是实的。用 Verbose —— 每帧都会走
-		// 到这条路时 Warning 会把日志刷满。
+		// 走完全部预算都没翻转（挖穿或全实）。用 Verbose，每帧都会走到时 Warning 会刷满。
 		UE_LOG(LogTemp, Verbose,
 			TEXT("%s：方向 %s 走了 %d 步仍未找到空/实翻转，退回解析半径 %.1f cm。"),
 			*GetName(), *Direction.ToCompactString(), MaxAbsStep, AnalyticRadiusCm);
@@ -1481,8 +1253,7 @@ bool AVoxelPlanetActor::RaycastSurfaceCm(
 		return false;
 	}
 
-	// 体素空间与世界空间只差一个等比缩放和行星位置，没有旋转 —— 与
-	// GetSurfaceRadiusCmAtDirection 里那条说明同源。解析这一步全程用厘米。
+	// 体素空间与世界空间只差等比缩放和行星位置，没有旋转；解析这一步全程用厘米。
 	const FVector PlanetCenterWorld = GetActorLocation();
 	const FVector RelativeOrigin = RayOriginWorld - PlanetCenterWorld;
 	if (RelativeOrigin.IsNearlyZero())
@@ -1510,24 +1281,17 @@ bool AVoxelPlanetActor::RaycastSurfaceCm(
 		return false;
 	}
 
-	// 解析结果是「生成器的理想地表」，实际数据可能被挖低了整整一笔刷，也可能因为
-	// 量化差一格。从解析命中点出发沿射线找空/实翻转。
-	//
-	// 深度**不设人为上限**：终点是行星自己的几何边界 —— 把解析点所在球面的半径
-	// 放大 1.25 倍（与包围球同一份余量）求射线与它的两个交点，往里走到远根、往外
-	// 走到近根（且不越过射线原点）。挖多深都能重新瞄回来，只受球体体积约束。
-	// 推导在 PlanetSurfaceRay::ComputeMarchStepRange，可无头测试。
+	// 解析结果是生成器的理想地表，实际数据可能被挖低或量化差一格，从解析命中点
+	// 沿射线找空/实翻转。深度不设人为上限：终点是半径 1.25 倍的包围球，挖多深都能
+	// 重新瞄回来。推导在 PlanetSurfaceRay::ComputeMarchStepRange，可无头测试。
 	const PlanetSurfaceRay::FMarchStepRange MarchRange =
 		PlanetSurfaceRay::ComputeMarchStepRange(
 			RelativeOrigin, Direction, AnalyticDistanceCm,
 			static_cast<double>(GetSurfaceRadiusCm()) * 1.25,
 			/*VoxelSizeCm=*/static_cast<double>(VoxelSize));
 
-	// 解析点换算成体素坐标，之后的行进全在体素空间（单位 = 体素）。
-	// 本函数假定 Actor 缩放 S = 1（见 GetScaledRadiusVoxels 里的不一致说明）：
-	// S ≠ 1 时体素空间里的实际表面半径是 Radius · S，解析点会偏离真实地表
-	// (S − 1) · Radius 体素；扫描从解析点出发、两个方向都找，仍能找到翻转点，
-	// 但命中位置会跟着偏。
+	// 解析点换算成体素坐标，之后行进全在体素空间。本函数假定 S=1：S≠1 时解析点
+	// 会偏离真实地表，命中位置跟着偏。
 	const FVoxelVector HitLocalVoxels = GlobalToLocalFloat(
 		RayOriginWorld + Direction * AnalyticDistanceCm);
 	const FVector HitLocal(HitLocalVoxels.X, HitLocalVoxels.Y, HitLocalVoxels.Z);
@@ -1557,9 +1321,8 @@ bool AVoxelPlanetActor::RaycastSurfaceCm(
 		return GetData().GetValue(VoxelOf(Sample), /*LOD=*/0).IsEmpty();
 	};
 
-	// 起点单独取一次锁：它不在任何一段扫描盒里。
-	// 锁只盖住行进区段、不盖整条射线：星图的射线长 50 AU，按射线原点与终点算锁
-	// 会锁住整颗行星的大半个八叉树。
+	// 起点单独取一次锁（它不在扫描盒里）。锁只盖行进区段不盖整条射线：星图射线
+	// 长 50 AU，按射线算锁会锁住大半棵八叉树。
 	const bool bStartsEmpty = [&]() -> bool
 	{
 		const FIntVector StartVoxel = VoxelOf(HitLocal);
@@ -1570,16 +1333,14 @@ bool AVoxelPlanetActor::RaycastSurfaceCm(
 		return SampleEmpty(0);
 	}();
 
-	// 从解析点往里走是「空 → 实」（正常俯视），往外走是「实 → 空」（估计高了一格）。
-	// 按起点空/实**选一个**方向走：起点空就往里找第一块实心，起点实就往外找第一格空气。
+	// 按起点空/实选一个方向：空就往里找第一块实心，实就往外找第一格空气。
 	const int32 StepSign = bStartsEmpty ? 1 : -1;
 	const int32 MaxSteps =
 		bStartsEmpty ? MarchRange.InwardMaxSteps : MarchRange.BackwardMaxSteps;
 
 	int32 BoundaryStep = 0;
 
-	// 分段取锁：每段 128 体素，段数由几何终点决定 —— 128 是**锁粒度**，不是深度上限。
-	// 一次取锁盖住整条弦的话，挖到行星中心时会锁住几乎整棵八叉树，体素线程全被卡住。
+	// 分段取锁，每段 128 体素；128 是锁粒度不是深度上限，整条弦一把锁会卡住体素线程。
 	constexpr int32 SegmentVoxels = 128;
 	for (int32 SegmentStart = 1;
 		SegmentStart <= MaxSteps && BoundaryStep == 0;
@@ -1588,8 +1349,7 @@ bool AVoxelPlanetActor::RaycastSurfaceCm(
 		const int32 SegmentEnd =
 			FMath::Min(SegmentStart + SegmentVoxels - 1, MaxSteps);
 
-		// 盒子要盖住 (SegmentStart − 1) 到 SegmentEnd 之间的所有采样点（Step 0 在上面
-		// 单独取过锁，这里多包一格，相邻段之间不留缝），+2 是取整余量。
+		// 盒子盖住 (SegmentStart−1) 到 SegmentEnd；Step 0 已单独取锁，+2 是取整余量。
 		const FVector SegmentA = HitLocal
 			+ LocalDir * (static_cast<double>(StepSign) * (SegmentStart - 1));
 		const FVector SegmentB = HitLocal
@@ -1620,8 +1380,7 @@ bool AVoxelPlanetActor::RaycastSurfaceCm(
 
 	if (BoundaryStep == 0)
 	{
-		// 走到几何终点都没翻转：整条弦上全空（球被挖空）或全实。
-		// 用 Verbose：笔刷预览每帧都会走这条路，Warning 会把日志刷满。
+		// 走到几何终点都没翻转（整条弦全空或全实）。用 Verbose，笔刷预览每帧都会走。
 		UE_LOG(LogTemp, Verbose,
 			TEXT("%s：射线在包围球内走了 %d 步（解析点处%s）仍未找到空/实翻转。"),
 			*GetName(), MaxSteps, bStartsEmpty ? TEXT("为空") : TEXT("为实"));
@@ -1639,8 +1398,7 @@ bool AVoxelPlanetActor::RaycastSurfaceCm(
 		return false;
 	}
 
-	// **只在成功时写 Out 参数**：调用方拿上一次的最好距离做剪枝，失败时残留的
-	// 旧值会被当成命中距离。
+	// **只在成功时写 Out 参数**：调用方拿上次最好距离剪枝，失败时旧值会被当命中距离。
 	OutHitLocationWorld = BoundaryWorld;
 	OutDistanceCm = BoundaryDistanceCm;
 	OutHitNormalWorld = (BoundaryWorld - PlanetCenterWorld).GetSafeNormal();
@@ -1653,19 +1411,12 @@ bool AVoxelPlanetActor::RaycastSurfaceCm(
 
 uint64 AVoxelPlanetActor::ComputeParamsHash() const
 {
-	// 对**推入生成器**的每项设置做 FNV-1a，外加派生出来的缩放半径。
-	// 每个字段单独混合，结构体填充字节就不会把未初始化的数据漏进哈希。
-	//
-	// 这里刻意**不含**基类的 VoxelSize / MaxLOD / NumberOfThreads / VoxelMaterial：
-	// 它们是本 Actor 自己的属性，世界几何的改动由基类的 PostEditChangeProperty 直接走
-	// meta=(Recreate) 重建，我们再哈希一遍只会让同一次编辑重建两次。
-	// 也不含 OrbitLOD —— 它只喂 LOD Invoker，由 RefreshLODInvoker 单独处理。
-	// VoxelSize 还有一条例外：它不进哈希，但**水面几何**要用它把体素半径折成厘米，
-	// 所以 RebuildPlanet 在守卫之前单独比较一次并刷新水面（基类的重建只重建体素世界，
-	// IsCreated() 仍为真，守卫会把水面刷新一并吞掉）。
+	// 对推入生成器的每项设置做 FNV-1a 并混入派生缩放半径；每字段单独混合，避免填充
+	// 字节漏进哈希。刻意不含 VoxelSize/MaxLOD/NumberOfThreads/VoxelMaterial（基类直接
+	// 重建，再哈希会重建两次）与 OrbitLOD（单独处理）；VoxelSize 另由 RebuildPlanet
+	// 单独比较以刷新水面。
 	uint64 Hash = 1469598103934665603ULL;
-	// 形参名别叫 Data：基类有一个私有成员 AVoxelWorld::Data（TVoxelSharedPtr<FVoxelData>），
-	// 遮蔽它会触发 C4458，而本项目按「警告即错误」编译。
+	// 形参名别叫 Data：会遮蔽基类私有成员 AVoxelWorld::Data，触发 C4458（警告即错误）。
 	const auto Mix = [&Hash](const void* Source, int64 Size)
 	{
 		const uint8* Bytes = static_cast<const uint8*>(Source);
@@ -1675,25 +1426,19 @@ uint64 AVoxelPlanetActor::ComputeParamsHash() const
 		}
 	};
 
-	// 混派生半径而不是原始 Radius：Actor 等比缩放改了同样要重建，而半径是
-	// 唯一真正推给生成器的那个数。
-	//
-	// 早先这里还混过原始 ActorLocation（非局部坐标模式下），那是「移动 Actor
-	// 即重建」的来源。现在球心恒在局部原点，移动永远不进哈希。
+	// 混派生半径而非原始 Radius：缩放改了也要重建，而半径是唯一真正推给生成器的数。
+	// 移动不进哈希，因为球心恒在局部原点。
 	const float ScaledRadius = GetScaledRadiusVoxels();
 	Mix(&ScaledRadius, sizeof(ScaledRadius));
 
 	Mix(&SurfaceColor, sizeof(SurfaceColor));
 
-	// 地形模块按资产路径混合：若直接混入指针，重载后（地址变了、资产没变）
-	// 哈希就会被破坏。注意这里只覆盖「换了一个模块」；「改了模块自己的参数」
-	// 不在本函数职责内 —— 那由模块的 PostEditChangeProperty 调 InvalidateAndRebuild
-	// 处理（它连哈希都不看）。
+	// 按资产路径混合：混指针会在重载后（地址变、资产没变）破坏哈希。这里只覆盖
+	// 「换了模块」；改模块自身参数由它的 PostEditChangeProperty 走 InvalidateAndRebuild。
 	const FString TerrainPath = Terrain ? Terrain->GetPathName() : FString();
 	Mix(*TerrainPath, TerrainPath.Len() * sizeof(TCHAR));
 
-	// 按资产路径混合，不混指针：重载后地址变了、资产没变，混指针会破坏哈希。
-	// 也不混 Revision —— 改预设内容不会重刷已烘焙的体素，那是显式的「重建行星」。
+	// 按资产路径混合不混指针；也不混 Revision —— 改预设内容靠显式的「重建行星」。
 	const FString GeologyAssetPath = GeologyAsset ? GeologyAsset->GetPathName() : FString();
 	Mix(*GeologyAssetPath, GeologyAssetPath.Len() * sizeof(TCHAR));
 

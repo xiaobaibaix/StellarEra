@@ -12,20 +12,13 @@ class UStarBodyComponent;
 /**
  * 一颗恒星：一个自发光球 + 两个组件。
  *
- * ── 为什么这个类在 Cosmos 而不在 Planet ────────────────────────
- * 恒星的身份跨两个模块：物理身份是 UCosmosOrbitComponent（本模块），
- * 视觉 / 大气身份是 UStarBodyComponent（Planet 模块）。Planet 不允许依赖 Cosmos，
- * 所以只有 Cosmos 能同时引用两者。
+ * 这个类必须在 Cosmos：恒星身份跨两个模块（物理 UCosmosOrbitComponent 在 Cosmos，
+ * 视觉/大气 UStarBodyComponent 在 Planet），而 Planet 不允许依赖 Cosmos，只有
+ * Cosmos 能同时引用两者。因此本头文件只前置声明 UStarBodyComponent，完整类型只在
+ * .cpp 里 include（与 Planet 为 Private 依赖的约定一致）。
  *
- * 因此本头文件**只前置声明** UStarBodyComponent，完整类型只在 .cpp 里 include ——
- * 与 StellarEraCosmos.Build.cs 里「Planet 是 Private 依赖」的约定一致。
- * 下游模块 include 本头只会看到前置声明，够用。
- *
- * ── 为什么是一个 Actor 类而不是在关卡里拼组件 ──────────────────
- * 骨架组件缺一个就静默坏：少了 UCosmosOrbitComponent 恒星不参与引力，少了
- * UStarBodyComponent 大气不认它。按 CLAUDE.md「Actor 组件归属口径」，这种骨架
- * 写在 C++ 里，蓝图子类 / 关卡实例只改外观。
- *
+ * 做成 Actor 类而不是关卡里拼组件：骨架组件缺一个就静默坏（少了 Orbit 不参与引力、
+ * 少了 StarBody 大气不认它），按「Actor 组件归属口径」这种骨架写在 C++ 里。
  * 不 Tick、不自己位移：位置由 UCosmosSimulationSubsystem 每帧写回。
  */
 UCLASS()
@@ -37,11 +30,8 @@ public:
 	AStarBodyActor();
 
 	/**
-	 * 空场景根。
-	 *
-	 * 根不能是网格：恒星的视觉缩放（见构造函数，×200000）会沿层级传给挂在根下的
-	 * 星图相机（BP 的 ChildActor）与轨迹线组件，把相机和轨迹一起放大。缩放只让
-	 * StarMesh 吃，其余组件挂在根上保持 1 倍。
+	 * 空场景根。不能是网格：恒星的视觉缩放（×200000）会沿层级传给挂在根下的星图
+	 * 相机（BP 的 ChildActor）与轨迹线组件。缩放只让 StarMesh 吃。
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "StellarEra|Star")
 	TObjectPtr<USceneComponent> StarRoot;

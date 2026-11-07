@@ -1,13 +1,6 @@
 ﻿// 飞船体素调用器配置的回归测试。
-//
-// 飞行中「不同 LOD 的网格重叠」由三段配置共同决定：
-//   1. 行星调用器把整颗星压在 LOD 8（叶块 8.2 公里）；
-//   2. 飞船只有 LOD 1 细气泡（80 米），与 LOD 8 之间落差 7 级；
-//   3. 插件在旧块被替代后还要淡出 2 × ChunksDitheringDuration。
-// 这里锁住第 2 段：细气泡 + 三个中间环，且环只做 LOD、不碰碰撞。
-//
-// 断言的是构造函数产出的 CDO 配置，不是「能编译」。
-// 运行期生成的是 BP_SpaceshipPawn_C，所以直接加载蓝图再查组件。
+// 飞行中「不同 LOD 网格重叠」由三段决定：行星调用器压 LOD 8、飞船只有 LOD 1 细气泡、
+// 旧块还要淡出 2 × DitheringDuration。这里锁第 2 段（细气泡 + 三个中间环，环只做 LOD 不碰碰撞）。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -54,10 +47,8 @@ bool FStellarEraSpaceshipLODInvokerTest::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	// 类必须是我们自己的 AlwaysLocal 子类，不能退回插件原类：原类只把「被本地
-	// 控制器 Possess 的 Pawn」算作 local invoker，进/出星图换 Possess 时会把
-	// 飞船调用器踢出 LOD、触发全量重建（见 AlwaysLocalVoxelInvokerComponent.h）。
-	// 蓝图子类若残留旧类的组件模板覆盖，这几条会当场变红。
+	// 必须是我们自己的 AlwaysLocal 子类：原类只认被 Possess 的 Pawn，进出星图换
+	// Possess 会踢出 LOD、触发全量重建。蓝图残留旧组件模板时这几条会当场变红。
 	TestTrue(TEXT("细气泡是 AlwaysLocal 类"),
 		Cast<UAlwaysLocalVoxelInvokerWithPredictionComponent>(Fine) != nullptr);
 	TestTrue(TEXT("LOD3 环是 AlwaysLocal 类"),

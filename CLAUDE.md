@@ -31,26 +31,34 @@ python Tools/vscode_intellisense.py
 StellarEra        ─→ StellarEraUI（Public）, StellarEraCosmos, StellarEraPawns,
                      StellarEraPlanet
 StellarEraUI      ─→ StellarEraPlanet（Public）, StellarEraCosmos, StellarEraPawns
-StellarEraCosmos  ─→ StellarEraPawns, StellarEraPlanet
-StellarEraPawns   ─→ StellarEraPlanet（Public）, Voxel（Public）
+StellarEraCosmos  ─→ StellarEraPlanet（Private）
+StellarEraPawns   ─→ StellarEraCosmos（Public）, StellarEraPlanet（Public）, Voxel（Public）
 StellarEraPlanet  ─→ Voxel（Public），无其它项目依赖
 ```
 ```
 Source/
 ├── StellarEra/            主游戏模块（primary game module）：GameMode / PlayerController
-├── StellarEraPlanet/      世界：Src/{Terrain,Surface,Invokers,Atmosphere,Minerals,Edit}/
+│                          Src/Input/ 聚合三张 Pawn 动作表（控制器自己一条输入都不绑）
+├── StellarEraPlanet/      世界：Src/{Terrain,Hydrology,Water,Surface,Invokers,Atmosphere,
+│                                     Minerals,Edit,Sky,Star}/
 │                          Minerals 内：Geology（再含 Distributions）/ Surface / View
 │                          Invokers 里还有 IVoxelViewpointInvokers（三个 Pawn 与控制器共用）
-├── StellarEraPawns/       受控实体：Src/{Character,Spaceship}/
-├── StellarEraCosmos/      N 体求解器 + 单位类型（CosmosTypes）+ 编排（子系统 / 轨道组件 / 轨迹组件）
-└── StellarEraUI/          HUD、星图相机、星图面板、矿物图例、编辑按钮布局
+│                          Edit 里有 PlanetEditUI（编辑按钮布局，HUD 与两个 Pawn 共用）
+├── StellarEraPawns/       受控实体：Src/{Character,Spaceship,StarMap}/
+│                          各功能面再分 Input/（输入组件 + 动作表），Character 还有 Animations/
+│                          StarMap 内：相机 Pawn + StarMapPanelLayout / StarMapPicking
+├── StellarEraCosmos/      N 体求解器 + 单位类型（CosmosTypes）+ 天体接口（CosmosBody）
+│                          + 编排（子系统 / 轨道组件 / 轨迹组件）
+└── StellarEraUI/          HUD、星图面板、矿物图例
 Plugins/
 ├── VoxelFree/          第三方体素插件，勿改
 └── VibeUE/             第三方编辑器 AI 工具，勿改
 Content/
-├── Maps/               UniverseMap（唯一真实场景）/ NewMap / TestMap
-├── Geology/Planets/    DA_Geology_<名字>（行星矿物预设；JSON 已退役）
-└── Code/               BP_SpaceshipPawn / BP_PlanetCharacter / BP_VoxelPlanet / DA_Terrain_*
+└── Code/               蓝图与资产，引擎路径 /Game/Code/...
+    ├── Maps/           UniverseMap（唯一真实场景）/ NewMap / TestMap
+    ├── Pawns/          BP_SpaceshipPawn / BP_StarMapCameraPawn / Character/BP_PlanetCharacter
+    ├── Planet/         BP_VoxelPlanet / BP_Star / Materials/ / Geology/MineralData/DA_Geology_*
+    └── DA_Terrain_*    地形预设（放在 Code 根下）
 ```
 
 > 两个模块已在 2026-10-31 消失，别按旧文档去找：
@@ -103,18 +111,22 @@ Character/Spaceship → Pawns），历史类路径由 `Config/DefaultEngine.ini`
 **项目自研代码现在没有 L0，最底层就是 `StellarEraPlanet`。**
 
 最多三级（`Src/功能域/子目录/文件`）—— 全项目只有 `Minerals/Geology/Distributions/`
-这一处三级；`Edit/` 12 个、`UI/Src` 9 个仍在阈值内，保持平铺。
+这一处三级；Pawns 的 `Character|Spaceship|StarMap/Input/` 与 `Character/Animations/`
+是二级。`Edit/` 14 个、`UI/Src` 5 个仍在阈值内，保持平铺。
 判据写在 `Source/README.md` 的「什么时候该建子目录」。
 
-`AStarMapCameraPawn` 仍在 `StellarEraUI` 而不是 `StellarEraPawns`：它调用
-`UCosmosSimulationSubsystem`，而 `StellarEraCosmos` 又 `Cast<ASpaceshipPawn>`
-依赖 Pawns，两边放一起会成环。等 `Cosmos → Pawns` 这笔债（抽 `ICosmosBody` 接口）
-还清之后，相机才能搬进 Pawns。
+`AStarMapCameraPawn` 现在在 `StellarEraPawns/Src/StarMap/`：Cosmos 抽出
+`ICosmosBody`（`Source/StellarEraCosmos/Src/CosmosBody.h`，由 `ASpaceshipPawn` 实现）
+之后不再认识 `ASpaceshipPawn`，`Pawns → Cosmos` 这条边才立得住。旧脚本路径靠
+`Config/DefaultEngine.ini` 的 `[CoreRedirects]` 里两条 `+ClassRedirects` 兜底，
+都直达 `/Script/StellarEraPawns.StarMapCameraPawn`。
 
 自定义代码不进第三方插件目录，一律写进上面五个模块并改对应 `Build.cs`。
 
-**`StellarEraUI` 不依赖 `StellarEra`**（Game 依赖 UI，反向就成环）。星图 UI 需要控制器数据时走
-`IStarMapUIInputs`（`Source/StellarEraUI/Src/StarMapUIInputs.h`），由 `AStellarEraPlayerController` 实现。
+**`StellarEraUI` 不依赖 `StellarEra`**（Game 依赖 UI，反向就成环）。星图 UI 需要玩家控制器时
+直接吃 `APlayerController`：鼠标坐标、屏幕拾取、矿物透视分别来自
+`GetMousePosition`、Pawns 的 `StarMapPicking`、`Cast<AStarMapCameraPawn>(Pawn)`，
+不再有专门的倒置接口。`StellarEra` 侧因此也把 `StellarEraUI` 降为**私有**依赖。
 
 ## 技能与 Agent 路由（强制）
 
@@ -152,7 +164,8 @@ Character/Spaceship → Pawns），历史类路径由 `Config/DefaultEngine.ini`
 | `UCosmosTrajectoryComponent` | Cosmos | 预测轨迹、拖尾、速度/引力箭头 |
 | `AStellarEraGameMode` | StellarEra | 出生点、飞船生成与登船 |
 | `AStellarEraPlayerController` | StellarEra | 运行时构造输入资产、上下船、星图模式 |
-| `AStarMapCameraPawn` | UI | 星图相机；不 Tick，位置在 `CalcCamera` 现算 |
+| `AStarMapCameraPawn` | Pawns | 星图相机；不 Tick，位置在 `CalcCamera` 现算 |
+| `ICosmosBody` | Cosmos | 受控天体对模拟层的契约（11 个纯虚），由 `ASpaceshipPawn` 实现 |
 | `UPlanetGeologyDistribution` | Planet/Minerals | 分布生成器基类；子类=囊状/片层/脉状/浸染，元素内取 max |
 | `AVoxelPlanetActor` | Terrain | 体素行星根 Actor；gizmo 移动 / 等比缩放即改行星 |
 | `UVoxelPlanetGenerator` | Terrain | 行星与共享地形模块 `UVoxelPlanetTerrainModule` 的适配器 |
@@ -202,7 +215,7 @@ N 体数据分四层，**编辑器里只填人类单位**：
 | 设计层（手填） | 地球质量 M⊕ | km/s（物理速度） | AU / 年 | `UCosmosOrbitComponent`、`ASpaceshipPawn` |
 | 求解器层 | M☉ | AU/年 | AU / 年 | `FNBodySimulator`、`FCosmosBodyState` |
 | 世界层 | — | 厘米/秒 | 厘米 / 秒 | Actor 位置、碰撞、体素、HUD 换算 |
-| 换算层 | — | — | — | 只允许 `CosmosUnits::`（`CosmosTypes.h`）；Pawns 不依赖 Cosmos（设计选择），飞船本地保留 `1e5` 一项（`CentimetersPerKilometer`） |
+| 换算层 | — | — | — | 只允许 `CosmosUnits::`（`CosmosTypes.h`）；Pawns 已 Public 依赖 Cosmos（`ICosmosBody`），但飞船本地仍保留 `1e5` 一项（`CentimetersPerKilometer`） |
 
 - `MassEarth` 单位 M⊕；`InitialVelocityKmPerSecond` 单位 km/s；`ThrustAccelerationKmPerS2` 单位 km/s²。
 - **物理速度 ≠ 世界速度**：1 AU/年 = 4.74047 km/s = 3330 厘米/秒（默认标定）。
@@ -222,6 +235,14 @@ N 体数据分四层，**编辑器里只填人类单位**：
 - 资产用 Allar 风格前缀：`BP_`/`DA_`/`M_`/`MI_`/`T_`/`SM_`/`NS_`。
 - 二进制资产走 Git LFS；遇到 `Package is unloadable` 先查 LFS 指针是否未 smudge（`git lfs checkout`）。
 - 提交时 pathspec 挂在 commit 上（`git commit -- <paths>`）：索引里有常驻暂存文件，裸 `git commit` 会吞掉全部。
+
+### 注释：只写「为什么」，不写「是什么」
+
+- **单处 1–3 行，最多 4 行。** 超过就删。
+- 留：反直觉选择的理由、踩过的坑、非显然的单位/物理约束、「别这样改」的警告。
+- 删：复述代码在做什么、逐段讲解引擎源码、比喻与多段论证、历史沿革（「以前是 X」）。
+- 头文件里的类/函数 doc 用 1–3 行说清契约；实现细节留给代码。
+- 需要长篇解释的，写进 `docs/` 或 `CLAUDE.md`，不要塞进源码。
 
 ## 已知坑
 - 编辑器不在前台会整进程限 3 FPS，体素生成 0.16 s → 179 s；测性能先让编辑器在前台。

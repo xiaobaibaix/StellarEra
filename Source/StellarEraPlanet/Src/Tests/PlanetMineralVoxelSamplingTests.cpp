@@ -55,7 +55,6 @@ bool FPlanetMineralVoxelRegionEarlyOutTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("盒外恒为空气"), Outside, PlanetMineralVoxel::AirValue);
 	TestEqual(TEXT("盒外不调地质场"), Sampler.Calls, 0);
 
-	// 空区域表 = 到处都不是
 	FPlanetMineralVoxelParams NoRegions = Params;
 	NoRegions.RegionBoxes.Reset();
 	TestEqual(TEXT("空区域表恒为空气"),
@@ -83,7 +82,6 @@ bool FPlanetMineralVoxelDensityGateTest::RunTest(const FString& Parameters)
 		PlanetMineralVoxel::AirValue);
 	TestEqual(TEXT("密度门早退，不调地质场"), Sampler.Calls, 0);
 
-	// 实心 → 矿存在
 	Params.IsSolidAtPlanetVoxel = [](const FIntVector&) { return true; };
 	TestTrue(TEXT("行星实心 → 有矿"),
 		PlanetMineralVoxel::EvaluateVoxel(Params, FIntVector(0, 0, 0)) < 0.0);
@@ -138,14 +136,12 @@ bool FPlanetMineralVoxelThresholdTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Fade 下限 + 最大差值 → -1e4"),
 		PlanetMineralVoxel::EvaluateVoxel(Bounds, FIntVector(0, 0, 0)), -10000.0, 1e-6);
 
-	// 地质场为空 → 到处空气
 	FPlanetMineralVoxelParams NoSampler = Params;
 	NoSampler.SampleElementNorm = nullptr;
 	TestEqual(TEXT("没有采样回调时恒为空气"),
 		PlanetMineralVoxel::EvaluateVoxel(NoSampler, FIntVector(0, 0, 0)),
 		PlanetMineralVoxel::AirValue);
 
-	// 半径没填（0）→ 归一化点无从谈起，到处空气
 	FPlanetMineralVoxelParams NoRadius = Params;
 	NoRadius.RadiusVoxels = 0.0;
 	TestEqual(TEXT("RadiusVoxels 0 时恒为空气"),

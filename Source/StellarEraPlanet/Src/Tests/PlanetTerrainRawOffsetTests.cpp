@@ -1,11 +1,6 @@
-﻿// 「海平面不再削平地形」的回归测试。
-//
-// 旧的 ComputePlanetOffset 末尾有一道 FMath::Max(Noise, SeaLevel)：低于海平面的
-// 地形被削成一块实心平面。水体的前提是地形在海底继续起伏，所以那道 Max 被删掉，
-// 函数改名为 ComputeRawPlanetOffset，输出域从 [SeaLevel, 1] 变成 [-1, 1]。
-//
-// 这里**不**断言「一定存在低于海平面的方向」—— 那取决于噪声分布，是数据性质
-// 不是契约。钉住的是契约本身：输出范围，以及 SeaLevel 再也不能改变形状。
+﻿// 「海平面不再削平地形」回归：旧的 ComputePlanetOffset 末尾有 FMath::Max(Noise, SeaLevel)，
+// 低于海平面的地形被削平；现在改为 ComputeRawPlanetOffset，输出域 [-1, 1]。
+// 不断言「一定存在低于海平面的方向」（那是数据性质，不是契约），只钉输出范围与 SeaLevel 不参与形状。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -48,8 +43,7 @@ bool FStellarEraTerrainRawOffsetTest::RunTest(const FString& Parameters)
 	TestTrue(FString::Printf(TEXT("位移上界 %.4f 必须 <= 1"), MaxOffset), MaxOffset <= 1.0 + 1e-4);
 
 	// --- 契约 2：SeaLevel 不参与形状 ---
-	// 旧实现下，把 SeaLevel 设成 0.9 会把整颗星削成 0.9 的平面，两个参数算出的
-	// 值会大面积不同。新实现必须逐点完全相等。
+	// 旧实现下 SeaLevel 0.9 会把整颗星削成平面；新实现必须逐点完全相等。
 	FPlanetNoiseParams HighSea = Params;
 	HighSea.SeaLevel = 0.9f;
 	int32 NumMismatches = 0;

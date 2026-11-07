@@ -8,12 +8,7 @@
 
 class FPlanetGeologyField;
 
-/**
- * 一个元素的矿体网格。顶点相对行星球心，单位厘米。
- *
- * 法线不在数据层：等值面抽取只给顶点与三角形，视图 Actor 转 FDynamicMesh3 时
- * 用 FMeshNormals 按顶点算法线（材质靠 VertexNormalWS 取它）。
- */
+/** 一个元素的矿体网格。顶点相对行星球心，单位厘米；法线由视图 Actor 转 FDynamicMesh3 时按顶点计算。 */
 struct FPlanetMineralMesh
 {
 	TArray<FVector3f> VerticesCm;
@@ -35,21 +30,16 @@ namespace PlanetMineralSurface
 		/** 仅保留作合法性校验（≤ 0 即拒绝）；矿囊取面不再经过体素深度。 */
 		float VoxelSizeCm = 0.f;
 		/**
-		 * 一个**特征尺度**（片层=全厚、脉=管直径、浸染=粒径、囊=囊直径）横向切多少格
-		 * （4..32）。
-		 *
-		 * 这个旋钮跟着生成器的特征尺度走，与行星直径无关 —— 换一颗大行星，
-		 * 相对尺寸与观测视图清晰度都不变。
+		 * 一个特征尺度（片层=全厚、脉=管直径、浸染=粒径、囊=囊直径）横向切多少格（4..32）。
+		 * 跟随生成器特征尺度，与行星直径无关 —— 换大行星时相对尺寸与视图清晰度都不变。
 		 */
 		int32 CellsPerFeature = 12;
 		/** 等值线，调用方传 Field.GetAppearance().ColorThreshold。 */
 		float IsoValue = 0.f;
 
 		/**
-		 * 只给测试用：关掉稀疏块剪枝，盒内**每个**角点都求值。
-		 *
-		 * 稀疏剪枝只是少算、不改值（块外恒为 0，判据见 Build 的说明），所以两条路径
-		 * 的网格必须逐顶点相同 —— `MineralSurface.SparseMatchesDense` 拿它当对照。
+		 * 只给测试用：关掉稀疏块剪枝，盒内每个角点都求值。
+		 * 剪枝只少算、不改值，故两条路径网格必须逐顶点相同（SparseMatchesDense 拿它对当）。
 		 */
 		bool bSampleEveryCorner = false;
 	};
@@ -59,21 +49,11 @@ namespace PlanetMineralSurface
 		/** 下标 = 运行期元素下标（GetSampledElementDefinitions 顺序）；空元素留空网格。 */
 		TArray<FPlanetMineralMesh> MeshesByElement;
 		/**
-		 * 每个元素的簇数，下标与 MeshesByElement 一一对齐（没矿囊的元素为 0）。
-		 *
-		 * 分簇是**按元素**做的（元素之间互不参与求值），所以这里的值就是该元素自己的
-		 * 簇数，与其它元素的矿囊无关。
-		 *
-		 * 诊断用途：同元素的两个 AABB 相交的矿囊必须并成**一**簇 —— 分别建面会在
-		 * 重叠处留下两张互穿的面；分簇判据被放松成「永远各建各的」时，值会变成 2。
+		 * 每个元素的簇数，下标与 MeshesByElement 对齐（无矿囊为 0）。分簇按元素做，值为该元素自身簇数。
+		 * 诊断用：同元素两个 AABB 相交的矿囊必须并成一簇，否则重叠处会留两张互穿的面。
 		 */
 		TArray<int32> ClustersByElement;
-		/**
-		 * 实际求过场的角点数，只进日志：按（元素 × 簇）累加。
-		 *
-		 * 稀疏剪枝之后它**小于**栅格盒子的角点数 —— 盒子里的空域整块跳过，不再逐点求值。
-		 * 与 `OccupiedCells` 不同：那条统计的是场值高于等值线的角点，这条是求值次数。
-		 */
+		/** 实际求过场的角点数（元素 × 簇累加），只进日志；稀疏剪枝后小于栅格盒角点数。 */
 		int32 GridPoints = 0;
 		/** 每个元素求值的角点数，下标与 MeshesByElement 对齐。诊断「谁在吃预算」。 */
 		TArray<int32> CornersByElement;
@@ -81,21 +61,11 @@ namespace PlanetMineralSurface
 		double SampleSeconds = 0.0;
 		/** 等值面抽取（FMarchingCubes）的累计 CPU 秒。 */
 		double MarchSeconds = 0.0;
-		/**
-		 * 各（元素 × 簇）任务墙钟的累计秒。
-		 *
-		 * JobSeconds / BuildSeconds 就是这次构建实际用到的并行核数：接近 1 说明
-		 * 并行度被单个大任务卡死（任务粒度太大），远小于核数则是有大任务在拖尾。
-		 */
+		/** 各（元素 × 簇）任务墙钟累计秒。JobSeconds / BuildSeconds ≈ 实际并行核数：接近 1 说明被单个大任务卡死。 */
 		double JobSeconds = 0.0;
 		/** （元素 × 簇）任务数，即并行单元数。 */
 		int32 PairCount = 0;
-		/**
-		 * 撞到单任务 8'000'000 角点硬上限的任务数。
-		 *
-		 * 非 0 = 这批几何被**降采样**了（格边被放大、细节丢失），也是「构建为什么慢」
-		 * 的直观指标：撞满的任务一个都不能少算，降 `CellsPerFeature` 也救不回它们。
-		 */
+		/** 撞到单任务 8'000'000 角点硬上限的任务数。非 0 = 几何被降采样（格边放大、细节丢失），降 CellsPerFeature 也救不回。 */
 		int32 CappedPairs = 0;
 		double BuildSeconds = 0.0;
 	};
@@ -121,50 +91,18 @@ namespace PlanetMineralSurface
 	};
 
 	/**
-	 * 按 AABB 相交把区域分簇（空间哈希 + 每格 sweep-and-prune）。
-	 *
-	 * OutClusterRoots[i] = 区域 i 所属簇的代表，取**簇内最小区域下标**。
-	 * 这样两次构建的簇顺序由数据决定，而不是 TMap 的哈希顺序。
-	 *
-	 * 不能把「同格」直接当相交：两个小区域可以同格却相距很远，直接 union 会把
-	 * 不相交的矿体并成一个大簇，簇盒变大 → 角点数暴涨。
-	 *
-	 * 退化分支：所有包围盒尺寸全零时格边 `CellSize` 为 0，函数直接返回，等价于
-	 * 「各自成簇」。这道早退防的是空间哈希里的除零；它与上面的「AABB 相交即同簇」
-	 * 在零尺寸盒上**不一致**（同点零尺寸盒按 `<=` / `>=` 的判据其实相交），是有意为之
-	 * —— 没有格边就无法用哈希证明相交，宁可少合。正常生成器不会报出零尺寸区域，
-	 * 这条只防退化输入。
+	 * 按 AABB 相交把区域分簇（空间哈希 + 每格 sweep-and-prune）。OutClusterRoots[i] 为簇代表（簇内最小区域下标），
+	 * 使两次构建的簇顺序由数据而非 TMap 哈希顺序决定。不能把「同格」当相交：小区域可同格却相距很远，会合出大簇。
+	 * 全零尺寸时格边为 0，直接返回（各自成簇），防空间哈希除零；与「AABB 相交即同簇」在零尺寸盒上故意不一致。
 	 */
 	STELLARERAPLANET_API void ClusterRegionBounds(const TArray<FBox>& BoundsCm,
 		TArray<int32>& OutClusterRoots);
 
 	/**
-	 * 逐元素抽等值面。Out 先被清空；参数非法或场为空时返回空结果，不报错。
-	 *
-	 * **按元素分簇**：元素之间互不参与求值（等值面按 `SampleElementNormAtNormalized`
-	 * 逐元素取），所以先按元素分组，再在组内按 AABB 相交分簇（空间哈希 + 并查集）。
-	 * 跨元素分簇会让一个元素的包围盒去背别人的空域，实测把每个任务都顶到角点上限。
-	 *
-	 * **局部栅格**：每簇一套独立栅格，基准格边 = 2 × 簇内最小特征半径 / CellsPerFeature，
-	 * 盒子 = 簇包围盒外扩一格。这样分辨率跟着特征尺度走，而不是跟着行星直径走。
-	 *
-	 * **稀疏块**：栅格按 8³ 格切块，只对与本簇区域包围盒相交的块逐点求值，其余块留 0。
-	 * 依据是上面那条零支持域前提（块外恒为 0），所以它只省时间、不改网格。
-	 *
-	 * 基准格边有两条上限：每轴格数 ≤ 512、单任务总角点 ≤ 8'000'000。触发时
-	 * **放大格边**（分辨率下降），不丢几何 —— 跳过簇会让整簇矿体凭空消失。
-	 * 触发次数记在 `CappedPairs` 里。
-	 *
-	 * 外扩一格保证盒子边界上**本簇**矿体的角点场值为 0（每个分布的零支持域
-	 * ⊆ 其 Region.Bounds），Marching Cubes 因此对这些矿囊在盒子内封闭 —— 漏了外扩
-	 * 就会在面上开洞。
-	 * 簇之间只保证 AABB 不相交、不保证相隔一格：同一元素其它簇的矿体若落进本簇
-	 * 盒子的一格余量里，其等值面会在盒边被截断。稀疏块用的是**本簇**的区域包围盒，
-	 * 对外来簇同样不设防 —— 两处是同一个已知缺口。
-	 *
-	 * 顶点仍会径向夹到球内（`|v| <= R`）：观察体的半透明壳就画在 R 上。
-	 * 各元素场独立取面：两种元素同时高于门限的地方，两块矿体会互相穿插（共生矿囊），
-	 * 不做 winner-take-all —— 布尔场做 MC 会退回方块状边缘。
+	 * 逐元素抽等值面。Out 先清空；参数非法或场为空时给空结果，不报错。
+	 * 按元素分簇（跨元素分簇会让一个元素的包围盒背别人的空域，把任务顶到角点上限）；每簇独立局部栅格，
+	 * 格边 = 2 × 簇内最小特征半径 / CellsPerFeature，按 8³ 稀疏块只对相交块求值（只省时间、不改网格）。
+	 * 每轴 ≤ 512 格、单任务 ≤ 8'000'000 角点时放大格边而不丢几何（记入 CappedPairs）；盒子外扩一格防开洞，顶点径向夹到 R。
 	 */
 	STELLARERAPLANET_API void Build(const FPlanetGeologyField& Field, const FBuildParams& Params,
 		FBuildResult& Out);

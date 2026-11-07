@@ -11,7 +11,6 @@
 #include "PlanetEditUI.h"
 #include "SpaceshipPawn.h"
 #include "StarMapCameraPawn.h"
-#include "StarMapUIInputs.h"
 #include "StarMapUISystem.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
@@ -66,8 +65,8 @@ void AStellarEraHUD::DrawHUD()
 		const FSpaceshipStatus Status = Ship->GetStatus();
 		const float GravityKmPerS2 = GetShipGravityKmPerS2(Ship);
 
-		// 日志每秒一条：面板只显示一帧的瞬时值，起飞失败往往要回看几秒的
-		// 重力/推力对比，日志比截图省事。用世界时间判间隔，掉帧也不会刷屏。
+		// 日志每秒一条：面板只有瞬时值，起飞失败要回看几秒的重力/推力对比。
+		// 用世界时间判间隔，掉帧也不会刷屏。
 		const UWorld* World = GetWorld();
 		const float Now = World ? World->GetTimeSeconds() : 0.f;
 		if (LastGravityLogTime < 0.f || Now - LastGravityLogTime >= 1.f)
@@ -84,7 +83,7 @@ void AStellarEraHUD::DrawHUD()
 	}
 
 	// 星图模式的信息面板：只在当前 Pawn 是星图相机时画。
-	if (const APlayerController* PlayerController = GetOwningPlayerController())
+	if (APlayerController* PlayerController = GetOwningPlayerController())
 	{
 		if (Cast<AStarMapCameraPawn>(PlayerController->GetPawn()))
 		{
@@ -92,10 +91,7 @@ void AStellarEraHUD::DrawHUD()
 			{
 				StarMapUI = NewObject<UStarMapUISystem>(this);
 			}
-			if (IStarMapUIInputs* Inputs = Cast<IStarMapUIInputs>(GetOwningPlayerController()))
-			{
-				StarMapUI->Draw(*this, *Inputs);
-			}
+			StarMapUI->Draw(*this, *PlayerController);
 		}
 	}
 
@@ -118,8 +114,7 @@ FVector2D AStellarEraHUD::GetViewportSize() const
 
 FString AStellarEraHUD::FormatFrameRateLine(const float SmoothedFps)
 {
-	// 还没有样本，或数值异常（NaN/Inf）：给占位符。直接 Printf 会往画面上
-	// 印 "nan"/"inf"，首帧之前也不该假装已经有一个帧率。
+	// 无样本或数值异常（NaN/Inf）时给占位符：直接 Printf 会印出 "nan"/"inf"。
 	if (!FMath::IsFinite(SmoothedFps) || SmoothedFps <= 0.f)
 	{
 		return TEXT("帧率      --");
@@ -147,8 +142,7 @@ float AStellarEraHUD::UpdateSmoothedFps(
 		return InstantFps;
 	}
 
-	// 一阶低通：Alpha 由 dt 和 Tau 算出，而不是固定系数，这样掉帧时
-	// （dt 变大）收敛速度仍然按真实时间算。
+	// 一阶低通：Alpha 由 dt 和 Tau 算出而非固定系数，掉帧时收敛速度仍按真实时间算。
 	const float Alpha = 1.f - FMath::Exp(-DeltaSeconds / FMath::Max(SmoothingTau, 1.e-3f));
 	return FMath::Lerp(CurrentSmoothedFps, InstantFps, Alpha);
 }
@@ -210,8 +204,7 @@ void AStellarEraHUD::DrawPlanetEditPanel(const UPlanetEditComponent& Edit)
 	const FLinearColor Background(0.f, 0.f, 0.f, 0.55f);
 	const float Size = PlanetEditUI::ButtonSize;
 
-	// AHUD 的绘制参数都是 float，而 FVector2D 的分量是 double。
-	// 本项目警告即错误，这里先转成 float 再用。
+	// AHUD 的绘制参数是 float，FVector2D 分量是 double；本项目警告即错误，先显式转。
 	const float SphereX = static_cast<float>(SpherePosition.X);
 	const float SphereY = static_cast<float>(SpherePosition.Y);
 	const float CubeX = static_cast<float>(CubePosition.X);
@@ -264,9 +257,7 @@ void AStellarEraHUD::DrawPlanetEditPanel(const UPlanetEditComponent& Edit)
 		DrawLine(HexX[Index], HexY[Index], HexX[Next], HexY[Next], CubeColor, 2.f);
 	}
 
-	// 等轴测方块的三条可见棱共用中心这一个交点：左上棱到 Hex[5]（cx-12, cy-7）、
-	// 右上棱到 Hex[1]（cx+12, cy-7）、前面竖棱到最下方的六边形顶点（cx, cy+14）。
-	// 交点必须落在中心 —— 挪到 cy-7 会让三条线互不相交，方块看起来是散的。
+	// 三条可见棱共用中心交点：挪到 cy-7 三条线就互不相交，方块看起来是散的。
 	DrawLine(CubeCenterX, CubeCenterY,
 		HexX[5], HexY[5], CubeColor, 1.5f);
 	DrawLine(CubeCenterX, CubeCenterY,
@@ -274,12 +265,8 @@ void AStellarEraHUD::DrawPlanetEditPanel(const UPlanetEditComponent& Edit)
 	DrawLine(CubeCenterX, CubeCenterY,
 		CubeCenterX, CubeCenterY + 14.f, CubeColor, 1.5f);
 
-	// ── 提示行 ──
-	// 「怎么放」由组件说：角色是右键点放，星图是 Shift+左键按住连续挖 · Ctrl+左键填。写死在 HUD 里
-	// 就等于把两种输入方案各抄一份，改一处忘一处。
-	// 粗调只在「有档可粗」时提示：星图一档 10 体素、上限 1280，不按住 Ctrl 得按
-	// 一百多下；角色一档 1 格、区间 1..8，粗调对它没意义，别在 HUD 上挂一条按了
-	// 没反应的键。
+	// 「怎么放」由组件说，写死在 HUD 里等于把两种输入方案各抄一份。
+	// 粗调只在有档可粗时提示：角色一档 1 格，粗调对它没意义。
 	const FString CoarseHint = Edit.GetBrushSizeStepVoxels() > 1
 		? FString(TEXT(" · Ctrl 粗调"))
 		: FString();
@@ -303,8 +290,7 @@ float AStellarEraHUD::GetShipGravityKmPerS2(const ASpaceshipPawn* Ship) const
 		return -1.f;
 	}
 
-	// 直接读求解器本帧算出的引力合力：HUD 只做单位换算，不重算引力，
-	// 否则显示的数和真正施加到飞船上的数可能对不上。
+	// 直接读求解器本帧的引力合力：HUD 只换算，重算会和实际施加到飞船的数对不上。
 	UWorld* World = GetWorld();
 	UCosmosSimulationSubsystem* Simulation =
 		World ? World->GetSubsystem<UCosmosSimulationSubsystem>() : nullptr;
@@ -345,9 +331,8 @@ void AStellarEraHUD::FormatSpeedLines(
 	const float MaxKmPerSecond, const bool bHasReferencePlanet,
 	FString& OutAbsoluteLine, FString& OutRelativeLine)
 {
-	// 绝对速度：惯性系，只报数，不带上限 —— 上限比的是相对参考行星的速度
-	// （见 ASpaceshipPawn::GetThrustAccelerationWorldCmPerS2）。非有限值 / 负值
-	// 不能印 nan/inf。
+	// 绝对速度是惯性系读数，不带上限 —— 上限比的是相对参考行星的速度
+	// （见 ASpaceshipPawn::GetThrustAccelerationWorldCmPerS2）。非有限值/负值不印 nan/inf。
 	if (!FMath::IsFinite(AbsoluteKmPerSecond) || AbsoluteKmPerSecond < 0.f)
 	{
 		OutAbsoluteLine = TEXT("绝对速度  --");
@@ -357,9 +342,7 @@ void AStellarEraHUD::FormatSpeedLines(
 		OutAbsoluteLine = FString::Printf(TEXT("绝对速度  %.2f km/s"), AbsoluteKmPerSecond);
 	}
 
-	// 相对速度必须有参考行星才有意义；太空里（PlanetActor 为空）印占位符，
-	// 否则读者会以为「相对速度」也是某个真实参考系。
-	// 速度上限印在这一行：推力衰减比的就是相对速度。
+	// 无参考行星就印占位符，否则会被误认为真实参考系。上限印在这一行：推力衰减比的是相对速度。
 	if (!bHasReferencePlanet)
 	{
 		OutRelativeLine = TEXT("相对速度  --（无参考行星）");
@@ -388,8 +371,8 @@ void AStellarEraHUD::DrawStatusPanel(const FSpaceshipStatus& Status, const float
 		return;
 	}
 
-	// 推力标签：`bThrustLocked`（旧「保底速度锁定」）随移动组件一起没了 ——
-	// 阻尼模型下按 W 自然收敛到极速，不需要「保底 + 锁速」这个机制。
+	// 推力标签：bThrustLocked（旧「保底速度锁定」）随移动组件一起没了，不必再加回来 ——
+	// 阻尼模型下按 W 自然收敛到极速。
 	FString ThrustLabel;
 	if (Status.ThrustInput > 0.f)
 	{
@@ -404,20 +387,15 @@ void AStellarEraHUD::DrawStatusPanel(const FSpaceshipStatus& Status, const float
 		ThrustLabel = TEXT("无");
 	}
 
-	// 极速为 0 表示**什么上限都没有**（巡航开着 = 阻尼关掉，且飞船的硬上限也
-	// 设成了 0）—— 那是「没有上限」，不是「不能动」，所以分两种印法而不是直接印 0。
-	// 巡航开着但设了硬上限时，飞船报上来的就是那个硬上限，照常印「x / y」。
-	//
-	// 速度印两条：绝对（惯性系，只用于观察）与相对参考行星（速度上限、大气阻力、
-	// 「停在地表上」都按这条）。贴着一颗公转中的行星静止时，两条的差别就是行星速度。
+	// 极速为 0 表示什么上限都没有，不是「不能动」，所以分开印。速度两条：绝对
+	// （惯性系，只观察）与相对参考行星（上限、阻力、落地都按它）；贴静止行星时两者差即行星速度。
 	FString AbsoluteSpeedLine;
 	FString RelativeSpeedLine;
 	FormatSpeedLines(Status.SpeedKmPerSecond, Status.RelativeSpeedKmPerSecond,
 		Status.MaxSpeedKmPerSecond, Status.bHasReferencePlanet,
 		AbsoluteSpeedLine, RelativeSpeedLine);
 
-	// 大气：密度为 0 就是真空（太空里、或在大气壳之外）。有密度时把阻力也印出来，
-	// 调阻力系数时不用另开日志。
+	// 密度为 0 就是真空；有密度时把阻力也印出来，调阻力系数不用另开日志。
 	const FString AtmosphereLine = Status.AtmosphereDensityRatio > 0.f
 		? FString::Printf(TEXT("大气      密度 %.1f%%  阻力 %.2f km/s²"),
 			Status.AtmosphereDensityRatio * 100.f, Status.AtmosphereDragKmPerS2)
@@ -438,8 +416,7 @@ void AStellarEraHUD::DrawStatusPanel(const FSpaceshipStatus& Status, const float
 
 	const FString Title(TEXT("飞船状态"));
 
-	// 先量出最宽的一行，面板宽度才包得住所有文字 —— 写死宽度的话，
-	// 改一个字的标签就会被裁掉。
+	// 先量出最宽的一行，面板宽度才包得住所有文字；写死宽度会被裁字。
 	float ContentWidth = 0.f;
 	float TitleHeight = 0.f;
 	{

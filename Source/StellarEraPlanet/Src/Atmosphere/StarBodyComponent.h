@@ -9,26 +9,10 @@ class UMaterialInterface;
 class UWorld;
 
 /**
- * 「这个 Actor 是一颗恒星」的标记 + 主光接管开关。
- *
- * ── 为什么不能只靠 UCosmosOrbitComponent 判断恒星 ──────────────
- * 判断恒星的代码是大气组件，它在本模块；而 UCosmosOrbitComponent 在 Cosmos 模块。
- * `StellarEraCosmos → StellarEraPlanet` 这条依赖已经存在，反向再来一条就成环
- * （见 docs/superpowers/specs/2026-11-02-sun-star-bodies-design.md §4）。
- *
- * 于是恒星的身份拆成两个互不认识的组件，由关卡里的同一个 Actor 同时挂上：
- *   - UCosmosOrbitComponent（Cosmos）：质量多少、初速多少 —— 物理身份
- *   - 本组件（Planet）            ：这是一颗恒星、是否接管主光 —— 视觉 / 大气身份
- * Cosmos 不需要知道「恒星」这个概念，Planet 也不需要知道 N 体。
- *
- * 与 UCosmosOrbitComponent 同样的取舍：**不 Tick，组件自己不存位置**。
- * 恒星位置就是 Owner 的位置，每帧现取 —— 恒星在 N 体里是会动的。
- *
- * 恒星的颜色与相对亮度**不在本组件上冗余字段**，从 Owner 网格的材质实例
- * （MI_Sun_*）的 HotColor / Brightness 读出来并缓存。缓存的失效条件只有一个：
- * **材质接口指针变了**（见 RefreshSunParameters）—— 所以先在编辑器里改 MI 的值、
- * 或者运行期换掉材质实例，才会刷新；直接对同一个 MI 调 SetVectorParameterValue
- * 不会重读。
+ * 「这个 Actor 是一颗恒星」的标记 + 主光接管开关。恒星身份拆成两个组件：Cosmos 的
+ * UCosmosOrbitComponent 管物理身份，本组件管视觉/大气身份（反向依赖会成环）。
+ * 不 Tick、不存位置，位置就是 Owner；颜色/亮度从 Owner 网格的 MI 读并缓存，
+ * 只有材质接口指针变了才重读。
  */
 UCLASS(ClassGroup = (StellarEra), meta = (BlueprintSpawnableComponent))
 class STELLARERAPLANET_API UStarBodyComponent : public UActorComponent
@@ -39,43 +23,27 @@ public:
 	UStarBodyComponent();
 
 	/**
-	 * 这颗恒星是否驱动自己那盏定向光（SunLight）。
-	 *
-	 * 多恒星下**每颗**开启该标志的恒星都驱动各自的灯：灯从这颗星指向行星，
-	 * 照亮它该照亮的那一面。独占的只有「主光名额」（ForwardShadingPriority = 1
-	 * 与 bAtmosphereSunLight）——那一个由离行星最近、且开启该标志的恒星占用，
-	 * 因为引擎只允许一盏灯参与前向着色与大气太阳光。
-	 *
-	 * 关掉它只是不再驱动它那盏定向光：这颗星**仍然**作为大气/云的光源参与着色
-	 * （`CollectSunsFor` 不按该标志过滤），只是不转灯、不改色、也不占主光名额。
+	 * 是否驱动自己那盏定向光。每颗开启的恒星都驱动各自的灯；独占的只有主光名额
+	 * （ForwardShadingPriority / bAtmosphereSunLight），由离行星最近且开启该标志的恒星占用。
+	 * 关掉后这颗星仍作为大气/云光源参与着色（CollectSunsFor 不按此标志过滤）。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "StellarEra|Star")
 	bool bDrivesDirectionalLight = true;
 
 	/**
-	 * 这颗恒星驱动的定向光。
-	 *
-	 * 关卡里显式指定（`EditInstanceOnly`）；留空则自动认领关卡里**没被别的恒星占用**
-	 * 的第一盏 ADirectionalLight，并把结果缓存在 AutoSunLight。
-	 * 显式绑定存在的意义：自动认领按 Actor 遍历顺序，谁拿哪盏灯不可预期，
-	 * 而"哪盏灯是主光"要写进资产才能消掉编辑器里那条竞争警告。
+	 * 这颗恒星驱动的定向光。留空则自动认领第一盏未被别的恒星占用的 ADirectionalLight
+	 * 并缓存在 AutoSunLight；显式绑定可消掉编辑器里"哪盏是主光"的竞争警告。
 	 */
 	UPROPERTY(EditInstanceOnly, BlueprintReadWrite, Category = "StellarEra|Star")
 	TObjectPtr<ADirectionalLight> SunLight;
 
-	/**
-	 * 辐射色：恒星网格材质实例的 HotColor，按最大分量归一化。
-	 * 材质读不到（没有网格 / 没有材质 / 参数名不对）时回退白色。
-	 */
+	/** 辐射色：材质 HotColor 按最大分量归一化；读不到（无网格/材质/参数）时回退白色。 */
 	UFUNCTION(BlueprintCallable, Category = "StellarEra|Star")
 	FLinearColor GetSunColor() const;
 
 	/**
-	 * 相对亮度：材质里的 Brightness ÷ 150（G2V 预设的现值），钳到 [0.05, 4]。
-	 *
-	 * 为什么不是物理光度：Brightness 是"太阳在屏幕上看起来多大"的美术旋钮
-	 * （60 / 150 / 400），直接当光度用会让 M2V 照的行星黑成一片。
-	 * 除以 150 得到的 0.4 / 1.0 / 2.67 是刻意压缩过的艺术比值。
+	 * 相对亮度：材质 Brightness ÷ 150（G2V 预设），钳到 [0.05, 4]。Brightness 是美术
+	 * 旋钮不是光度，÷150 得到 0.4 / 1.0 / 2.67 的压缩艺术比值。
 	 */
 	UFUNCTION(BlueprintCallable, Category = "StellarEra|Star")
 	float GetRelativeBrightness() const;
@@ -90,11 +58,8 @@ public:
 	ADirectionalLight* ResolveSunLight();
 
 	/**
-	 * 让灯从 PlanetCenter 的方向照过来，同时写入颜色、强度与主光名额。
-	 *
-	 * **只在游戏世界执行**：编辑器视口里每帧转灯会把关卡一直标脏。
-	 * 编辑器里要消除"多个定向光源竞争"的警告，靠的是关卡资产里的
-	 * ForwardShadingPriority / bAtmosphereSunLight（Task 4 写入），不是这里。
+	 * 让灯从 PlanetCenter 方向照过来，写入颜色、强度与主光名额。只在游戏世界执行，
+	 * 编辑器里每帧转灯会把关卡一直标脏。
 	 */
 	void DriveSunLight(const FVector& PlanetCenter, float BaseIntensity, bool bIsPrimary);
 
@@ -102,11 +67,8 @@ public:
 	static void FindAll(const UWorld* World, TArray<UStarBodyComponent*>& OutStars);
 
 	/**
-	 * 世界上离 FromLocation 最近的恒星组件；World 为空或世界里没有恒星时返回 nullptr。
-	 *
-	 * 用「最近」而不是「唯一」：三颗恒星下每颗行星应当被自己那颗恒星照亮。
-	 * 每次都完整遍历 —— 关卡里天体是个位数，成本可以忽略，换来的是恒星移动、
-	 * 增删时不需要任何失效通知。
+	 * 离 FromLocation 最近的恒星组件；World 空或没有恒星返回 nullptr。每次都完整遍历
+	 * —— 天体是个位数，换来增删/移动时不需要失效通知。
 	 */
 	static UStarBodyComponent* FindNearest(const UWorld* World, const FVector& FromLocation);
 

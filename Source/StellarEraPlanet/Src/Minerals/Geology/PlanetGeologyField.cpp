@@ -58,12 +58,8 @@ TSharedPtr<const FPlanetGeologyField> FPlanetGeologyField::BuildFromPreset(
 			Definition.Distributions.Add(MoveTemp(Runtime));
 		}
 
-		// 遗留兜底：旧资产没有 Distributions 但有 PodCount。种子必须是旧公式，
-		// 用新派生规则会让旧行星的矿囊全部换位置。
-		//
-		// 判据必须是数据层的 Params.Distributions（与 MigrateLegacyElement 同口径）：
-		// 上面刚把「runtime 为空」的生成器过滤掉了，拿过滤后的数组判会让「挂了生成器、
-		// 只是暂时没基元」的元素凭空冒出 PodCount 个旧矿囊。
+		// 遗留兜底：旧资产有 PodCount 无 Distributions，种子必须是旧公式，换规则会让旧行星矿囊移位。
+		// 判据用数据层 Params.Distributions（同 MigrateLegacyElement）：上面已滤掉空 runtime，按其判会让挂生成器的元素冒出旧矿囊。
 		if (Params.Distributions.Num() == 0 && Params.PodCount > 0)
 		{
 			const int32 LegacySeed = Params.Seed != 0
@@ -91,8 +87,7 @@ TSharedPtr<const FPlanetGeologyField> FPlanetGeologyField::BuildFromPreset(
 		Field->Elements.Add(MoveTemp(Definition));
 	}
 
-	// 矿囊可及整个球体：可及深度就是行星半径。不设的话 SampleGeometryDelta 的
-	// Depth > MaxReachDepth 早退对任何球内点都成立，GeometryAmplitude 永远不生效。
+	// 矿囊可及整个球体：不设成半径的话 SampleGeometryDelta 的深度早退对所有球内点成立，GeometryAmplitude 永远不生效。
 	Field->MaxReachDepth = float(FMath::Max(Field->RadiusVoxels, 0.0));
 
 	return Field;
@@ -215,9 +210,7 @@ FPlanetGeologySample FPlanetGeologyField::Sample(const FVector& UnitDir, double 
 	FLinearColor WeightedColor = FLinearColor::Black;
 	Accumulate(UnitDir, Depth, true, Accumulation, WeightedColor);
 
-	// DominantNorm / DominantIndex 只依赖各元素 Norm，与丰度无关：即使全元素
-	// Abundance = 0（退化配置）也要给出，否则会与 SampleElementNorms 的契约分叉
-	//（观察体照长、地形照凸，而 Sample 却说「没有矿」）。
+	// DominantNorm / DominantIndex 与丰度无关，Abundance 全 0 也要给出，否则与 SampleElementNorms 的契约分叉。
 	Result.DominantNorm = FMath::Clamp(float(Accumulation.DominantNorm), 0.f, 1.f);
 	Result.DominantIndex = Accumulation.DominantIndex;
 
@@ -253,9 +246,7 @@ float FPlanetGeologyField::SampleGeometryDelta(const FVector& UnitDir, double De
 	FLinearColor UnusedColor = FLinearColor::Black;
 	Accumulate(UnitDir, Depth, false, Accumulation, UnusedColor);
 
-	// 取各元素 Norm 的**最大值**，不做丰度加权平均：Abundance 的承诺是「只影响颜色
-	// 混合权重与图例占比」，地形外凸量必须与它无关。这样外凸量也仍被
-	// GeometryAmplitude 严格限住（≤ GeometryAmplitude），元素再多也不会变强或变弱。
+	// 取各元素 Norm 的最大值，不做丰度加权：Abundance 只影响颜色，外凸量须与它无关且被 GeometryAmplitude 限住。
 	const double MaxNorm = Accumulation.DominantNorm;
 	if (MaxNorm <= 0.0)
 	{
@@ -299,7 +290,6 @@ void FPlanetGeologyField::Accumulate(const FVector& UnitDir, double Depth, bool 
 	{
 		const FPlanetGeologyElement& Definition = Elements[ElementIndex];
 
-		// 单元素求值：各生成器取 max。没有任何基元时恒 0。
 		double ElementNorm = double(EvaluateElementNorm(ElementIndex, NormalizedPoint));
 		double ElementRaw = double(Definition.Abundance) * ElementNorm;
 

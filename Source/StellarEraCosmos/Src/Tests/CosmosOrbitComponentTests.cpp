@@ -1,7 +1,6 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 //
-// 单位迁移的回归测试。PostLoad 是旧资产（M☉ / AU每年）进入新字段
-// （M⊕ / km/s）的唯一通道，写错一次就会把整套天体的质量或速度改掉。
+// 单位迁移回归：PostLoad 是旧资产（M☉ / AU每年）进入新字段（M⊕ / km/s）的唯一通道。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"

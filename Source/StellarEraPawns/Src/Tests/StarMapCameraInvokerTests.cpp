@@ -1,17 +1,7 @@
 ﻿// 星图相机体素调用器配置的回归测试。
-//
-// 星图相机与飞船会在同一片地形上交替出现（驾驶 ↔ 星图），所以调用器参数
-// 必须和飞船（SpaceshipPawn.cpp 构造函数）保持一致 —— 两套值不一致的话，
-// 切模式的瞬间 LOD 会抖一下。这里锁的是：
-//   1. 恰好四个调用器（细气泡 + LOD3 环 + LOD5 环 + LOD6 过渡环）；
-//   2. 四档 LOD 数值与飞船一致；
-//   3. 碰撞只开在细气泡上。
-//
-// 断言的是构造函数产出的 CDO，不需要世界、不需要 PIE。
-//
-// 与飞船测试的唯一差别：这里是 **Simple** 版本而不是 WithPrediction。
-// 本 Pawn 不 Tick，位置在 CalcCamera 里现算，GetVelocity() 恒为零，
-// 预测位移永远是 0 —— 挂预测版只是多一层空转。
+// 相机与飞船会在同一片地形上交替出现，参数必须一致，否则切模式时 LOD 会抖。锁三件事：
+// 恰好四个调用器、四档数值与飞船一致、碰撞只开在细气泡上。与飞船测试的唯一差别是
+// **Simple** 版：本 Pawn 不 Tick，GetVelocity() 恒为零，挂预测版只是多一层空转。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -65,9 +55,8 @@ bool FStellarEraStarMapCameraInvokerTest::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	// 类必须是项目自己的 AlwaysLocal 子类：插件原类只把「被本地控制器 Possess
-	// 的 Pawn」算作 local invoker，进/出星图换 Possess 时会把星图调用器踢出
-	// LOD、触发全量重建（见 AlwaysLocalVoxelInvokerComponent.h）。
+	// 必须是项目自己的 AlwaysLocal 子类：插件原类只把被 Possess 的 Pawn 算作
+	// local invoker，进出星图换 Possess 时会踢出 LOD、触发全量重建。
 	TestTrue(TEXT("细气泡是 AlwaysLocal 类"),
 		Cast<UAlwaysLocalVoxelInvokerComponent>(Fine) != nullptr);
 	TestTrue(TEXT("LOD3 环是 AlwaysLocal 类"),

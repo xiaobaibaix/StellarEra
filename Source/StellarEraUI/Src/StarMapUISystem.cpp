@@ -5,7 +5,8 @@
 #include "CosmosOrbitComponent.h"
 #include "CosmosSimulationSubsystem.h"
 #include "CosmosTypes.h"
-#include "StarMapUIInputs.h"
+#include "StarMapCameraPawn.h"
+#include "StarMapPicking.h"
 #include "StellarEraHUD.h"
 #include "PlanetMineralViewComponent.h"
 #include "PlanetGeologyField.h"
@@ -14,6 +15,7 @@
 #include "Engine/Engine.h"
 #include "Engine/Font.h"
 #include "Engine/World.h"
+#include "GameFramework/PlayerController.h"
 
 bool UStarMapUISystem::BuildBodyInfo(AActor* Body, FStarMapBodyInfo& OutInfo)
 {
@@ -37,8 +39,8 @@ bool UStarMapUISystem::BuildBodyInfo(AActor* Body, FStarMapBodyInfo& OutInfo)
 	OutInfo.bSimulated = Orbit->bSimulated;
 	OutInfo.bExertsGravity = Orbit->bExertsGravity;
 
-	// 位置/速度按需换算：组件不再每帧回显。优先用运行期子系统的标定与求解器
-	// 速度；编辑器世界没有子系统，标定退回同一份 CDO 配置，速度退回初速。
+	// 位置/速度按需换算：优先用运行期子系统的标定与求解器速度；编辑器世界
+	// 没有子系统，标定退回 CDO 配置，速度退回初速。
 	const UCosmosSimulationSubsystem* CosmosSubsystem = nullptr;
 	double CmPerAu = 0.0;
 	if (const UWorld* World = Body->GetWorld())
@@ -207,85 +209,7 @@ TArray<FString> UStarMapUISystem::FormatMineralLegendLines(
 	return Lines;
 }
 
-void UStarMapUISystem::ComputeMineralLegendLayout(
-	const FVector2D& ViewportSizePx,
-	int32 EntryCount,
-	FStarMapPanelRect& OutPanel,
-	TArray<FStarMapPanelRect>& OutRowRects)
-{
-	OutPanel = PlacePanelBesideAnchor(
-		FVector2D(MineralLegendLayout::MarginPx, MineralLegendLayout::MarginPx),
-		0.f,
-		FVector2D(MineralLegendLayout::PanelWidthPx,
-			MineralLegendLayout::PanelHeightPx(EntryCount)),
-		ViewportSizePx, 0.f, MineralLegendLayout::MarginPx);
-
-	const int32 SlotCount = FMath::Max(EntryCount, 1);
-	OutRowRects.Reset();
-	OutRowRects.Reserve(SlotCount);
-
-	// 行区起点 = 内边距 + 标题 + 上分隔块（与 DrawMineralLegend 同一处算式）。
-	const float RowsTop = OutPanel.Y + MineralLegendLayout::Padding
-		+ MineralLegendLayout::TitleLineHeight
-		+ MineralLegendLayout::TitleToRowsTopOffset();
-
-	for (int32 SlotIndex = 0; SlotIndex < SlotCount; ++SlotIndex)
-	{
-		FStarMapPanelRect& Row = OutRowRects.AddDefaulted_GetRef();
-		Row.X = OutPanel.X + MineralLegendLayout::Padding;
-		Row.Y = RowsTop + SlotIndex * MineralLegendLayout::RowSlotHeight;
-		Row.W = OutPanel.W - MineralLegendLayout::Padding * 2.f;
-		Row.H = MineralLegendLayout::RowSlotHeight;
-	}
-}
-
-int32 UStarMapUISystem::HitTestMineralLegendRow(
-	const TArray<FStarMapPanelRect>& RowRects,
-	const FVector2D& ScreenPosPx)
-{
-	for (int32 RowIndex = 0; RowIndex < RowRects.Num(); ++RowIndex)
-	{
-		const FStarMapPanelRect& Row = RowRects[RowIndex];
-		// 上下各缩 HitInsetY：两行之间没有缝，不缩边会让接缝算作命中。
-		if (ScreenPosPx.X >= Row.X && ScreenPosPx.X <= Row.X + Row.W
-			&& ScreenPosPx.Y >= Row.Y + MineralLegendLayout::HitInsetY
-			&& ScreenPosPx.Y <= Row.Y + Row.H - MineralLegendLayout::HitInsetY)
-		{
-			return RowIndex;
-		}
-	}
-	return INDEX_NONE;
-}
-
-FStarMapPanelRect UStarMapUISystem::PlacePanelBesideAnchor(
-	const FVector2D& AnchorPx,
-	float AnchorRadiusPx,
-	const FVector2D& PanelSizePx,
-	const FVector2D& ViewportSizePx,
-	float GapPx,
-	float MarginPx)
-{
-	FStarMapPanelRect Rect;
-	Rect.W = float(PanelSizePx.X);
-	Rect.H = float(PanelSizePx.Y);
-
-	const float RightX = float(AnchorPx.X) + AnchorRadiusPx + GapPx;
-	const float LeftX = float(AnchorPx.X) - AnchorRadiusPx - GapPx - Rect.W;
-	const float MaxX = FMath::Max(MarginPx, float(ViewportSizePx.X) - MarginPx - Rect.W);
-	const float MaxY = FMath::Max(MarginPx, float(ViewportSizePx.Y) - MarginPx - Rect.H);
-
-	Rect.X = RightX;
-	if (RightX + Rect.W > float(ViewportSizePx.X) - MarginPx && LeftX >= MarginPx)
-	{
-		Rect.X = LeftX;
-	}
-
-	Rect.X = FMath::Clamp(Rect.X, MarginPx, MaxX);
-	Rect.Y = FMath::Clamp(float(AnchorPx.Y) - Rect.H * 0.5f, MarginPx, MaxY);
-	return Rect;
-}
-
-void UStarMapUISystem::Draw(AStellarEraHUD& Hud, IStarMapUIInputs& Inputs)
+void UStarMapUISystem::Draw(AStellarEraHUD& Hud, APlayerController& PlayerController)
 {
 	const FVector2D ViewportSize = Hud.GetViewportSize();
 	if (ViewportSize.X <= 0.0 || ViewportSize.Y <= 0.0)
@@ -302,25 +226,44 @@ void UStarMapUISystem::Draw(AStellarEraHUD& Hud, IStarMapUIInputs& Inputs)
 		return;
 	}
 
+	// 拾取容差与矿物透视都住在星图相机上。换 Pawn 的那一帧它可能还没切过去，
+	// 按空指针兜底即可。
+	const AStarMapCameraPawn* Camera = Cast<AStarMapCameraPawn>(PlayerController.GetPawn());
+
 	AActor* Selected = Subsystem->GetSelectedBody();
 
 	FVector2D MousePosition = FVector2D::ZeroVector;
-	const bool bHasMouse = Inputs.GetStarMapMousePositionPx(MousePosition);
+	double MouseX = 0.0;
+	double MouseY = 0.0;
+	const bool bHasMouse = PlayerController.GetMousePosition(MouseX, MouseY);
+	if (bHasMouse)
+	{
+		MousePosition = FVector2D(MouseX, MouseY);
+	}
 	const bool bMouseInside = bHasMouse &&
 		MousePosition.X >= 0.0 && MousePosition.Y >= 0.0 &&
 		MousePosition.X <= ViewportSize.X && MousePosition.Y <= ViewportSize.Y;
 
-	AActor* Hovered = bMouseInside
-		? Inputs.PickBodyUnderScreenPosition(MousePosition)
-		: nullptr;
+	// 拾取本身在 Pawns（相机输入组件与这里共用同一份）；容差取相机上的值，
+	// 相机不在手上时退回默认值。
+	AActor* Hovered = nullptr;
+	if (bMouseInside)
+	{
+		const float PixelTolerance = Camera
+			? Camera->GetSelectionPixelRadius()
+			: StarMapPicking::DefaultPixelTolerance;
+		Hovered = StarMapPicking::PickBodyUnderScreenPosition(
+			World, &PlayerController, MousePosition, PixelTolerance);
+	}
 
 	// 选中面板：贴天体投影中心右侧。中心不在视口内就不画。
 	if (IsValid(Selected))
 	{
-		FVector2D Center = FVector2D::ZeroVector;
-		float RadiusPx = 0.f;
+		FStarMapScreenCandidate Candidate;
 		const bool bProjected =
-			Inputs.ProjectBodyToScreen(Selected, Center, RadiusPx);
+			StarMapPicking::MakeScreenCandidate(&PlayerController, Selected, Candidate);
+		const FVector2D Center = Candidate.ScreenPosition;
+		const float RadiusPx = Candidate.ScreenRadiusPx;
 		const bool bCenterInside =
 			Center.X >= 0.0 && Center.Y >= 0.0 &&
 			Center.X <= ViewportSize.X && Center.Y <= ViewportSize.Y;
@@ -346,7 +289,9 @@ void UStarMapUISystem::Draw(AStellarEraHUD& Hud, IStarMapUIInputs& Inputs)
 	}
 
 	// 矿物观察图例：固定左上角，画在最后（压在所有天体面板之上）。
-	if (UPlanetMineralViewComponent* MineralView = Inputs.GetActiveMineralView())
+	UPlanetMineralViewComponent* MineralView =
+		Camera ? Camera->GetActiveMineralView() : nullptr;
+	if (MineralView)
 	{
 		AVoxelPlanetActor* ViewPlanet = MineralView->GetViewPlanet();
 		if (ViewPlanet)
@@ -426,7 +371,7 @@ void UStarMapUISystem::DrawBodyPanel(
 		+ SeparatorSpacing * 2.f + 1.f
 		+ BodyLineCount * (LineHeight + LineSpacing);
 
-	const FStarMapPanelRect Rect = PlacePanelBesideAnchor(
+	const FStarMapPanelRect Rect = StarMapPanelLayout::PlacePanelBesideAnchor(
 		AnchorPx, AnchorRadiusPx,
 		FVector2D(PanelWidth, PanelHeight), ViewportSizePx, Gap, Margin);
 
@@ -478,7 +423,7 @@ void UStarMapUISystem::DrawMineralLegend(
 
 	FStarMapPanelRect Panel;
 	TArray<FStarMapPanelRect> RowRects;
-	ComputeMineralLegendLayout(ViewportSizePx, Entries.Num(), Panel, RowRects);
+	StarMapPanelLayout::ComputeMineralLegendLayout(ViewportSizePx, Entries.Num(), Panel, RowRects);
 
 	const FLinearColor Background(0.f, 0.f, 0.f, 0.65f);
 	const FLinearColor Gold(1.f, 0.85f, 0.30f, 1.f);
@@ -530,7 +475,7 @@ void UStarMapUISystem::DrawMineralLegend(
 	}
 
 	// 提示行贴面板底：行数变化时提示不跟着上下跳。落点由布局命名空间给出，
-	// 与 PanelHeightPx 的高度预算同源，避免两处算式再次漂移。
+	// 与高度预算同源，避免两处算式漂移。
 	const float HintY = MineralLegendLayout::HintTextTopY(Panel);
 	Hud.DrawRect(Gold, Panel.X + MineralLegendLayout::Padding,
 		MineralLegendLayout::HintSeparatorY(Panel),

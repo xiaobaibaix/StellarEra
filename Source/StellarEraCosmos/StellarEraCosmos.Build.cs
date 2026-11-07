@@ -11,16 +11,13 @@ using UnrealBuildTool;
 // 2411 行就是这一个求解器，剩下一个枚举头和一个接口头 —— 为它维持一个
 // 模块的代价（依赖声明、模块入口、Target 登记）大于收益，故并入本模块。
 //
-// Planet / Pawns 是 **Private**：本模块的公开头不 include 它们的头，
-// 完整类型只在 .cpp 里用（公开头里这几个类只出现在注释中，连前置声明都没有）。
-// 本模块只用到这两者：Planet 提供行星 Actor，Pawns 提供受控天体 ASpaceshipPawn
-// （子系统每帧下来读它的推力与阻尼）。
+// Planet 是 **Private**：本模块的公开头不 include 它的头，完整类型只在 .cpp 里用
+// （CosmosBody.h 里只对 AVoxelPlanetActor 做前置声明）。
 //
-// 注意 StellarEraCosmos → StellarEraPawns 这条依赖是**模拟层反向依赖受控实体**，
-// 属于已知的债：CosmosSimulationSubsystem.cpp 里有 4 处 Cast<ASpaceshipPawn>。
-// 解法是定义一个 ICosmosBody 接口，让模拟层只认接口不认具体 Pawn。
-// 但接口没有天然的落脚点：放本模块则 Pawns 反过来要依赖 Cosmos，立刻成环。
-// Core 拆掉后这个位置只能新开，所以这条债与本次合并无关，单独安排。
+// 受控实体（ASpaceshipPawn）不再被本模块直接引用：原先的
+// StellarEraCosmos → StellarEraPawns 反向依赖（4 + 2 处 Cast<ASpaceshipPawn>）
+// 已随 ICosmosBody 接口抽离还清，接口落在 Src/CosmosBody.h。现在
+// Pawns → Cosmos 才是正确方向，Pawns 也不再出现在本模块的依赖列表里。
 public class StellarEraCosmos : ModuleRules
 {
 	public StellarEraCosmos(ReadOnlyTargetRules Target) : base(Target)
@@ -46,7 +43,6 @@ public class StellarEraCosmos : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"StellarEraPlanet",
-			"StellarEraPawns",
 		});
 	}
 }

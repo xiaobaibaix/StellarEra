@@ -11,8 +11,7 @@
 
 namespace
 {
-	// G2V 预设的 Brightness（Source/StellarEraPlanet/Src/Star/SunMaterialBuilder.cpp 的
-	// FSolarPreset 表）。相对亮度的标定基准：G2V = 1.0。
+	// G2V 预设的 Brightness（SunMaterialBuilder.cpp 的 FSolarPreset 表），相对亮度基准：G2V = 1.0。
 	constexpr float ReferenceBrightness = 150.0f;
 	constexpr float MinRelativeBrightness = 0.05f;
 	constexpr float MaxRelativeBrightness = 4.0f;
@@ -204,7 +203,7 @@ void UStarBodyComponent::DriveSunLight(const FVector& PlanetCenter, float BaseIn
 	const FVector StarLocation = Owner ? Owner->GetActorLocation() : FVector::ZeroVector;
 	const FVector Travel = (PlanetCenter - StarLocation).GetSafeNormal();
 
-	// Stationary / Static 的组件拒绝运行时转向，并逐帧刷 "Mobility must be 'Movable'"。
+	// Stationary / Static 组件拒绝运行时转向并逐帧刷 "Mobility must be 'Movable'"；
 	// 关卡里这些灯是静态摆放的，这里切一次。
 	if (USceneComponent* LightRoot = Light->GetRootComponent())
 	{
@@ -229,8 +228,7 @@ void UStarBodyComponent::DriveSunLight(const FVector& PlanetCenter, float BaseIn
 	LightComponent->SetLightColor(CachedSunColor, /*bSRGB=*/false);
 	LightComponent->SetIntensity(BaseIntensity * CachedRelativeBrightness);
 
-	// 边沿触发：引擎那条"多个定向光源竞争"的警告只看这两项，
-	// 每帧重写没有意义，还会无谓地标脏。
+	// 边沿触发：引擎那条"多个定向光源竞争"的警告只看这两项，每帧重写无意义还会无谓地标脏。
 	const int32 Priority = bIsPrimary ? 1 : 0;
 	if (AppliedForwardShadingPriority != Priority)
 	{

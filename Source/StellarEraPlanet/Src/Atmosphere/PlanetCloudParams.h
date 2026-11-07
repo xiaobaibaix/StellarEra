@@ -3,35 +3,15 @@
 #include "CoreMinimal.h"
 
 /**
- * 行星体积云的纯数学部分。
- *
- * 与 PlanetAtmosphereParams 一样不含 UObject，可被任意模块直接单测。
- * 真正的密度计算在材质 HLSL 里（PlanetAtmosphereMaterialBuilder.cpp），
- * 这里只放"必须和 C++ 侧算得一模一样"的那两件事：云层半径、覆盖率阈值。
+ * 行星体积云的纯数学部分。密度计算在材质 HLSL 里，这里只放必须与 C++ 侧算得
+ * 一模一样的云层半径与覆盖率阈值。不含 UObject，可直接单测。
  */
 namespace PlanetClouds
 {
 	/**
-	 * 同时参与着色的太阳槽位数。
-	 *
-	 * 与 `Shaders/PlanetClouds.ush` 的 `#define PLANET_MAX_SUNS 4` 是**两份字面量**，
-	 * 靠测试钉住（`PlanetAtmosphereMaterialTests` 断言 .ush 文本里写的是 4）。
-	 * 两者不一致的症状是「第 4 颗星在材质里根本不存在」。
-	 *
-	 * 改这个值要同时动六处，少一处就编译失败、测试变红、或静默沿用旧 shader：
-	 *   1. 这里；
-	 *   2. `Shaders/PlanetClouds.ush` 的 `PLANET_MAX_SUNS`；
-	 *   3. `PlanetAtmosphereComponent.cpp` 顶部 `ParamSunDirections` /
-	 *      `ParamSunRadiances` 的 4 项初始化列表；
-	 *   4. `PlanetAtmosphereMaterialBuilder.cpp` 的 Custom 节点 Code 里
-	 *      `CloudAtmosphereRaymarch` 那 4 组 `SunDirection3` / `SunRadiance3` 实参；
-	 *   5. 同文件顶部的 `PLANET_CLOUDS_VERSION`（不 +1 材质不重编，测试抓不到，
-	 *      现象是静默沿用旧 shader）；
-	 *   6. 改完重跑 `StellarEra.BuildAtmosphereMaterial` 重建材质资产；
-	 *      测试里 `PlanetAtmosphereMaterialTests.cpp` 三处对 4 的断言
-	 *      （`MaxSuns`、`.ush` 文本、`SunDirection3` 参数存在）也要跟着改。
-	 *
-	 * 降级旋钮：想省 GPU 就按下调小（关卡正好 3 颗）。
+	 * 同时参与着色的太阳槽位数。与 Shaders/PlanetClouds.ush 的 PLANET_MAX_SUNS 是两份
+	 * 字面量，测试钉住一致；改它要同步 .ush、组件参数数组、材质 Code 实参，并把
+	 * PLANET_CLOUDS_VERSION +1 后重跑 BuildAtmosphereMaterial。想省 GPU 就调小。
 	 */
 	constexpr int32 MaxSuns = 4;
 
@@ -43,13 +23,8 @@ namespace PlanetClouds
 	};
 
 	/**
-	 * 云层半径 = 表面半径 × (1 + 比例)，即以**行星中心**为原点的绝对半径。
-	 *
-	 * 比例是高度占表面半径的份额，与 ComputeShellRadiusCm 同一约定。
-	 * 少乘这个 (1 + …) 会让云层落到地面以下，HLSL 里密度恒 0。
-	 * 比例按 0 兜底（负比例没有物理意义），Top 被钳到不小于 Base ——
-	 * 比例写反时得到的是零厚度云层而不是负厚度，后者会让 HLSL 里的
-	 * 除法变号。
+	 * 云层半径 = 表面半径 × (1 + 比例)，以**行星中心**为原点的绝对半径。少乘 (1 + …)
+	 * 云层会落到地面以下、密度恒 0。比例按 0 兜底，Top 钳到不小于 Base（否则除法变号）。
 	 */
 	STELLARERAPLANET_API FCloudLayerRadii ComputeCloudLayerRadiiCm(
 		float SurfaceRadiusCm, float BaseRatio, float TopRatio);
@@ -61,17 +36,9 @@ namespace PlanetClouds
 	extern const float CloudNoiseThresholdAtFullCoverage;
 
 	/**
-	 * 覆盖率 → 噪声阈值，在噪声的实际取值区间上线性映射
-	 * （Coverage 0 → 0.63，1 → 0.36，钳到 0..1）。
-	 *
-	 * **不要改成教科书的 `1 - Coverage`。** 那个式子假设 w 在 [0,1] 上均匀，
-	 * 而 CloudFbm 是若干八度相加，分布是钟形：实测均值 0.497、标准差 0.050、
-	 * 取值区间 [0.243, 0.631]。用 `1 - Coverage` 时 Coverage=0.45 落在均值
-	 * +1σ，只有三分之一的方向穿过阈值，且穿过的样本平均密度只有 0.07 ——
-	 * 画面上是一层灰雾加暗斑，而不是云。
-	 *
-	 * HLSL 里用的就是这个式子（PlanetClouds.ush 的 CLOUD_THRESHOLD_AT_*），
-	 * 两边必须一致：不一致的症状是"组件上调了覆盖率，画面上看不出变化"。
+	 * 覆盖率 → 噪声阈值（0 → 0.63，1 → 0.36，钳到 0..1）。不要改成教科书的
+	 * `1 - Coverage`：CloudFbm 是钟形分布（均值 0.497、σ 0.050），1 - C 在 0.45 时
+	 * 只有三分之一方向穿过阈值且样本很淡，画面是灰雾加暗斑而非云。HLSL 侧用同一式子。
 	 */
 	STELLARERAPLANET_API float CoverageToNoiseThreshold(float Coverage);
 

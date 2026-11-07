@@ -29,10 +29,8 @@ namespace
 	const FName ParamShadowPlanetRadius(TEXT("PlanetRadius"));
 	const FName ParamShadowPenumbra(TEXT("Penumbra"));
 
-	// 材质参数名。必须与 PlanetAtmosphereMaterialBuilder.cpp 里的一致。
-	// 这里没有 CameraPos 与 PlanetCenter：两者都由材质节点从渲染侧取
-	// （CameraPositionWS / ObjectPositionWS），不再经过 C++ / MID —— 否则慢一帧，
-	// 原因见 PlanetAtmosphereMaterialBuilder.cpp 与 TickComponent 末尾的注释。
+	// 材质参数名，必须与 PlanetAtmosphereMaterialBuilder.cpp 一致。CameraPos / PlanetCenter
+	// 由材质从渲染侧取（CameraPositionWS / ObjectPositionWS），不经 C++ / MID，否则慢一帧。
 	const FName ParamPlanetRadius(TEXT("PlanetRadius"));
 	const FName ParamShellRadius(TEXT("ShellRadius"));
 	const FName ParamRayleighScaleHeight(TEXT("RayleighScaleHeight"));
@@ -64,9 +62,8 @@ UPlanetAtmosphereComponent::UPlanetAtmosphereComponent()
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.bStartWithTickEnabled = true;
 
-	// 编辑器视图也要 Tick：PlanetCenter / 太阳参数与行星半径变化全靠它更新。
-	// 引擎只在 LEVELTICK_ViewportsOnly 下 tick 带这个标记的组件
-	// （Actor.h 的 FActorComponentTickFunction::ExecuteTickHelper）。
+	// 编辑器视图也要 Tick：行星半径与太阳参数靠它更新；引擎只在 ViewportsOnly 下
+	// tick 带此标记的组件。
 	bTickInEditor = true;
 
 	// 壳纯装饰：不参与碰撞、不投影、不接收贴花。
@@ -75,15 +72,9 @@ UPlanetAtmosphereComponent::UPlanetAtmosphereComponent()
 	SetCastShadow(false);
 	bReceivesDecals = false;
 
-	// 负值让壳排在其他半透明的**后面**（深度上靠后）。
-	// 引擎原话：lower sort priority draws behind objects with a higher priority
-	// （PrimitiveComponent.h:883-884）。
-	// 别用"之前画 / 之后画"来描述 —— 那说的是绘制先后，与"前后"正好相反，已经写反过一次。
-	// 直接赋属性：UPrimitiveComponent 上**没有** SetTranslucencySortPriority 这个函数，
-	// 只有公开成员 TranslucencySortPriority（PrimitiveComponent.h:892），写成 setter 编译不过。
-	// -10 而不是 -1：材质现在 bDisableDepthTest = true，深度测试不再替我们排序，
-	// 绘制顺序完全由这里决定。壳是球内天空的"底"，必须排在水面、矿物等半透明之前
-	// （即 priority 更低）。-1 与常见的 0 太接近，容易被别的半透明抢在前面。
+	// 负值让壳排在其他半透明后面。材质 bDisableDepthTest = true 后排序全靠这里：
+	// 壳是球内天空的底，必须早于水面、矿物等半透明绘制；-1 太接近常见的 0，取 -10。
+	// 直接赋属性（UPrimitiveComponent 没有 setter，只有公开成员），写成 setter 编译不过。
 	TranslucencySortPriority = -10;
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereMesh(
@@ -94,8 +85,7 @@ UPlanetAtmosphereComponent::UPlanetAtmosphereComponent()
 	}
 	else
 	{
-		// 必须在这里报：没有网格的壳是空的，而下游唯一的症状是
-		// "CreateDynamicMaterialInstance 失败"，那会把人引到材质上去。
+		// 必须在这里报：没有网格时下游只会报 "CreateDynamicMaterialInstance 失败"，把人引向材质。
 		UE_LOG(LogTemp, Error,
 			TEXT("[大气] 加载 /Engine/BasicShapes/Sphere.Sphere 失败 —— 壳没有网格，永远画不出来。"));
 	}
@@ -105,9 +95,8 @@ void UPlanetAtmosphereComponent::OnRegister()
 {
 	Super::OnRegister();
 
-	// 编辑器世界不执行 BeginPlay，而壳的材质与缩放全在 BeginPlay 里准备。
-	// 不在这里补一次，编辑视图里就只有一个半径 50cm 的默认球，埋进行星中心。
-	// 游戏世界同样走这条路径，因此 BeginPlay 的后续调用必须是幂等的。
+	// 编辑器世界不执行 BeginPlay，而壳的材质与缩放全在 BeginPlay 里准备；不在这里补一次，
+	// 编辑视图只有一个半径 50cm 的默认球。游戏世界同样走这里，故 BeginPlay 必须幂等。
 	EnsureAtmosphereMaterial();
 
 	if (bAtmosphereEnabled)
@@ -151,8 +140,7 @@ UMaterialInterface* UPlanetAtmosphereComponent::EnsurePlanetShadowMaterialBase()
 	{
 		return PlanetShadowBaseMaterial;
 	}
-	// 生成光函数材质的命令在编辑器里跑，PIE 中途不会出现 —— 缺一次就别每帧再试。
-	// LoadObject 失败会走包名解析，逐帧重试的代价远大于「重启 PIE 才有阴影」。
+	// 生成光函数材质的命令只在编辑器里跑；缺一次就别每帧重试（LoadObject 失败会走包名解析）。
 	if (bLoggedMissingPlanetShadowMaterial)
 	{
 		return nullptr;
@@ -204,8 +192,7 @@ void UPlanetAtmosphereComponent::BeginPlay()
 		return;
 	}
 
-	// OnRegister 已经准备过一次；这里幂等。保留这一步是为了「组件在运行时才
-	// 注册」的情形，也保证 BeginPlay 之后一定按当前启用状态完整算过一遍。
+	// OnRegister 已准备过一次，这里幂等；保留是为了「组件在运行时才注册」的情形。
 	if (EnsureAtmosphereMaterial())
 	{
 		RefreshAtmosphereGeometry();
@@ -231,9 +218,7 @@ void UPlanetAtmosphereComponent::PostEditChangeProperty(FPropertyChangedEvent& P
 
 	if (EnsureAtmosphereMaterial())
 	{
-		// 厚度比之类的参数改了要重算缩放与整批材质参数（几何 / 太阳槽位 / 云）；
-		// bGeometryApplied 先清假，让 Refresh 的边沿语义保持一致
-		// （这次是显式调用，清不清都会算）。
+		// 参数改了要重算缩放与整批材质参数；先清假让 Refresh 的边沿语义保持一致。
 		bGeometryApplied = false;
 		RefreshAtmosphereGeometry();
 	}
@@ -244,22 +229,18 @@ void UPlanetAtmosphereComponent::RefreshAtmosphereGeometry()
 {
 	if (!bAtmosphereEnabled)
 	{
-		// 关掉是用户的显式选择，不是失败，不报。
-		// 同时清掉"已应用"：重新勾上时必须重算一次，否则壳不会回来。
+		// 关掉是显式选择不是失败，不报。清掉"已应用"：重新勾上时必须重算。
 		bGeometryApplied = false;
 		return;
 	}
 
-	// 从这里往下就算"处理过了"，包括下面三条失败分支（MID 空 / Owner 不是行星 /
-	// 半径非正）。它们都合法地以"不可见"收场，若在这里不置真，TickComponent 的
-	// 边沿触发会每帧重试，每帧刷同一条日志。
+	// 从这里往下都算"处理过了"，包括三条失败分支（MID 空 / Owner 不是行星 / 半径非正）；
+	// 否则 TickComponent 的边沿触发会每帧重试、每帧刷同一条日志。
 	bGeometryApplied = true;
 
 	if (!AtmosphereMID)
 	{
-		// 本函数是 BlueprintCallable，材质尚未就绪时调它会走到这里
-		// （OnRegister 里 EnsureAtmosphereMaterial 失败、还没到 BeginPlay 等）。
-		// 静默返回的话调用方拿不到任何反馈，只能看着壳没反应。
+		// 本函数是 BlueprintCallable，材质未就绪时调它会到这里；静默返回调用方拿不到反馈。
 		UE_LOG(LogTemp, Warning,
 			TEXT("[大气] RefreshAtmosphereGeometry 在材质就绪之前被调用（AtmosphereMID 还是空），本次不做任何事。"));
 		return;
@@ -274,8 +255,7 @@ void UPlanetAtmosphereComponent::RefreshAtmosphereGeometry()
 	}
 
 	const float SurfaceRadiusCm = Planet->GetSurfaceRadiusCm();
-	// 先记下来再判断：半径非正时也要记，否则编辑器 Tick 会每帧发现"没算过"
-	// 而反复重入，把同一条警告刷满日志。
+	// 先记下来再判断：半径非正时也记，否则编辑器 Tick 每帧发现"没算过"而重入刷日志。
 	AppliedSurfaceRadiusCm = SurfaceRadiusCm;
 	if (SurfaceRadiusCm <= 0.0f)
 	{
@@ -290,8 +270,7 @@ void UPlanetAtmosphereComponent::RefreshAtmosphereGeometry()
 		PlanetAtmosphere::ComputeShellScatteringParams(
 			ShellRadiusCm, RayleighScaleHeightRatio, MieScaleHeightRatio);
 
-	// 网格是半径 50 cm 的球。用 SetWorldScale3D 而不是相对缩放：
-	// 行星 actor 自己可能带缩放，相对缩放会把它叠进来。
+	// 网格是半径 50 cm 的球。用 SetWorldScale3D 而非相对缩放：行星可能自带缩放，会叠加。
 	SetWorldScale3D(FVector(ShellRadiusCm / BasicSphereRadiusCm));
 
 	AtmosphereMID->SetScalarParameterValue(ParamPlanetRadius, SurfaceRadiusCm);
@@ -304,15 +283,14 @@ void UPlanetAtmosphereComponent::RefreshAtmosphereGeometry()
 		FLinearColor(Scattering.MieBeta.X, Scattering.MieBeta.Y, Scattering.MieBeta.Z, 1.0f));
 	AtmosphereMID->SetVectorParameterValue(ParamSunIntensity, SunIntensity);
 
-	// 行星中心**不在这里写**：材质用 ObjectPositionWS 节点直接取壳自己的变换
-	// （原因见 TickComponent 末尾的注释）。这里剩下的是太阳列表 —— 它不能只靠
-	// TickComponent：编辑器视口不保证 tick 这个组件，只靠那里会让天空停在初值。
+	// 行星中心不在这里写：材质用 ObjectPositionWS 直接取壳自己的变换（原因见 TickComponent 末尾）。
+	// 太阳列表必须在这里也算一遍 —— 编辑器视口不保证 tick 组件，只靠 Tick 会让天空停在初值。
 	const FVector PlanetCenter = GetComponentLocation();
 	CollectSunsFor(GetWorld(), PlanetCenter, CachedSuns);
 	ApplySuns(CachedSuns);
 
 	// ---- 云 ----
-	// 先钳比例：云必须留在壳内，否则射线求交会把整层裁掉，而且不会有任何报错。
+	// 先钳比例：云必须留在壳内，否则射线求交会把整层裁掉且不报错。
 	const float ClampedTopRatio = FMath::Min(CloudTopRatio, AtmosphereHeightRatio);
 	const float ClampedBaseRatio = FMath::Min(CloudBaseRatio, ClampedTopRatio);
 	const PlanetClouds::FCloudLayerRadii CloudRadii =
@@ -346,8 +324,7 @@ FVector UPlanetAtmosphereComponent::ComputeSunDirection(const AActor* StarActor,
 
 	if (FallbackLight)
 	{
-		// DirectionalLight 的 forward 是光**传播**的方向（天上→地上）。
-		// 从行星指向太阳是它的反向。
+		// DirectionalLight 的 forward 是光传播方向（天上→地上），指向太阳是它的反向。
 		return -FallbackLight->GetActorForwardVector();
 	}
 
@@ -395,8 +372,8 @@ void UPlanetAtmosphereComponent::CollectSunsFor(UWorld* World, const FVector& Pl
 	TArray<UStarBodyComponent*> Stars;
 	UStarBodyComponent::FindAll(World, Stars);
 
-	// 距离升序。槽位 0 必须是最近的恒星：shader 里只有 s == 0 做云自遮挡。
-	// TArray 的指针排序会把元素解引用后再交给谓词，所以谓词收引用。
+	// 距离升序：槽位 0 必须是最近恒星，shader 里只有 s == 0 做云自遮挡。
+	// TArray 的指针排序会把元素解引用后交给谓词，所以谓词收引用。
 	Stars.Sort([&PlanetCenter](const UStarBodyComponent& A, const UStarBodyComponent& B)
 	{
 		const AActor* OwnerA = A.GetOwner();
@@ -511,23 +488,12 @@ void UPlanetAtmosphereComponent::DriveSunLights(const TArray<FPlanetSun>& Suns)
 
 void UPlanetAtmosphereComponent::ApplyPlanetShadow(UWorld* World)
 {
-	// 行星本体遮挡太阳。
-	//
-	// 定向光的阴影图只覆盖相机附近（本关卡 DynamicShadowDistanceMovableLight = 400 m），
-	// 而行星半径 20 km —— 挡住太阳的那块球体离被照点 17~20 km 远，永远进不了阴影图，
-	// 于是夜面（N·L < 0 的那半个球）上空飞行的飞船仍会被直射光照亮。
-	// 这里给每盏定向光挂一个解析求交的光函数材质，把「射线到球心的垂距 < 半径」的区域乘成 0。
-	// 详见 PlanetShadowLightFunctionBuilder.cpp 顶部注释。
-	//
-	// 为什么遍历「世界里所有定向光」而不是「被驱动的恒星的那盏灯」：
-	// 关卡里三颗恒星的 bDrivesDirectionalLight 是 false（灯由蓝图自己对准行星），
-	// 挂在驱动分支里就永远不会执行 —— 那正是「夜面飞船被照亮」的直接原因。
-	// 方向取灯自己的 forward 反向，因此不依赖恒星 → 灯的归属，也不会被
-	// ResolveSunLight() 的「自动认领」顺序影响。
+	// 定向光阴影图只覆盖相机附近（本关 400 m），而挡住太阳的球体离被照点 17~20 km，
+	// 永远进不了阴影图，夜面的飞船仍被直射照亮。这里给每盏定向光挂解析求交的光函数；
+	// 遍历所有灯而非被驱动的恒星灯（本关恒星的 bDrivesDirectionalLight 是 false）。
 	if (!World || !World->IsGameWorld())
 	{
-		// 同 DriveSunLights：编辑器视口不挂光函数，每帧写灯属性会把关卡一直标脏。
-		// 编辑器里要看阴影就跑 PIE。
+		// 同 DriveSunLights：编辑器不挂光函数，否则每帧写灯属性会一直标脏；要看阴影跑 PIE。
 		return;
 	}
 
@@ -583,9 +549,8 @@ void UPlanetAtmosphereComponent::TickComponent(float DeltaTime, ELevelTick TickT
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	// 恒星灯与大气渲染解耦：关掉大气壳 ≠ 恒星不再照亮行星。
-	// 每帧重算（恒星在 N 体里会动），成本是几次 Actor 遍历 + 至多 4 盏灯的
-	// 旋转 / 颜色 / 强度写入（优先级与大气太阳光走边沿触发，不逐帧写）。
+	// 恒星灯与大气渲染解耦：关掉大气壳 ≠ 恒星不再照亮行星。每帧重算（恒星在 N 体里会动），
+	// 优先级与大气太阳光走边沿触发、不逐帧写。
 	{
 		const FVector LightPlanetCenter = GetComponentLocation();
 		CollectSunsFor(GetWorld(), LightPlanetCenter, CachedSuns);
@@ -596,9 +561,8 @@ void UPlanetAtmosphereComponent::TickComponent(float DeltaTime, ELevelTick TickT
 
 	if (!bAtmosphereEnabled)
 	{
-		// 面板里取消勾选必须当场生效：只早退不够 —— 壳会带着上一次的参数继续画，
-		// Task 5 就是靠勾掉这一项来对比 stat unit 的，那样量到的是"什么都没变"。
-		// 用 IsVisible() 守卫，免得每帧都写一次可见性。
+		// 取消勾选必须当场生效：只早退不够，壳会带着上次的参数继续画。
+		// 用 IsVisible() 守卫，免得每帧写一次可见性。
 		if (IsVisible())
 		{
 			SetVisibility(false);
@@ -613,11 +577,8 @@ void UPlanetAtmosphereComponent::TickComponent(float DeltaTime, ELevelTick TickT
 		return;
 	}
 
-	// 重新开启的边沿：只在这里重算一次。
-	// 不能每帧无条件调 —— RefreshAtmosphereGeometry 会写世界缩放和整批材质参数
-	// （几何 / 太阳槽位 / 云）；
-	// 也不能拿 IsVisible() 当判据 —— 它的三条失败分支本来就以"不可见"收场，
-	// 那样会每帧重试、每帧刷日志。判据只能是"这个启用状态算过没有"。
+	// 重新开启的边沿：只在这里重算一次。不能每帧无条件调（Refresh 会写世界缩放与整批
+	// 材质参数），也不能拿 IsVisible() 当判据（失败分支本就不可见），只能看"算过没有"。
 	if (!bGeometryApplied)
 	{
 		RefreshAtmosphereGeometry();
@@ -625,8 +586,7 @@ void UPlanetAtmosphereComponent::TickComponent(float DeltaTime, ELevelTick TickT
 #if WITH_EDITOR
 	else if (GetWorld() && !GetWorld()->IsGameWorld())
 	{
-		// 编辑器预览：gizmo 缩放 / 改 Radius 都不会重跑 BeginPlay，也没有可靠的
-		// OnConstruction 时序。按"表面半径变没变"重算一次，不变就不动。
+		// 编辑器预览：gizmo 缩放 / 改 Radius 不重跑 BeginPlay，按表面半径变化重算。
 		if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(GetOwner()))
 		{
 			if (!FMath::IsNearlyEqual(Planet->GetSurfaceRadiusCm(), AppliedSurfaceRadiusCm))
@@ -641,16 +601,10 @@ void UPlanetAtmosphereComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	AtmosphereMID->SetScalarParameterValue(ParamCloudDrift,
 		GetWorld()->GetTimeSeconds() * CloudDriftPerSecond);
 
-	// 行星中心与相机位置**都不在这里**，材质各自从渲染侧取：
-	//   · 相机位置 → CameraPositionWS 视图 uniform。早先每帧写 MID 参数，但组件 Tick
-	//     早于视口 Tick，写进去的相机位置总慢一帧 —— 快速移动视口时壳的边缘会被
-	//     算成过亮的暖白硬边。
-	//   · 行星中心 → ObjectPositionWS（绝对世界坐标）。它是同一个毛病的重灾版本：
-	//     UCosmosSimulationSubsystem 是 TickableWorldSubsystem，在 UWorld::Tick 末尾
-	//     才把求解器结果写回 Actor，而组件 Tick 在这之前 —— 写进 MID 的中心永远等于
-	//     **上一帧**的行星位置。行星在 N 体里约 7.8 km/s，2.5 FPS 时一帧就走 3.1 km，
-	//     比大气层厚度（~1.8 km）还大，于是整层大气绕着行星来回甩 —— 肉眼即"大气在抖"。
-	//     改成 ObjectPositionWS 之后，着色用的中心与壳几何用的是同一份变换，与帧率无关。
+	// 行星中心与相机位置都不在这里写，材质各自从渲染侧取：相机 → CameraPositionWS；
+	// 行星中心 → ObjectPositionWS。后者尤其关键：Cosmos 子系统在 UWorld::Tick 末尾才写回
+	// Actor，组件 Tick 早于它，写进 MID 的中心永远是上一帧位置 —— 行星 7.8 km/s、2.5 FPS
+	// 时一帧走 3.1 km，超过大气厚度（~1.8 km），整层大气因而每帧被甩动。
 
 	ApplySuns(CachedSuns);
 }

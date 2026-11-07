@@ -3,8 +3,7 @@
 // 匹配头必须是第一个 include（UBT 的 IWYU 检查）；它带了 CoreMinimal.h。
 #include "PlanetMineralMaterialBuilder.h"
 
-// 路径常量与两个 getter 必须在 WITH_EDITOR 之外：APlanetMineralViewActor::Build
-// 在 Game 目标里也要按路径加载资产，只有材质构建本身是编辑器专属。
+// 路径常量与两个 getter 必须在 WITH_EDITOR 之外：Game 目标也要按路径加载资产，只有材质构建本身是编辑器专属。
 namespace
 {
 	const TCHAR* const GhostPath = TEXT("/Game/Code/Planet/Materials/M_PlanetGhost");
@@ -45,11 +44,9 @@ namespace
 	const TCHAR* const GhostAssetName = TEXT("M_PlanetGhost");
 	const TCHAR* const BlockAssetName = TEXT("M_MineralBlock");
 
-	// 名字带 Mineral 前缀是必须的：本文件与 PlanetAtmosphereMaterialBuilder.cpp 会被
-	// UBT 的 unity 构建拼进同一个翻译单元，两个匿名 namespace 会合并，同名的
-	// AddScalarParam / AddVectorParam 直接 C2084 重定义。别把它们改回通用名。
+	// 名字带 Mineral 前缀是必须的：本文件与 PlanetAtmosphereMaterialBuilder.cpp 会被 UBT 的 unity 构建拼进同一翻译单元，
+	// 两个匿名 namespace 合并后同名的 AddScalarParam / AddVectorParam 直接 C2084 重定义。
 
-	/** 建一个标量参数节点并登记到材质。 */
 	UMaterialExpressionScalarParameter* AddMineralScalarParam(UMaterial* Material, const TCHAR* Name,
 		float Default, int32 PosX, int32 PosY)
 	{
@@ -64,7 +61,6 @@ namespace
 		return Expr;
 	}
 
-	/** 建一个向量参数节点并登记到材质。 */
 	UMaterialExpressionVectorParameter* AddMineralVectorParam(UMaterial* Material, const TCHAR* Name,
 		FLinearColor Default, int32 PosX, int32 PosY)
 	{
@@ -79,7 +75,6 @@ namespace
 		return Expr;
 	}
 
-	/** 建一个常量节点并登记到材质。 */
 	UMaterialExpressionConstant* AddMineralConstant(UMaterial* Material, float Value,
 		int32 PosX, int32 PosY)
 	{
@@ -92,7 +87,6 @@ namespace
 		return Expr;
 	}
 
-	/** 建一个二元节点（A 接 0 号输出、B 接 0 号输出）并登记到材质。 */
 	template <typename TExpression>
 	TExpression* AddMineralBinaryOp(UMaterial* Material, UMaterialExpression* A,
 		UMaterialExpression* B, int32 PosX, int32 PosY)
@@ -109,7 +103,6 @@ namespace
 		return Expr;
 	}
 
-	/** 取同名材质或新建一个，并把旧表达式清空。失败返回 nullptr。 */
 	UMaterial* FindOrCreateMaterial(const TCHAR* AssetPath, const TCHAR* AssetName,
 		FString& OutError)
 	{
@@ -156,11 +149,8 @@ namespace
 	}
 
 	/**
-	 * 玻璃球：Unlit / Translucent / TwoSided。
-	 *
-	 * 不透明度 = Lerp(Opacity, EdgeOpacity, Fresnel)。BaseReflectFraction 设 0，
-	 * 于是正对相机的像素菲涅尔为 0（只剩 Opacity），掠射角接近 1（吃到 EdgeOpacity）——
-	 * 球体轮廓清楚，正面又足够透，能看见里面的矿体。
+	 * 玻璃球：Unlit / Translucent / TwoSided。不透明度 = Lerp(Opacity, EdgeOpacity, Fresnel)，BaseReflectFraction 设 0 ——
+	 * 正对相机只剩 Opacity、掠射角接近 EdgeOpacity，轮廓清楚又足够透。
 	 */
 	bool BuildGhostMaterial(FString& OutError)
 	{
@@ -222,12 +212,8 @@ namespace
 	}
 
 	/**
-	 * 矿体：Unlit / Opaque / TwoSided，BlockColor × Brightness × Shade → Emissive，
-	 * 其中 Shade = 0.6 + 0.4 × |dot(N, V)|。
-	 *
-	 * 纯色 Unlit 看不出体积，加一个轻量法线项后表面有起伏感，整体亮度量级不变。
-	 * 取绝对值 + 双面是刻意的：等值面抽取的绕序不保证朝外，单面渲染会把一半矿体剔掉，
-	 * 而 saturate(dot) 会让朝内那面变成一片死平。
+	 * 矿体：Unlit / Opaque / TwoSided，BlockColor × Brightness × Shade → Emissive，Shade = 0.6 + 0.4 × |dot(N, V)|。
+	 * 取绝对值 + 双面是刻意的：等值面绕序不保证朝外，单面渲染会剔掉一半矿体，saturate(dot) 又会让朝内那面死平。
 	 */
 	bool BuildBlockMaterial(FString& OutError)
 	{
@@ -329,8 +315,7 @@ namespace
 				{
 					UE_LOG(LogTemp, Error, TEXT("[矿物] 材质生成失败：%s"), *Error);
 				}
-				// -TestExit 靠日志里出现这一行退出进程：成功、失败都打，
-				// 否则失败时无头进程会一直挂着。
+				// -TestExit 靠日志里出现这一行退出进程：成功、失败都打，否则失败时无头进程会一直挂着。
 				UE_LOG(LogTemp, Display, TEXT("StellarEra.MineralMaterials.Done ok=%d"),
 					bOk ? 1 : 0);
 			}));

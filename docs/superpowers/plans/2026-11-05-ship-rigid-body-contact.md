@@ -1427,3 +1427,26 @@ git commit -m "docs(飞船): 刚体接触 PIE 验收与实测参数" \
 **类型一致性：** `Orientation` 全程 `FQuat4d`；`AngularVelocity` / `InverseInertiaLocal` / `ExternalAngularAcceleration` 全程 `FVector3d`；Pawn 侧的 `PendingAngularImpulseLocalDeg` / `CosmosAngularVelocity` 是 `FVector`（只在输入边界用）；换算函数名 `GetAngularAccelerationWorldRadPerS2` 在 Task 3 定义、Task 4 调用，一致。
 
 **已知的口径差异（写在这里，免得实施者以为是 bug）：** 探针用的是 Actor 变换（含上一帧朝向），不是求解器本帧的 `Orientation`；差一帧，误差远小于探针间距。
+
+---
+
+## 适配合并（2026-11-07）
+
+本文档写于分支 fork 点，之后 master 做了大规模重构。合并时按 master 现结构重新落地，
+**上文的代码片段不再逐字对应仓库**，差异如下：
+
+| 文档里的写法 | 落地写法 |
+|---|---|
+| `Cast<ASpaceshipPawn>(BodyActor)` | `Cast<ICosmosBody>`：master 抽了接口，Cosmos 不再认识 Pawns |
+| 接口 8 个纯虚 | 11 个，新增 `GetAngularAccelerationWorldRadPerS2` / `GetAngularDampingPerSecond` / `SetCosmosAngularVelocity` |
+| 姿态输入写在 Pawn 的 Tick 里 | 输入已拆到 `Spaceship/Input/`，`Look()` 只写待发冲量 |
+| `ApplyControlledBodyForces` 在 Tick 开头调用 | 挪进 `NumSteps > 0` 分支，按实际消费的真实秒调用（零子步帧不读冲量） |
+
+顺带修了两处 master 上的既存问题（与本特性无关，但拦住了验证）：
+
+- `StellarEraPlayerControllerBase.cpp` 的局部变量 `Character` 遮蔽 `AController::Character`，
+  UBT 把 C4458 当错误 → 改名 `Crew`。
+- `StellarEra.Planet.AtmosphereMaterial.Structure` 仍断言壳材质有 `PlanetCenter` 向量参数，
+  而 `e134414` 已改成渲染侧 `ObjectPositionWS` → 删该断言并加一条「必须不存在」。
+
+Task 5 的 PIE 人工验收（撞地翻滚、摩擦停稳、鼠标转向惯性）仍需人工在 `UniverseMap` 里做。
