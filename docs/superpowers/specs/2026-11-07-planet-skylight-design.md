@@ -213,3 +213,60 @@ PIE 里看白模球的环境光方向确认（实现时先读引擎的立方图�
 - **云只有一阶衰减**：阴天环境光会比可见云层略亮。
 - **编辑器不驱动**：编辑器视口里天光仍是静态立方图，改大气参数不会即时反映。
 - **`SkyFill` 去留**：验证后再定。
+
+## 10. 实施记录（2026-11-07）
+
+PIE `UniverseMap`，编辑器在前台（约 28–31 FPS），立方图边长 16、太阳 3 颗。日志过滤 `[天光]`：
+**没有任何 Warning**（缺大气壳 / 缺 SkyLight / 缺相机三条都没出现）。
+
+- **立方图重算节奏**：站着不动（飞船随行星走，只有太阳方向在变）62 s 内 11 次，
+  间隔 5.29–5.38 s（均值 5.34 s = 1° 阈值 ÷ 约 0.19°/s）；移动时（视图换到一台绕行星表面
+  30°/s 运动的相机）8.01 s 内 36 次，间隔 0.20–0.27 s（均值 0.22 s，≈4.5 Hz），贴着
+  `UpdateIntervalSeconds = 0.2` 的上限，**不是每帧**。PIE 刚起来的前约 10 s 有一段逐帧重算
+  （相机/行星就位中），之后回落到稀疏节奏。
+- **单次 CPU 积分耗时**（边长 16、3 颗太阳，日志 `用时`）：移动窗口 1.49–9.77 ms（均值 4.17 ms）；
+  定点连续 10 次 `RefreshNow()` 为 5.3–7.2 ms（均值 5.9 ms）。编辑器失焦（3 FPS 限速）时会被
+  拉到 5.2–20.8 ms，该组不可用。**结论：不是预期的「远小于 1 ms」**——`用时` 覆盖 `RenderCube`
+  + 每次新建 `UTextureCube` + `UpdateResource` + `SetCubemap` 全段，日志没把积分本身拆出来；
+  成本随画面内容变（夜面 1.5–2.5 ms，白天 5–7 ms）。按 5 Hz 上限折算，最坏约 3% 单线程。
+- **面序与引擎约定是否一致**：本次**没有做白模球对照**，不能确认。画面里没有出现「环境光从
+  太阳反方向来」的明显异常，但这不算证据。<待控制器复核>
+- **天空亮度与壳的对拍**：`BrightnessScale` 保持 1.0，未做壳 vs 立方图的区域亮度对拍，未调倍率。
+  <待控制器复核>
+- **`SkyFill` 去留**：见 10.2，本任务未删任何代码；结论留给控制器。
+
+### 10.1 先决条件：关卡里大气与 SkyFill 灯的状态
+
+PIE 里查到、并在退出 PIE 后用编辑器世界复核（脏包 0）的状态：
+
+- `BP_VoxelPlanet` 的大气组件 `bAtmosphereEnabled = False`、`IsVisible() = False`；
+- 关卡里**没有** `SkyFill` 标签的定向光。证据：`LogTemp` Warning
+  `[大气] 关卡里没有 SkyFill 标签的定向光，直射光没人补，晨昏线会剩硬边等高线。`（15:02:20.837）；
+- SkyLight 是任务 3 的状态：标签 `PlanetSky` / Movable / SpecifiedCubemap / 强度 1.0 / 初始无立方图。
+
+所以下面的天光/大气截图与 A/B 全部是 **PIE 运行时**把 `bAtmosphereEnabled` 重新打开
+（再调 `RefreshAtmosphereGeometry()`）、并临时 `summon` 一盏打了 `SkyFill` 标签的定向光做的；
+**全程没有保存关卡**（退出 PIE 后脏包 = 0）。
+
+### 10.2 截图与 `SkyFill` 数值（`/d/Temp/ue_mcp/`，PIE 运行时）
+
+| 文件 | 相机 / 场景 | 客观描述 |
+|---|---|---|
+| `task4_day.png` | 日面，地表上方 100 m，局部俯角 15°，朝太阳水平方向 | 太阳圆面在地平线上方；天空由地平线白过渡到顶部蓝；地面浅绿近白、过曝。该机位三颗太阳仰角 28.0° / -2.6° / -42.4° |
+| `task4_day_side.png` | 同上位置，改朝太阳的侧向 | 地面占下 70%（浅绿白），顶部一条蓝色天空 |
+| `task4_day_ground.png` | 同方位，30 m 高、俯角 30° | 近距离平地，整幅浅绿白；**没有可见投影**（该处地形低起伏） |
+| `task4_day_hill.png` | 方位角 125°（扫描到的最高地形附近），50 m 高、俯角 8° | 明亮太阳在画面上部，蓝天 + 浅色地面 |
+| `task4_night.png` | 夜面（三颗太阳仰角 -74.1° / -49.5° / -49.8°），局部俯角 15° | 星空 + 星云；地面与天空都近黑，肉眼分不出地平线 |
+| `task4_night_sky0.png` | 夜面（**旧构图**），SkyLight 强度 0 | 与 23:16 同构图、强度 1 的那张成对测量：画面下 1/3 均值 0.72（开）/ 0.06（关）/255；当前 `task4_night.png` 已重拍为新构图 |
+| `task4_term_fill2.png` / `task4_term_fill0.png` | 晨昏线（主星仰角 0.00°），**关卡默认无 SkyFill 灯** | 两图差值为 TAA 噪声级：整图均值差 0.07/255，>2 的像素 1.4% —— 调 `SkyFillIntensity` 无效 |
+| `task4_term_fill2_lit.png` / `task4_term_fill0_lit.png` | 同机位，**运行时临时加**的 SkyFill 灯 | 地面下半幅均值 111.0（fill 2）vs 84.9（fill 0）；天空上半幅 155.0 vs 154.9 |
+
+`SkyFill` 判断数据：补光**只抬地面**（+26.2/255，约 +31%），天空基本不动，符合「整天穹补光」的设计；
+天光单独照明时晨昏线地面仍有 84.9/255（暗蓝、非死黑），夜里地面约 0.7（开）/ 0.06（关）/255。
+<待控制器复核：截图路径与保留 / 建议删除的结论>
+
+### 10.3 测试
+
+`Automation RunTests StellarEra.Planet.SkyLight`：**9/9 Success**（CloudsDimSky、CubeShape、
+FaceCenters、FaceCorner、GroundIsBlack、NightIgnoresSun、OutsideShellIsStar、
+PlanetHasComponent、SunElevationMonotonic），日志 `D:/Temp/skylight_test.log`。
