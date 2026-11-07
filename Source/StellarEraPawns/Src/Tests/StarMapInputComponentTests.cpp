@@ -9,7 +9,8 @@
 // 断言 CDO，验的是「组件真的建在类上、默认值没被人改跑」。
 // 「真的绑上了」的证据是 StellarEra.StarMap.InputWiring（它真调 SetupPlayerInputComponent
 // 并断言六条动作都进了 EnhancedInputComponent）—— 不要指望无头日志：进星图要靠按键，
-// 而 ToggleStarMap 不是 UFUNCTION(exec)，命令行到不了那条路径。
+// 而进星图那条路径（输入组件 → FindStarMapCameraFor → EnterStarMap）不是 UFUNCTION(exec)，
+// 命令行到不了。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapInputComponentWiringTest,
 	"StellarEra.Pawns.StarMapInputComponentWiring",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

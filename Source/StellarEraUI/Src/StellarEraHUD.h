@@ -25,7 +25,7 @@ struct FSpaceshipStatus;
  * 提升成公开依赖，整个依赖层级都要跟着改。
  *
  * 字体用的是引擎默认字体（GEngine->GetMediumFont()），与
- * AStellarEraPlayerController::ShowPrompt 走 AddOnScreenDebugMessage 时同一个。
+ * 控制器每帧的「按 E 登船」提示（AddOnScreenDebugMessage）时同一个。
  * 项目 Content 下没有任何字体资产，所以中文能不能显示取决于该字体有没有中文字形
  * —— 若屏幕上的「按 E 登船」显示正常，这里就正常。
  */

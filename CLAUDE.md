@@ -123,8 +123,10 @@ Character/Spaceship → Pawns），历史类路径由 `Config/DefaultEngine.ini`
 
 自定义代码不进第三方插件目录，一律写进上面五个模块并改对应 `Build.cs`。
 
-**`StellarEraUI` 不依赖 `StellarEra`**（Game 依赖 UI，反向就成环）。星图 UI 需要控制器数据时走
-`IStarMapUIInputs`（`Source/StellarEraUI/Src/StarMapUIInputs.h`），由 `AStellarEraPlayerController` 实现。
+**`StellarEraUI` 不依赖 `StellarEra`**（Game 依赖 UI，反向就成环）。星图 UI 需要玩家控制器时
+直接吃 `APlayerController`：鼠标坐标、屏幕拾取、矿物透视分别来自
+`GetMousePosition`、Pawns 的 `StarMapPicking`、`Cast<AStarMapCameraPawn>(Pawn)`，
+不再有专门的倒置接口。`StellarEra` 侧因此也把 `StellarEraUI` 降为**私有**依赖。
 
 ## 技能与 Agent 路由（强制）
 

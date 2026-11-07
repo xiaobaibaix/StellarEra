@@ -27,13 +27,6 @@ AStarMapCameraPawn* UStarMapCameraInputComponent::GetPawn() const
 	return Cast<AStarMapCameraPawn>(GetOwner());
 }
 
-IStarMapLookContext* UStarMapCameraInputComponent::GetLookContext() const
-{
-	// 用非 const 的 AController* 做 Cast，避开「const UObject* 能否 Cast 到接口」这个坑。
-	AController* Controller = GetPawn() ? GetPawn()->GetController() : nullptr;
-	return Cast<IStarMapLookContext>(Controller);
-}
-
 APlayerController* UStarMapCameraInputComponent::GetPlayerController() const
 {
 	const AStarMapCameraPawn* Pawn = GetPawn();
@@ -268,9 +261,17 @@ void UStarMapCameraInputComponent::OnBrushSize(const FInputActionValue& Value)
 
 void UStarMapCameraInputComponent::OnMineralViewToggle(const FInputActionValue& Value)
 {
-	if (AStarMapCameraPawn* Pawn = GetPawn())
+	AStarMapCameraPawn* Pawn = GetPawn();
+	if (!Pawn)
 	{
-		Pawn->ToggleMineralView();
+		return;
+	}
+
+	// 进不去时原因由相机 Pawn 返回，提示走本组件已有的 HUD 通道（与笔刷提示同一条）。
+	const FString Failure = Pawn->ToggleMineralView();
+	if (!Failure.IsEmpty())
+	{
+		ShowNotice(Failure);
 	}
 }
 
@@ -485,12 +486,10 @@ void UStarMapCameraInputComponent::OnStarMapSelectCompleted(const FInputActionVa
 
 void UStarMapCameraInputComponent::OnStarMapToggle(const FInputActionValue& Value)
 {
-	// 换 Possess 的实现住在控制器（Game 模块，本模块看不到），走接口转发。
-	// 方向由控制器按「当前 Possess 的是不是星图相机」判定。
-	AStarMapCameraPawn* Pawn = GetPawn();
-	AController* Controller = Pawn ? Pawn->GetController() : nullptr;
-	if (IStellarEraSessionCommands* Commands = Cast<IStellarEraSessionCommands>(Controller))
+	// 退图完全不问控制器：相机自己记着是哪个 Pawn 把它叫出来的，退回去 Possess
+	// 谁、混合多久、相机搬回哪里，全是它自己的事。
+	if (AStarMapCameraPawn* Pawn = GetPawn())
 	{
-		Commands->ToggleStarMap();
+		Pawn->ExitStarMap();
 	}
 }

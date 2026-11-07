@@ -12,6 +12,8 @@
 #include "PlanetCharacterInputActions.h"
 #include "PlanetEditUI.h"
 #include "SessionCommands.h"
+#include "SpaceshipPawn.h"
+#include "StarMapCameraPawn.h"
 #include "StellarEraInputActionBuilder.h"
 #include "StellarEraInputSource.h"
 #include "StellarEraNoticeSink.h"
@@ -349,22 +351,57 @@ void UPlanetCharacterInputComponent::OnEditPrimary(const FInputActionValue& Valu
 
 void UPlanetCharacterInputComponent::OnStarMapToggle(const FInputActionValue& Value)
 {
-	// 换 Possess 的实现住在控制器（Game 模块，本模块看不到），走接口转发。
 	APlanetCharacter* Pawn = GetPawn();
-	AController* Controller = Pawn ? Pawn->GetController() : nullptr;
-	if (IStellarEraSessionCommands* Commands = Cast<IStellarEraSessionCommands>(Controller))
+	APlayerController* PC = GetPlayerController();
+	if (!Pawn || !PC)
 	{
-		Commands->ToggleStarMap();
+		return;
 	}
+
+	// 「从这颗星球上能借用哪台星图相机」由控制器回答（Game 模块，本模块看不到）。
+	IStellarEraSessionCommands* Commands = Cast<IStellarEraSessionCommands>(PC);
+	AStarMapCameraPawn* Camera = Commands ? Commands->FindStarMapCameraFor(Pawn) : nullptr;
+	if (!Camera)
+	{
+		return;
+	}
+
+	// 进星图前退出编辑模式：星图里左键是拾取，不能同时保留笔刷状态与网格。
+	if (UPlanetEditComponent* Edit = GetEditComponentInEditMode())
+	{
+		Edit->SetEditMode(false);
+	}
+
+	// 进场（含 Possess）归相机自己。
+	Camera->EnterStarMap(Pawn, PC);
 }
 
 void UPlanetCharacterInputComponent::OnInteract(const FInputActionValue& Value)
 {
-	// 登船判定（最近飞船 + 距离）住在控制器里，方向也是它按 Pawn 类型决定的。
 	APlanetCharacter* Pawn = GetPawn();
-	AController* Controller = Pawn ? Pawn->GetController() : nullptr;
-	if (IStellarEraSessionCommands* Commands = Cast<IStellarEraSessionCommands>(Controller))
+	APlayerController* PC = GetPlayerController();
+	if (!Pawn || !PC)
 	{
-		Commands->InteractWithShip();
+		return;
 	}
+
+	// 「最近、且近到可以登船」的飞船由控制器给 —— 关卡里有哪些飞船是它的视野，
+	// 本模块看不到 Game 模块。
+	IStellarEraSessionCommands* Commands = Cast<IStellarEraSessionCommands>(PC);
+	ASpaceshipPawn* Ship = Commands ? Commands->FindBoardableShipFrom(Pawn) : nullptr;
+	if (!Ship)
+	{
+		return;
+	}
+
+	// 上船前退出编辑模式：网格是行星上的组件，不退出会一直留在外面。
+	// 必须在 Board（挂到船下）之前。
+	if (UPlanetEditComponent* Edit = GetEditComponentInEditMode())
+	{
+		Edit->SetEditMode(false);
+	}
+
+	// 登船的机械动作归飞船（附着 / 隐藏 / 记账），换控制对象归控制器。
+	Ship->Board(Pawn);
+	PC->Possess(Ship);
 }

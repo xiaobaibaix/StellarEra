@@ -1017,7 +1017,8 @@ bool FStellarEraStarMapPlanetCameraTest::RunTest(const FString& Parameters)
 		return false;
 	}
 	// 编辑器世界不走 BeginPlay，PlanetActor 还是空 —— 正好覆盖「解析不出行星」
-	// 的分支（深空进图 → 退回单例相机，见 ToggleStarMap 进入分支）。
+	// 的分支（深空进图 → 不进入星图，见 FindStarMapCameraFor 的实现与
+	// AStarMapCameraPawn::EnterStarMap 的入参校验）。
 	TestTrue(TEXT("飞船无参考行星 → 无行星相机"),
 		AStarMapCameraPawn::ResolvePlanetStarMapCamera(Ship) == nullptr);
 

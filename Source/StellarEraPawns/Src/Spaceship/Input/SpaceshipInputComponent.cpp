@@ -6,9 +6,11 @@
 #include "GameFramework/HUD.h"
 #include "GameFramework/PlayerController.h"
 #include "InputActionValue.h"
+#include "PlanetCharacter.h"
 #include "SessionCommands.h"
 #include "SpaceshipInputActions.h"
 #include "SpaceshipPawn.h"
+#include "StarMapCameraPawn.h"
 #include "StellarEraInputSource.h"
 #include "StellarEraNoticeSink.h"
 
@@ -172,25 +174,51 @@ void USpaceshipInputComponent::OnZoomInput(const FInputActionValue& Value)
 
 void USpaceshipInputComponent::OnStarMapToggle(const FInputActionValue& Value)
 {
-	// 换 Possess 的实现住在控制器（Game 模块，本模块看不到），走接口转发。
-	// 方向由控制器按「当前 Possess 的是不是星图相机」判定。
 	ASpaceshipPawn* Pawn = GetPawn();
-	AController* Controller = Pawn ? Pawn->GetController() : nullptr;
-	if (IStellarEraSessionCommands* Commands = Cast<IStellarEraSessionCommands>(Controller))
+	APlayerController* PC = Pawn ? Cast<APlayerController>(Pawn->GetController()) : nullptr;
+	if (!Pawn || !PC)
 	{
-		Commands->ToggleStarMap();
+		return;
 	}
+
+	// 「从这艘飞船能借用哪台星图相机」由控制器回答；飞船自己什么都不用挤出来。
+	IStellarEraSessionCommands* Commands = Cast<IStellarEraSessionCommands>(PC);
+	AStarMapCameraPawn* Camera = Commands ? Commands->FindStarMapCameraFor(Pawn) : nullptr;
+	if (!Camera)
+	{
+		return;
+	}
+
+	// 进场（含 Possess）归相机自己。飞船没有编辑模式，不用像角色那样先退出。
+	Camera->EnterStarMap(Pawn, PC);
 }
 
 void USpaceshipInputComponent::OnInteract(const FInputActionValue& Value)
 {
-	// 登船 / 离船的判定（落地、最近飞船、距离）住在控制器里。
 	ASpaceshipPawn* Pawn = GetPawn();
-	AController* Controller = Pawn ? Pawn->GetController() : nullptr;
-	if (IStellarEraSessionCommands* Commands = Cast<IStellarEraSessionCommands>(Controller))
+	APlayerController* PC = Pawn ? Cast<APlayerController>(Pawn->GetController()) : nullptr;
+	if (!Pawn || !PC)
 	{
-		Commands->InteractWithShip();
+		return;
 	}
+
+	// 空中不能下船：速度没降到阈值以下、或下方没有地面时 IsLanded 为假。
+	if (!Pawn->IsLanded())
+	{
+		return;
+	}
+
+	// 舱里的角色（没有就生成一个）由控制器给 —— 生成用哪个类配在控制器上。
+	IStellarEraSessionCommands* Commands = Cast<IStellarEraSessionCommands>(PC);
+	APlanetCharacter* Character = Commands ? Commands->GetOrSpawnCrewCharacter(Pawn) : nullptr;
+	if (!Character)
+	{
+		return;
+	}
+
+	// 摘人 / 摆位 / 贴回球面归飞船，换控制对象归控制器。
+	Pawn->DisembarkCrew(Character);
+	PC->Possess(Character);
 }
 
 void USpaceshipInputComponent::ShowNotice(const FString& Text) const

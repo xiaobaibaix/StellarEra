@@ -25,13 +25,13 @@ using UnrealBuildTool;
 // include 控制器头就会撞 C1083，而且报错指向被 include 的文件而不是它自己的
 // Build.cs，极难查。
 //
-// StellarEraUI 是 **Public**：StellarEraPlayerController.h include 了
-// StarMapUIInputs.h —— 控制器公开继承 IStarMapUIInputs。
-// 反向（UI → Game）禁止，需要控制器数据的地方走 IStarMapUIInputs。
+// StellarEraUI 是 **Private**：公开头里不出现任何 UI 类型。星图 UI 改为直接
+// 用 APlayerController 与 Pawns 的 StarMapPicking / AStarMapCameraPawn 之后，
+// 控制器不再公开继承 UI 定义的接口，Game 与 UI 之间只剩 Game → UI 这一条边。
 //
-// StellarEraPawns 是 **Public**：同一个头还 include 了 StellarEraInputSource.h
+// StellarEraPawns 是 **Public**：控制器头 include 了 StellarEraInputSource.h
 // （IStellarEraInputSource，控制器也公开继承）、StellarEraInputActions.h（三张
-// Pawn 动作表）与 StarMapCameraInputComponent.h（IStarMapLookContext，控制器同样要实现）。
+// Pawn 动作表）、SessionCommands.h（IStellarEraSessionCommands）。
 //
 // StellarEraPlanet / StellarEraCosmos 是 **Private**：本模块没有任何公开头
 // include 它们的头；控制器头里的行星与天体类型一律前置声明 + TObjectPtr，
@@ -56,16 +56,18 @@ public class StellarEra : ModuleRules
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
 			"Core", "CoreUObject", "Engine",
-			// 公开头里出现的：StarMapUIInputs.h（公开继承 IStarMapUIInputs）、
-			// StellarEraInputSource.h（公开继承 IStellarEraInputSource）、
-			// StellarEraInputActions.h（聚合三张 Pawn 表）、
-			// StarMapCameraInputComponent.h（实现 IStarMapLookContext）。
-			"StellarEraUI",
+			// 公开头里出现的：StellarEraInputSource.h（公开继承
+			// IStellarEraInputSource）、SessionCommands.h（公开继承
+			// IStellarEraSessionCommands）、StellarEraInputActions.h（聚合三张 Pawn 表）。
 			"StellarEraPawns",
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
+			// HUD 与星图面板：控制器 .cpp 与 GameMode 里用到 AStellarEraHUD /
+			// UStarMapUISystem，公开头不出现，所以是私有依赖。
+			"StellarEraUI",
+
 			// 行星：Actor / 表面网格 / 编辑组件 / 笔刷 / 矿物观察体 / 大气，
 			// 以及 IVoxelViewpointInvokers（控制器在 OnPossess 里逐个调用，
 			// 该接口住在 Planet/Src/Invokers/）。

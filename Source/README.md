@@ -110,7 +110,7 @@ StellarEraPawns/Src/
 编辑（G）、笔刷尺寸（`[` / `]`）与矿物透视（H 与数字键）随各自 Pawn 绑 —— 星图的
 矿物透视会话状态也住在相机 Pawn 上，控制器只在换 Pawn / 退出星图 / 选中变化时命令它收尾。
 星图的分派规则
-`EStarMapLookMode`、`ResolveLookMode` 与 `IStarMapLookContext` 都在
+`EStarMapLookMode` 与 `ResolveLookMode` 都在
 `StarMap/Input/StarMapCameraInputComponent.h`。
 
 > **星图相机在 `Src/StarMap/`。** 它依赖 Cosmos，而 Cosmos 曾经反向
@@ -142,10 +142,14 @@ StellarEraCosmos/Src/
 
 | 模块 | 行数 | 一句话 | 什么时候动它 |
 |---|---:|---|---|
-| `StellarEraUI` | 2856 | HUD 绘制、星图面板、矿物图例、`IStarMapUIInputs` | 改 HUD 显示、改星图样式 |
+| `StellarEraUI` | 2856 | HUD 绘制、星图面板、矿物图例 | 改 HUD 显示、改星图样式 |
 
-`StarMapUIInputs.h` 在这里而不是在 Game 模块，是正确的依赖倒置：
-UI 声明自己需要什么，Game 去实现，于是 UI 不需要 include 控制器。
+星图 UI 需要的鼠标坐标、屏幕拾取、矿物透视都不是「只有控制器才知道」的信息：
+前两个是对 `APlayerController::GetMousePosition` 与 `StarMapPicking` 的一行转发，
+第三个是 `Cast<AStarMapCameraPawn>(Pawn)`。UI 本来就 Public 依赖 Pawns，手里也有
+玩家控制器，所以直接调，**不设接口** —— 曾经有过一个 `IStarMapUIInputs`，四个
+方法全是这种转发，删掉后 Game 的公开头不再 include 任何 UI 头，
+`StellarEraUI` 也随之从公开依赖降为私有依赖。
 
 ### L5 装配
 
@@ -181,7 +185,7 @@ UI 声明自己需要什么，Game 去实现，于是 UI 不需要 include 控�
 | 改星图交互 | `StellarEraUI/Src/StarMapUISystem.cpp` |
 | 改按键映射（哪个键是哪个动作） | 按归属找三张表各自的 `Build`：角色 `StellarEraPawns/Src/Character/Input/PlanetCharacterInputActions.cpp` / 飞船 `StellarEraPawns/Src/Spaceship/Input/SpaceshipInputActions.cpp` / 星图相机 `StellarEraPawns/Src/StarMap/Input/StarMapCameraInputActions.cpp`。E / M / 左键在需要它的表里各有一条（E：角色登船、飞船离船）；三张表由 `StellarEra/Src/Input/StellarEraInputActions.cpp` 的 `FStellarEraInputActions` 聚合构造 |
 | 改角色 / 飞船 / 星图相机对输入的响应 | `StellarEraPawns/Src/Character/Input/PlanetCharacterInputComponent.cpp` / `Src/Spaceship/Input/SpaceshipInputComponent.cpp` / `Src/StarMap/Input/StarMapCameraInputComponent.cpp`（三个输入组件都在 Pawn 的构造函数里 `CreateDefaultSubobject`，`SetupPlayerInputComponent` 只调 `Bind`） |
-| 改 E / M / 左键的绑定 | 控制器**不绑任何输入**（`SetupInputComponent` 已删除）；三个 Pawn 各绑自己表里的动作：角色 `Src/Character/Input/PlanetCharacterInputComponent.cpp`、飞船 `Src/Spaceship/Input/SpaceshipInputComponent.cpp`、星图相机 `Src/StarMap/Input/StarMapCameraInputComponent.cpp`。动作由控制器造，Pawn 经 `IStellarEraInputSource`（`StellarEraPawns/Src/StellarEraInputSource.h`）只取自己那张表；跨 Pawn 的会话动作（切星图 / 上下船）经 `IStellarEraSessionCommands`（`Src/SessionCommands.h`）回到控制器 |
+| 改 E / M / 左键的绑定 | 控制器**不绑任何输入**（`SetupInputComponent` 已删除）；三个 Pawn 各绑自己表里的动作：角色 `Src/Character/Input/PlanetCharacterInputComponent.cpp`、飞船 `Src/Spaceship/Input/SpaceshipInputComponent.cpp`、星图相机 `Src/StarMap/Input/StarMapCameraInputComponent.cpp`。动作由控制器造，Pawn 经 `IStellarEraInputSource`（`StellarEraPawns/Src/StellarEraInputSource.h`）只取自己那张表；跨 Pawn 的 M（切星图）与 E（上下船）都由 Pawn 自己执行 —— 先经 `IStellarEraSessionCommands`（`Src/SessionCommands.h`）向控制器查询目标（M：`FindStarMapCameraFor`；E：`FindBoardableShipFrom` / `GetOrSpawnCrewCharacter`），机械动作在 `AStarMapCameraPawn::EnterStarMap` / `ExitStarMap` 与 `ASpaceshipPawn::Board` / `DisembarkCrew`，`Possess` 仍由控制器完成。退星图不问控制器：相机自己记着是谁把它叫出来的 |
 
 ---
 
@@ -192,11 +196,12 @@ UI 声明自己需要什么，Game 去实现，于是 UI 不需要 include 控�
    跨模块的集成测试放装配层（`StellarEra/Src/Tests/`）。
 2. **新增功能就加一个子目录，`.h` 与 `.cpp` 一起放进去。** 不要往 `Src/` 根堆文件，
    那一层只留模块门面（`VoxelPlanetActor.h` 这类被外部当入口用的）。
-3. **接口放到「已经被所有实现方与使用方依赖的最低层」**。`IVoxelViewpointInvokers`
-   在 `Planet/Src/Invokers/`（Pawns 与 UI 都已 Public 依赖 Planet）；
-   `IStarMapUIInputs` 明确属于 UI 的输入需求，就由 UI 定义、上层实现。
-   反过来，`ICosmosBody` 声明在 Cosmos（消费方）、由 Pawns 的飞船实现 ——
-   消费方在低层时，接口就放低层。
+3. **接口放到「已经被所有实现方与使用方依赖的最低层」**，而且只在**消费方够不到
+   实现**时才建。`IVoxelViewpointInvokers` 在 `Planet/Src/Invokers/`（Pawns 与 UI
+   都已 Public 依赖 Planet）；`ICosmosBody` 声明在 Cosmos（消费方）、由 Pawns 的
+   飞船实现 —— 消费方在低层时，接口就放低层。反例是刚删掉的 `IStarMapUIInputs`：
+   消费方（UI）本就依赖实现方所在的 Pawns、手里还有 `APlayerController`，
+   接口只是给四个一行转发多起了一套名字。
 
 ### 什么时候该建子目录
 

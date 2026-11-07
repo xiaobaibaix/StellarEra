@@ -12,7 +12,9 @@ using UnrealBuildTool;
 // 功能模块不得 include 本模块的头。
 //
 // 本模块**不能**依赖 StellarEra（primary game module）—— Game 依赖 UI，
-// UI 再依赖 Game 就成环。需要控制器数据的地方走 IStarMapUIInputs。
+// UI 再依赖 Game 就成环。星图 UI 需要的鼠标坐标、屏幕拾取、矿物透视都直接
+// 从 APlayerController 与 Pawns 的 StarMapPicking / AStarMapCameraPawn 取，
+// 不需要再向 Game 要接口。
 //
 // ── 星图相机已经搬走 ────────────────────────────────────────────────
 // AStarMapCameraPawn 现在在 StellarEraPawns/Src/StarMap/。它依赖 Cosmos 的
@@ -51,8 +53,8 @@ public class StellarEraUI : ModuleRules
 		{
 			"Core", "CoreUObject", "Engine",
 
-			// 本模块的公开头只对 Planet 的类型做前置声明（StarMapUIInputs.h 的
-			// UPlanetMineralViewComponent、StellarEraHUD.h 的 UPlanetEditComponent），
+			// 本模块的公开头只对 Planet 的类型做前置声明（StellarEraHUD.h 的
+			// UPlanetEditComponent），
 			// 完整类型一律在 .cpp 里使用。按「公开头里 include 了对方才算 Public」
 			// 的判据，这一项其实可以降回 Private；目前保持 Public 未动，
 			// 待编译验证后由维护者决定。

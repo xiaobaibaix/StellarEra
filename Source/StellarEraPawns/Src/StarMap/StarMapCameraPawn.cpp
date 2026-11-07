@@ -6,12 +6,15 @@
 #include "Components/ChildActorComponent.h"
 #include "CosmosSimulationSubsystem.h"
 #include "Engine/World.h"
+#include "GameFramework/PlayerController.h"
 #include "PlanetCharacter.h"
 #include "PlanetEditComponent.h"
 #include "PlanetMineralViewComponent.h"
 #include "PlanetSurfaceRay.h"
 #include "SpaceshipPawn.h"
 #include "StarMapCameraInputComponent.h"
+#include "StarMapPicking.h"
+#include "TimerManager.h"
 #include "VoxelPlanetActor.h"
 #include "AlwaysLocalVoxelInvokerComponent.h"
 #include "VoxelViewpointInvokers.h"
@@ -112,8 +115,8 @@ void AStarMapCameraPawn::BeginPlay()
 	Super::BeginPlay();
 
 	// 拍下挂载原点：星图期间 Actor 每帧跟着渲染相机走，退出时靠它搬回球心。
-	// 只有挂在行星上的那台（BP_StarMapCameraPawn 作为 CAC 子 Actor）有挂载父；
-	// 深空单例相机没有，保持单位变换即可 —— ResetToAttachOrigin 会直接跳过。
+	// 正常只有挂在行星上的那台（BP_StarMapCameraPawn 作为 CAC 子 Actor）有挂载父；
+	// 没有挂载父时保持单位变换即可 —— ResetToAttachOrigin 会直接跳过。
 	if (GetRootComponent() && GetRootComponent()->GetAttachParent())
 	{
 		AttachOriginRelativeTransform = GetRootComponent()->GetRelativeTransform();
@@ -156,12 +159,12 @@ UPlanetEditComponent* AStarMapCameraPawn::GetPlanetEditComponent() const
 	return FindComponentByClass<UPlanetEditComponent>();
 }
 
-void AStarMapCameraPawn::ToggleMineralView()
+FString AStarMapCameraPawn::ToggleMineralView()
 {
 	if (ActiveMineralView)
 	{
 		ExitMineralViewIfActive();
-		return;
+		return FString();
 	}
 
 	UCosmosSimulationSubsystem* Subsystem = GetWorld()
@@ -173,26 +176,17 @@ void AStarMapCameraPawn::ToggleMineralView()
 	UPlanetMineralViewComponent* MineralView =
 		Planet ? Planet->FindComponentByClass<UPlanetMineralViewComponent>() : nullptr;
 
-	// 提示归控制器：相机没有 HUD，失败原因经 IStarMapLookContext 转出去。
-	IStarMapLookContext* Context = Cast<IStarMapLookContext>(GetController());
+	// 失败原因回给输入组件，由它经 HUD 弹提示（本 Pawn 不直接碰屏幕）。
 	if (!MineralView)
 	{
-		if (Context)
-		{
-			Context->ShowStarMapPrompt(TEXT("矿物观察只支持行星"), 2.f);
-		}
-		return;
+		return TEXT("矿物观察只支持行星");
 	}
 
 	if (!MineralView->Activate(Planet))
 	{
 		// 失败只有三种：没有地质场、采样参数非法、观察体/材质创建失败
 		// （后两种会先打 Error 日志）。
-		if (Context)
-		{
-			Context->ShowStarMapPrompt(TEXT("该行星没有矿物分布"), 2.f);
-		}
-		return;
+		return TEXT("该行星没有矿物分布");
 	}
 
 	// 观察里左键只点图例、右键转视角：若此前按过 G，先退出编辑模式。
@@ -209,6 +203,7 @@ void AStarMapCameraPawn::ToggleMineralView()
 	FocusOn(Planet, PlanetFocusRadiusScale * Planet->GetSurfaceRadiusCm());
 
 	ActiveMineralView = MineralView;
+	return FString();
 }
 
 void AStarMapCameraPawn::ExitMineralViewIfActive()
@@ -236,6 +231,171 @@ void AStarMapCameraPawn::ShowAllMineralElements()
 	{
 		ActiveMineralView->SetAllElementsVisible(true);
 	}
+}
+
+bool AStarMapCameraPawn::EnterStarMap(APawn* From, APlayerController* PC)
+{
+	if (!From || !PC || !GetWorld())
+	{
+		return false;
+	}
+
+	UCosmosSimulationSubsystem* Subsystem =
+		GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>();
+	if (!Subsystem)
+	{
+		return false;
+	}
+
+	// 记下返回对象，必须在 Possess 之前 —— 之后 GetPawn() 已经是本相机了。
+	StarMapEnterer = From;
+
+	// 入场位置：相机挂在球心，直接原地接手会先看见星体内部，所以沿
+	// 「球心 → 进场前的视点」把它搬到球面附近（ComputeEntryAnchorLocation）。
+	//
+	// 用 PC 的视点而不是 From 的变换 —— 相机在 tick 组之后才更新，Pawn 的变换
+	// 不等于玩家此刻看到的画面。朝向仍取进入前的视线，于是进场第一帧是
+	// 「贴着球面、朝原方向看」，随后 FocusOn 的平滑拉远把画面退到整颗行星。
+	FVector ViewLocation;
+	FRotator ViewRotation;
+	PC->GetPlayerViewPoint(ViewLocation, ViewRotation);
+	EnterFrom(ComputeEntryAnchorLocation(ViewLocation), ViewRotation);
+
+	// 焦点天体：相机由行星的 Child Actor Component 提供，所以它就挂在那颗行星身上
+	// ——「借用谁的相机」与「聚焦谁」是同一颗。挂载父为空说明这台相机不是行星
+	// 带来的（不该发生），那就不聚焦，停在场点。
+	AActor* const FocusBody = GetAttachParentActor();
+
+	Subsystem->SetSelectedBody(nullptr);
+	Subsystem->SetStarMapActive(true);
+	PC->Possess(this);
+
+	// 选中焦点并拉远。放在 Possess 之后 —— FocusOn 只改相机 Pawn 自己的状态，
+	// 不依赖 Possess，但语义上「进入星图」这个动作应当整体先完成再调相机。
+	//
+	// **就算用的是行星相机，图内点选别的星球也只走 SetSelectedBody + FocusOn、
+	// 不换相机**：换相机 = 换 Possess = 两台相机各 4 个 invoker 的 bUseForLOD
+	// 翻转 = 体素八叉树全量重建，正是 2026-10-24 那个 chunk 簿记 ensure 的触发
+	// 模式。单相机 + 换焦点没有这个成本，「每星球一台」的差异收敛到参数上。
+	if (FocusBody)
+	{
+		Subsystem->SetSelectedBody(FocusBody);
+		FocusOn(
+			FocusBody,
+			GetPlanetFocusRadiusScale() * StarMapPicking::GetBodyRadiusCm(FocusBody));
+	}
+
+	return true;
+}
+
+void AStarMapCameraPawn::ExitStarMap()
+{
+	UCosmosSimulationSubsystem* Subsystem =
+		GetWorld() ? GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>() : nullptr;
+	if (!Subsystem)
+	{
+		return;
+	}
+
+	// 混合还没走完时又按了一次 M：忽略。不拦的话会把整段退出流程重跑一遍、
+	// 再压一个定时器上去。
+	if (StarMapExitTimerHandle.IsValid()
+		&& GetWorldTimerManager().IsTimerActive(StarMapExitTimerHandle))
+	{
+		return;
+	}
+
+	// 先退矿物透视再换 Pawn：它隐藏了行星网格、关了碰撞与大气，必须在恢复视角之前还原。
+	ExitMineralViewIfActive();
+
+	Subsystem->SetSelectedBody(nullptr);
+	Subsystem->SetStarMapActive(false);
+
+	// 星图的编辑模式不跟着换 Pawn 走：Possess 回去以后组件已不在手上，预览 Tick
+	// 与笔刷线都会留在原地。退出即关，重进再按 G。
+	if (UPlanetEditComponent* Edit = GetPlanetEditComponent())
+	{
+		if (Edit->IsEditMode())
+		{
+			Edit->SetEditMode(false);
+		}
+	}
+
+	// ── 返回对象可能已经没了，这是个已知的、可达的死角 ──
+	//
+	// 那时**不 Possess** —— 留在相机上，不会崩。**但这不是「还能再进」**：此刻
+	// GetPawn() 仍是本相机，所以下次按 M 会再次命中退出分支（星图已经关了，等于
+	// 空转），玩家出不去了。
+	//
+	// **这条路径是可达的** —— 别因为 Source/ 里没有 Destroy 就以为安全：引擎自己会
+	// 销毁 Pawn。AActor::CheckStillInWorld 在 GetActorLocation().Z < WorldSettings->KillZ
+	// （且 WorldBoundsChecks 开着）时调 AActor::FellOutOfWorld；AKillZVolume 则**直接**调
+	// FellOutOfWorld、不经 CheckStillInWorld。两条路都在 FellOutOfWorld 的函数体里调 Destroy()。
+	// 那一整条链有授权门控（`HasAuthority() || GetLocalRole() == ROLE_None`），PIE / 单机成立，
+	// 纯客户端上不成立 —— 结论不变，路径仍可达，只是发生在有授权的一侧。
+	// 蓝图子类、关卡蓝图、PIE 里手动删 Actor 也都不在 Source/ 里。
+	//
+	// 真要修，**三条缺一不可**：
+	//   1. 进场只在 From 非空、且**不是**本相机时才记 —— 否则第二次进入会把相机
+	//      自己记成返回对象，此后 Possess 换不了 Pawn（`EnterStarMap` 的调用方
+	//      绝不会传相机自己，但 dbg 脚本可以）；
+	//   2. 进出判据从「GetPawn() 是不是星图 Pawn」换成 Subsystem->IsStarMapActive()；
+	//   3. **退出分支必须兜底** —— 只做前两条只能让这个状态**可检出**、不能**可恢复**：
+	//      返回 Pawn 已失效时照样没有可 Possess 的对象。得重新拿一个默认 Pawn
+	//      （如走 AGameModeBase::RestartPlayer，或按 DefaultPawnClass 生成）。
+	TWeakObjectPtr<APawn> const WeakReturn = StarMapEnterer;
+	StarMapEnterer.Reset();
+
+	APlayerController* const PC = Cast<APlayerController>(GetController());
+	if (PC && WeakReturn.IsValid() && ExitBlendSeconds > 0.f)
+	{
+		// 不要一帧切回去：交给引擎做视点混合。起点是仍被 Possess 的本相机
+		// （CalcCamera 每帧还在产出画面），终点是返回 Pawn 的相机；引擎逐帧插
+		// 两条 FMinimalViewInfo，位置 / 朝向 / FOV 一起过渡。
+		PC->SetViewTargetWithBlend(
+			WeakReturn.Get(),
+			ExitBlendSeconds,
+			EViewTargetBlendFunction::VTBlend_Cubic,
+			/*BlendExp=*/0.f,
+			/*bLockOutgoing=*/false);
+
+		// 混合结束再 Possess —— Possess 会立刻把视点设成返回 Pawn，提前调用
+		// 等于把混合掐掉。多等 0.05 s，避开「定时器与混合在同一帧收尾」的边界。
+		GetWorldTimerManager().SetTimer(
+			StarMapExitTimerHandle,
+			FTimerDelegate::CreateWeakLambda(
+				this,
+				[this, WeakReturn]()
+				{
+					FinishStarMapExit(WeakReturn.Get());
+				}),
+			ExitBlendSeconds + 0.05f,
+			/*bLoop=*/false);
+	}
+	else
+	{
+		// 没有可回的 Pawn（它已经没了），或混合被关掉：立刻收尾。
+		FinishStarMapExit(WeakReturn.Get());
+	}
+}
+
+void AStarMapCameraPawn::FinishStarMapExit(APawn* ReturnPawn)
+{
+	if (ReturnPawn)
+	{
+		if (APlayerController* const PC = Cast<APlayerController>(GetController()))
+		{
+			PC->Possess(ReturnPawn);
+		}
+	}
+
+	// 星图期间 CalcCamera 每帧把相机 Actor 拽到渲染位置，退出后它还留在半空。
+	// 相机挂在行星身上，必须搬回球心 —— 否则从外面看行星时，那台子相机飘在
+	// 球外，下次进场又得从它此刻的位置重算。没有挂载父时函数内自行跳过。
+	//
+	// 放在 Possess 之后：换人以后 CalcCamera 不再跑，搬过去的相对变换才不会被
+	// 下一帧的「Actor 跟着相机走」覆盖回来。
+	ResetToAttachOrigin();
 }
 
 void AStarMapCameraPawn::EnterFrom(const FVector& InCameraLocation, const FRotator& InCameraRotation)
@@ -282,8 +442,8 @@ FVector AStarMapCameraPawn::ComputeSurfaceAnchorLocation(
 
 FVector AStarMapCameraPawn::ComputeEntryAnchorLocation(const FVector& TowardWorldLocation) const
 {
-	// 只有挂在行星上的那台（作为 CAC 子 Actor）算得出锚点；深空单例相机没有宿主，
-	// 保持当前 Actor 位置 —— 它本来就摆在关卡里，不需要搬家。
+	// 只有挂在行星上的那台（作为 CAC 子 Actor）算得出锚点；没有挂载父时
+	// 保持当前 Actor 位置 —— 那张入场画面不变，不需要搬家。
 	const AVoxelPlanetActor* const Planet = Cast<AVoxelPlanetActor>(GetAttachParentActor());
 	if (!Planet)
 	{
@@ -903,7 +1063,7 @@ AVoxelPlanetActor* AStarMapCameraPawn::ResolveReferencePlanet(const APawn* Enter
 	}
 
 	// 步行：角色的 PlanetActor 由它自己的重评定时器维护（ReevaluatePlanet）。
-	// 深空里两者都可能为空 —— 那就退回单例相机，见 ToggleStarMap 进入分支。
+	// 深空里两者都可能为空 —— 那就不进星图：解析出的相机为空，输入组件直接返回。
 	if (const APlanetCharacter* Character = Cast<APlanetCharacter>(EnteringPawn))
 	{
 		return Character->PlanetActor;

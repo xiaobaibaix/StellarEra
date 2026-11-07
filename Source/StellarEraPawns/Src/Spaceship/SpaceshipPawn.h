@@ -270,6 +270,33 @@ public:
 	APlanetCharacter* GetBoardedCharacter() const { return BoardedCharacter; }
 
 	/**
+	 * 让角色登船：挂到船下、隐藏、关碰撞，并记成舱里的角色。
+	 *
+	 * **不 Possess** —— 换控制对象归控制器（`AController::Possess`）。调用方拿到
+	 * `FindBoardableShipFrom` 的结果后，依次 `Board(Character)` + `Possess(this)`。
+	 *
+	 * 附着用 KeepWorldTransform：相对变换从当前世界变换推导，与 SetBoarded 的
+	 * 先后无关 —— 后者只切可见性、碰撞和移动模式，不碰变换。
+	 */
+	void Board(APlanetCharacter* Character);
+
+	/**
+	 * 让 Character 离船：从船上摘下、显示、摆到离船落脚点并贴回球面。
+	 *
+	 * 传入的可以是舱里的角色，也可以是刚生成、还没登船的角色（此时只做摆位与
+	 * 贴球面）。不 Possess。Character 为空时无动作。
+	 */
+	void DisembarkCrew(APlanetCharacter* Character);
+
+	/**
+	 * 离船落脚点（世界坐标）：船右侧 400 cm。
+	 *
+	 * 不用船体正中的位置 —— 那里正好在飞船的碰撞体里，角色会被立刻挤开。
+	 * 生成新角色与摘人摆位共用同一点，两边不会漂移。
+	 */
+	FVector GetCrewExitLocation() const;
+
+	/**
 	 * 接触半径（厘米）—— 求解器的**兜底**接触形状：没有凸包探针时才用。
 	 *
 	 * 返回 ContactFallbackRadiusCm（默认 300 厘米）。**不能返回 0**：半径 0 的

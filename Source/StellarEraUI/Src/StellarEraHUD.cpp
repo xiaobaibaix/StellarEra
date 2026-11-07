@@ -11,7 +11,6 @@
 #include "PlanetEditUI.h"
 #include "SpaceshipPawn.h"
 #include "StarMapCameraPawn.h"
-#include "StarMapUIInputs.h"
 #include "StarMapUISystem.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
@@ -84,7 +83,7 @@ void AStellarEraHUD::DrawHUD()
 	}
 
 	// 星图模式的信息面板：只在当前 Pawn 是星图相机时画。
-	if (const APlayerController* PlayerController = GetOwningPlayerController())
+	if (APlayerController* PlayerController = GetOwningPlayerController())
 	{
 		if (Cast<AStarMapCameraPawn>(PlayerController->GetPawn()))
 		{
@@ -92,10 +91,7 @@ void AStellarEraHUD::DrawHUD()
 			{
 				StarMapUI = NewObject<UStarMapUISystem>(this);
 			}
-			if (IStarMapUIInputs* Inputs = Cast<IStarMapUIInputs>(GetOwningPlayerController()))
-			{
-				StarMapUI->Draw(*this, *Inputs);
-			}
+			StarMapUI->Draw(*this, *PlayerController);
 		}
 	}
 

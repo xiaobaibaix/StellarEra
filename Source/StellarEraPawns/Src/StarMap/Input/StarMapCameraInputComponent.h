@@ -5,7 +5,6 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
-#include "UObject/Interface.h"
 #include "StarMapCameraInputComponent.generated.h"
 
 class APlayerController;
@@ -26,31 +25,6 @@ enum class EStarMapLookMode : uint8
 	None,
 	Orbit,
 	Aim,
-};
-
-UINTERFACE(MinimalAPI, meta = (CannotImplementInterfaceInBlueprint))
-class UStarMapLookContext : public UInterface
-{
-	GENERATED_BODY()
-};
-
-/**
- * 星图相机需要控制器配合的一件事：把提示弹到屏幕上。
- *
- * 相机没有 HUD，矿物透视进不去时的提示只能经控制器转出去。组件住
- * StellarEraPawns、控制器住 StellarEra，直接 include 会反向依赖 Game 模块。
- * 做法照 ICosmosBody：游戏模块单向依赖 Pawns，实现放控制器上。
- *
- * 左键是否按住、编辑模式、连续挖、矿物透视是否激活都直接从本组件 / 相机 Pawn
- * 自己读，不绕控制器。
- */
-class STELLARERAPAWNS_API IStarMapLookContext
-{
-	GENERATED_BODY()
-
-public:
-	/** 在屏幕上弹一条带时长的提示。相机没有 HUD，用它报「进不了矿物透视」的原因。 */
-	virtual void ShowStarMapPrompt(const FString& Text, float Seconds) = 0;
 };
 
 /**
@@ -101,9 +75,6 @@ public:
 private:
 	/** 所属相机；组件只可能挂在星图相机上。 */
 	AStarMapCameraPawn* GetPawn() const;
-
-	/** 控制器的星图上下文；拿不到时为空。 */
-	IStarMapLookContext* GetLookContext() const;
 
 	/** 相机 Pawn 自己的编辑组件，且只在编辑模式下才返回。 */
 	UPlanetEditComponent* GetEditComponentInEditMode() const;

@@ -9,8 +9,8 @@
 #include "StarMapUISystem.generated.h"
 
 class AActor;
+class APlayerController;
 class AStellarEraHUD;
-class IStarMapUIInputs;
 
 /** 一颗天体的显示数据。纯数据，不含 UObject 引用。 */
 struct FStarMapBodyInfo
@@ -55,8 +55,14 @@ class STELLARERAUI_API UStarMapUISystem : public UObject
 	GENERATED_BODY()
 
 public:
-	/** 画一帧星图 UI。只在星图模式下由 HUD 调用。 */
-	void Draw(AStellarEraHUD& Hud, IStarMapUIInputs& Inputs);
+	/**
+	 * 画一帧星图 UI。只在星图模式下由 HUD 调用。
+	 *
+	 * 直接吃玩家控制器：鼠标坐标、屏幕拾取、矿物透视都是对引擎 API 与
+	 * `StarMapPicking` 的一行转发，没有需要控制器独有的信息 —— 多一层接口只会
+	 * 让同一件事有两个声明。
+	 */
+	void Draw(AStellarEraHUD& Hud, APlayerController& PlayerController);
 
 	/** 从已注册天体采集显示数据。没有 UCosmosOrbitComponent 时返回 false。 */
 	static bool BuildBodyInfo(AActor* Body, FStarMapBodyInfo& OutInfo);

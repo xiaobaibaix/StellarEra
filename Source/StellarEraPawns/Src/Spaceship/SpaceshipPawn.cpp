@@ -908,6 +908,56 @@ void ASpaceshipPawn::SetBoardedCharacter(APlanetCharacter* Character)
 	BoardedCharacter = Character;
 }
 
+void ASpaceshipPawn::Board(APlanetCharacter* Character)
+{
+	if (!Character)
+	{
+		return;
+	}
+
+	// 附着用 KeepWorldTransform：相对变换从当前世界变换推导，与 SetBoarded 的
+	// 先后无关 —— 后者只切可见性、碰撞和移动模式，不碰变换。
+	// 顺序只是为了读起来顺。
+	Character->AttachToActor(this, FAttachmentTransformRules::KeepWorldTransform);
+	Character->SetBoarded(true);
+	SetBoardedCharacter(Character);
+}
+
+void ASpaceshipPawn::DisembarkCrew(APlanetCharacter* Character)
+{
+	if (!Character)
+	{
+		return;
+	}
+
+	// 舱里的角色：先摘下来、恢复显示与碰撞，再清掉记账。
+	// 刚生成、还没登船的角色（BoardedCharacter 为空）跳过这一段，只做摆位。
+	if (BoardedCharacter == Character)
+	{
+		Character->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+		Character->SetBoarded(false);
+		SetBoardedCharacter(nullptr);
+	}
+
+	// 摆到飞船旁边而不是原地：原地正好在飞船的碰撞体里，会立刻被挤开。
+	Character->SetActorLocation(GetCrewExitLocation(), /*bSweep=*/false);
+
+	// 再按当地球面法线摆正。登船期间角色的朝向是冻结的（bOrientRotationToMovement
+	// 只在有加速度时旋转，而附着时没有加速度），不重新对齐的话，在行星另一侧下船
+	// 会看到角色侧躺在地上。这一步同时把角色按到球面上，并重置相机基座，
+	// 避免下船瞬间镜头甩一下。
+	//
+	// 下船前先重评一次最近行星。登船期间 Tick 里的重评是关着的，此刻 PlanetActor
+	// 很可能还是上船时那颗 —— 直接按球面摆正会把角色按到几公里外的旧星地表上。
+	Character->ReevaluatePlanet();
+	Character->SnapToPlanetSurface();
+}
+
+FVector ASpaceshipPawn::GetCrewExitLocation() const
+{
+	return GetActorLocation() + GetActorRightVector() * 400.f;
+}
+
 float ASpaceshipPawn::GetContactRadiusCm() const
 {
 	// 兜底半径是世界尺度（厘米），与 CentimetersPerAu 同一套单位；属性本身就是

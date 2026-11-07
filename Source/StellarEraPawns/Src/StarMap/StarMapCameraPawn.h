@@ -7,6 +7,7 @@
 #include "VoxelViewpointInvokers.h"
 #include "StarMapCameraPawn.generated.h"
 
+class APlayerController;
 class AVoxelPlanetActor;
 class UCameraComponent;
 class UCosmosSimulationSubsystem;
@@ -53,7 +54,8 @@ struct FStarMapObstacle
 struct FPlanetEditTarget;
 
 /**
- * 星图模式的相机。进入星图时由 AStellarEraPlayerController 创建并 Possess。
+ * 星图模式的相机。由行星的 Child Actor Component 提供；进图时由进场 Pawn 调用
+ * EnterStarMap 接手（Possess 发生在那里），退图由本类的 ExitStarMap 收尾。
  *
  * **相机不 tick，位置在 CalcCamera 里现算。** 这是必需的，不是风格选择：
  * UWorld::Tick 里的顺序是「各 Actor tick 组 → FTickableGameObject::TickObjects
@@ -93,11 +95,14 @@ public:
 	/**
 	 * H 键：进入 / 退出矿物透视。
 	 *
-	 * 进入条件：当前选中的是体素行星、且它带矿物透视组件。失败时经控制器弹提示，
-	 * 不改变状态。退出条件：再按一次 H、退出星图、换 Pawn（控制器在 OnPossess /
-	 * 退出星图时调用 ExitMineralViewIfActive），或选中天体变了（控制器 PlayerTick）。
+	 * 进入条件：当前选中的是体素行星、且它带矿物透视组件。失败时不改变状态，
+	 * 并把原因返回给输入组件（由它经 HUD 弹提示）。退出条件：再按一次 H、退出
+	 * 星图、换 Pawn（控制器在 OnPossess / 退出星图时调用 ExitMineralViewIfActive），
+	 * 或选中天体变了（控制器 PlayerTick）。
+	 *
+	 * @return 失败原因；进入成功、退出成功或本来无操作时为空。
 	 */
-	void ToggleMineralView();
+	FString ToggleMineralView();
 
 	/** 退出矿物透视（幂等）。状态住在相机上，换 Pawn 时由控制器命令相机执行。 */
 	void ExitMineralViewIfActive();
@@ -139,8 +144,7 @@ public:
 	/**
 	 * 用自己挂载的行星算入场锚点：球心 + 地表半径 + EntryAnchorAltitudeCm。
 	 *
-	 * 没挂在行星上（深空单例相机）返回当前 Actor 位置 —— 与「入场画面不变」
-	 * 的旧行为一致。
+	 * 没挂在行星上时返回当前 Actor 位置 —— 入场画面不变。
 	 */
 	FVector ComputeEntryAnchorLocation(const FVector& TowardWorldLocation) const;
 
@@ -148,10 +152,35 @@ public:
 	 * 把相机摆回挂载原点（行星球心）。
 	 *
 	 * 星图期间 Actor 每帧跟着渲染相机走（见 CalcCamera 末尾），退出时必须搬回来，
-	 * 否则这颗行星的子 Actor 会一直漂在最后看的位置上。没有挂载（深空单例相机）
+	 * 否则这颗行星的子 Actor 会一直漂在最后看的位置上。没有挂载时
 	 * 什么都不做。
 	 */
 	void ResetToAttachOrigin();
+
+	// ── 进出星图的会话流程 ──
+
+	/**
+	 * 进入星图：From 是进场 Pawn，PC 是操控它的玩家控制器。
+	 *
+	 * 做四件事：记下 From 作为退出时的返回对象、摆好入场位姿（ComputeEntryAnchorLocation）、
+	 * 通知求解器进入星图态、把焦点设为挂载行星（FocusOn 拉远），最后 `Possess(this)`。
+	 *
+	 * **由 Pawn 的输入组件直接调用**，不经过控制器的会话流程 —— 换谁 Possess 由
+	 * 调用方决定，本函数只负责「这台相机怎么进场」。PC 为空 / From 为空 / 世界没有
+	 * 求解器时返回 false，什么都不改。
+	 *
+	 * @return 是否真的进了星图。
+	 */
+	bool EnterStarMap(APawn* From, APlayerController* PC);
+
+	/**
+	 * 退出星图：还原矿物透视与编辑模式、通知求解器退出、视点混合结束后
+	 * `Possess` 回进场 Pawn，最后把相机搬回挂载原点。
+	 *
+	 * 返回对象就是 EnterStarMap 记下的那个 —— 相机自己知道是谁把它叫出来的，
+	 * 所以退图**不需要问控制器**。混合期间重复调用会被忽略。
+	 */
+	void ExitStarMap();
 
 	/**
 	 * 进入星图模式时聚焦到某个天体：把焦点设为它，并让相机沿当前视线方向
@@ -309,7 +338,7 @@ public:
 	/**
 	 * 上面两步的串联：进星图时优先用焦点行星自带的相机。
 	 * 先认 CAC（显式声明的那台），没有再退回附加关系（手动摆的那台）；
-	 * 都没有、或进图时解析不出行星（深空）→ 返回空，调用方退回单例相机。
+	 * 都没有、或进图时解析不出行星（深空）→ 返回空，调用方**不进入星图**。
 	 */
 	static AStarMapCameraPawn* ResolvePlanetStarMapCamera(const APawn* EnteringPawn);
 
@@ -463,16 +492,34 @@ protected:
 	/** 四档调用器同进同出。 */
 	void ApplyViewpointInvokerState();
 
+	/**
+	 * 退图的收尾：Possess 回 ReturnPawn（可能已经没了），再把相机搬回挂载原点。
+	 * 混合没开、或返回 Pawn 为空时由 ExitStarMap 直接调用。
+	 */
+	void FinishStarMapExit(APawn* ReturnPawn);
+
 	/** 本 Pawn 是否当前视点。初值 false —— OnRegister 会自动启用，BeginPlay 要按它关掉。 */
 	bool bIsViewpoint = false;
 
 	/**
 	 * 挂载原点（相对变换），BeginPlay 拍下。
 	 *
-	 * ResetToAttachOrigin 用它把相机搬回行星球心的设计位置。未挂载（深空单例
-	 * 相机）时保持单位变换，且 ResetToAttachOrigin 直接跳过。
+	 * ResetToAttachOrigin 用它把相机搬回行星球心的设计位置。未挂载时
+	 * 保持单位变换，且 ResetToAttachOrigin 直接跳过。
 	 */
 	FTransform AttachOriginRelativeTransform = FTransform::Identity;
+
+	/**
+	 * 把本相机叫出来的那个 Pawn，退图时 Possess 回它。
+	 *
+	 * **弱引用** —— 它可能在星图期间被销毁（引擎的 FellOutOfWorld 会 Destroy）。
+	 * 那时 ExitStarMap 不 Possess，留在相机上 —— 这是个已知的、可达的死角，
+	 * 完整成因与三步修法写在 ExitStarMap 里。
+	 */
+	TWeakObjectPtr<APawn> StarMapEnterer;
+
+	/** 退出混合的定时器；有效且还在跑说明混合没结束，期间的 M 一律忽略。 */
+	FTimerHandle StarMapExitTimerHandle;
 
 	// ── 运行时状态 ──
 
@@ -687,4 +734,17 @@ protected:
 	 */
 	UPROPERTY(EditAnywhere, Category = "StarMap", meta = (ClampMin = "0.01"))
 	float SmoothFocusSeconds = 0.8f;
+
+	/**
+	 * 退图的视点混合时长（秒）。0 = 直接切回去，不做混合。
+	 *
+	 * 混合的起点是仍被 Possess 的这台相机（CalcCamera 每帧还在产出画面），终点是
+	 * 进场 Pawn 的相机；引擎逐帧插两条 FMinimalViewInfo，位置 / 朝向 / FOV 一起过渡。
+	 * 混合走完才 Possess —— Possess 会立刻把视点设成返回 Pawn，提前调用等于把混合掐掉。
+	 *
+	 * 配置放在相机上而不是控制器上：混合的是**这台相机**，按星球在
+	 * BP_StarMapCameraPawn 里可以各配各的。
+	 */
+	UPROPERTY(EditAnywhere, Category = "StarMap", meta = (ClampMin = "0.0"))
+	float ExitBlendSeconds = 0.5f;
 };

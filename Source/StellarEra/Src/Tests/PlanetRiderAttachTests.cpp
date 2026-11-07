@@ -72,7 +72,7 @@ bool FStellarEraPlanetBoardedFlagTest::RunTest(const FString& Parameters)
 
 	TestFalse(TEXT("出生时不登船"), Character->IsBoarded());
 
-	// 与 BoardShip 同序：先挂后设。
+	// 与 ASpaceshipPawn::Board 同序：先挂后设。
 	Character->AttachToActor(Ship, FAttachmentTransformRules::KeepWorldTransform);
 	Character->SetBoarded(true);
 	TestTrue(TEXT("登船后 IsBoarded 为真"), Character->IsBoarded());
@@ -81,7 +81,7 @@ bool FStellarEraPlanetBoardedFlagTest::RunTest(const FString& Parameters)
 	// 骑乘之后角色平时就挂在行星下，旧判据会把走路误判成登船。
 	TestNotNull(TEXT("登船时确实挂着飞船"), Character->GetAttachParentActor());
 
-	// 与 LeaveShip 同序：先摘后设。
+	// 与 ASpaceshipPawn::DisembarkCrew 同序：先摘后设。
 	Character->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
 	Character->SetBoarded(false);
 	TestFalse(TEXT("离船后 IsBoarded 为假"), Character->IsBoarded());

@@ -5,7 +5,8 @@
 #include "CosmosOrbitComponent.h"
 #include "CosmosSimulationSubsystem.h"
 #include "CosmosTypes.h"
-#include "StarMapUIInputs.h"
+#include "StarMapCameraPawn.h"
+#include "StarMapPicking.h"
 #include "StellarEraHUD.h"
 #include "PlanetMineralViewComponent.h"
 #include "PlanetGeologyField.h"
@@ -14,6 +15,7 @@
 #include "Engine/Engine.h"
 #include "Engine/Font.h"
 #include "Engine/World.h"
+#include "GameFramework/PlayerController.h"
 
 bool UStarMapUISystem::BuildBodyInfo(AActor* Body, FStarMapBodyInfo& OutInfo)
 {
@@ -207,7 +209,7 @@ TArray<FString> UStarMapUISystem::FormatMineralLegendLines(
 	return Lines;
 }
 
-void UStarMapUISystem::Draw(AStellarEraHUD& Hud, IStarMapUIInputs& Inputs)
+void UStarMapUISystem::Draw(AStellarEraHUD& Hud, APlayerController& PlayerController)
 {
 	const FVector2D ViewportSize = Hud.GetViewportSize();
 	if (ViewportSize.X <= 0.0 || ViewportSize.Y <= 0.0)
@@ -224,25 +226,44 @@ void UStarMapUISystem::Draw(AStellarEraHUD& Hud, IStarMapUIInputs& Inputs)
 		return;
 	}
 
+	// 星图相机：拾取容差与矿物透视都住在它上面。HUD 只在星图视角调本函数，
+	// 所以这里按空指针兜底就够（换 Pawn 的那一帧可能还没切过去）。
+	const AStarMapCameraPawn* Camera = Cast<AStarMapCameraPawn>(PlayerController.GetPawn());
+
 	AActor* Selected = Subsystem->GetSelectedBody();
 
 	FVector2D MousePosition = FVector2D::ZeroVector;
-	const bool bHasMouse = Inputs.GetStarMapMousePositionPx(MousePosition);
+	double MouseX = 0.0;
+	double MouseY = 0.0;
+	const bool bHasMouse = PlayerController.GetMousePosition(MouseX, MouseY);
+	if (bHasMouse)
+	{
+		MousePosition = FVector2D(MouseX, MouseY);
+	}
 	const bool bMouseInside = bHasMouse &&
 		MousePosition.X >= 0.0 && MousePosition.Y >= 0.0 &&
 		MousePosition.X <= ViewportSize.X && MousePosition.Y <= ViewportSize.Y;
 
-	AActor* Hovered = bMouseInside
-		? Inputs.PickBodyUnderScreenPosition(MousePosition)
-		: nullptr;
+	// 拾取本身在 Pawns（相机输入组件与这里共用同一份）；容差取相机上的值，
+	// 相机不在手上时退回默认值。
+	AActor* Hovered = nullptr;
+	if (bMouseInside)
+	{
+		const float PixelTolerance = Camera
+			? Camera->GetSelectionPixelRadius()
+			: StarMapPicking::DefaultPixelTolerance;
+		Hovered = StarMapPicking::PickBodyUnderScreenPosition(
+			World, &PlayerController, MousePosition, PixelTolerance);
+	}
 
 	// 选中面板：贴天体投影中心右侧。中心不在视口内就不画。
 	if (IsValid(Selected))
 	{
-		FVector2D Center = FVector2D::ZeroVector;
-		float RadiusPx = 0.f;
+		FStarMapScreenCandidate Candidate;
 		const bool bProjected =
-			Inputs.ProjectBodyToScreen(Selected, Center, RadiusPx);
+			StarMapPicking::MakeScreenCandidate(&PlayerController, Selected, Candidate);
+		const FVector2D Center = Candidate.ScreenPosition;
+		const float RadiusPx = Candidate.ScreenRadiusPx;
 		const bool bCenterInside =
 			Center.X >= 0.0 && Center.Y >= 0.0 &&
 			Center.X <= ViewportSize.X && Center.Y <= ViewportSize.Y;
@@ -268,7 +289,9 @@ void UStarMapUISystem::Draw(AStellarEraHUD& Hud, IStarMapUIInputs& Inputs)
 	}
 
 	// 矿物观察图例：固定左上角，画在最后（压在所有天体面板之上）。
-	if (UPlanetMineralViewComponent* MineralView = Inputs.GetActiveMineralView())
+	UPlanetMineralViewComponent* MineralView =
+		Camera ? Camera->GetActiveMineralView() : nullptr;
+	if (MineralView)
 	{
 		AVoxelPlanetActor* ViewPlanet = MineralView->GetViewPlanet();
 		if (ViewPlanet)

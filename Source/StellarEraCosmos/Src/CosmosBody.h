@@ -24,7 +24,7 @@ class UCosmosBody : public UInterface
  * 本接口，Pawns 反而可以放心依赖 Cosmos。
  *
  * 声明在 Cosmos（消费方）、实现在 Pawns（`ASpaceshipPawn`）——依赖方向与
- * `IStarMapUIInputs`、`IStellarEraNoticeSink` 相反，因为这次消费方在低层。
+ * `IStellarEraNoticeSink`（UI 声明、Pawns 使用）相反，因为这次消费方在低层。
  *
  * 全部方法与 `ASpaceshipPawn` 的现有公开方法逐字对应，实现方只需加 `override`。
  */
