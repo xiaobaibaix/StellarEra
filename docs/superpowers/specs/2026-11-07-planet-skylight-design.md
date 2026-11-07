@@ -113,10 +113,13 @@ CollectSunsFor ─┼→ 世界空间变化超过阈值？──否──→ 直
 - 最小间隔 `UpdateIntervalSeconds = 0.2`；
 - 满足任一条才重算：太阳方向（从观察点看）变化 > `1°`、当地天顶变化 > `1°`、
   高度变化 > `RayleighScaleHeight × 0.25`、大气参数被改。
+- 大气参数（`RayleighScaleHeightRatio`、`MieScaleHeightRatio`、`SunIntensity`、`CloudCoverage`）
+  与 `bAtmosphereEnabled` / `bCloudsEnabled` 都在节流键里；**参数变化不受最小间隔限制**，
+  改完下一帧就重算。大气/云关掉时，天光按 0 传散射系数/覆盖率，环境光与玩家看得见的天空一致。
 - 立方图边长 `CubeResolution = 16`（可调 8 / 16 / 32）。
 
-成本量级：`16² × 6 × ~24 步 ≈ 3.7 万次循环`，单次亚毫秒；真正的大头是 `SetCubemap`
-触发的一次 GPU 卷积 + SH 回读，`16²` 下也很小。5 Hz 更新对 2.5 FPS 的场景可接受。
+成本量级：`16² × 6 × ~24 步 ≈ 3.7 万次循环`。实测单次约 4.5–5 ms（见 §10，**不是亚毫秒**），
+大头是逐像素 CPU 积分循环，`SetCubemap` 触发的 GPU 卷积在渲染线程另算。5 Hz 更新对 2.5 FPS 的场景可接受。
 
 ### 4.4 失效与降级
 
@@ -125,7 +128,7 @@ CollectSunsFor ─┼→ 世界空间变化超过阈值？──否──→ 直
 | 找不到大气壳 / SkyLight / 玩家相机 | 组件不工作，各日志一次 |
 | SkyLight 是 Static Mobility | 首次驱动时改 Movable（和 `DriveSunLights` 处理补光灯一致） |
 | 立方图创建失败 | 日志一次，跳过本次更新 |
-| 编辑器世界 | 不驱动，避免每帧把关卡标脏；编辑器里看到的是原静态立方图 |
+| 编辑器世界 | 不驱动，避免每帧把关卡标脏；编辑器里看到的是关卡自带的初始立方图 `DaylightAmbientCubemap`，运行时被组件覆盖 |
 | 多个行星同时在天光范围内 | 各自都会驱动，最后 tick 的那颗生效——记为已知限制，不引入全局仲裁 |
 
 ## 5. 天空模型
@@ -180,7 +183,7 @@ CollectSunsFor ─┼→ 世界空间变化超过阈值？──否──→ 直
 | 日出/日落 | R/B 高于正午 |
 | 夜面 | 总辐照度 < 正午的 1% |
 | 单色太阳 + 单色星空 | 输出单调，且下半球方向只有星空项 |
-| 面方向 | 只在 +Z 打一颗太阳 → +Z 面平均亮度最大 |
+| 面方向 | 同一张脸在两种太阳方向下的平均亮度对比（+Z 脸在天顶太阳下更亮、+X 脸在 +X 太阳下更亮） |
 
 面方向这条只能锁住"我们自己前后一致"，**不能证明与引擎约定一致**；与引擎的对齐要在
 PIE 里看白模球的环境光方向确认（实现时先读引擎的立方图→SH 实现再落代码）。
@@ -224,11 +227,18 @@ PIE `UniverseMap`，编辑器在前台（约 28–31 FPS），立方图边长 16
   30°/s 运动的相机）8.01 s 内 36 次，间隔 0.20–0.27 s（均值 0.22 s，≈4.5 Hz），贴着
   `UpdateIntervalSeconds = 0.2` 的上限，**不是每帧**。PIE 刚起来的前约 10 s 有一段逐帧重算
   （相机/行星就位中），之后回落到稀疏节奏。
-- **单次 CPU 积分耗时**（边长 16、3 颗太阳，日志 `用时`）：移动窗口 1.49–9.77 ms（均值 4.17 ms）；
-  定点连续 10 次 `RefreshNow()` 为 5.3–7.2 ms（均值 5.9 ms）。编辑器失焦（3 FPS 限速）时会被
-  拉到 5.2–20.8 ms，该组不可用。**结论：不是预期的「远小于 1 ms」**——`用时` 覆盖 `RenderCube`
-  + 每次新建 `UTextureCube` + `UpdateResource` + `SetCubemap` 全段，日志没把积分本身拆出来；
-  成本随画面内容变（夜面 1.5–2.5 ms，白天 5–7 ms）。按 5 Hz 上限折算，最坏约 3% 单线程。
+- **单次 CPU 积分耗时**（边长 16、3 颗太阳，日志 `用时`）：终审修复后复测，相机摆在地表上方
+  100 m（壳内，所有像素都要积分）、编辑器前台约 27 FPS，定点连续 10 次 `RefreshNow()` 为
+  **4.59–6.56 ms（均值 4.99 ms）**，Python 侧热身后 4.84–4.99 ms；修复前同一测法为
+  5.3–7.2 ms（均值 5.9 ms）。关闭大气（关卡默认态）同一机位为 3.91–5.44 ms（均值 4.53 ms）。
+  **仍然不是「远小于 1 ms」**。
+- **热点定位（本轮补做）**：同一机位改边长——8 面均值 1.56 ms、16 为 4.99 ms、32 为 19.93 ms。
+  按 `t = a + b·像素数` 拟合得固定开销 `a ≈ 0.4 ms`、每像素 `b ≈ 3 µs`；即耗时基本由**逐像素 CPU
+  积分循环**决定（16² 时约 3 µs/像素），不是新建纹理或 `SetCubemap` 的固定开销。继续降成本要走
+  `FVector3f` 化/定点化，另做（本轮只提了相位不变量）。
+- **计时口径**：日志 `用时` 覆盖 `RenderCube` + 新建 `UTextureCube` + 填充 Mips + `UpdateResource`
+  + `SetCubemap` 的**调用段**；**不含** `SetCubemap` 触发的 GPU 重卷积与 SH 回读（渲染线程异步执行）。
+  编辑器失焦（3 FPS 限速）时同一组会被拉到 5–21 ms，测性能必须让编辑器在前台。
 - **面序与引擎约定是否一致**：本次没有做白模球对照。代码层已核对：`CubeFaceDirection` 的六面
   符号表与引擎 `ReflectionEnvironmentShaders.usf` 的 `GetCubemapVector` 逐项一致，`UTextureCube`
   的 `Mips[0]` 按面主序线性填充也符合 cube 面索引约定。画面侧无「光从太阳反方向来」的迹象
@@ -247,7 +257,9 @@ PIE 里查到、并在退出 PIE 后用编辑器世界复核（脏包 0）的状
 - `BP_VoxelPlanet` 的大气组件 `bAtmosphereEnabled = False`、`IsVisible() = False`；
 - 关卡里**没有** `SkyFill` 标签的定向光。证据：`LogTemp` Warning
   `[大气] 关卡里没有 SkyFill 标签的定向光，直射光没人补，晨昏线会剩硬边等高线。`（15:02:20.837）；
-- SkyLight 是任务 3 的状态：标签 `PlanetSky` / Movable / SpecifiedCubemap / 强度 1.0 / 初始无立方图。
+- SkyLight 是任务 3 的状态：标签 `PlanetSky` / Movable / SpecifiedCubemap / 强度 1.0。
+  初版关卡里 `Cubemap` 为空（引擎判 invalid，编辑器视口与 PIE 首帧零环境光）；**终审修复 B 已补上
+  `/Engine/MapTemplates/Sky/DaylightAmbientCubemap` 作初始图**，运行时被组件第一次更新覆盖。
 
 所以下面的天光/大气截图与 A/B 全部是 **PIE 运行时**把 `bAtmosphereEnabled` 重新打开
 （再调 `RefreshAtmosphereGeometry()`）、并临时 `summon` 一盏打了 `SkyFill` 标签的定向光做的；
@@ -275,6 +287,11 @@ PIE 里查到、并在退出 PIE 后用编辑器世界复核（脏包 0）的状
 
 ### 10.3 测试
 
-`Automation RunTests StellarEra.Planet.SkyLight`：**9/9 Success**（CloudsDimSky、CubeShape、
-FaceCenters、FaceCorner、GroundIsBlack、NightIgnoresSun、OutsideShellIsStar、
-PlanetHasComponent、SunElevationMonotonic），日志 `D:/Temp/skylight_test.log`。
+`Automation RunTests StellarEra.Planet.SkyLight`：终审修复后 **10/10 Success**（CloudsDimSky、
+CubeShape、FaceCenters、FaceCorner、FaceDirectionEndToEnd、GroundIsBlack、NightIgnoresSun、
+OutsideShellIsStar、PlanetHasComponent、SunElevationMonotonic），日志 `D:/Temp/skylight_test.log`。
+
+`FaceDirectionEndToEnd` 验证的是「面主序 + 索引映射」。原先设想的「太阳在天顶 → +Z 面平均亮度最大」
+不成立：实测侧脸 0.04873 > +Z 脸 0.03760，因为地平线方向的积分路径远长于天顶。改成同一张脸在
+「太阳天顶」与「太阳在 +X 地平线」两种配置下的对比（+Z 脸：0.03760 → 0.02821；+X 脸：
+0.04873 → 0.09365），路径长度相同，只留方向性差异；面序或索引写错时至少一条断言会红。
