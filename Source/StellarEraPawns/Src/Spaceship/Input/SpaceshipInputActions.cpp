@@ -40,12 +40,10 @@ void FSpaceshipInputActions::Build(UObject* Outer, UInputMappingContext* Context
 	// B 键：飞船调试视角（落地检测球 + 引力合力箭头）。
 	StellarEraInput::MapKey(Context, DebugViewToggle, EKeys::B);
 
-	// 滚轮是轴键（每格 ±1），不是按键，所以映射到 Axis1D 的动作上直接取值。
-	// 不需要任何修饰器：方向约定（上滚 = 拉近）由 ASpaceshipPawn::AddZoom 负责。
+	// 滚轮是轴键（每格 ±1）；方向约定（上滚 = 拉近）由 AddZoom 负责，不需要修饰器。
 	StellarEraInput::MapKey(Context, Zoom, EKeys::MouseWheelAxis);
 
-	// E / M 在角色与星图相机表里也各有一条。同一个 IMC 里的动作互不吞输入，
-	// 真正响应的是被 Possess 那个 Pawn 绑的那条 —— 飞船这里 E 是离船。
+	// E / M 在角色与星图相机表里也各有一条；真正响应的是被 Possess 那个 Pawn 绑的。
 	StellarEraInput::MapKey(Context, Interact, EKeys::E);
 	StellarEraInput::MapKey(Context, StarMapToggle, EKeys::M);
 }

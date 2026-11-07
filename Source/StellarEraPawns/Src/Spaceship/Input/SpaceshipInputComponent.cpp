@@ -35,8 +35,7 @@ void USpaceshipInputComponent::Bind(UInputComponent* PlayerInputComponent)
 		return;
 	}
 
-	// 只取飞船自己那张表：别的 Pawn 的动作不归这里管，也就不可能绑错。
-	// E / M 也在这张表里 —— 飞船这边 E 是离船。
+	// 只取飞船自己那张表：别的 Pawn 的动作不归这里管；E / M 也在这张表里。
 	const FSpaceshipInputActions& Input = Source->GetSpaceshipInputActions();
 
 	EnhancedInput->BindAction(Input.Look, ETriggerEvent::Triggered, this, &USpaceshipInputComponent::OnLookInput);
@@ -143,8 +142,7 @@ void USpaceshipInputComponent::OnCruiseToggle(const FInputActionValue& Value)
 
 	Pawn->TogglePreserveVelocity();
 
-	// 切换本身在画面上不留任何痕迹（速度保持与否要飞一段才感觉得到），所以弹一条
-	// 提示。没有它，玩家按了 Tab 只能靠"好像还在飞"来猜，按没按到都分不清。
+	// 切换在画面上不留痕迹，不提示的话玩家只能靠"好像还在飞"来猜按没按到。
 	ShowNotice(Pawn->IsPreserveVelocity() ? TEXT("巡航：开") : TEXT("巡航：关"));
 }
 

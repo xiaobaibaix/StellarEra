@@ -12,8 +12,7 @@ int64 CountMergedBoxSamples(
 		return 0;
 	}
 
-	// 先求所有有效盒子的并集 AABB。之后的遍历只走这一块，重叠区因此不会被数两遍
-	// —— 「去重」正是靠这一遍遍历 + 逐点判归属实现的。
+	// 遍历所有有效盒子的并集 AABB，再逐点判归属：重叠区因此只数一遍。
 	FVector3d UnionMin = FVector3d::ZeroVector;
 	FVector3d UnionMax = FVector3d::ZeroVector;
 	bool bHasValidBox = false;

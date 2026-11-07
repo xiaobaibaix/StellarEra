@@ -12,10 +12,8 @@ class UInputComponent;
 struct FInputActionValue;
 
 /**
- * ASpaceshipPawn 的全部输入：绑定、回调、只服务输入的状态。
- *
- * 与 UPlanetCharacterInputComponent 同构，但飞船**不设「按住右键」的门** ——
- * 鼠标就是它的操纵杆，要按住右键才能转向等于飞不动。
+ * ASpaceshipPawn 的全部输入：绑定、回调、只服务输入的状态。与角色输入组件同构，
+ * 但飞船**不设「按住右键」的门** —— 鼠标就是操纵杆，要按住右键才能转向等于飞不动。
  */
 UCLASS()
 class STELLARERAPAWNS_API USpaceshipInputComponent : public UActorComponent

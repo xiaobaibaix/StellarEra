@@ -20,21 +20,16 @@ namespace PlanetEditUI
 	constexpr float HintGap = 8.f;
 
 	/**
-	 * 两个按钮的左上角（像素）。顺序：先球体、后正方体。
-	 * 视口窄到放不下时整体贴左边（X 夹到 0），不会产生负坐标；
+	 * 两个按钮的左上角（像素），先球体后正方体。视口窄到放不下时整体贴左边（X 夹到 0），
 	 * 此时右侧按钮可能超出视口右边缘。
 	 */
 	STELLARERAPLANET_API void GetBrushButtonRects(const FVector2D& ViewportSize,
 		FVector2D& OutSphereTopLeft, FVector2D& OutCubeTopLeft);
 
 	/**
-	 * 命中返回 true 并写下标：0 = 球体，1 = 正方体。
-	 * **半开区间**：上/左边界算命中，右/下边界不算（与 DrawRect 覆盖的 [X, X+Size)
-	 * 一致）；两个按钮之间的空隙不算。
-	 * OutButtonIndex 只在返回 true 时写入，返回 false 时保持原值。
-	 *
-	 * 返回 int32 而不是 EPlanetBrushShape：命中判定是纯几何，不需要认识笔刷枚举。
-	 * 调用方（HUD 绘制、星图 / 角色的输入回调）在各自 .cpp 里映射。
+	 * 命中返回 true 并写下标：0 = 球体，1 = 正方体。半开区间：上/左边界算命中，右/下不算
+	 * （与 DrawRect 的 [X, X+Size) 一致），两按钮之间的空隙不算。OutButtonIndex 只在 true 时写。
+	 * 返回 int32 而非 EPlanetBrushShape：命中判定是纯几何，调用方各自映射。
 	 */
 	STELLARERAPLANET_API bool HitTestBrushButton(const FVector2D& ViewportSize, const FVector2D& ScreenPosition,
 		int32& OutButtonIndex);

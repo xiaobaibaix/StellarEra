@@ -14,14 +14,9 @@ class UPlanetEditComponent;
 struct FInputActionValue;
 
 /**
- * APlanetCharacter 的全部输入：绑定、回调、只服务输入的状态。
- *
- * 为什么是组件而不是把代码留在角色里：这些回调既不是玩法也不是物理，却占着
- * 角色头的篇幅；拆出来之后角色类只剩「怎么走、怎么看」，输入改起来不用再翻它。
- *
- * 为什么是 UObject 组件而不是普通 C++ 类：`UEnhancedInputComponent::BindAction`
- * 的成员函数重载要求接收者是 UObject（换 lambda 会丢 GC 安全与反射签名检查）。
- * 由角色在构造函数里 CreateDefaultSubobject，生命周期天然跟着角色。
+ * APlanetCharacter 的全部输入：绑定、回调、只服务输入的状态。做成 UObject 组件是因为
+ * BindAction 的成员函数重载要求接收者是 UObject（换 lambda 会丢 GC 安全与反射检查），
+ * 由角色构造时 CreateDefaultSubobject，生命周期跟着角色。
  */
 UCLASS()
 class STELLARERAPAWNS_API UPlanetCharacterInputComponent : public UActorComponent
@@ -31,7 +26,7 @@ class STELLARERAPAWNS_API UPlanetCharacterInputComponent : public UActorComponen
 public:
 	/**
 	 * 把控制器给的动作表绑到本组件上。由 APlanetCharacter::SetupPlayerInputComponent
-	 * 调用，引擎只在本地 Possess 这个 Pawn 时走到那里。
+	 * 调用（引擎只在本地 Possess 时走到那里）。
 	 */
 	void Bind(UInputComponent* PlayerInputComponent);
 
@@ -63,10 +58,8 @@ private:
 	void OnBrushSize(const FInputActionValue& Value);
 
 	/**
-	 * 左键按下：只服务编辑（笔刷按钮 + 挖掘）。角色没有星图选择逻辑。
-	 *
-	 * 用的是角色表自己那条 `EditPrimary`，不是星图相机那条 `StarMapSelect` ——
-	 * 同一个按键，两边语义不同，各造各的动作。
+	 * 左键按下：只服务编辑（笔刷按钮 + 挖掘）。用角色表自己的 `EditPrimary`，
+	 * 不是星图相机那条 `StarMapSelect` —— 同一个键、语义不同，各造各的动作。
 	 */
 	void OnEditPrimary(const FInputActionValue& Value);
 

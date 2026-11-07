@@ -1,17 +1,8 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 //
-// 飞船速度上限的验收测试。
-//
-// 分两层断言：
-//   1. ComputeSpeedLimitTaper 是纯函数：静止 / 半程 / 九成 / 到顶 / 超顶 / 上限为 0；
-//   2. GetThrustAccelerationWorldCmPerS2 的推力剖面：半程只剩 0.75 的沿速推力，
-//      到顶后正向推力归零；S 制动与横向（升降）推力不衰减 —— 否则到顶以后
-//      转不了向、刹不住车，在重力井里也抬不起头。
-//   3. Shift 有独立上限：按住时 W 的上限不再生效，松开后立刻回到 W 的上限；
-//      两档的衰减规则相同，0 都表示不限。
-//
-// 行为断言在独立编辑器世界里生成的真飞船上做（CDO 没有世界，GetStatus 里的
-// 落地查询会空指针），世界随测试销毁，不用手工还原状态。
+// 飞船速度上限的验收测试：ComputeSpeedLimitTaper 纯函数、推力剖面（沿速推力按
+// 1−(v/vmax)² 衰减，S 制动与横向推力不衰减）、Shift 的独立上限。行为断言在独立编辑器
+// 世界里生成的真飞船上做（CDO 没有世界，GetStatus 的落地查询会空指针），世界随测试销毁。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -31,10 +22,7 @@ namespace
 	/** 与上面的上限同刻度（世界厘米/秒）。 */
 	constexpr double TestCapCmPerSecond = 1.0e6;
 
-	/**
-	 * 读 / 写飞船上的速度上限。属性是 protected，测试不为它往公开 API 里加
-	 * setter —— 反射只是按属性名取指针的一层薄封装。
-	 */
+	/** 读 / 写飞船上的速度上限。属性是 protected，测试用反射取指针而不往公开 API 里加 setter。 */
 	float ReadMaxSpeedKmPerSecond(ASpaceshipPawn* Ship)
 	{
 		const FFloatProperty* Property = FindFProperty<FFloatProperty>(
@@ -126,8 +114,7 @@ bool FStellarEraSpeedLimitThrustTest::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	// 生成点放在真空里（没有行星 → 升降方向退回机身 up），离世界原点远一点，
-	// 免得测试世界里的任何默认 Actor 干扰。
+	// 生成点放在真空里（没有行星 → 升降方向退回机身 up），离原点远一点免得被默认 Actor 干扰。
 	ASpaceshipPawn* Ship = World->SpawnActor<ASpaceshipPawn>(
 		ShipClass, FTransform(FRotator::ZeroRotator, FVector(0.0, 0.0, 1.0e7)));
 	TestNotNull(TEXT("能生成飞船"), Ship);
@@ -204,13 +191,8 @@ bool FStellarEraSpeedLimitThrustTest::RunTest(const FString& Parameters)
 				FVector::DotProduct(Acceleration, Forward), 0.0, FullThrust * 1.0e-3));
 	}
 
-	// 参考系：上限比的是**相对参考行星**的速度，不是惯性系绝对速度。
-	//
-	// 飞船跟着行星公转时，绝对速度就是行星轨道速度（本关卡实测 7.17 km/s），
-	// 远超 MaxSpeedKmPerSecond。若上限拿绝对速度算，衰减系数会被钉死在 0，
-	// 机头方向的正向推力被整根投影掉，只剩垂直于速度的残余分量 —— 表现为
-	// 按 W 往侧边飞。相对速度才是玩家能感受到的「本船飞多快」，也是大气阻力
-	// 与落地判定用的参考系。
+	// 参考系：上限比的是**相对参考行星**的速度。绝对速度（公转时实测 7.17 km/s）远超上限，
+	// 拿它算则衰减系数钉死在 0、正向推力被整根投影掉，表现为按 W 往侧边飞。
 	{
 		// 行星速度取 1.5 倍上限：绝对速度必然超限，相对速度仍可自由取。
 		const double PlanetSpeedCmPerSecond = 1.5 * TestCapCmPerSecond;
@@ -218,8 +200,7 @@ bool FStellarEraSpeedLimitThrustTest::RunTest(const FString& Parameters)
 		Ship->SetThrust(1.f);
 		Ship->SetVertical(0.f);
 
-		// 相对行星静止：绝对速度 = 行星速度（15 km/s > 10 km/s 上限），
-		// 但相对速度为 0，推力必须是满的、且严格沿机头。
+		// 相对行星静止：绝对速度 15 km/s > 10 km/s 上限，但相对速度为 0，推力必须是满的。
 		Ship->SetReferencePlanetVelocity(Forward * PlanetSpeedCmPerSecond);
 		Ship->SetCosmosVelocity(Forward * PlanetSpeedCmPerSecond);
 		const FVector AtRestRelative =
@@ -263,11 +244,8 @@ bool FStellarEraSpeedLimitThrustTest::RunTest(const FString& Parameters)
 				FullThrust, FullThrust * 1.0e-3));
 	}
 
-	// Shift 的独立上限：按住 Shift 时只认 BoostMaxSpeedKmPerSecond，松开后只认
-	// MaxSpeedKmPerSecond；衰减规则与 W 完全相同（1 − (v/vmax)²）。
-	//
-	// 上一段把 W 的上限填成了 0（不限），这里先恢复 —— 否则「松开 Shift 后回到
-	// W 的上限」测到的是「不限」，永远为满推力。
+	// Shift 的独立上限：按住只认 BoostMaxSpeedKmPerSecond，松开只认 MaxSpeedKmPerSecond，
+	// 衰减规则相同。上一段把 W 上限填成了 0，这里先恢复，否则测到的是「不限」。
 	constexpr float TestBoostCapKmPerSecond = 20.f;
 	constexpr double TestBoostCapCmPerSecond = 2.0e6;
 	WriteMaxSpeedKmPerSecond(Ship, TestCapKmPerSecond);
@@ -290,8 +268,7 @@ bool FStellarEraSpeedLimitThrustTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("按住 Shift 静止时有加速推力"),
 			BoostFullThrust > FullThrust * 1.5);
 
-		// 速度正好在 W 的上限（10 km/s）：按住 Shift 时 W 的上限不再生效，
-		// 只剩加速上限的衰减 f = 1 − (10/20)² = 0.75。
+		// 速度在 W 的上限：按住 Shift 时 W 的上限不再生效，只剩 f = 1 − (10/20)² = 0.75。
 		Ship->SetCosmosVelocity(Forward * TestCapCmPerSecond);
 		const FVector AtWCap =
 			Ship->GetThrustAccelerationWorldCmPerS2(DeltaSeconds);

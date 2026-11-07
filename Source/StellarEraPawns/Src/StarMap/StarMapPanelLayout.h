@@ -15,13 +15,8 @@ struct FStarMapPanelRect
 };
 
 /**
- * 矿物观察图例的固定布局。
- *
- * 宽度与字体无关：输入回调（鼠标命中）里拿不到 AHUD::Canvas，量不了字，
- * 所以宽度写死、高度只随行数变。绘制与命中各自调一次，几何完全一致。
- *
- * 住在 Pawns 而不是 UI：绘制在 UI（HUD）、命中在星图相机的输入组件（Pawns），
- * 两边共用同一份几何。UI 依赖 Pawns，方向合法；反过来则不行。
+ * 矿物观察图例的固定布局。宽度写死与字体无关：输入回调（鼠标命中）里拿不到
+ * AHUD::Canvas，量不了字；高度只随行数变。住在 Pawns 是因为 UI 依赖 Pawns，反向成环。
  */
 namespace MineralLegendLayout
 {
@@ -39,29 +34,21 @@ namespace MineralLegendLayout
 	/** 命中判定的上下缩进：点在两行接缝上时不误命中相邻行。 */
 	constexpr float HitInsetY = 2.f;
 
-	/**
-	 * 标题文字下沿 → 第一行顶部：上下各留一次间距，中间夹一条分隔线。
-	 * 面板高度预算与 ComputeMineralLegendLayout 的行起点共用这一处算式。
-	 */
+	/** 标题文字下沿 → 第一行顶部（间距 / 分隔线 / 间距），高度预算与行起点共用这一处。 */
 	FORCEINLINE float TitleToRowsTopOffset()
 	{
 		return SeparatorSpacing + SeparatorThickness + SeparatorSpacing;
 	}
 
-	/**
-	 * 最后一行下沿 → 提示文字顶部：与标题段同构（间距 / 分隔线 / 间距）。
-	 * 面板高度预算与绘制时的提示区块共用这一处算式。
-	 */
+	/** 最后一行下沿 → 提示文字顶部，与标题段同构（间距 / 分隔线 / 间距）。 */
 	FORCEINLINE float RowsBottomToHintTopOffset()
 	{
 		return SeparatorSpacing + SeparatorThickness + SeparatorSpacing;
 	}
 
 	/**
-	 * 面板高度（夹进视口之前）。EntryCount = 0 时仍留一行占位。
-	 *
-	 * 两段分隔块都要计入：只算 SeparatorSpacing + SeparatorThickness 会短 12 px，
-	 * 缺口全挤在「最后一行 ↔ 提示行」之间，提示分隔线会画进最后一行。
+	 * 面板高度（夹进视口之前），EntryCount = 0 时仍留一行占位。两段分隔块都要计入，
+	 * 只算一段会短 12 px，提示分隔线会画进最后一行。
 	 */
 	FORCEINLINE float PanelHeightPx(int32 EntryCount)
 	{
@@ -83,9 +70,7 @@ namespace MineralLegendLayout
 	}
 }
 
-/**
- * 星图面板的布局几何。绘制在 UI、命中在星图输入组件，两边调同一份。
- */
+/** 星图面板的布局几何：绘制在 UI、命中在星图输入组件，两边调同一份。 */
 namespace StarMapPanelLayout
 {
 	/**

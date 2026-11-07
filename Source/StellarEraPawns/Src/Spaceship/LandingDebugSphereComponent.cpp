@@ -23,13 +23,11 @@ void ULandingDebugSphereComponent::TickComponent(
 		return;
 	}
 
-	// 落地状态在这里重新判定，而不是复用飞船 Tick 里的值：此时位置已是本帧写回
-	// 后的，球的位置与颜色才对得上同一个球。
+	// 在这里重新判定落地：此时位置已是本帧写回的，球的位置与颜色才对得上。
 	const bool bLanded = Ship->IsLanded();
 
-	// LifeTime 0 = 只画这一帧；每帧重画，所以它一直跟着飞船走。
-	// SDPG_Foreground 让线穿透船体：球心就在船体几何中心，不穿透的话大半球面
-	// 会被船壳挡住（与合力箭头同一个考虑）。
+	// LifeTime 0 = 只画这一帧。SDPG_Foreground 让线穿透船体：球心在船体几何中心，
+	// 不穿透大半球面会被船壳挡住（与合力箭头同一个考虑）。
 	DrawDebugSphere(
 		GetWorld(),
 		Ship->GetActorLocation(),

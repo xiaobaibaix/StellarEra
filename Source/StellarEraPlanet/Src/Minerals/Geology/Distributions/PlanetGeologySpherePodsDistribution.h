@@ -7,12 +7,7 @@
 #include "PlanetGeologyDistribution.h"
 #include "PlanetGeologySpherePodsDistribution.generated.h"
 
-/**
- * 球团分布。
- *
- * 参数名保留 Pod 前缀（spec §4.4「参数与语义完全沿用」）：迁移时逐字段照抄旧值，
- * 名字一改就又多一个漂移点。
- */
+/** 球团分布。参数名保留 Pod 前缀（spec §4.4）：迁移时逐字段照抄旧值，名字一改就多一个漂移点。 */
 UCLASS(DisplayName = "囊状（球团）", EditInlineNew)
 class STELLARERAPLANET_API UPlanetGeologySpherePodsDistribution
 	: public UPlanetGeologyDistribution
@@ -48,11 +43,8 @@ public:
 		const FPlanetGeologyDistributionBuildContext& Context) const override;
 
 	/**
-	 * 用旧元素字段直接造运行期，**不建 UObject**。
-	 *
-	 * 供 BuildFromPreset 的遗留兜底使用：种子由调用方按旧公式
-	 * `Seed != 0 ? Seed : Hash(Id) & 0x7fffffff` 算好后传入。
-	 * 这里是「旧行星形状逐位不变」的唯一实现，迁移与兜底都收敛到它。
+	 * 用旧元素字段直接造运行期，不建 UObject；种子由调用方按旧公式 Seed != 0 ? Seed : Hash(Id) & 0x7fffffff 传入。
+	 * 这是「旧行星形状逐位不变」的唯一实现，迁移与兜底都收敛到它。
 	 */
 	static TSharedPtr<const FPlanetGeologyDistributionRuntime> MakeRuntimeFromLegacyParams(
 		int32 InPodCount, float InPodRadius, float InPodRadiusJitter,

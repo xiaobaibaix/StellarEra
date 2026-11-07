@@ -10,17 +10,9 @@ class UInputAction;
 class UInputMappingContext;
 
 /**
- * 飞船用到的动作。
- *
- * 由 FStellarEraInputActions 组合持有、由控制器构造，飞船在
- * `USpaceshipInputComponent::SetupPlayerInputComponent` 里绑。
- * 动作全部 NewObject 到控制器名下，没有磁盘资产 —— 改键只改这里的映射表。
- *
- * 对象名带 `IA_Ship_` 前缀：三张表共用同一个 Outer，同名会被引擎改名成
- * 不可预测的 `_1` / `_0`，前缀保证每张表的动作能按名字认出来。
- *
- * 与角色共用 W/S、LeftShift、Mouse2D、滚轮不会打架：同一个 IMC 里的动作互不吞
- * 输入，分派由「当前 Possess 的是谁」决定 —— 只有被操控 Pawn 的组件绑了它们。
+ * 飞船用到的动作，由控制器构造（NewObject 到控制器名下，没有磁盘资产），飞船在
+ * `USpaceshipInputComponent::Bind` 里绑。对象名带 `IA_Ship_` 前缀：三张表共用同一个
+ * Outer，同名会被引擎改名成不可预测的 `_1` / `_0`。
  */
 USTRUCT()
 struct STELLARERAPAWNS_API FSpaceshipInputActions

@@ -42,14 +42,8 @@ namespace
 		return Material;
 	}
 
-	// 可见性有两套标志，按世界类型各认一套：
-	//
-	// - 游戏世界只认 AActor::bHidden（SetActorHiddenInGame）。
-	// - 编辑器世界里 SetActorHiddenInGame **对渲染没有效果**：USceneComponent::ShouldRender
-	//   用的是 bShowInEditor = !bHiddenEdTemporary && !Owner->IsHiddenEd()
-	//   （SceneComponent.cpp:3485 起），而 IsHiddenEd() 不读 bHidden。所以编辑器预览
-	//   必须同时翻临时隐藏标志；它是非序列化状态（SetIsTemporarilyHiddenInEditor），
-	//   不会把关卡标脏 —— 与 PlanetMineralViewComponent.cpp:271-272 隐藏行星用的是同一招。
+	// 可见性两套标志按世界类型各认一套：游戏世界认 bHidden（SetActorHiddenInGame）；编辑器世界里 SetActorHiddenInGame 对渲染无效，
+	// ShouldRender 读的是 bShowInEditor（只看 bHiddenEdTemporary / IsHiddenEd），所以必须同时翻非序列化的临时隐藏标志，否则关卡会被标脏。
 	void SetFieldVisible(AVoxelMineralFieldActor& Field, bool bVisible)
 	{
 		Field.SetActorHiddenInGame(!bVisible);
@@ -86,9 +80,8 @@ bool APlanetMineralViewActor::Build(const TArray<FPlanetMineralMesh>& MeshesByEl
 	const FLinearColor& ShellColor, float SurfaceRadiusCm,
 	const TArray<FPlanetGeologyElement>& Elements)
 {
-	// 不可重入：MineralMeshes.Reset() 不销毁旧组件，组件名又是固定的，第二次进来
-	// NewObject(..., TEXT("MineralShell") / TEXT("MineralMesh%d")) 会在同一个 Outer 上
-	// 撞名并致命退出。将来做「改 CellsPerFeature 后重建」必须先销毁旧组件再清这里的标志。
+	// 不可重入：MineralMeshes.Reset() 不销毁旧组件，组件名又固定，第二次 NewObject 会在同一 Outer 上撞名并致命退出。
+	// 将来做「改 CellsPerFeature 后重建」必须先销毁旧组件再清这个标志。
 	ensureMsgf(!bHasBuilt, TEXT("[矿物] APlanetMineralViewActor::Build 不可重入"));
 	if (bHasBuilt)
 	{
@@ -130,15 +123,8 @@ bool APlanetMineralViewActor::Build(const TArray<FPlanetMineralMesh>& MeshesByEl
 	CreateShell(SphereMesh, GhostMaterial, ShellColor, SurfaceRadiusCm);
 
 	// --- 每个元素一个动态网格 ---
-	//
-	// 分三相，因为两边的线程约束正好相反：
-	//   ① 建组件 + 材质：NewObject / RegisterComponent / SetMaterial 只能在游戏线程；
-	//   ② 灌网格：FDynamicMesh3 的顶点、三角形、法线都是**纯数据**，逐元素独立，
-	//      可以并行 —— 这是整个构建里最贵的一段（地球上 376 万三角形约 1.4 s，
-	//      单线程灌满）；
-	//   ③ SetMesh 送回组件：碰渲染资源，回游戏线程。
-	//
-	// 元素之间互不写入同一份数据，所以并行不改变结果：网格内容与顺序都与串行一致。
+	// 分三相，线程约束相反：① 建组件 + 材质只能在游戏线程；② 灌网格是纯数据、逐元素独立，可并行（最贵，约 1.4 s）；
+	// ③ SetMesh 碰渲染资源，回游戏线程。元素之间不写同一份数据，并行不改变结果。
 	MineralMeshes.Reset();
 	MineralMeshes.Reserve(MeshesByElement.Num());
 
@@ -191,8 +177,7 @@ bool APlanetMineralViewActor::Build(const TArray<FPlanetMineralMesh>& MeshesByEl
 				double(VertexCm.X), double(VertexCm.Y), double(VertexCm.Z))));
 		}
 
-		// AppendTriangle 在退化三角形（三点共线 / 面积为 0）上返回 -1 而不是抛错。
-		// 丢掉它们是正确行为，但数量要进日志 —— 全被丢掉时画面上就是「这个元素没矿」。
+		// AppendTriangle 在退化三角形上返回 -1 而不抛错：丢掉是正确行为，但数量要进日志 —— 全丢时画面上就是「这个元素没矿」。
 		int32 Rejected = 0;
 		for (int32 Index = 0; Index + 2 < Source.Triangles.Num(); Index += 3)
 		{
@@ -208,8 +193,7 @@ bool APlanetMineralViewActor::Build(const TArray<FPlanetMineralMesh>& MeshesByEl
 		}
 		RejectedByElement[ElementIndex] = Rejected;
 
-		// 等值面抽取只给顶点与三角形，没有法线；材质靠 VertexNormalWS 取它，
-		// 所以这里按面积加权的顶点法线补一遍。UV 层留空：材质不采样 UV。
+		// 等值面只给顶点与三角形，没有法线；材质靠 VertexNormalWS 取它，这里按面积加权补顶点法线。UV 层留空（材质不采样 UV）。
 		if (Mesh.TriangleCount() > 0)
 		{
 			UE::Geometry::FMeshNormals::InitializeOverlayToPerVertexNormals(
@@ -243,8 +227,7 @@ void APlanetMineralViewActor::CreateShell(UStaticMesh* SphereMesh, UMaterialInte
 	const FLinearColor& ShellColor, float SurfaceRadiusCm)
 {
 	// --- 球壳：引擎球是 100 cm 直径，缩放到行星直径 ---
-	// 运行期建的组件必须在 RegisterComponent 之前设好 Mobility：注册之后再改会走
-	// 重新注册的路径，而这块网格从第一帧起就要跟着行星移动。
+	// 运行期建组件必须在 RegisterComponent 之前设好 Mobility：注册后再改会走重新注册路径，而这块网格第一帧起就要跟着行星移动。
 	const float DiameterCm = SurfaceRadiusCm * 2.f;
 	ShellMesh = NewObject<UStaticMeshComponent>(this, TEXT("MineralShell"));
 	ShellMesh->SetupAttachment(SceneRoot);
@@ -294,8 +277,7 @@ bool APlanetMineralViewActor::BuildVoxelWorlds(
 		return false;
 	}
 
-	// 三个资产都在这里加载：LoadMineralViewMaterial 是本文件的匿名命名空间函数，
-	// 组件那一侧看不见它，所以不能让调用方把材质传进来。
+	// 三个资产都在这里加载：LoadMineralViewMaterial 是本文件匿名命名空间的函数，组件那侧看不见，不能让调用方传材质进来。
 	UStaticMesh* SphereMesh = LoadObject<UStaticMesh>(nullptr, MineralViewSphereMeshPath);
 	UMaterialInterface* GhostMaterial = LoadMineralViewMaterial(
 		PlanetMineralMaterials::GetGhostMaterialPath(), TEXT("M_PlanetGhost"));
@@ -311,15 +293,8 @@ bool APlanetMineralViewActor::BuildVoxelWorlds(
 		return false;
 	}
 
-	// 没有世界就没有体素世界可建：
-	//  - 下面的 World->SpawnActor 要非空 World；
-	//  - AVoxelWorld::CreateWorld 在**编辑器构建**里第一件事就是解引用
-	//    GetWorld()->WorldType（VoxelWorld.cpp:244-246：244 行是 #if WITH_EDITOR，
-	//    245-246 才是解引用；这段在非编辑器构建里被编译掉，那时它走后面的路径）。
-	// 空指针当场访问违例且不带任何诊断。AVoxelMineralFieldActor::CreateForElement 对
-	// 同一条约束有同款守卫（VoxelMineralFieldActor.cpp:47-62），这里跟它一致。
-	//
-	// 放在 bHasBuilt 之前：这一条失败时本 Actor 什么都没建，不该被标成「已建」。
+	// 没有 World 就没有体素世界可建（SpawnActor 要非空 World；AVoxelWorld::CreateWorld 在编辑器构建里第一件事就是解引用
+	// GetWorld()->WorldType，空指针当场访问违例且无诊断）。放在 bHasBuilt 之前：失败时什么都没建，不该标成「已建」。
 	UWorld* World = GetWorld();
 	if (!World)
 	{
@@ -334,27 +309,19 @@ bool APlanetMineralViewActor::BuildVoxelWorlds(
 	CreateShell(SphereMesh, GhostMaterial, ShellColor, SurfaceRadiusCm);
 
 	// --- 每元素一个体素世界 ---
-	//
 	// 失败就整体回滚：留一半的世界比彻底没建更糟 —— 图例下标会对上一半的矿。
 	ElementFields.Reset();
 	ElementFields.Reserve(ParamsByElement.Num());
 
-	// AlwaysSpawn：碰撞拒绝的 spawn 会静默返回 nullptr，读起来像「体素世界创建失败」。
-	// Owner 指向本观察体：Actor 图里能看出归属，也方便在 Outliner 里找到。
-	//
-	// ObjectFlags 必须把观察体自己的 RF_Transient 镜像过去：编辑器世界里观察体就是
-	// 用 RF_Transient spawn 的（PlanetMineralViewComponent.cpp:231-236），目的正是
-	// 永不落进 umap；但 UWorld::SpawnActor 只从 spawn 参数取 flags 与 Level
-	// （LevelActor.cpp:669 / :537），不会继承。不镜像的话，编辑器预览会在保存
-	// UniverseMap 时把 N 个矿物体素世界一并写进关卡。
+	// AlwaysSpawn：碰撞拒绝的 spawn 会静默返回 nullptr，读起来像创建失败。Owner 指向本观察体以便在 Outliner 找到。
+	// ObjectFlags 必须镜像观察体自己的 RF_Transient：UWorld::SpawnActor 不继承 flags，否则编辑器预览会在保存关卡时把 N 个体素世界写进 umap。
 	FActorSpawnParameters SpawnParams;
 	SpawnParams.Owner = this;
 	SpawnParams.ObjectFlags |= GetFlags() & RF_Transient;
 	SpawnParams.SpawnCollisionHandlingOverride =
 		ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-	// 循环里不再重算：CreateForElement 稍后会用同一份 Actor 变换覆盖 spawn 位置，
-	// 循环内每轮取一次纯属白费。
+	// 循环外取一次变换：CreateForElement 稍后会用同一份 Actor 变换覆盖 spawn 位置。
 	const FTransform PlanetTransform = PlanetWorld.GetActorTransform();
 	for (int32 ElementIndex = 0; ElementIndex < ParamsByElement.Num(); ++ElementIndex)
 	{
@@ -369,8 +336,7 @@ bool APlanetMineralViewActor::BuildVoxelWorlds(
 			UE_LOG(LogTemp, Error, TEXT("[矿物] 元素 #%d 的体素世界创建失败"), ElementIndex);
 			if (Field)
 			{
-				// 与 ReleaseAllFields 走同一条清理：漏了 DestroyField 的话，
-				// 体素世界在编辑器世界里要一直吊到 GC 才消失。
+				// 与 ReleaseAllFields 同一条清理：漏了 DestroyField 的话，体素世界在编辑器世界里要吊到 GC 才消失。
 				Field->DestroyField();
 				Field->Destroy();
 			}
@@ -381,8 +347,7 @@ bool APlanetMineralViewActor::BuildVoxelWorlds(
 		ElementFields.Add(Field);
 	}
 
-	// 先把观察体自己落到球心再取基准：Build 用的是 GetActorLocation()，这里也是 ——
-	// 「基准 = 球心」由本函数构造，不再依赖调用方 spawn 时给的位置。
+	// 先把观察体落到球心再取基准：「基准 = 球心」由本函数构造，不依赖调用方 spawn 时给的位置。
 	SetActorLocation(PlanetWorld.GetActorLocation());
 	LastPlanetCenterWorld = GetActorLocation();
 	return true;
@@ -403,15 +368,13 @@ void APlanetMineralViewActor::ReleaseAllFields()
 
 void APlanetMineralViewActor::SyncToPlanetLocation(const FVector& PlanetCenterWorld)
 {
-	// 每帧都会调用：位置没变就别写。SetActorLocation 会把 AVoxelWorld 的
-	// primitive transform 标脏，N 个世界逐个标脏一遍纯属白费。
+	// 每帧都调：位置没变就别写，SetActorLocation 会把 AVoxelWorld 的 primitive transform 标脏。
 	if (PlanetCenterWorld != LastPlanetCenterWorld)
 	{
 		// 观察体自己（球壳）跟着走。
 		SetActorLocation(PlanetCenterWorld);
 
-		// 体素世界不 attach 到本 Actor：AVoxelWorld 在构造时把 WorldRoot 立为根组件，
-		// 再挂一个父级会让体素世界的局部/全局变换语义打架。改成直接写位置。
+		// 体素世界不 attach（AVoxelWorld 把 WorldRoot 立为根，挂父级会让局部/全局变换语义打架），直接写位置。
 		for (AVoxelMineralFieldActor* Field : ElementFields)
 		{
 			if (Field)
@@ -442,22 +405,16 @@ bool APlanetMineralViewActor::SetElementColor(int32 Index, const FLinearColor& C
 
 void APlanetMineralViewActor::Destroyed()
 {
-	// Destroy()：UWorld::DestroyActor 是 Destroyed() 的**唯一**触发点
-	// （LevelActor.cpp:926），编辑器世界与游戏世界都会走。编辑器预览不跑 BeginPlay、
-	// EndPlay 会被跳过，所以这是那条路径上唯一的钩子。体素世界不 attach、不随本
-	// Actor 级联销毁，必须在这里显式销毁。
-	//
-	// 关卡卸载与整世界拆解**不**经过这里（前者的流送移除走 EndPlay，
-	// Level.cpp:3931-3948；后者走 BeginDestroy）。
+	// Destroy()：UWorld::DestroyActor 是 Destroyed() 的唯一触发点，编辑器与游戏世界都会走；编辑器预览不跑 BeginPlay、EndPlay 被跳过，
+	// 这是那条路径唯一的钩子。体素世界不 attach、不级联销毁，必须在这里显式销毁。关卡卸载与整世界拆解走 EndPlay / BeginDestroy。
 	ReleaseAllFields();
 	Super::Destroyed();
 }
 
 void APlanetMineralViewActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	// 无缝切图 / 关卡卸载里那些「有 EndPlay 但不 Destroy」的路径。
-	// 编辑器预览保护不到（World 不跑 BeginPlay，RouteEndPlay 直接跳过），那条归
-	// Destroyed()。两者都幂等：同一个体素世界只会被销毁一次，第二次是空操作。
+	// 无缝切图 / 关卡卸载里「有 EndPlay 但不 Destroy」的路径；编辑器预览走不到，那条归 Destroyed()。
+	// 两者都幂等，同一个体素世界只会被销毁一次。
 	ReleaseAllFields();
 	Super::EndPlay(EndPlayReason);
 }

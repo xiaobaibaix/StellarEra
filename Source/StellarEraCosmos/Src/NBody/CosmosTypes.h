@@ -8,14 +8,8 @@
 ///////////////////////////////////////////////////////////////////////////////
 // 单位系统
 //
-// 默认使用「游戏单位」，数值直观、便于手填：
-//   距离 AU   （1 AU = 地球轨道半长轴 ≈ 1.496e11 米）
-//   时间 年   （1 年 = 365.25 天）
-//   质量 M☉   （1 M☉ = 太阳质量 ≈ 1.989e30 千克）
-//
-// 在这套单位下，玻尔兹曼常数恰好是 4π² ——
-// 也就是「半径 1 AU、周期 1 年」的轨道正好是圆轨道。
-// 这让所有真实天体数据的填入变得毫无负担。
+// 游戏单位：距离 AU、时间 年、质量 M☉。此单位下引力常数恰好是 4π²，
+// 「半径 1 AU、周期 1 年」正好是圆轨道，方便直接填真实天体数据。
 ///////////////////////////////////////////////////////////////////////////////
 
 namespace CosmosUnits
@@ -27,10 +21,9 @@ namespace CosmosUnits
 	inline constexpr double GravitationalConstant_SI = 6.67430e-5;
 
 	/**
-	 * 1 AU = 1.495978707e13 厘米。**这是真实物理值，不是本项目的世界尺度。**
-	 * 本项目的世界按「1 AU = 10 公里」标定，见 UCosmosSimulationSubsystem::CentimetersPerAu
-	 * （配置项，默认 1e6；求解器侧对应公开的 FNBodySimulator::GetCentimetersPerAu()）。
-	 * 直接用这个常量会把星球甩出 float32 的精度范围（该处 ULP ≈ 18 公里）。
+	 * 1 AU = 1.495978707e13 厘米。**真实物理值，不是本项目的世界尺度** —— 世界按
+	 * 「1 AU = 10 公里」标定（见 CentimetersPerAu）。直接拿它当世界尺度会超出 float32
+	 * 精度（该处 ULP ≈ 18 公里）。
 	 */
 	inline constexpr double AuToCentimeter = 1.495978707e13;
 
@@ -49,10 +42,8 @@ namespace CosmosUnits
 	/** 地球轨道速度，单位 AU/年。恰好等于 2π。 */
 	inline constexpr double EarthOrbitalSpeed = 6.283185307179586;
 
-	// ── 人类单位 ↔ 求解器单位 ────────────────────────────────────────
-	//
-	// 设计层（编辑器里手填）用 M⊕ / km/s；求解器内部仍是 M☉ / AU / AU每年。
-	// 换算只允许出现在这里。常量与函数刻意不同名：常量是比率，函数是变换。
+	// ── 人类单位 ↔ 求解器单位 ──
+	// 设计层（编辑器手填）用 M⊕ / km/s，求解器内部是 M☉ / AU / AU每年，换算只允许出现在这里。
 
 	/** 1 千米 = 1e5 厘米。HUD 与飞船模块都用它，避免散落魔数。 */
 	inline constexpr double CentimetersPerKilometer = 1.0e5;
@@ -172,15 +163,9 @@ enum class ECosmosUnitSystem : uint8
 UENUM(BlueprintType)
 enum class ECosmosIntegrator : uint8
 {
-	/**
-	 * Velocity Verlet（辛积分器）。强烈推荐。
-	 * 保持相空间体积，误差有界不累积，轨道可稳定运行数百万年。
-	 */
+	/** Velocity Verlet（辛积分器）。保持相空间体积、误差有界，推荐。 */
 	VelocityVerlet,
-	/**
-	 * 显式欧拉法。一阶方法，误差同向累积，
-	 * 轨道会在可观时间内螺旋坠入中心天体。仅用于对比测试。
-	 */
+	/** 显式欧拉法。误差同向累积，轨道会螺旋坠入中心天体。仅用于对比测试。 */
 	Euler,
 	/** 禁用积分。天体保持初始速度做匀速直线运动。 */
 	None
@@ -208,14 +193,8 @@ enum class ECosmosBodyType : uint8
 UENUM(BlueprintType)
 enum class ECosmosLightMode : uint8
 {
-	/**
-	 * 平行光（推荐）。
-	 * 每颗恒星为每个受照天体提供一个 DirectionalLight，无距离衰减。
-	 * 适合太阳系与多恒星系统，是唯一在 AU 尺度下合理的方案。
-	 */
+	/** 平行光（推荐）。每颗恒星对每个受照天体给一个 DirectionalLight、无距离衰减，是 AU 尺度下唯一合理的方案。 */
 	Directional,
-	/**
-	 * 点光源。平方反比衰减，仅适合半径小于几 AU 的紧凑系统。
-	 */
+	/** 点光源。平方反比衰减，仅适合半径小于几 AU 的紧凑系统。 */
 	Point
 };

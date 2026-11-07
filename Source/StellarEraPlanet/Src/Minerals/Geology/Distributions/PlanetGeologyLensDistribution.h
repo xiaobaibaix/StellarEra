@@ -7,13 +7,7 @@
 #include "PlanetGeologyDistribution.h"
 #include "PlanetGeologyLensDistribution.generated.h"
 
-/**
- * 片层 / 透镜。
- *
- * 一片 = 一个有向椭球（三轴半长 A / B / C，C 是径向半厚）。宽而薄是刻意的：
- * A / C 可达 20 倍以上。基元尺度一致性（spec §3.2）约束的是**片与片之间**，
- * 不是单片的长宽比。
- */
+/** 片层 / 透镜：一片 = 一个有向椭球（三轴半长 A/B/C，C 是径向半厚）。宽而薄是刻意的，A/C 可达 20 倍以上。 */
 UCLASS(DisplayName = "片层（透镜）", EditInlineNew)
 class STELLARERAPLANET_API UPlanetGeologyLensDistribution : public UPlanetGeologyDistribution
 {

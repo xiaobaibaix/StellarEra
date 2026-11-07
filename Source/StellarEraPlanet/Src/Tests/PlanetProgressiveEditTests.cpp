@@ -1,10 +1,5 @@
-﻿// 分块跨帧挖掘的纯几何回归测试。
-//
-// 这里钉的是「切块」这件事的正确性：一块一块地写，与一次写完整个包围盒，
-// 逐格语义必须完全相同。前提是块**不重叠**且**并集恰好等于包围盒** ——
-// 满足这两条，同一个逐格谓词在块上应用一次、在整盒上应用一次，结果按定义
-// 相同（谓词只读格子自己的坐标，不依赖邻格）。所以这两个性质就是等价性的
-// 全部依据，必须机械化检查。
+﻿// 分块跨帧挖掘的纯几何回归测试。块不重叠且并集恰好等于包围盒，逐格谓词又只读
+// 格子自身坐标，这三条成立即等价 —— 所以必须机械化检查。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -28,11 +23,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraProgressiveChunkTest,
 bool FStellarEraProgressiveChunkTest::RunTest(const FString& Parameters)
 {
 	// --- 1. 球包围盒必须与插件逐分量相同 ---
-	// 直接调插件的 GetBounds 比对，不写死期望数字：我们抄的就是它，
-	// 它改了我们必须跟着改（否则球的边缘会被削掉一圈或多挖一圈）。
-	//
-	// 中心取带小数的坐标：整格坐标下 float / double 的差别看不出来，
-	// 非整数才是取整方向出错时最先暴露的地方。
+	// 直接调插件的 GetBounds 比对，不写死期望数字（我们抄的就是它）。中心取非
+	// 整数：整格坐标看不出 float / double 差别，取整方向出错也会被掩盖。
 	{
 		const FVoxelVector Centers[] = {
 			FVoxelVector(0.0, 0.0, 0.0),
@@ -63,8 +55,7 @@ bool FStellarEraProgressiveChunkTest::RunTest(const FString& Parameters)
 	}
 
 	// --- 2. 切块：不重叠、并集 == 原盒、尺寸不超预算 ---
-	// 用非对齐的盒子起点，专门覆盖「块边界不落在 32 网格上」的情况 ——
-	// ParallelSet 按叶子重叠迭代，边界叶子被两块各处理一部分，并集仍正确。
+	// 用非对齐的盒子起点，专门覆盖「块边界不落在网格上」的情况。
 	const auto CheckTiling = [&](const FPlanetEditVoxelBox& Box, int32 ChunkSize, const TCHAR* Label)
 	{
 		TArray<FPlanetEditVoxelBox> Chunks;
@@ -76,8 +67,7 @@ bool FStellarEraProgressiveChunkTest::RunTest(const FString& Parameters)
 			return;
 		}
 
-		// 体积守恒 + 无重叠：块体积累加必须**恰好**等于原盒体积。
-		// 重叠会让和偏大，漏掉一块会让和偏小，两种错都能抓到。
+		// 块体积累加必须恰好等于原盒：重叠偏大、漏块偏小，两种错都能抓到。
 		int64 SumCells = 0;
 		FIntVector UnionMin = Chunks[0].Min;
 		FIntVector UnionMax = Chunks[0].MaxExclusive;
@@ -106,9 +96,7 @@ bool FStellarEraProgressiveChunkTest::RunTest(const FString& Parameters)
 			UnionMax == Box.MaxExclusive);
 		TestTrue(FString::Printf(TEXT("%s：单块边长不得超预算"), Label), bSizesOk);
 
-		// 体积累加相等 + 并集相等 还不足以保证无重叠（可能既有重叠又有漏）。
-		// 逐格计数兜底：每格必须**恰好**被块覆盖一次。盒子较大时抽样，
-		// 避免测试本身太慢。
+		// 体积和与并集相等仍不能保证无重叠（可能既重叠又漏），逐格计数兜底。
 		const int32 StepX = FMath::Max(BoxSize.X / 12, 1);
 		const int32 StepY = FMath::Max(BoxSize.Y / 12, 1);
 		const int32 StepZ = FMath::Max(BoxSize.Z / 12, 1);
@@ -147,8 +135,7 @@ bool FStellarEraProgressiveChunkTest::RunTest(const FString& Parameters)
 		TEXT("1280 立方"));
 
 	// --- 3. 无效盒必须切出 0 块 ---
-	// 任何一轴 MaxExclusive <= Min 就没有格子可写，应当返回空列表，
-	// 而不是产出一堆负尺寸的块让调用方去判。
+	// 任何一轴 MaxExclusive <= Min 就返回空列表，而不是产出负尺寸的块。
 	{
 		TArray<FPlanetEditVoxelBox> Chunks;
 		PlanetEditBrush::SplitVoxelBoxIntoChunks(
@@ -157,9 +144,7 @@ bool FStellarEraProgressiveChunkTest::RunTest(const FString& Parameters)
 	}
 
 	// --- 3b. 块边长 MAX_int32 必须退化成恰好 1 块 ---
-	// 同步路径（PlanetBrushApplicator）就是这么调的：一步做完，语义与
-	// 「不分块」完全一致。这里同时防 `Min.X + MAX_int32` 的 int32 溢出 ——
-	// 溢出会让循环失控、切出天文数字的块（或直接卡死）。
+	// 同步路径就这么调；同时防 Min + MAX_int32 的 int32 溢出（会让循环失控）。
 	{
 		const FPlanetEditVoxelBox Big{FIntVector(-5000, 200, -7), FIntVector(5000, 900, 13)};
 		TArray<FPlanetEditVoxelBox> Chunks;
@@ -173,8 +158,7 @@ bool FStellarEraProgressiveChunkTest::RunTest(const FString& Parameters)
 	}
 
 	// --- 4. 小块笔刷必须退化成单块 ---
-	// 半径 8 的球包围盒只有 22³，切 128 的块必须恰好得到 1 块 ——
-	// 这条保证小笔刷的路径与改动前完全一致。
+	// 半径 8 的球包围盒只有 22³，切 128 必须恰好 1 块，小笔刷路径才不变。
 	{
 		const FPlanetEditVoxelBox Small = PlanetEditBrush::MakeSphereEditVoxelBox(
 			FVector(100.0, 200.0, 300.0), 8.f);
@@ -189,25 +173,13 @@ bool FStellarEraProgressiveChunkTest::RunTest(const FString& Parameters)
 // ---------------------------------------------------------------------------
 // 逐格等价：插件「一次写完整个包围盒」 vs 我们「按块写完整个包围盒」
 // ---------------------------------------------------------------------------
-//
-// 上一组测试钉的是**几何前提**（块不重叠、并集 == 原盒）。这一组钉的是
-// **结论**：满足那个前提时，我们分块写出来的体素值与插件原函数一次写完
-// 完全相同。
-//
-// 做法上不写死期望值 —— 写死的话，公式改了我们跟着改数字，测试就成了
-// 抄写。这里让**插件自己的** SphereEdit / BoxEdit 在假数据上跑一遍当基准，
-// 再让我们内核按运行期的切块顺序跑一遍，逐格比对。基准永远是插件源码。
+// 上一组钉几何前提，这一组钉结论：不写死期望值，基准是插件自己的 SphereEdit / BoxEdit。
 
 namespace
 {
 	/**
-	 * 只为引擎测试存在的假数据：只实现插件工具用到的那个入口
-	 * `template<typename... TArgs, typename F> Set(Bounds, Lambda)`。
-	 * 有了它，FVoxelSphereToolsImpl::SphereEdit / FVoxelBoxToolsImpl::BoxEdit
-	 * 不需要任何体素世界就能跑起来。
-	 *
-	 * 刻意**不**模拟 ParallelSet 的并行：并行与否不改变每格的结果，
-	 * 这里要验的就是逐格取值。
+	 * 只为引擎测试存在的假数据，只实现插件用到的 Set(Bounds, Lambda)，
+	 * 于是 SphereEdit / BoxEdit 不需要体素世界就能跑（并行与否不改变每格结果）。
 	 */
 	struct FProgressiveTestVoxelData
 	{
@@ -246,16 +218,8 @@ namespace
 		}
 
 		/**
-		 * 确定性的种子：铺满**整个存储量程**，而不是清一色的空/实。
-		 *
-		 * 量程必须是真的量程。FVoxelValue 在本工程是 16 位
-		 *（TVoxelValueImpl<int16>，`EIGHT_BITS_VOXEL_VALUE` 为 0），存储取
-		 * [-32767, 32767]。一开始这里按 8 位写成了 ±127，结果球的 merge
-		 * 路径（`Max(旧值, 新表面值)`）恒等于旧值 —— 半径 0.5 的球表面值
-		 * 是 -4178，比任何 ±127 的种子都「实」，Max 永远取种子，于是一格
-		 * 都没变，比对就变成了「两边都没动，所以一样」。
-		 *
-		 * 跳过 INVALID（-32768，即 FVoxelValue::Special，正常构造造不出来）。
+		 * 确定性种子必须铺满整个存储量程。FVoxelValue 是 16 位 [-32767, 32767]；按 8 位
+		 * ±127 撒会让球的 Max-merge 恒等于旧值、逐格比对假通过。跳过 INVALID（-32768）。
 		 */
 		void SeedMixed()
 		{
@@ -323,15 +287,14 @@ bool FStellarEraProgressiveKernelTest::RunTest(const FString& Parameters)
 	};
 
 	// --- 1. 球：插件一次写完 vs 我们按块写 ---
-	// 中心取非整数，半径取到「小于 2」（内圈阈值被夹到 0）与「远大于块」两种极端。
+	// 中心取非整数，半径覆盖「小于 2」（内圈阈值夹到 0）与「远大于块」两种极端。
 	{
 		const FVoxelVector Centers[] = {
 			FVoxelVector(0.0, 0.0, 0.0),
 			FVoxelVector(12.4, -7.6, 3.5),
 		};
 		const float Radii[] = {0.5f, 1.f, 3.f, 8.f, 20.f};
-		// 7 让每笔编辑切成上千块（块边界与格子、与球面全都不对齐），
-		// 128 是运行期的默认块边长。
+		// 7 让每笔切成上千块（边界与格子、球面全不对齐），128 是运行期默认块长。
 		const int32 ChunkSizes[] = {7, 128};
 
 		for (const FVoxelVector& Center : Centers)
@@ -351,8 +314,7 @@ bool FStellarEraProgressiveKernelTest::RunTest(const FString& Parameters)
 						PluginSide.Init(Bounds);
 						PluginSide.SeedMixed();
 
-						// 留存未编辑的种子：稍后用来证明这一轮确实改到了东西，
-						// 否则「两边一致」可能只是因为都没动过（比对空转）。
+						// 留存未编辑的种子：证明这一轮确实改到了东西，否则比对可能空转。
 						const TArray<FVoxelValue> UntouchedSeed = PluginSide.Cells;
 
 						if (bPlace)
@@ -378,7 +340,6 @@ bool FStellarEraProgressiveKernelTest::RunTest(const FString& Parameters)
 						PlanetProgressiveKernel::GetSphereThresholds(
 							Radius, SquaredRadiusPlus2, SquaredRadiusMinus2);
 
-						// 按运行期那样一块一块写：块内逐格，整盒逐格同结果。
 						for (const FPlanetEditVoxelBox& Chunk : Chunks)
 						{
 							for (int32 X = Chunk.Min.X; X < Chunk.MaxExclusive.X; ++X)
@@ -419,9 +380,8 @@ bool FStellarEraProgressiveKernelTest::RunTest(const FString& Parameters)
 	}
 
 	// --- 2. 方块：贴边判定必须用整笔编辑的盒子 ---
-	// 盒子边长故意不是块边长的整数倍，块边界必然与盒子边界错开：
-	// 若内核误用「当前块的盒子」判贴边，每个块的内壁都会被刷成表面，
-	// 这一组会立刻炸。
+	// 盒子边长故意不是块边长的整数倍：若内核误用「当前块的盒子」判贴边，
+	// 每个块的内壁都会被刷成表面。
 	{
 		const FPlanetEditVoxelBox FullBox{FIntVector(-33, -18, 7), FIntVector(33, 19, 28)};
 		const FVoxelIntBox Bounds(FullBox.Min, FullBox.MaxExclusive);
@@ -480,8 +440,7 @@ bool FStellarEraProgressiveKernelTest::RunTest(const FString& Parameters)
 	}
 
 	// --- 3. 球阈值的三段语义（代表点）---
-	// 上面两组是端到端比对；这里单独钉住三段的边界条件，因为「>」与「<=」
-	// 写反了在整数中心的球上可能表现不出来（格心恰好落在边界上时才有区别）。
+	// 单独钉边界条件：「>」与「<=」写反在整数中心上可能表现不出来。
 	{
 		const float Radius = 8.f;
 		float SquaredRadiusPlus2 = 0.f;
@@ -526,9 +485,7 @@ bool FStellarEraProgressiveKernelTest::RunTest(const FString& Parameters)
 }
 
 // 单 op 的 EvaluateOps 必须与直接调 EvaluateSphereValue / EvaluateBoxValue 逐格同值。
-//
-// 这条钉的是重构的第一步：把「逐格求值」从 ApplyChunk 里抽出来时不改任何一格的结果。
-// 位置用一个非整数的球心，好让 ±2 边界落在格子中间，边界两侧都被走到。
+// 球心非整数，好让 ±2 边界落在格子中间、两侧都被走到。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraProgressiveOpsKernelTest,
 	"StellarEra.Planet.Editor.Kernel.OpsMatchSingle",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -659,12 +616,8 @@ bool FStellarEraProgressiveOpsKernelTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 装配的纯几何入口：没有行星也要能用同一套公式算出包围盒与块。
-//
-// 钉两件事：
-//  1) 包围盒 / 块数必须与笔刷的那两个函数逐分量一致（不能有第二套公式）；
-//  2) 每个块的 NumOps 都等于当时已有的 op 数 —— 这是「块只认自己创建时的前缀」
-//     这条不变式的第一次落地。
+// 装配的纯几何入口：没有行星也要用同一套公式。钉两件事：包围盒 / 块数与笔刷
+// 函数逐分量一致（不能有第二套公式）；每块 NumOps 等于创建时的 op 数。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraProgressiveJobSetupTest,
 	"StellarEra.Planet.Editor.Job.SetupFromRequest",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -770,10 +723,8 @@ namespace
 	}
 
 	/**
-	 * 方块版的同一套请求：10 体素边长、4 体素的块（与球那套同网格、同块长）。
-	 *
-	 * 10 让每轴切出 3 块（共 27 块），第二笔沿 +X 挪 2 体素时，新块里有一整片
-	 * 格子落在第一笔的包围盒之外 —— 正是「合并后旧 op 越界写格子」的覆盖区。
+	 * 方块版同一套请求：10 体素边长、4 体素的块。第二笔挪 2 体素后，新块里有整片
+	 * 格子落在第一笔包围盒之外 —— 正是「合并后旧 op 越界写格子」的覆盖区。
 	 */
 	FPlanetEditRequest MakeMergeTestCubeRequest(const FVector& Center, const bool bPlace = false)
 	{
@@ -791,10 +742,8 @@ namespace
 	}
 
 	/**
-	 * 合并等价测试的合成初值：空 / 实 / 表面 三种铺满量程。
-	 *
-	 * 哈希用 uint32 累加：`X * 73856093` 在 int32 上会溢出，是有符号溢出 UB。
-	 * 无符号乘法按模 2³² 回绕，结果确定，跨平台一致。
+	 * 合并等价测试的合成初值：空 / 实 / 表面三种。哈希必须用 uint32 乘法
+	 * （int32 溢出是 UB），按模 2³² 回绕才确定、跨平台一致。
 	 */
 	FVoxelValue MakeMergeSeed(const int32 X, const int32 Y, const int32 Z)
 	{
@@ -834,11 +783,9 @@ bool FStellarEraProgressiveMergeRejectTest::RunTest(const FString& Parameters)
 	const int32 ChunksBefore = Job->GetChunkCount();
 	const FPlanetEditVoxelBox FullBefore = Job->GetFullBounds();
 
-	// 1. 离得远 → 包围盒不相交。
 	TestFalse(TEXT("不相交必须拒绝"),
 		Job->TryMerge(MakeMergeTestRequest(FVector(500.0, 0.0, 0.0)), 8));
 
-	// 2. 形状不同。
 	{
 		FPlanetEditRequest Box = MakeMergeTestRequest(FVector(1.0, 0.0, 0.0));
 		Box.Shape = EPlanetBrushShape::Cube;
@@ -846,14 +793,12 @@ bool FStellarEraProgressiveMergeRejectTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("形状不同必须拒绝"), Job->TryMerge(Box, 8));
 	}
 
-	// 3. 笔刷尺寸不同。
 	{
 		FPlanetEditRequest Bigger = MakeMergeTestRequest(FVector(1.0, 0.0, 0.0));
 		Bigger.SizeVoxels = 12;
 		TestFalse(TEXT("尺寸不同必须拒绝"), Job->TryMerge(Bigger, 8));
 	}
 
-	// 4. 挖 / 填不同。
 	TestFalse(TEXT("挖填不同必须拒绝"),
 		Job->TryMerge(MakeMergeTestRequest(FVector(1.0, 0.0, 0.0), /*bPlace=*/true), 8));
 
@@ -886,19 +831,16 @@ bool FStellarEraProgressiveMergeDedupeTest::RunTest(const FString& Parameters)
 	const int32 ChunksBefore = Job->GetChunkCount();
 	const int32 OpsBefore = Job->GetOpCount();
 
-	// 同一个落笔再来一遍：已经在这一笔里，返回 true 但不追加任何东西。
-	// 挖取 max、填取 min，重复一次是同值 —— 追加纯属浪费。
+	// 同一个落笔再来一遍：挖取 max、填取 min，重复是同值，返回 true 但不追加。
 	TestTrue(TEXT("重复的落笔返回 true"), Job->TryMerge(Request, 8));
 	TestEqual(TEXT("重复的落笔不追加 op"), Job->GetOpCount(), OpsBefore);
 	TestEqual(TEXT("重复的落笔不追加块"), Job->GetChunkCount(), ChunksBefore);
 
-	// 去重必须排在 op 上限之前：已经有 1 个 op、MaxOps = 1 时若先判上限，
-	// 这里会返回 false —— 同一片区域在到达上限后就突然开始排新任务了。
+	// 去重必须排在 op 上限之前：先判上限的话，同一片区域到达上限后会突然排新任务。
 	TestTrue(TEXT("MaxOps=1 时重复落笔仍返回 true"), Job->TryMerge(Request, /*MaxOps=*/1));
 	TestEqual(TEXT("MaxOps=1 时重复落笔不追加 op"), Job->GetOpCount(), 1);
 	TestEqual(TEXT("MaxOps=1 时重复落笔不追加块"), Job->GetChunkCount(), ChunksBefore);
 
-	// 连点 5 下：仍然只有一笔。
 	for (int32 Index = 0; Index < 5; ++Index)
 	{
 		Job->TryMerge(Request, 8);
@@ -929,8 +871,8 @@ bool FStellarEraProgressiveMergeProgressTest::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	// 模拟「已经做了三块」。ApplyNextChunk 在没有行星时会直接判完成，
-	// 生产路径推不动游标，所以走测试专用的缝。
+	// 模拟「已经做了三块」。ApplyNextChunk 没有行星时直接判完成，生产路径推不动
+	// 游标，所以走测试专用的缝。
 	Job->SetNextChunkIndexForTest(3);
 
 	const int32 IndexBefore = Job->GetNextChunkIndex();
@@ -944,7 +886,6 @@ bool FStellarEraProgressiveMergeProgressTest::RunTest(const FString& Parameters)
 		OldPrefix[Index] = Job->GetChunks()[Index].Bounds;
 	}
 
-	// 相交的新落笔必须被接受。
 	const FPlanetEditRequest Second = MakeMergeTestRequest(FVector(4.0, 0.0, 0.0));
 	TestTrue(TEXT("相交必须接受"), Job->TryMerge(Second, 8));
 
@@ -965,15 +906,8 @@ bool FStellarEraProgressiveMergeProgressTest::RunTest(const FString& Parameters)
 
 	// --- 位置断言：新块必须插在已做前缀之后，而不是追加到末尾 ---
 	//
-	// 合并后的布局：[0, 3) 老前缀 | [3, 3+M) 新块 | [3+M, N+M) 老块尾巴，
-	// 其中 N = ChunksBefore、M = 本次新增的块数。
-	//
-	// 只按 NumOps 数个数不够：Append 实现把新块排在 N 个老块后面，计数一样能
-	// 对上，却会让已做前缀在下一次 ApplyNextChunk 时整段重做一遍。
-	//
-	// 老块尾巴的起点是 3 + M，不是 ChunksBefore：新块有 M 个，可能比 N - 3
-	// 还多（本测试 N = M = 125），拿 N 当起点会切进新块中间。三段首尾相接、
-	// 合起来必须正好覆盖全部块。
+	// 布局：[0,3) 老前缀 | [3,3+M) 新块 | [3+M,N+M) 老块尾巴。只按 NumOps 计数不够：
+	// Append 也能对上，却会让已做前缀被整段重做。尾巴起点是 3+M 而非 N（新块可能比 N-3 还多）。
 	const int32 NewChunkCount = Job->GetChunkCount() - ChunksBefore;
 	const int32 OldTailStart = IndexBefore + NewChunkCount;
 	const TArray<FPlanetEditChunk>& Chunks = Job->GetChunks();
@@ -1011,18 +945,11 @@ bool FStellarEraProgressiveMergeProgressTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 合并的正确性判据：**逐格全等**，不是「看起来差不多」。
-//
-// 路径 1：两次独立编辑依次执行（现在的行为）。
-// 路径 2：合并成一笔后按运行期真实顺序执行 —— 从 GetNextChunkIndex 起逐块，
-//        块内逐格按该块的 NumOps 过 op。
-//
-// 合并发生在一次都没推过的时候，所以新块被插到 0 号位置，先于老块执行。
-// 顺序反过来也必须同值，这正是「挖取 max / 填取 min 幂等且可交换」要钉的点。
-//
-// 合成网格而不是真实体素世界：AVoxelPlanetActor 需要一个带 Voxel LOD 管理器的
-// UWorld 才 IsCreated()，无头测试里建不起来。网格承担的是「同一格的保存/读回」，
-// 逐格谓词用的仍是运行期那一份 EvaluateOps。
+// 合并的正确性判据：逐格全等。路径 1 是两次独立编辑依次执行；路径 2 是合并后
+// 按运行期真实顺序逐块、逐格过 op。合并发生在一笔都没推过时，新块插到 0 号、
+// 先于老块执行 —— 顺序反过来也必须同值，这是「挖取 max / 填取 min 可交换」的
+// 要点。用合成网格是因为 AVoxelPlanetActor 需要带 Voxel LOD 管理器的 UWorld，
+// 无头测试建不起来。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraProgressiveMergeEquivalenceTest,
 	"StellarEra.Planet.Editor.Merge.ResultEqualsSequential",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -1131,17 +1058,9 @@ bool FStellarEraProgressiveMergeEquivalenceTest::RunTest(const FString& Paramete
 	return true;
 }
 
-// 方块版判据：合并后按运行期块序执行 == 依次独立执行，逐格全等。
-//
-// 球之所以对合并免疫，是 EvaluateSphereValue 对 (R+2)² 之外的格子返回原值；
-// 方块没有这层天然保护 —— EvaluateBoxValue 没有盒内判定，盒外格子会被当成
-// 「内部」写成 Full/Empty（贴边平面延伸面上则按「外壳」写 0）。合并后新块的块
-// 会落在旧 op 的盒外，旧 op 若照评估就会在那些格子上多改一圈。这条测试把两个
-// 「相交但不等、且第二个伸出第一个」的方块并起来，逐格与「先 op0 再 op1」比对；
-// 第二个方块分别沿 +X、+Y、−X 偏移，X 轴两端与 Y 轴都会被踩到。
-//
-// 合成网格与 Merge.ResultEqualsSequential 同一套：谓词用的是运行期那一份
-// EvaluateOps，不是另写一份。
+// 方块版判据：合并后按运行期块序执行 == 依次独立执行，逐格全等。球对合并免疫，因为
+// EvaluateSphereValue 对 (R+2)² 之外返回原值；EvaluateBoxValue 没有盒内判定，盒外格子
+// 会被写成 Full/Empty。第二个方块沿 +X/+Y/−X 偏移，保证覆盖到盒外格子。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraProgressiveMergeCubeEquivalenceTest,
 	"StellarEra.Planet.Editor.Merge.CubeResultEqualsSequential",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -1164,8 +1083,8 @@ bool FStellarEraProgressiveMergeCubeEquivalenceTest::RunTest(const FString& Para
 		const FString Label = FString::Printf(
 			TEXT("%s/%s"), bPlace ? TEXT("方块填") : TEXT("方块挖"), OffsetNames[OffsetIndex]);
 
-		// 两个相交但不相等的方块（边长 10）：第二个按上面的偏移伸出第一个的包围盒。
-		// 合并后新块（NumOps = 2）里有一整片格子落在 op0 的盒外。
+		// 两个相交但不相等的方块：第二个伸出第一个的包围盒，合并后新块里有一整片
+		// 格子落在 op0 的盒外。
 		const FPlanetEditRequest First = MakeMergeTestCubeRequest(FVector::ZeroVector, bPlace);
 		const FPlanetEditRequest Second = MakeMergeTestCubeRequest(Offsets[OffsetIndex], bPlace);
 
@@ -1308,10 +1227,8 @@ bool FStellarEraProgressiveMergeCubeEquivalenceTest::RunTest(const FString& Para
 	return true;
 }
 
-// 轮转游标必须满足三条，任一条错都会退化成「某笔永远饿着」或「某笔被跳过」：
-//  1) 0 号是队首，永远不进轮转；
-//  2) 走到末尾回绕到 1，不回到 0；
-//  3) 队列变短导致越界时夹回 1，不取模（取模在队列动态变化时会跳笔）。
+// 轮转游标三条：0 号队首永不进轮转；末尾回绕到 1 而非 0；越界夹回 1 而非取模
+// （取模在队列动态变化时会跳笔）。任一条错都会让某笔饿着或被跳过。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraProgressiveScheduleTest,
 	"StellarEra.Planet.Editor.Schedule.FairCursor",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

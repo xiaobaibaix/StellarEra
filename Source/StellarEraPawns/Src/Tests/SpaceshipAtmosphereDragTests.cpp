@@ -1,13 +1,8 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 //
-// 大气阻力的验收测试。
-//
-// 纯函数：密度剖面与二次阻力公式。真正挂到行星上的那条路径需要
-// AVoxelPlanetActor（构造即建体素世界），不适合在单元测试里生成；那部分在
-// UniverseMap PIE 里验证 —— HUD 会直接印出当前绝对/相对速度与阻力减速度。
-//
-// 相对速度的接入单独验：参考速度只是子系统每帧推进来的一个 FVector，生成一艘
-// 裸飞船就能断言绝对值/相对值/状态字段，不需要真的行星。
+// 大气阻力的验收测试：纯函数（密度剖面与二次阻力公式）+ 相对速度接入。
+// 真正挂到行星上的路径需要 AVoxelPlanetActor（构造即建体素世界），不适合单元测试，
+// 在 UniverseMap PIE 里验。相对速度只需一艘裸飞船就能断言绝对值 / 相对值 / 状态字段。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"

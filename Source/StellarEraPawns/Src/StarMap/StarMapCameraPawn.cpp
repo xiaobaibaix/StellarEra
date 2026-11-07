@@ -34,13 +34,8 @@ AStarMapCameraPawn::AStarMapCameraPawn()
 	// 星图的键鼠输入：与角色 / 飞船同构，回调住在组件里。
 	PlayerInput = CreateDefaultSubobject<UStarMapCameraInputComponent>(TEXT("PlayerInput"));
 
-	// --- 体素调用器：三档 LOD，见头文件里的说明 ---
-	//
-	// 参数照抄飞船（SpaceshipPawn.cpp）：两者会在同一片地形上交替出现，
-	// 两套值不一致的话，切模式时 LOD 会抖一下。细气泡的碰撞盒只罩 ±30 米，
-	// 块数 ≈ (60/32)³ ≈ 7；LOD 两份分别 ≈ 16 / 7 块，是 4 GB 显存的取舍。
-	// AlwaysLocal 版：本 Pawn 被 Possess 时不能把飞船/角色的调用器挤掉，也不能
-	// 在退出星图时反过来挤一次。详见 AlwaysLocalVoxelInvokerComponent.h。
+	// --- 体素调用器：四档 LOD，见头文件 ---
+	// 参数照抄飞船：两者交替出现在同一片地形，不一致会抖。AlwaysLocal 版避免 Possess 时挤掉飞船 / 角色的调用器。
 	VoxelInvoker = CreateDefaultSubobject<UAlwaysLocalVoxelInvokerComponent>(TEXT("VoxelInvoker"));
 	VoxelInvoker->SetupAttachment(Camera);
 	VoxelInvoker->bUseForLOD = true;
@@ -72,12 +67,8 @@ AStarMapCameraPawn::AStarMapCameraPawn()
 	VoxelInvokerLOD5->bUseForEvents = false;
 	VoxelInvokerLOD5->bUseForPriorities = false;
 
-	// 1 公里外的过渡环：±10 公里的盒子，叶块 1.02 公里（行星 3 的体素是 50 cm）。
-	// 行星的 MaxLOD 把全星压到 LOD 7（2.05 公里）之后，这里是 512 米与 2.05 公里
-	// 之间唯一的台阶。范围刻意推到地平线之外：20 公里半径的星，1 公里高度的
-	// 地平线约 sqrt(2·20·1) = 6.4 公里，2.5 公里高度约 10.3 公里 —— 环内全是
-	// LOD 6，那条台阶就落到看不见的地方，不会横在画面中间。
-	// 块数：盒 ±10 km 与球面相交 ≈ π(10² − 1²) = 311 km²，除以叶块面积 ≈ 296 块。
+	// 1 公里外的过渡环：±10 公里盖住整条地平线，环内全是 LOD 6，台阶落到看不见。
+	// 块数：盒与球面相交 ≈ π(10² − 1²) = 311 km²，除以叶块面积 ≈ 296 块。
 	VoxelInvokerLOD6 = CreateDefaultSubobject<UAlwaysLocalVoxelInvokerComponent>(TEXT("VoxelInvokerLOD6"));
 	VoxelInvokerLOD6->SetupAttachment(Camera);
 	VoxelInvokerLOD6->bUseForLOD = true;
@@ -89,15 +80,7 @@ AStarMapCameraPawn::AStarMapCameraPawn()
 	VoxelInvokerLOD6->bUseForPriorities = false;
 
 	// --- 行星编辑 ---
-	//
-	// 组件由 BP_StarMapCameraPawn 挂载（2026-10-31 移出），参数在它的类默认值里：
-	//   尺寸 8..1280 体素（1 体素 = 100 cm，1280 = 直径 1.28 km 的坑）；
-	//   默认 64 —— 直径 32 的坑在星图距离上几乎看不见，64 既看得出又不至于挖穿；
-	//   一档 10 体素（Ctrl 粗调 ×10）—— 区间跨 1272 格，一档一格等于没反应；
-	//   bMultiThreadedEdits —— 1280 是半径 640 体素的球，单线程会把整帧卡死；
-	//   提示串写 Ctrl+左键填（右键已归绕轨）、MaxEditDistanceCm = 5e7（与最远
-	//   50 AU 的绕轨距离同一尺度）。
-	// 原生 AStarMapCameraPawn 实例没有编辑功能，调用方按空处理。
+	// 组件由 BP_StarMapCameraPawn 挂载，参数在它的类默认值里（1280 体素单线程会把整帧卡死）；原生实例没有编辑功能。
 }
 
 void AStarMapCameraPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -115,7 +98,6 @@ void AStarMapCameraPawn::BeginPlay()
 	Super::BeginPlay();
 
 	// 拍下挂载原点：星图期间 Actor 每帧跟着渲染相机走，退出时靠它搬回球心。
-	// 正常只有挂在行星上的那台（BP_StarMapCameraPawn 作为 CAC 子 Actor）有挂载父；
 	// 没有挂载父时保持单位变换即可 —— ResetToAttachOrigin 会直接跳过。
 	if (GetRootComponent() && GetRootComponent()->GetAttachParent())
 	{
@@ -134,8 +116,7 @@ void AStarMapCameraPawn::BeginPlay()
 			});
 	}
 
-	// 调用器在 OnRegister 里已经自动启用了。星图相机只在被 Possess（进星图）
-	// 期间才是视点，此前一律关掉。
+	// 调用器在 OnRegister 里已自动启用；星图相机只在被 Possess 期间才是视点。
 	ApplyViewpointInvokerState();
 }
 
@@ -198,8 +179,8 @@ FString AStarMapCameraPawn::ToggleMineralView()
 		}
 	}
 
-	// 只拉远、不改朝向：按 H 前看哪儿，进入后还是那个角度（spec §3）。
-	// 距离与按 M 进场聚焦行星用同一个倍率，两种进入方式构图一致。
+	// 只拉远、不改朝向：按 H 前看哪儿，进入后还是那个角度。
+	// 倍率与按 M 进场聚焦行星共用，两种进入方式构图一致。
 	FocusOn(Planet, PlanetFocusRadiusScale * Planet->GetSurfaceRadiusCm());
 
 	ActiveMineralView = MineralView;
@@ -250,33 +231,23 @@ bool AStarMapCameraPawn::EnterStarMap(APawn* From, APlayerController* PC)
 	// 记下返回对象，必须在 Possess 之前 —— 之后 GetPawn() 已经是本相机了。
 	StarMapEnterer = From;
 
-	// 入场位置：相机挂在球心，直接原地接手会先看见星体内部，所以沿
-	// 「球心 → 进场前的视点」把它搬到球面附近（ComputeEntryAnchorLocation）。
-	//
-	// 用 PC 的视点而不是 From 的变换 —— 相机在 tick 组之后才更新，Pawn 的变换
-	// 不等于玩家此刻看到的画面。朝向仍取进入前的视线，于是进场第一帧是
-	// 「贴着球面、朝原方向看」，随后 FocusOn 的平滑拉远把画面退到整颗行星。
+	// 入场位置：相机挂在球心，原地接手会先看见星体内部，所以沿「球心 → 进场前视点」搬到球面附近。
+	// 必须用 PC 视点而非 From 的变换（Pawn 变换不等于玩家看到的画面）；朝向仍取进入前的视线。
 	FVector ViewLocation;
 	FRotator ViewRotation;
 	PC->GetPlayerViewPoint(ViewLocation, ViewRotation);
 	EnterFrom(ComputeEntryAnchorLocation(ViewLocation), ViewRotation);
 
-	// 焦点天体：相机由行星的 Child Actor Component 提供，所以它就挂在那颗行星身上
-	// ——「借用谁的相机」与「聚焦谁」是同一颗。挂载父为空说明这台相机不是行星
-	// 带来的（不该发生），那就不聚焦，停在场点。
+	// 相机由行星的 CAC 提供，所以「借用谁的相机」与「聚焦谁」是同一颗。
+	// 挂载父为空说明它不是行星带来的（不该发生），那就不聚焦。
 	AActor* const FocusBody = GetAttachParentActor();
 
 	Subsystem->SetSelectedBody(nullptr);
 	Subsystem->SetStarMapActive(true);
 	PC->Possess(this);
 
-	// 选中焦点并拉远。放在 Possess 之后 —— FocusOn 只改相机 Pawn 自己的状态，
-	// 不依赖 Possess，但语义上「进入星图」这个动作应当整体先完成再调相机。
-	//
-	// **就算用的是行星相机，图内点选别的星球也只走 SetSelectedBody + FocusOn、
-	// 不换相机**：换相机 = 换 Possess = 两台相机各 4 个 invoker 的 bUseForLOD
-	// 翻转 = 体素八叉树全量重建，正是 2026-10-24 那个 chunk 簿记 ensure 的触发
-	// 模式。单相机 + 换焦点没有这个成本，「每星球一台」的差异收敛到参数上。
+	// 放在 Possess 之后：FocusOn 只改本 Pawn 状态，语义上「进入星图」应当整体先完成。
+	// 图内点选别的星球只走 SetSelectedBody + FocusOn、**不换相机** —— 换相机 = 换 Possess = 体素八叉树全量重建。
 	if (FocusBody)
 	{
 		Subsystem->SetSelectedBody(FocusBody);
@@ -311,8 +282,7 @@ void AStarMapCameraPawn::ExitStarMap()
 	Subsystem->SetSelectedBody(nullptr);
 	Subsystem->SetStarMapActive(false);
 
-	// 星图的编辑模式不跟着换 Pawn 走：Possess 回去以后组件已不在手上，预览 Tick
-	// 与笔刷线都会留在原地。退出即关，重进再按 G。
+	// 编辑模式不跟着换 Pawn 走：Possess 回去后预览 Tick 与笔刷线会留在原地，退出即关。
 	if (UPlanetEditComponent* Edit = GetPlanetEditComponent())
 	{
 		if (Edit->IsEditMode())
@@ -321,37 +291,17 @@ void AStarMapCameraPawn::ExitStarMap()
 		}
 	}
 
-	// ── 返回对象可能已经没了，这是个已知的、可达的死角 ──
-	//
-	// 那时**不 Possess** —— 留在相机上，不会崩。**但这不是「还能再进」**：此刻
-	// GetPawn() 仍是本相机，所以下次按 M 会再次命中退出分支（星图已经关了，等于
-	// 空转），玩家出不去了。
-	//
-	// **这条路径是可达的** —— 别因为 Source/ 里没有 Destroy 就以为安全：引擎自己会
-	// 销毁 Pawn。AActor::CheckStillInWorld 在 GetActorLocation().Z < WorldSettings->KillZ
-	// （且 WorldBoundsChecks 开着）时调 AActor::FellOutOfWorld；AKillZVolume 则**直接**调
-	// FellOutOfWorld、不经 CheckStillInWorld。两条路都在 FellOutOfWorld 的函数体里调 Destroy()。
-	// 那一整条链有授权门控（`HasAuthority() || GetLocalRole() == ROLE_None`），PIE / 单机成立，
-	// 纯客户端上不成立 —— 结论不变，路径仍可达，只是发生在有授权的一侧。
-	// 蓝图子类、关卡蓝图、PIE 里手动删 Actor 也都不在 Source/ 里。
-	//
-	// 真要修，**三条缺一不可**：
-	//   1. 进场只在 From 非空、且**不是**本相机时才记 —— 否则第二次进入会把相机
-	//      自己记成返回对象，此后 Possess 换不了 Pawn（`EnterStarMap` 的调用方
-	//      绝不会传相机自己，但 dbg 脚本可以）；
-	//   2. 进出判据从「GetPawn() 是不是星图 Pawn」换成 Subsystem->IsStarMapActive()；
-	//   3. **退出分支必须兜底** —— 只做前两条只能让这个状态**可检出**、不能**可恢复**：
-	//      返回 Pawn 已失效时照样没有可 Possess 的对象。得重新拿一个默认 Pawn
-	//      （如走 AGameModeBase::RestartPlayer，或按 DefaultPawnClass 生成）。
+	// 返回对象可能已经没了（引擎 FellOutOfWorld / KillZ 会 Destroy Pawn），这是已知、可达的死角：
+	// 不 Possess 不会崩，但 GetPawn() 仍是本相机，下次按 M 会再次命中退出分支空转，玩家出不去。
+	// 真修需三条：进场不记相机自己、进出判据换成 IsStarMapActive()、退出分支兜底重新拿默认 Pawn。
 	TWeakObjectPtr<APawn> const WeakReturn = StarMapEnterer;
 	StarMapEnterer.Reset();
 
 	APlayerController* const PC = Cast<APlayerController>(GetController());
 	if (PC && WeakReturn.IsValid() && ExitBlendSeconds > 0.f)
 	{
-		// 不要一帧切回去：交给引擎做视点混合。起点是仍被 Possess 的本相机
-		// （CalcCamera 每帧还在产出画面），终点是返回 Pawn 的相机；引擎逐帧插
-		// 两条 FMinimalViewInfo，位置 / 朝向 / FOV 一起过渡。
+		// 不在一帧内切回：交给引擎做视点混合，起点是仍被 Possess 的本相机，
+		// 终点是返回 Pawn 的相机，位置 / 朝向 / FOV 一起过渡。
 		PC->SetViewTargetWithBlend(
 			WeakReturn.Get(),
 			ExitBlendSeconds,
@@ -389,19 +339,14 @@ void AStarMapCameraPawn::FinishStarMapExit(APawn* ReturnPawn)
 		}
 	}
 
-	// 星图期间 CalcCamera 每帧把相机 Actor 拽到渲染位置，退出后它还留在半空。
-	// 相机挂在行星身上，必须搬回球心 —— 否则从外面看行星时，那台子相机飘在
-	// 球外，下次进场又得从它此刻的位置重算。没有挂载父时函数内自行跳过。
-	//
-	// 放在 Possess 之后：换人以后 CalcCamera 不再跑，搬过去的相对变换才不会被
-	// 下一帧的「Actor 跟着相机走」覆盖回来。
+	// 星图期间 CalcCamera 每帧把 Actor 拽到渲染位置，退出后不搬回球心会飘在球外。
+	// 放在 Possess 之后：换人后 CalcCamera 不再跑，搬过去的变换才不会被下一帧覆盖回来。
 	ResetToAttachOrigin();
 }
 
 void AStarMapCameraPawn::EnterFrom(const FVector& InCameraLocation, const FRotator& InCameraRotation)
 {
-	// 位置由调用方给，通常是行星表面锚点（ComputeEntryAnchorLocation）而不是进入前的
-	// 视点 —— 这台相机挂在行星球心，直接原地接手会先看见星体内部。朝向仍用进入前的。
+	// 位置通常是行星表面锚点而不是进入前的视点：相机挂在球心，原地接手会先看见星体内部。
 	CameraLocation = InCameraLocation;
 	OrbitRotation = InCameraRotation;
 	// 上次退出前可能还带着右键拖出来的偏移；重新进入从「正对」起步。
@@ -426,24 +371,23 @@ FVector AStarMapCameraPawn::ComputeSurfaceAnchorLocation(
 		return PlanetCenter;
 	}
 
-	// 方向取「球心 → 当前视点」：相机从玩家正在看的那一侧贴上来，进场不至于从背面
-	// 钻进球里。两者重合时没有方向可言，退回世界 +Z。
+	// 方向取「球心 → 当前视点」：相机从玩家正在看的那侧贴上来，不至于从背面钻进球里。
+	// 两者重合时没有方向可言，退回世界 +Z。
 	FVector Direction = TowardWorldLocation - PlanetCenter;
 	if (!Direction.Normalize())
 	{
 		Direction = FVector::UpVector;
 	}
 
-	// 高度上限按半径的 1/4 夹：星图相机的拉远目标默认才 5e5 cm，锚点若浮到半空，
-	// 进场那一帧与目标的距离会远得看不出是同一颗天体（也会让 LOD 一上来就是低的）。
+	// 高度上限按半径的 1/4 夹：锚点若浮到半空，进场那一帧与拉远目标的距离会远得
+	// 看不出是同一颗天体，LOD 也会一上来就是低的。
 	const double ClampedAltitude = FMath::Clamp(AltitudeCm, 0.0, SurfaceRadiusCm * 0.25);
 	return PlanetCenter + Direction * (SurfaceRadiusCm + ClampedAltitude);
 }
 
 FVector AStarMapCameraPawn::ComputeEntryAnchorLocation(const FVector& TowardWorldLocation) const
 {
-	// 只有挂在行星上的那台（作为 CAC 子 Actor）算得出锚点；没有挂载父时
-	// 保持当前 Actor 位置 —— 那张入场画面不变，不需要搬家。
+	// 只有挂在行星上的那台算得出锚点；没有挂载父时保持当前 Actor 位置，入场画面不变。
 	const AVoxelPlanetActor* const Planet = Cast<AVoxelPlanetActor>(GetAttachParentActor());
 	if (!Planet)
 	{
@@ -459,8 +403,7 @@ FVector AStarMapCameraPawn::ComputeEntryAnchorLocation(const FVector& TowardWorl
 
 void AStarMapCameraPawn::ResetToAttachOrigin()
 {
-	// 星图期间 CalcCamera 每帧把 Actor 拽到渲染相机位置，退出后它还留在半空；
-	// 不搬回挂载原点，下次从外面看行星时那台子相机就飘在球心外。
+	// 星图期间 CalcCamera 每帧把 Actor 拽到渲染位置，不搬回挂载原点就会飘在球心外。
 	if (!GetRootComponent() || !GetRootComponent()->GetAttachParent())
 	{
 		return;
@@ -480,8 +423,8 @@ void AStarMapCameraPawn::FocusOn(AActor* Body, double DistanceCm)
 		return;
 	}
 
-	// 焦点设为它，朝向用「当前相机位置 → 焦点」的方向，于是相机沿进入前的
-	// 视线方向后退 —— 位置代数上「沿视线拉远」，观感是画面保持朝向、只是向后缩。
+	// 朝向取「当前相机位置 → 焦点」，于是相机沿进入前的视线方向后退，
+	// 观感是画面保持朝向、只是向后缩。
 	const FVector Focus = Body->GetActorLocation();
 	const FVector ToFocus = Focus - CameraLocation;
 
@@ -490,25 +433,12 @@ void AStarMapCameraPawn::FocusOn(AActor* Body, double DistanceCm)
 		OrbitRotation = ToFocus.Rotation();
 	}
 
-	// 按 M 进场是「重新锁定」，右键拖出来的偏移一并清掉：入场第一眼必须正对焦点，
-	// 否则上一颗天体的构图会带到这一颗上。
+	// 按 M 进场是「重新锁定」，偏移一并清掉：入场第一眼必须正对焦点。
 	AimOffset = FRotator::ZeroRotator;
 
-	// 距离**不在这里一次写完**：瞬移到目标距离会让整颗行星在同一帧里从
-	// LOD 1/3/5 塌到 6/7，画面会「啪」地掉精度。这里只记起点与目标，插值交给
-	// CalcCamera，让 LOD 一档一档退。
-	//
-	// 注意：这**不是**在躲 VoxelFree 的 ensure。2026-10-24 用日志对过时间线，
-	// 进出星图的那几条 ensure 来自调用器所有权翻转（Possess）引发的全量 LOD
-	// 重建，不是相机距离跳变；那是另一处修复，见 AlwaysLocalVoxelInvokerComponent.h。
-	// 平滑只负责观感。
-	//
-	// 起点取「相机当前位置 → 焦点」的实际距离，目标取 DistanceCm；两者都夹进
-	// 「不穿行星」的合法区间 —— 与 CalcCamera「选中变化」那条分支用的是同一个
-	// 函数，所以拉远的第一帧位置仍然连续（唯一会跳的仍是距离被下限夹起来那一刻，
-	// 这是既有行为）。
-	//
-	// 这里夹的是**目标**，不是最终相机位置：玩家滚过头不会攒下无效偏移。
+	// 距离**不在这里一次写完**：瞬移会让整颗行星一帧内塌多档 LOD，这里只记起点与目标，
+	// 插值交给 CalcCamera。这**不是**在躲 VoxelFree 的 ensure —— 那来自 Possess 引发的全量重建。
+	// 起点与目标都夹进不穿行星的合法区间，与 CalcCamera 选中变化分支同源。
 	double MinCm = 0.0;
 	double MaxCm = 0.0;
 	ComputeOrbitDistanceLimitsCm(Body, MinCm, MaxCm);
@@ -524,15 +454,13 @@ void AStarMapCameraPawn::FocusOn(AActor* Body, double DistanceCm)
 		OrbitDistanceCm = SmoothFocusTargetCm;
 	}
 
-	// 「选中变化」那一帧该做的事（朝向、起始距离）上面已经按当前位置算完了。
-	// 这里同步 LastSeenSelected，否则下一帧 CalcCamera 会把这次变化当成「用户
-	// 换了选中」而取消掉刚启动的拉远。
+	// 同步 LastSeenSelected，否则下一帧 CalcCamera 会把这次变化当成换选中而取消拉远。
 	LastSeenSelected = Body;
 }
 
 void AStarMapCameraPawn::OrbitLook(float DeltaYaw, float DeltaPitch)
 {
-	// 越贴着焦点表面越慢、拉得越远越快 —— 倍率见 OrbitLookScale。
+	// 越贴焦点表面越慢、拉得越远越快，倍率见 OrbitLookScale。
 	// 没有焦点时不缩放：那时相机本来就冻结，转朝向只为下一次选中做准备。
 	double Scale = 1.0;
 	if (AActor* Selected = ResolveSelectedBody())
@@ -551,12 +479,8 @@ void AStarMapCameraPawn::OrbitLook(float DeltaYaw, float DeltaPitch)
 
 void AStarMapCameraPawn::AimLook(float DeltaYaw, float DeltaPitch)
 {
-	// 不按距离缩放：转头不挪相机，同样的鼠标位移在任何距离上转过的角度都一样。
-	// 绕行那套「贴地慢、远处快」（OrbitLookScale）是为了让屏幕上的位移量恒定，
-	// 而转头本身就是纯角度操作，套上去只会让贴地时几乎转不动。
-	//
-	// 只累加、不在这里夹取：真的夹在这里，拖到边界后再往回拖也要先把「多拖的
-	// 那一段」抵消掉才动，手感像卡住。夹取在 CalcCamera 合成时做（ClampAimOffset）。
+	// 不按距离缩放：转头不挪相机，任何距离上同样的位移转过的角度都一样。只累加、不在此夹取
+	// （夹在这里则拖到边界后往回拖要先抵消多出的部分），夹取在 CalcCamera 里由 ClampAimOffset 做。
 	AimOffset.Yaw += DeltaYaw;
 	AimOffset.Pitch = FMath::Clamp(AimOffset.Pitch + DeltaPitch, -89.0, 89.0);
 	AimOffset.Roll = 0.0;
@@ -573,15 +497,15 @@ FRotator AStarMapCameraPawn::ClampAimOffset(
 		return BaseRotation;
 	}
 
-	// 偏移里有 NaN / 无穷时按「没有偏移」处理。宁可这一帧不转头，也不能把 NaN
-	// 写进 OutResult.Rotation —— 那会让整帧的画面矩阵全变成 NaN。
+	// 偏移有 NaN / 无穷时按「没有偏移」处理：不能把 NaN 写进相机朝向，
+	// 那会让整帧的画面矩阵全变成 NaN。
 	if (!FMath::IsFinite(AimOffset.Pitch) || !FMath::IsFinite(AimOffset.Yaw))
 	{
 		return BaseRotation;
 	}
 
-	// 用四元数合成，不用 FRotator 的 operator+：后者是欧拉角逐分量相加，
-	// 基准俯仰不为零时与真实旋转不是一回事，锥面会算歪。
+	// 用四元数合成而非 FRotator 的 operator+：后者逐分量相加，基准俯仰不为零时
+	// 与真实旋转不是一回事，锥面会算歪。
 	const FQuat BaseQuat = BaseRotation.Quaternion();
 	const FQuat ViewQuat = BaseQuat * FRotator(AimOffset.Pitch, AimOffset.Yaw, 0.0).Quaternion();
 
@@ -598,10 +522,8 @@ FRotator AStarMapCameraPawn::ClampAimOffset(
 		return ViewQuat.Rotator().GetNormalized();
 	}
 
-	// 超界：绕「基准 × 现状」这个轴把基准方向转到锥面上（右手定则，
-	// +90° 的偏航正好转到 +Y，符号已验证）。基线与现状共线时叉积为零，
-	// 此时夹角只可能是 0°（上面已返回）或 180°（转到背后）—— 任取一根垂直轴
-	// 都能把方向送到锥面边界上。
+	// 超界：绕「基准 × 现状」这个轴把基准方向转到锥面上。共线时叉积为零
+	// （夹角只可能是 0°，上面已返回，或 180°），任取一根垂直轴即可。
 	FVector Axis = FVector::CrossProduct(BaseDir, ViewDir);
 	if (Axis.IsNearlyZero())
 	{
@@ -634,9 +556,8 @@ double AStarMapCameraPawn::OrbitLookScale(
 		return 1.0;
 	}
 
-	// 「倍率 1」的参考高度 = 焦点表面半径；小于 5 米的焦点按 5 米算，否则
-	// 贴着飞船看一眼就是几十倍灵敏度。5 米与 MinFocusDistanceCm 的默认值同源，
-	// 这里写成常量是为了让本函数保持纯函数（能无头测）。
+	// 「倍率 1」的参考高度 = 焦点表面半径；小于 5 米的按 5 米算，否则贴着飞船
+	// 看一眼就是几十倍灵敏度。写成常量是为了保持纯函数（能无头测）。
 	constexpr double MinReferenceAltitudeCm = 5.0e2;
 	const double ReferenceAltitudeCm =
 		FMath::Max(FocusSurfaceRadiusCm, MinReferenceAltitudeCm);
@@ -656,8 +577,8 @@ double AStarMapCameraPawn::OrbitLookScale(
 
 void AStarMapCameraPawn::AddZoom(float Value)
 {
-	// 用户主动缩放：立刻接管距离。平滑拉远只是入场的过渡，不该在玩家已经
-	// 开始滚轮之后还继续按自己的曲线走 —— 两者同时改 OrbitDistanceCm 会互相打架。
+	// 用户主动缩放：立刻接管距离。平滑拉远只是入场的过渡，两者同时改
+	// OrbitDistanceCm 会互相打架。
 	bSmoothFocusActive = false;
 
 	AActor* Selected = ResolveSelectedBody();
@@ -671,9 +592,8 @@ void AStarMapCameraPawn::AddZoom(float Value)
 		FocusRadiusCm = ResolveFocusSurfaceRadiusCm(Selected);
 	}
 
-	// 缩放作用在**高度**上，不是到球心的距离 —— 见 ZoomAltitudeCm 的说明。
-	// 夹取放在缩放之后、且夹的是高度：等价于夹「目标距离」，玩家滚过头不会
-	// 攒下被 Clamp 吃掉的无效偏移（这条经验来自飞船的 AddZoom）。
+	// 缩放作用在**高度**上，不是到球心的距离，见 ZoomAltitudeCm。夹取放在缩放之后：
+	// 等价于夹目标距离，玩家滚过头不会攒下被 Clamp 吃掉的无效偏移。
 	const double AltitudeCm = FMath::Max(OrbitDistanceCm - FocusRadiusCm, 0.0);
 	const double NewAltitudeCm = ZoomAltitudeCm(
 		AltitudeCm,
@@ -692,8 +612,7 @@ double AStarMapCameraPawn::ZoomAltitudeCm(
 	double MinAltitudeCm,
 	double MaxAltitudeCm)
 {
-	// 取负号：Value > 0 是滚轮上滚 = 拉近 = 高度变小。StepFactor ≤ 1 时缩放
-	// 退化（乘 1 或越乘越大），按「没有缩放」处理。
+	// 取负号：Value > 0 = 拉近 = 高度变小。StepFactor ≤ 1 时缩放退化，按「没有缩放」处理。
 	const double Factor = FMath::Pow(FMath::Max(StepFactor, 1.0), -double(Value));
 	const double Scaled = FMath::Max(AltitudeCm, 0.0) * Factor;
 
@@ -708,8 +627,7 @@ double AStarMapCameraPawn::RaySphereFirstHitCm(
 	const FVector& SphereCenter,
 	double SphereRadiusCm)
 {
-	// 实现搬到了 StellarEraTerrain/PlanetSurfaceRay：行星编辑的射线也要用它。
-	// 这里保留同名静态函数，星图现有的调用点与测试都不用改。
+	// 实现搬到了 StellarEraTerrain/PlanetSurfaceRay（行星编辑的射线也要用）；这里保留同名函数，调用点与测试不用改。
 	return PlanetSurfaceRay::RaySphereFirstHit(RayOrigin, UnitDir, SphereCenter, SphereRadiusCm);
 }
 
@@ -731,8 +649,8 @@ double AStarMapCameraPawn::LimitDistanceByObstaclesCm(
 			continue;
 		}
 
-		// 相机停在穿入点之前 MinAltitudeCm 处。命中点比下限还近时不让上限低于
-		// 下限：下限由焦点自己的半径决定，两者冲突说明焦点贴在山里，只能保下限。
+		// 相机停在穿入点之前 MinAltitudeCm 处。命中点比下限还近时保下限 ——
+		// 冲突说明焦点贴在山里。
 		MaxCm = FMath::Min(MaxCm, FMath::Max(HitCm - MinAltitudeCm, 0.0));
 	}
 
@@ -748,8 +666,7 @@ double AStarMapCameraPawn::ResolveFocusSurfaceRadiusCm(AActor* Focus) const
 
 	if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(Focus))
 	{
-		// 用「焦点 → 相机」方向上的真实地表：焦点是行星时，相机可能正对着
-		// 山区，用基准球半径会让相机扎进山体。
+		// 用「焦点 → 相机」方向上的真实地表，否则相机正对山区时会扎进山体。
 		const FVector Direction =
 			(CameraLocation - Focus->GetActorLocation()).GetSafeNormal();
 		return Planet->GetSurfaceRadiusCmAtDirection(Direction);
@@ -762,9 +679,8 @@ double AStarMapCameraPawn::ResolveFocusSurfaceRadiusCm(AActor* Focus) const
 void AStarMapCameraPawn::ComputeOrbitDistanceLimitsCm(
 	AActor* Focus, double& OutMinCm, double& OutMaxCm) const
 {
-	// 焦点是行星：下限是地表往上一个 MinSurfaceAltitudeCm（贴地看细节）。
-	// 焦点是飞船/角色：下限只是「别把相机塞进模型」，用 MinFocusDistanceCm ——
-	// 拿 50 米当飞船的最近距离，会让停在地面的飞船一进星图就把相机顶到地下。
+	// 行星的下限是地表往上一个 MinSurfaceAltitudeCm；飞船 / 角色用 MinFocusDistanceCm
+	// —— 拿 50 米当飞船最近距离，会让停在地面的飞船一进星图就把相机顶到地下。
 	const bool bFocusIsPlanet = Cast<AVoxelPlanetActor>(Focus) != nullptr;
 	const double FocusStandoffCm = bFocusIsPlanet ? MinSurfaceAltitudeCm : MinFocusDistanceCm;
 
@@ -781,8 +697,7 @@ void AStarMapCameraPawn::ComputeOrbitDistanceLimitsCm(
 	}
 
 	const FVector FocusLocation = Focus ? Focus->GetActorLocation() : CameraLocation;
-	// 相机在焦点的哪一侧：OrbitRotation 是相机朝焦点的朝向，反过来就是
-	// 「焦点 → 相机」的射线方向。
+	// OrbitRotation 是相机朝焦点的方向，反过来就是「焦点 → 相机」的射线。
 	const FVector RayDirection = -OrbitRotation.Vector();
 
 	TArray<AActor*> Bodies;
@@ -804,8 +719,8 @@ void AStarMapCameraPawn::ComputeOrbitDistanceLimitsCm(
 			continue;
 		}
 
-		// 地形起伏让「表面半径」依赖方向：先按基准球求交，命中后再用命中点
-		// 的方向取一次真实地表半径。一次修正足够 —— 振幅只有基准半径的 1% 量级。
+		// 地形起伏让表面半径依赖方向：先按基准球求交，命中后再按命中点方向取一次
+		// 真实半径。一次修正足够 —— 振幅只有基准半径的 1% 量级。
 		double SurfaceRadiusCm = Planet->GetSurfaceRadiusCm();
 		const double FirstHitCm = RaySphereFirstHitCm(
 			FocusLocation, RayDirection, Body->GetActorLocation(), SurfaceRadiusCm);
@@ -907,16 +822,12 @@ void AStarMapCameraPawn::CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult
 	AActor* Selected = ResolveSelectedBody();
 	if (Selected != LastSeenSelected.Get())
 	{
-		// 选中状态变了。从**当前**相机位置反推绕行参数：视线方向 = 相机→焦点，
-		// 距离 = 两者实际距离。下面重算出的位置因此与当前位置重合 —— 不跳变。
-		//
-		// 用户换了选中、或焦点消失：入场的平滑拉远作废，从当前位置重新推导。
-		// FocusOn 自己会同步 LastSeenSelected，所以刚启动的那次拉远不会走到这里。
+		// 选中状态变了：从**当前**相机位置反推绕行参数（方向 = 相机→焦点），
+		// 重算出的位置因此与当前位置重合、不跳变。入场的平滑拉远作废。
 		bSmoothFocusActive = false;
 		LastSeenSelected = Selected;
 
-		// 换了观测目标：右键偏移归零，新目标第一眼是正对的。归零与 OrbitRotation
-		// 的重算是一体的 —— 偏移是相对「正对焦点」的，换了焦点它就没有意义了。
+		// 偏移是相对「正对焦点」的，换焦点后没有意义，归零。
 		AimOffset = FRotator::ZeroRotator;
 
 		if (Selected)
@@ -924,8 +835,7 @@ void AStarMapCameraPawn::CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult
 			const FVector ToFocus = Selected->GetActorLocation() - CameraLocation;
 			const double Distance = ToFocus.Size();
 
-			// 先摆朝向再算限值：限值按「焦点 → 相机」的射线求行星遮挡，
-			// 方向就是 OrbitRotation 的反向。
+			// 先摆朝向再算限值：限值按「焦点 → 相机」的射线求遮挡。
 			if (!ToFocus.IsNearlyZero())
 			{
 				OrbitRotation = ToFocus.Rotation();
@@ -953,9 +863,8 @@ void AStarMapCameraPawn::CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult
 			// smoothstep：两端速度为零，起步与收尾都不突兀。
 			const double Eased = Alpha * Alpha * (3.0 - 2.0 * Alpha);
 
-			// 对数插值：每帧的距离**倍率**恒定，LOD 平滑地一档一档退；线性插值
-			// 会把时间耗在远处、近处几帧就冲过去，仍然是一帧塌数档。
-			// 下限 1 cm 只为躲开 Loge(0)，实际距离都被合法区间的下限夹着。
+			// 对数插值：每帧距离倍率恒定，LOD 一档一档退；线性插值会让近处几帧就冲过去。
+			// 下限 1 cm 只为躲开 Loge(0)，实际距离都被合法区间夹着。
 			const double StartCm = FMath::Max(SmoothFocusStartCm, 1.0);
 			const double TargetCm = FMath::Max(SmoothFocusTargetCm, 1.0);
 			OrbitDistanceCm = FMath::Exp(
@@ -983,10 +892,8 @@ void AStarMapCameraPawn::CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult
 	}
 	// 未选中：CameraLocation 保持不动 —— 这就是「冻结」。
 
-	// 体素调用器挂在 Actor 上，而 Actor 的变换只在 EnterFrom 里摆过一次。
-	// 不跟着相机走的话，调用器会永远停在「进星图时」的位置，把 LOD 细分到看不见
-	// 的地方去。相机本身由 OutResult 覆盖，所以这里搬 Actor 不改变观感。
-	// （不做 sweep：相机位置每帧现算，扫掠只会白白多一次检测。）
+	// 调用器挂在 Actor 上，不跟着相机走的话会永远停在进星图时的位置，把 LOD 细分到
+	// 看不见的地方。相机本身由 OutResult 覆盖，搬 Actor 不改变观感（不做 sweep）。
 	if (!GetActorLocation().Equals(CameraLocation))
 	{
 		SetActorLocation(CameraLocation, /*bSweep=*/false);
@@ -994,11 +901,8 @@ void AStarMapCameraPawn::CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult
 
 	OutResult.Location = CameraLocation;
 
-	// 朝向 = 绕行朝向 + 右键偏移，并压回半球内。位置用的是 OrbitRotation、
-	// 与 AimOffset 无关，所以「转头」不会挪相机（见 AimOffset 的说明）。
-	//
-	// 未选中时放开上限（180° = 不夹）：那时相机位置本来就冻结，没有「绕谁」
-	// 可言，再夹锥只会让画面卡死在进入时的朝向上 —— 右键这时就是自由环顾。
+	// 朝向 = 绕行朝向 + 右键偏移并压回半球；位置仍用 OrbitRotation，所以转头不挪相机。
+	// 未选中时放开上限（180° 不夹）：那时相机位置已冻结，否则右键无法自由环顾。
 	OutResult.Rotation = ClampAimOffset(
 		OrbitRotation, AimOffset, Selected ? MaxAimOffsetDeg : 180.0);
 }
@@ -1042,8 +946,7 @@ AActor* AStarMapCameraPawn::PickBodyAtScreenPosition(
 
 bool AStarMapCameraPawn::HasStarMapCamera(const AActor* Body)
 {
-	// 与 ResolvePlanetStarMapCamera 同一个解析顺序（先 CAC、再附加关系），
-	// 免得「点得中」与「取得到相机」两套判据互相矛盾。
+	// 与 ResolvePlanetStarMapCamera 同一解析顺序，免得「点得中」与「取得到相机」矛盾。
 	return FindChildStarMapCamera(Body) != nullptr
 		|| FindAttachedStarMapCamera(Body) != nullptr;
 }
@@ -1055,15 +958,15 @@ AVoxelPlanetActor* AStarMapCameraPawn::ResolveReferencePlanet(const APawn* Enter
 		return nullptr;
 	}
 
-	// 驾驶中：飞船的参考行星由 CosmosSimulationSubsystem 每帧维护（最近的行星），
-	// 是「玩家心中的当前行星」的权威来源，不要在这里重新算一遍距离。
+	// 驾驶中：飞船的参考行星由 CosmosSimulationSubsystem 每帧维护，是权威来源，
+	// 不要在这里重算距离。
 	if (const ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(EnteringPawn))
 	{
 		return Ship->GetPlanetActor();
 	}
 
-	// 步行：角色的 PlanetActor 由它自己的重评定时器维护（ReevaluatePlanet）。
-	// 深空里两者都可能为空 —— 那就不进星图：解析出的相机为空，输入组件直接返回。
+	// 步行：角色的 PlanetActor 由它自己的重评定时器维护。深空里可能为空 ——
+	// 那就不进星图（解析出的相机为空，输入组件直接返回）。
 	if (const APlanetCharacter* Character = Cast<APlanetCharacter>(EnteringPawn))
 	{
 		return Character->PlanetActor;
@@ -1079,11 +982,7 @@ AStarMapCameraPawn* AStarMapCameraPawn::FindChildStarMapCamera(const AActor* Pla
 		return nullptr;
 	}
 
-	// 只扫 CAC 的「已创建子 Actor」。GetChildActor() 在组件注册后才有值；
-	// CDO / 未实例化的模板上恒为空 —— FindChildStarMapCamera(CDO) 返回空是预期行为。
-	//
-	// 用 AActor::GetComponents<T>（C++ 口径），不是 GetComponentsByClass ——
-	// 后者在 5.8 里只有蓝图包装 K2_GetComponentsByClass，C++ 直接调不到。
+	// 只扫 CAC 的「已创建子 Actor」：CDO 上恒空是预期。用 AActor::GetComponents<T>（GetComponentsByClass 只有蓝图版）。
 	TArray<UChildActorComponent*> ChildActorComponents;
 	PlanetOwner->GetComponents<UChildActorComponent>(ChildActorComponents);
 	for (UChildActorComponent* ChildActorComponent : ChildActorComponents)
@@ -1103,12 +1002,8 @@ AStarMapCameraPawn* AStarMapCameraPawn::FindAttachedStarMapCamera(const AActor* 
 		return nullptr;
 	}
 
-	// 兜底路径：相机是关卡里的独立 Actor、手动 Attach 到星球（UniverseMap 里
-	// 现存的 3 台就是这种）。CAC 的子 Actor 也会 Attach 到宿主，所以 CAC 相机
-	// 在这里同样能被取到 —— 也就是说这条路对两种摆法都成立，只是让位给 CAC 扫描。
-	//
-	// 不递归：只认直接挂在星球上的第一层，避免行星的其它挂载物（飞船、角色、
-	// 后续的采矿平台）里再藏一台相机时被误取。
+	// 兜底路径：相机是关卡里手摆的独立 Actor，手动 Attach 到星球。CAC 子 Actor
+	// 也会 Attach，所以两种摆法都成立。不递归，避免行星其他挂载物里的相机被误取。
 	TArray<AActor*> AttachedActors;
 	PlanetOwner->GetAttachedActors(AttachedActors, /*bResetArray=*/true,
 		/*bRecursivelyIncludeAttachedActors=*/false);

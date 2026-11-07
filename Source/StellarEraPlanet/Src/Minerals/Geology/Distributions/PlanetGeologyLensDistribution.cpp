@@ -122,8 +122,7 @@ UPlanetGeologyLensDistribution::BuildRuntime(
 	const double InSizeJitter = FMath::Clamp(double(SizeJitter), 0.0, 1.0);
 	const double TiltDegrees = FMath::Clamp(double(TiltJitterDeg), 0.0, 45.0);
 
-	// 种子只解析一次：噪声与随机流必须是同一个种子，否则调参会得到「噪声和
-	// 位置各自随机」的鬼影。
+	// 种子只解析一次：噪声与随机流必须同种子，否则噪声与位置会各自随机。
 	const int32 ResolvedSeed = ResolveSeed(Context.ElementId, Context.DistributionIndex);
 
 	TSharedPtr<FLensRuntime> Runtime = MakeShared<FLensRuntime>();
@@ -152,9 +151,8 @@ UPlanetGeologyLensDistribution::BuildRuntime(
 		FVector LocalX = FVector::CrossProduct(LocalZ, Rng.GetUnitVector()).GetSafeNormal();
 		if (LocalX.IsNearlyZero())
 		{
-			// 退化的叉乘必须换一个与 LocalZ **不平行**的轴：写死 XAxis 在
-			// LocalZ ∥ XAxis 时同样得到零向量。取 LocalZ 分量绝对值最小的世界轴，
-			// 它与 LocalZ 的夹角最接近 90°，叉乘不会退化。
+			// 叉乘退化时必须换一个与 LocalZ 不平行的轴（写死 XAxis 仍会为零）：
+			// 取 LocalZ 分量绝对值最小的世界轴，它与 LocalZ 夹角最接近 90°。
 			const FVector::FReal AbsX = FMath::Abs(LocalZ.X);
 			const FVector::FReal AbsY = FMath::Abs(LocalZ.Y);
 			const FVector::FReal AbsZ = FMath::Abs(LocalZ.Z);
@@ -182,15 +180,9 @@ UPlanetGeologyLensDistribution::BuildRuntime(
 			float(FMath::Clamp(Jittered(double(SeamWidth)), 0.01, 0.5)),
 			float(FMath::Clamp(Jittered(double(SeamThickness)), 0.0005, 0.05)));
 
-		// 有向包围盒：把局部盒的 8 个角点转到世界再取 FBox。
-		//
-		// 不要手推 `Σ_j |M_ij| h_j` 那种下标：`FMatrix` 是行向量约定，行列含义极易写反，
-		// 写反会得到一个**不保守**的盒子（某些朝向下比真实包围盒小十几倍），索引随之漏格，
-		// 真实矿体被切掉 —— 而按包围盒采样的测试根本发现不了。转 8 个角点没有下标可写错。
-		//
-		// 厚度用**扭曲放大后**的值：径向域扭曲最多把点沿局部 Z 挪
-		// WarpAmplitude × 厚度，按原始厚度算包围盒会让索引漏候选、区域也盖不住
-		// 实际矿体（WarpAmplitude 非 0 时表现为矿体被切掉一角）。
+		// 有向包围盒：把局部盒 8 角点转到世界再取 FBox。不要手推 `Σ_j |M_ij| h_j`（FMatrix 是行向量约定，
+		// 写反会得到不保守的盒子，索引漏格、矿体被切，而按包围盒采样的测试发现不了）。
+		// 厚度必须用扭曲放大后的值，否则 WarpAmplitude 非 0 时矿体会被切掉一角。
 		const double EffectiveHalfThickness =
 			double(Lens.HalfExtent.Z) * (1.0 + Runtime->WarpAmplitude);
 		FBox OrientedBounds(ForceInit);

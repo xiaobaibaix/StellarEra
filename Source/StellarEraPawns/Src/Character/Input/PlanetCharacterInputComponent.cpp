@@ -40,7 +40,6 @@ void UPlanetCharacterInputComponent::Bind(UInputComponent* PlayerInputComponent)
 	}
 
 	// 只取角色自己那张表：别的 Pawn 的动作不归这里管，也就不可能绑错。
-	// E / M / 左键也在这张表里 —— 角色这边 E 是登船，左键只在编辑模式下有反应。
 	const FPlanetCharacterInputActions& Input = Source->GetPlanetCharacterInputActions();
 
 	EnhancedInput->BindAction(Input.Move, ETriggerEvent::Triggered, this, &UPlanetCharacterInputComponent::OnMoveInput);
@@ -54,13 +53,11 @@ void UPlanetCharacterInputComponent::Bind(UInputComponent* PlayerInputComponent)
 	// 只绑 Triggered：滚轮每格是一次独立冲量，不滚就不产生值，没有 Completed 可收。
 	EnhancedInput->BindAction(Input.Zoom, ETriggerEvent::Triggered, this, &UPlanetCharacterInputComponent::OnZoomInput);
 
-	// 编辑模式是「这个 Pawn 自己的组件」，所以 G 与笔刷尺寸跟着角色走。
-	// 只绑 Started：Axis1D 的 Triggered 在按住时每帧触发一次，笔刷会瞬间冲到上限。
+	// 只绑 Started：Axis1D 的 Triggered 按住时每帧触发一次，笔刷会瞬间冲到上限。
 	EnhancedInput->BindAction(Input.EditModeToggle, ETriggerEvent::Started, this, &UPlanetCharacterInputComponent::OnEditModeToggle);
 	EnhancedInput->BindAction(Input.BrushSize, ETriggerEvent::Started, this, &UPlanetCharacterInputComponent::OnBrushSize);
 
-	// E / M / 左键：角色表里各有一条，由角色自己接。
-	// 角色这边 E 是登船；左键只绑 Started（编辑挖掘，没有选择逻辑）。
+	// E / M / 左键：角色表里各有一条，E 是登船；左键只绑 Started（编辑挖掘）。
 	EnhancedInput->BindAction(Input.StarMapToggle, ETriggerEvent::Started, this, &UPlanetCharacterInputComponent::OnStarMapToggle);
 	EnhancedInput->BindAction(Input.Interact, ETriggerEvent::Started, this, &UPlanetCharacterInputComponent::OnInteract);
 	EnhancedInput->BindAction(Input.EditPrimary, ETriggerEvent::Started, this, &UPlanetCharacterInputComponent::OnEditPrimary);
@@ -95,8 +92,7 @@ void UPlanetCharacterInputComponent::OnLookInput(const FInputActionValue& Value)
 		return;
 	}
 
-	// 视角只在按住右键时跟鼠标动。不按的时候鼠标划过屏幕不带画面，角色自己拐弯
-	// （A/D 横移时 bOrientRotationToMovement 转的身）也不会把相机拖走。
+	// 视角只在按住右键时跟鼠标动；不按的时候走动拐弯不会把相机拖走。
 	if (!bLookHeld)
 	{
 		return;
@@ -146,8 +142,7 @@ void UPlanetCharacterInputComponent::OnLookRightCompleted(const FInputActionValu
 	bLookHeld = false;
 
 	UPlanetEditComponent* Edit = GetEditComponentInEditMode();
-	// 松开右键后预览回到「挖」。必须在下面的早退**之前**复位：没记下按下位置
-	// （bEditRightPressValid 为 false）时也要复位，否则预览会一直停在「放」。
+	// 松开右键后预览回到「挖」。必须在早退**之前**复位，否则预览会一直停在「放」。
 	if (Edit)
 	{
 		Edit->SetPreviewPlacing(false);
@@ -172,8 +167,7 @@ void UPlanetCharacterInputComponent::OnLookRightCompleted(const FInputActionValu
 		return;
 	}
 
-	// 按住右键拖拽是转视角，松开时若几乎没动才算「点放」。拖动中相机转了，
-	// 光标回到原点附近也不会误解成点击，因为玩家在拖动时不会刻意回到起点。
+	// 按住右键拖拽是转视角，松开时几乎没动才算「点放」。
 	const double MovedSq = FVector2D::DistSquared(
 		EditRightPressPosition, FVector2D(MouseX, MouseY));
 	if (MovedSq > StellarEraInput::ClickMoveThresholdPx * StellarEraInput::ClickMoveThresholdPx)
@@ -229,8 +223,7 @@ void UPlanetCharacterInputComponent::OnZoomInput(const FInputActionValue& Value)
 
 	if (UPlanetEditComponent* Edit = GetEditComponentInEditMode())
 	{
-		// 编辑模式下滚轮改笔刷尺寸，相机臂长保持不动 —— 挖洞时要盯着脚下，
-		// 顺手把镜头拉远/拉近会打断瞄准。一格滚轮 = 一档，一档多少体素问组件；
+		// 编辑模式下滚轮改笔刷尺寸、相机臂长保持不动 —— 挖洞要盯着脚下。一格 = 一档，
 		// 按住 Ctrl 走粗调（×10）。
 		if (!FMath::IsNearlyZero(Scroll))
 		{
@@ -253,8 +246,7 @@ void UPlanetCharacterInputComponent::OnEditModeToggle(const FInputActionValue& V
 		return;
 	}
 
-	// 不查「矿物透视是否开着」：星图退出与每一次 Possess 都会 ExitMineralViewIfActive，
-	// 操控角色时它必然关闭。那条判断只对星图相机有意义（见 UStarMapCameraInputComponent）。
+	// 不查矿物透视：星图退出与每次 Possess 都会 ExitMineralViewIfActive，操控角色时必然关闭。
 	if (UPlanetEditComponent* Edit = Pawn->GetPlanetEditComponent())
 	{
 		Edit->ToggleEditMode();
@@ -304,8 +296,7 @@ void UPlanetCharacterInputComponent::ShowNotice(const FString& Text) const
 
 void UPlanetCharacterInputComponent::OnEditPrimary(const FInputActionValue& Value)
 {
-	// 角色没有星图选择：左键只服务编辑（笔刷按钮 + 挖掘）。非编辑模式下整条
-	// 回调无动作 —— 与控制器时代的角色行为一致。
+	// 角色没有星图选择：左键只服务编辑，非编辑模式下整条回调无动作。
 	UPlanetEditComponent* Edit = GetEditComponentInEditMode();
 	if (!Edit)
 	{
@@ -321,8 +312,7 @@ void UPlanetCharacterInputComponent::OnEditPrimary(const FInputActionValue& Valu
 	}
 	const FVector2D MousePosition(MouseX, MouseY);
 
-	// AHUD::Canvas 只在 PostRender 期间有效，而输入回调跑在 tick 里 —— 问 HUD
-	// 要视口尺寸永远拿到 (0,0)，按钮命中会全部落空。所以从控制器自己查。
+	// AHUD::Canvas 只在 PostRender 期间有效，输入回调在 tick 里问它只会拿到 (0,0)，改从控制器查。
 	int32 ViewportSizeX = 0;
 	int32 ViewportSizeY = 0;
 	PC->GetViewportSize(ViewportSizeX, ViewportSizeY);
@@ -339,9 +329,8 @@ void UPlanetCharacterInputComponent::OnEditPrimary(const FInputActionValue& Valu
 		return;
 	}
 
-	// 这次点击归不归编辑，由「射线打没打到行星」回答。不能用 DigAtScreenPosition
-	// 的返回值判断：打到了行星但没改到任何体素（比如往空气里挖）也会返回 false。
-	// 角色没有连续挖 / Ctrl 填充，Shift 与 Ctrl 在这里都不改变语义。
+	// 归不归编辑由「射线打没打到行星」回答：DigAtScreenPosition 返回 false 也可能是打到了
+	// 却没改到体素（往空气里挖）。角色没有连续挖 / Ctrl 填充，Shift 与 Ctrl 不改变语义。
 	FPlanetEditTarget Target;
 	if (Edit->TryResolveTarget(MousePosition, Target))
 	{
@@ -385,8 +374,7 @@ void UPlanetCharacterInputComponent::OnInteract(const FInputActionValue& Value)
 		return;
 	}
 
-	// 「最近、且近到可以登船」的飞船由控制器给 —— 关卡里有哪些飞船是它的视野，
-	// 本模块看不到 Game 模块。
+	// 「最近、且近到可以登船」的飞船由控制器给 —— 关卡里有哪些飞船不在本模块的视野。
 	IStellarEraSessionCommands* Commands = Cast<IStellarEraSessionCommands>(PC);
 	ASpaceshipPawn* Ship = Commands ? Commands->FindBoardableShipFrom(Pawn) : nullptr;
 	if (!Ship)
@@ -394,8 +382,7 @@ void UPlanetCharacterInputComponent::OnInteract(const FInputActionValue& Value)
 		return;
 	}
 
-	// 上船前退出编辑模式：网格是行星上的组件，不退出会一直留在外面。
-	// 必须在 Board（挂到船下）之前。
+	// 上船前退出编辑模式：网格是行星上的组件，不退出会留在外面。必须在 Board 之前。
 	if (UPlanetEditComponent* Edit = GetEditComponentInEditMode())
 	{
 		Edit->SetEditMode(false);

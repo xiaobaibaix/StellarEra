@@ -14,9 +14,8 @@ namespace PlanetShadow
 		const FVector ToCenter = PlanetCenter - WorldPosition;
 		const double TowardSun = FVector::DotProduct(ToCenter, DirectionToSun);
 
-		// 球心在射线背后（或射线与球心连线垂直）：行星挡不到太阳。
-		// 这一支不能省：太阳在天顶时 ToCenter 与 DirectionToSun 反向，
-		// 光算 Perp 会得到 0（射线穿过球心）而把大白天判成深夜。
+		// 球心在射线背后（或垂直）：行星挡不到太阳。这支不能省：太阳在天顶时 ToCenter 与
+		// DirectionToSun 反向，只算 Perp 会得 0（射线穿球心），把大白天判成深夜。
 		if (TowardSun <= 0.0)
 		{
 			return 1.0f;

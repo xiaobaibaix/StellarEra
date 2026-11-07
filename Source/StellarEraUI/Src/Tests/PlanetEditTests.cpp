@@ -1,7 +1,5 @@
 ﻿// 行星编辑模式的纯函数测试。
-//
-// 这里只放不需要世界、不需要 PIE 的断言：笔刷几何、按钮布局、网格几何。
-// 需要真实体素数据的部分（密度采样、保存）只能 PIE 手验，见计划任务 8。
+// 需要真实体素数据的部分（密度采样、保存）只能 PIE 手验。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -71,11 +69,8 @@ bool FStellarEraEditBrushBoxBoundsTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 含端点 → 开区间的换算回归护栏。
-//
-// 这一步（FVoxelIntBox 的 Max 是开区间，所以 Max 要 +1）在设计与计划里反复
-// 写错过；只靠注释保护的话，一次「清理掉多余的 +1」的改动能编译、能过其余
-// 全部测试，却让每个方块笔刷悄悄少挖一格。这里把换算钉成纯函数并断言格数。
+// 含端点 → 开区间换算：FVoxelIntBox 的 Max 是开区间，Max 要 +1。
+// 历史上反复写错，一次「清理掉多余的 +1」能让所有测试通过、却让每个方块笔刷少挖一格。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraEditBrushVoxelBoxTest,
 	"StellarEra.Planet.EditBrush.VoxelBox",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -110,8 +105,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraEditBrushUnionVoxelBoxTest,
 
 bool FStellarEraEditBrushUnionVoxelBoxTest::RunTest(const FString& Parameters)
 {
-	// FPlanetEditVoxelBox 的默认值就是「无范围」：连挖期间 PendingRenderBounds
-	// 从它起步，所以「无效盒参与并集」这条必须有明确行为，不能碰运气。
+	// FPlanetEditVoxelBox 默认就是「无范围」：连挖期间 PendingRenderBounds 从它起步，
+	// 无效盒参与并集必须有明确行为。
 	const FPlanetEditVoxelBox Invalid;
 
 	TestFalse(TEXT("默认值无效"), PlanetEditBrush::IsValidVoxelBox(Invalid));
@@ -127,7 +122,6 @@ bool FStellarEraEditBrushUnionVoxelBoxTest::RunTest(const FString& Parameters)
 	A.MaxExclusive = FIntVector(2, 30, 8);
 	TestTrue(TEXT("正常盒有效"), PlanetEditBrush::IsValidVoxelBox(A));
 
-	// 无效 ⊕ 有效 = 有效（就是那个有效的）。两个都无效 = 无效。
 	const FPlanetEditVoxelBox FromInvalid = PlanetEditBrush::UnionVoxelBox(Invalid, A);
 	TestTrue(TEXT("无效 ⊕ A == A"), FromInvalid.Min == A.Min && FromInvalid.MaxExclusive == A.MaxExclusive);
 	const FPlanetEditVoxelBox ToInvalid = PlanetEditBrush::UnionVoxelBox(A, Invalid);
@@ -135,7 +129,6 @@ bool FStellarEraEditBrushUnionVoxelBoxTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("无效 ⊕ 无效 仍然无效"),
 		PlanetEditBrush::IsValidVoxelBox(PlanetEditBrush::UnionVoxelBox(Invalid, Invalid)));
 
-	// 两笔真正相交的挖掘：各轴取 min(Min) / max(MaxExclusive)。
 	FPlanetEditVoxelBox B;
 	B.Min = FIntVector(6, -3, 5);
 	B.MaxExclusive = FIntVector(9, 12, 6);
@@ -143,7 +136,6 @@ bool FStellarEraEditBrushUnionVoxelBoxTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("并集 Min 取各轴较小者"), Union.Min == FIntVector(-10, -3, 0));
 	TestTrue(TEXT("并集 MaxExclusive 取各轴较大者"), Union.MaxExclusive == FIntVector(9, 30, 8));
 
-	// 并集必须同时包住两个输入（逐轴包含），这是它被用来刷渲染的唯一要求。
 	for (int32 Axis = 0; Axis < 3; ++Axis)
 	{
 		TestTrue(*FString::Printf(TEXT("轴 %d：并集下界 ≤ A 与 B"), Axis),
@@ -153,7 +145,6 @@ bool FStellarEraEditBrushUnionVoxelBoxTest::RunTest(const FString& Parameters)
 			&& Union.MaxExclusive[Axis] >= B.MaxExclusive[Axis]);
 	}
 
-	// 包含关系（含端点）：完整包含一个盒之后，并集等于较大的那个。
 	const FPlanetEditVoxelBox Nested = PlanetEditBrush::UnionVoxelBox(A, FromInvalid);
 	TestTrue(TEXT("与自身子集求并返回自身"),
 		Nested.Min == A.Min && Nested.MaxExclusive == A.MaxExclusive);
@@ -194,7 +185,6 @@ bool FStellarEraEditBrushVoxelBoxesIntersectTest::RunTest(const FString& Paramet
 	TestFalse(TEXT("离得远不相交"), PlanetEditBrush::VoxelBoxesIntersect(
 		A, Box(FIntVector(100, 0, 0), FIntVector(110, 10, 10))));
 
-	// 无效盒子一律 false。
 	TestFalse(TEXT("无效盒子不相交"),
 		PlanetEditBrush::VoxelBoxesIntersect(A, FPlanetEditVoxelBox()));
 
@@ -226,8 +216,7 @@ bool FStellarEraEditBrushButtonsTest::RunTest(const FString& Parameters)
 	FVector2D Cube = FVector2D::ZeroVector;
 	PlanetEditUI::GetBrushButtonRects(Viewport, Sphere, Cube);
 
-	// FVector2D 的分量在 UE5 里是 double，显式转 float 再比，
-	// 免得 TestEqual 的 float / double 重载挑不出来。
+	// FVector2D 的分量是 double，显式转 float 再比，免得 TestEqual 挑不出重载。
 	TestEqual(TEXT("球体按钮 X"), static_cast<float>(Sphere.X), 908.f, 0.01f);
 	TestEqual(TEXT("按钮顶边 Y"), static_cast<float>(Sphere.Y), 992.f, 0.01f);
 	TestEqual(TEXT("两个按钮同高"),
@@ -295,8 +284,7 @@ bool FStellarEraEditGridGeometryTest::RunTest(const FString& Parameters)
 	TArray<FPlanetEditGridLine> Lines;
 	PlanetEditGrid::BuildLines(5.f, Lines);
 
-	// 5°：72 条经线 + 35 条纬线（两极不生成退化纬线）。
-	// 后面按下标取首尾线，条数不对就先失败退出，避免越界。
+	// 5°：72 条经线 + 35 条纬线（两极不生成退化纬线）；后面按下标取首尾线，条数不对先退出。
 	if (!TestEqual(TEXT("5° 网格线总数"), Lines.Num(), 107))
 	{
 		return false;
@@ -321,7 +309,6 @@ bool FStellarEraEditGridGeometryTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("经线总采样点（72 × 37）"), MeridianPoints, 2664);
 	TestEqual(TEXT("纬线总采样点（35 × 72）"), ParallelPoints, 2520);
 
-	// 输出顺序固定：前 72 条是开放经线，后 35 条是闭合纬线。
 	int32 OrderMismatchCount = 0;
 	for (int32 LineIndex = 0; LineIndex < Lines.Num(); ++LineIndex)
 	{
@@ -333,8 +320,7 @@ bool FStellarEraEditGridGeometryTest::RunTest(const FString& Parameters)
 	}
 	TestEqual(TEXT("前 72 条是开放经线、后 35 条是闭合纬线"), OrderMismatchCount, 0);
 
-	// 经线从南极到北极：首点为 (0,0,-1)，末点为 (0,0,+1)。
-	// 这条同时能抓住纬度/经度写反或 Z 轴反向。
+	// 经线从南极到北极（首点 (0,0,-1)，末点 (0,0,+1)），能抓住纬度/经度写反或 Z 轴反向。
 	if (!TestEqual(TEXT("5° 首条经线采样点数"), Lines[0].Directions.Num(), 37))
 	{
 		return false;
@@ -350,8 +336,7 @@ bool FStellarEraEditGridGeometryTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("经线方向是单位向量"), FMath::IsNearlyEqual(Dir.Size(), 1.f, 1.e-3f));
 	}
 
-	// 纬线也要查单位长度，并且赤道纬线的所有点必须落在 z = 0 平面上。
-	// 只查经线的话，纬度被误当成经度生成时仍可能通过。
+	// 纬线也查单位长度，且赤道纬线的点全落在 z = 0 平面上（只查经线会漏掉纬度被当成经度）。
 	const FPlanetEditGridLine* EquatorLine = nullptr;
 	for (const FPlanetEditGridLine& Line : Lines)
 	{
@@ -417,9 +402,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraPlanetEditGridDefaultsTest,
 
 bool FStellarEraPlanetEditGridDefaultsTest::RunTest(const FString& Parameters)
 {
-	// 组件已从 C++ 构造函数移到蓝图（2026-10-31）：原生 AVoxelPlanetActor 上
-	// 不再有 EditGrid，要验就看 BP_VoxelPlanet 的 SCS 模板。查 CDO 是错的 ——
-	// 蓝图挂的组件不在 CDO 上（见 BlueprintComponentTestHelpers.h）。
+	// EditGrid 由蓝图挂载，原生类上没有，要看 BP_VoxelPlanet 的 SCS 模板；查 CDO 是错的。
 	const UPlanetSurfaceGridComponent* Grid =
 		Cast<UPlanetSurfaceGridComponent>(
 			StellarEraTest::FindBlueprintComponentTemplate(
@@ -437,9 +420,7 @@ bool FStellarEraPlanetEditGridDefaultsTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("默认不可见"), Grid->IsGridVisible());
 	TestFalse(TEXT("不可见时不 Tick"), Grid->PrimaryComponentTick.bStartWithTickEnabled);
 
-	// 保存不再有防抖计时器（2026-10-28）：存档时机是「退出编辑模式 / 退出 PIE」，
-	// 由 UPlanetEditComponent::SetEditMode 与 AVoxelPlanetActor::EndPlay 触发。
-	// 行星这边对应的公开入口是 RequestSaveEdits / SaveEditsToSaveObject。
+	// 保存没有防抖计时器：时机是「退出编辑模式 / 退出 PIE」，由 SetEditMode 与 EndPlay 触发。
 
 	return true;
 }
@@ -471,8 +452,7 @@ bool FStellarEraPlanetEditComponentDefaultsTest::RunTest(const FString& Paramete
 		EditCDO->ProgressiveEditHeadBudgetShare, 0.7f, 0.001f);
 	TestEqual(TEXT("默认单笔最多合并 8 次落笔"), EditCDO->MaxMergedOps, 8);
 
-	// 编辑组件已从 APlanetCharacter 构造函数移到 BP_PlanetCharacter（2026-10-31）：
-	// 原生类上不再有 PlanetEdit，要验就看蓝图 SCS 里的模板。
+	// 编辑组件由 BP_PlanetCharacter 挂载，原生类上没有，要验就看蓝图 SCS 模板。
 	const UPlanetEditComponent* CharacterEdit =
 		Cast<UPlanetEditComponent>(
 			StellarEraTest::FindBlueprintComponentTemplate(
@@ -489,8 +469,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraPlanetEditComponentStateTest,
 
 bool FStellarEraPlanetEditComponentStateTest::RunTest(const FString& Parameters)
 {
-	// CDO 是全局共享的类默认对象，改它会影响后续测试；这里 NewObject 一个临时实例。
-	// 组件不注册、不 BeginPlay —— 纯状态接口不需要世界。
+	// CDO 全局共享，改它会影响后续测试；这里 NewObject 一个不注册、不 BeginPlay 的临时实例。
 	TStrongObjectPtr<UPlanetEditComponent> Edit(
 		NewObject<UPlanetEditComponent>(GetTransientPackage()));
 	if (!TestNotNull(TEXT("临时编辑组件"), Edit.Get()))
@@ -505,7 +484,6 @@ bool FStellarEraPlanetEditComponentStateTest::RunTest(const FString& Parameters)
 	Edit->AdjustBrushSize(-100);
 	TestEqual(TEXT("-100 夹到下限 1"), Edit->GetBrushSizeVoxels(), 1);
 
-	// 从下限逐步滚到上限，每一步都不能越界。
 	for (int32 Step = 0; Step < 10; ++Step)
 	{
 		Edit->AdjustBrushSize(1);
@@ -552,8 +530,7 @@ bool FStellarEraEditBrushSpherePreviewTest::RunTest(const FString& Parameters)
 			FMath::IsNearlyEqual(FVector::Dist(Center, Segment.End), Radius, 0.01f));
 	}
 
-	// 极轴真的起作用：找赤道那一圈。纬线条数取奇数时它必然存在。
-	// 判据要**两个端点都**落在赤道平面上 —— 经线在中点也会穿过赤道，只算单点会多算。
+	// 极轴真的起作用：找赤道那一圈。两个端点都要落在赤道平面上 —— 经线在中点也穿过赤道。
 	int32 EquatorSegments = 0;
 	for (const FPlanetEditSegment& Segment : Segments)
 	{
@@ -568,7 +545,6 @@ bool FStellarEraEditBrushSpherePreviewTest::RunTest(const FString& Parameters)
 	}
 	TestEqual(TEXT("赤道正好一整圈"), EquatorSegments, PlanetEditBrush::PreviewSegmentsPerCircle);
 
-	// 两极各有一条经线汇聚点。
 	bool bFoundNorthPole = false;
 	bool bFoundSouthPole = false;
 	for (const FPlanetEditSegment& Segment : Segments)
@@ -581,12 +557,8 @@ bool FStellarEraEditBrushSpherePreviewTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("经线都汇到北极"), bFoundNorthPole);
 	TestTrue(TEXT("经线都汇到南极"), bFoundSouthPole);
 
-	// 经线要铺满整圈。每条经线只是半圆，只覆盖自己那一个方位，所以 M 条的方位角
-	// 应当把赤道面切成 M 等份。判据用「相邻方位角的最大空隙」，比数扇区稳：
-	// 扇区边界归属会随浮点取整漂，空隙是连续量。
-	//
-	// 曾经写成 φ = mπ/M：M 条全挤在半个球上，最大空隙 202.5°，而星图恰好沿
-	// 地表法线俯视（极轴正对镜头），屏幕上只有一侧有经线 —— 就是「经线只有一半」。
+	// 经线要铺满整圈：M 条经线的方位角把赤道面切成 M 等份，判据用相邻方位角最大空隙
+	// （连续量，比数扇区稳）。曾经写成 φ = mπ/M，星图俯视只有一侧有经线。
 	{
 		// 只取经线段。纬线是完整圆，会覆盖所有方位，混进来判据就恒真。
 		const int32 FirstMeridianSegment =
@@ -625,7 +597,6 @@ bool FStellarEraEditBrushSpherePreviewTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("经线方位铺满整圈（最大空隙不超过一格）"), MaxGap <= ExpectedGap * 1.01f);
 	}
 
-	// 半径 <= 0 时不应产生任何线。
 	TArray<FPlanetEditSegment> Empty;
 	PlanetEditBrush::BuildSpherePreviewSegments(Center, Axis, 0.f, Empty);
 	TestEqual(TEXT("零半径不画线"), Empty.Num(), 0);
@@ -642,9 +613,8 @@ bool FStellarEraEditBrushSpherePreviewTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 预览线宽：目标是在屏幕上恒定像素宽。引擎的线厚是世界单位，所以同一像素宽必须
-// 随距离线性放大。这里用互逆的投影公式反验 —— 把换算出的世界厚度投回屏幕，
-// 任何距离都该正好等于设定的像素宽。
+// 预览线宽：目标是屏幕上恒定像素宽，引擎线厚是世界单位，必须随距离线性放大；
+// 用互逆的投影公式反验（世界厚度投回屏幕，任何距离都该等于设定像素宽）。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraEditBrushPreviewLineThicknessTest,
 	"StellarEra.Planet.EditBrush.PreviewLineThickness",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -662,7 +632,6 @@ bool FStellarEraEditBrushPreviewLineThicknessTest::RunTest(const FString& Parame
 		return WorldThicknessCm * ViewportWidthPx / (2.f * DistanceCm * TanHalfFov);
 	};
 
-	// 从贴地看到星图远处：屏幕宽度处处是 2 px。
 	const float DistancesCm[] = { 1.0e3f, 1.0e5f, 5.0e6f, 6.0e7f };
 	for (const float DistanceCm : DistancesCm)
 	{
@@ -672,20 +641,17 @@ bool FStellarEraEditBrushPreviewLineThicknessTest::RunTest(const FString& Parame
 			FMath::IsNearlyEqual(ToPixels(World, DistanceCm), ThicknessPx, 1.0e-3f));
 	}
 
-	// 距离翻倍 → 世界厚度也翻倍（像素宽不变的另一面）。
 	const float Near = PlanetEditBrush::PreviewLineThicknessWorld(
 		1.0e5f, FovDegrees, ViewportWidthPx, ThicknessPx, FallbackCm);
 	const float Far = PlanetEditBrush::PreviewLineThicknessWorld(
 		2.0e5f, FovDegrees, ViewportWidthPx, ThicknessPx, FallbackCm);
 	TestTrue(TEXT("距离翻倍厚度翻倍"), FMath::IsNearlyEqual(Far, Near * 2.f, 1.0e-2f));
 
-	// 想要更粗的线，按比例变厚。
 	const float Thicker = PlanetEditBrush::PreviewLineThicknessWorld(
 		1.0e5f, FovDegrees, ViewportWidthPx, ThicknessPx * 2.f, FallbackCm);
 	TestTrue(TEXT("目标像素翻倍 → 世界厚度翻倍"),
 		FMath::IsNearlyEqual(Thicker, Near * 2.f, 1.0e-2f));
 
-	// 窄 FOV 把画面放大，同样的像素宽需要的世界厚度更小。
 	const float Narrow = PlanetEditBrush::PreviewLineThicknessWorld(
 		1.0e5f, 60.f, ViewportWidthPx, ThicknessPx, FallbackCm);
 	TestTrue(TEXT("FOV 60 比 FOV 90 更薄"), Narrow < Near);
@@ -726,8 +692,7 @@ bool FStellarEraEditBrushBoxPreviewTest::RunTest(const FString& Parameters)
 
 		TestEqual(TEXT("方块预览正好 12 条棱"), Segments.Num(), 12);
 
-		// 所有端点必须落在真正的体素盒范围内，且每个轴都用满两端 ——
-		// 否则预览会比实际挖/放的格子大或小。
+		// 所有端点必须落在真正的体素盒内，且每轴用满两端，否则预览与实际挖/放的格子会差一格。
 		FVector Min(FLT_MAX);
 		FVector Max(-FLT_MAX);
 		for (const FPlanetEditSegment& Segment : Segments)
@@ -746,8 +711,7 @@ bool FStellarEraEditBrushBoxPreviewTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("预览上界等于体素盒上界"), Max.Equals(ExpectedMax));
 	};
 
-	// 尺寸 1 / 2 / 8 都要覆盖：1 是退化盒（Min == Max + 1），2 曾因开闭区间
-	// 换算错少一格，8 是上限。
+	// 尺寸 1 / 2 / 8 都要覆盖：1 是退化盒（Min == Max + 1），2 曾因开闭区间换算少一格，8 是上限。
 	CheckBox(FVector(0.f), 1);
 	CheckBox(FVector(0.f), 2);
 	CheckBox(FVector(10.f, -3.f, 7.f), 8);
@@ -777,8 +741,7 @@ bool FStellarEraPlanetSaveObjectPathTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 星图笔刷是 8..128，与角色的 1..8 是两套区间。旧的 1 参 ClampSize 会把
-// 32 悄悄夹成 8，所以「带区间的重载」必须是独立函数，不能只改常量。
+// 星图 8..128 与角色 1..8 是两套区间：旧的一参 ClampSize 会把 32 夹成 8，区间重载必须独立。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraEditBrushClampSizeRangeTest,
 	"StellarEra.Planet.EditBrush.ClampSizeRange",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -796,8 +759,7 @@ bool FStellarEraEditBrushClampSizeRangeTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 128 体素的方块必须真的是 128 格宽。MakeBox 内部若仍走 1..8 的钳制，
-// 这里会得到 8 格 —— 星图方块笔刷「永远只有 8 格」就是这么来的。
+// 128 体素的方块必须真的 128 格宽；MakeBox 内部若仍走 1..8 钳制会得到 8 格。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraEditBrushBoxBounds128Test,
 	"StellarEra.Planet.EditBrush.BoxBounds128",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -836,8 +798,7 @@ bool FStellarEraEditBrushBoxBounds128Test::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 笔刷尺寸区间：角色 1..8、星图 8..128 共用同一份夹取逻辑。
-// 旧的一参 ClampSize 会把 32 这样的星图尺寸悄悄夹成 8 —— 这就是本测试要钉的回归。
+// 笔刷尺寸区间：角色 1..8、星图 8..128 共用夹取逻辑；旧一参 ClampSize 会把 32 夹成 8。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraEditComponentRangeTest,
 	"StellarEra.Planet.EditComponent.Range",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -871,8 +832,7 @@ bool FStellarEraEditComponentRangeTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("上下限写反保下限"), Edit->GetBrushSizeVoxels(), 10);
 	TestEqual(TEXT("上下限写反时上限被抬到下限"), Edit->GetMaxBrushSizeVoxels(), 10);
 
-	// 按档调尺寸：一档 = BrushSizeStepVoxels，粗调再 ×10。
-	// 星图上限 1280 配一档 10 体素，不粗调得按一百多下才够得着。
+	// 按档调尺寸：一档 = BrushSizeStepVoxels，粗调再 ×10（星图上限 1280 配一档 10 体素）。
 	Edit->ConfigureBrushRange(
 		PlanetEditBrush::MinStarMapSizeVoxels, PlanetEditBrush::MaxStarMapSizeVoxels, 64);
 	Edit->BrushSizeStepVoxels = 10;
@@ -888,9 +848,8 @@ bool FStellarEraEditComponentRangeTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 大笔刷不再记录 ModifiedValues。插件在 TVoxelDataImpl::Set 里按**整个包围盒**
-// AddUninitialized（FModifiedVoxelValue 20 字节），1280 体素的球就是 43 GB ——
-// 这条钉住「超过预算就关记录」的分界，也把代价 Size³ 写在纸面上。
+// 大笔刷不记录 ModifiedValues：插件按整个包围盒 AddUninitialized（20 字节/格），
+// 1280 体素的球就是 43 GB。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraEditBrushBigBrushPolicyTest,
 	"StellarEra.Planet.EditBrush.BigBrushPolicy",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -909,7 +868,6 @@ bool FStellarEraEditBrushBigBrushPolicyTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("153 不记录"), PlanetEditBrush::ShouldRecordModifiedValues(153));
 	TestFalse(TEXT("1280 不记录"), PlanetEditBrush::ShouldRecordModifiedValues(1280));
 
-	// 粗调只放大倍数；步长 0 也至少走一格。
 	TestEqual(TEXT("细调 10"), PlanetEditBrush::ResolveBrushStep(10, false), 10);
 	TestEqual(TEXT("粗调 100"), PlanetEditBrush::ResolveBrushStep(10, true), 100);
 	TestEqual(TEXT("步长 0 抬到 1"), PlanetEditBrush::ResolveBrushStep(0, false), 1);
@@ -925,19 +883,16 @@ bool FStellarEraEditBrushShouldDigNowTest::RunTest(const FString& Parameters)
 {
 	float Accumulator = 0.f;
 
-	// 未到间隔：不挖，累加器保留。
 	TestFalse(TEXT("0.05 s 未到 0.12 s 间隔"),
 		PlanetEditBrush::ShouldDigNow(Accumulator, 0.05f, 0.12f));
 	TestTrue(TEXT("未到间隔时累加器保留"),
 		FMath::IsNearlyEqual(Accumulator, 0.05f, 1.e-4f));
 
-	// 跨过间隔：挖一次并清零。
 	TestTrue(TEXT("再走 0.08 s 跨过 0.12 s"),
 		PlanetEditBrush::ShouldDigNow(Accumulator, 0.08f, 0.12f));
 	TestTrue(TEXT("触发后累加器清零"),
 		FMath::IsNearlyEqual(Accumulator, 0.f, 1.e-4f));
 
-	// 一帧巨大 DeltaSeconds 只触发一次，不做 while 补偿。
 	TestTrue(TEXT("10 s 的单帧只触发一次"),
 		PlanetEditBrush::ShouldDigNow(Accumulator, 10.f, 0.12f));
 	TestTrue(TEXT("大帧之后累加器仍是 0"),
@@ -945,8 +900,8 @@ bool FStellarEraEditBrushShouldDigNowTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("同一累加器不会连续返回 true"),
 		PlanetEditBrush::ShouldDigNow(Accumulator, 0.f, 0.12f));
 
-	// Interval <= 0 按 0.01 处理。注意这个下限只挡同一帧内的重复调用：
-	// 30 / 60 / 90 FPS 的帧时长都大于 0.01 s，靠下限兜底仍会每帧触发。
+	// Interval <= 0 按 0.01 处理；它只挡同一帧内的重复调用 ——
+	// 30 / 60 / 90 FPS 帧时长都大于 0.01 s，靠下限兜底仍会每帧触发。
 	float ZeroInterval = 0.f;
 	TestFalse(TEXT("间隔 0 时 0.001 s 不触发"),
 		PlanetEditBrush::ShouldDigNow(ZeroInterval, 0.001f, 0.f));
@@ -967,9 +922,8 @@ bool FStellarEraEditBrushShouldDigNowTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("负 delta 不改变累加器"),
 		FMath::IsNearlyEqual(NegativeDelta, 0.05f, 1.e-4f));
 
-	// 累加器恰好等于间隔也触发（判定是「达到或超过」，不是「跨过」）。
-	// 用精确的 0.12f：0.05f + 0.07f 在 float32 下是 0.1200000048，比间隔略大，
-	// 钉不住「等号也触发」；后一条只是照实覆盖累加到间隔的常规路径。
+	// 累加器恰好等于间隔也触发（「达到或超过」）。用精确的 0.12f：0.05f + 0.07f 在
+	// float32 下是 0.1200000048；后一条覆盖常规路径。
 	float AtBoundary = 0.12f;
 	TestTrue(TEXT("恰好等于间隔也触发"),
 		PlanetEditBrush::ShouldDigNow(AtBoundary, 0.f, 0.12f));
@@ -1002,14 +956,12 @@ bool FStellarEraPlanetEditContinuousDigTest::RunTest(const FString& Parameters)
 	Edit->SetContinuousDigging(true);
 	TestTrue(TEXT("开启后可读回"), Edit->IsContinuousDigging());
 
-	// 退出编辑模式必须顺手关掉连续挖：标志留着会让下次进编辑模式直接开挖，
-	// 也会让星图相机一直以为在连挖。
+	// 退出编辑模式必须顺手关掉连续挖：标志留着会让下次进编辑模式直接开挖，星图相机也会以为在连挖。
 	Edit->SetEditMode(true);
 	TestTrue(TEXT("进入编辑模式不改变连续挖状态"), Edit->IsContinuousDigging());
 	Edit->SetEditMode(false);
 	TestFalse(TEXT("退出编辑模式自动关闭连续挖"), Edit->IsContinuousDigging());
 
-	// 重复关闭是幂等的：松开左键会无条件调一次。
 	Edit->SetContinuousDigging(false);
 	TestFalse(TEXT("重复关闭幂等"), Edit->IsContinuousDigging());
 

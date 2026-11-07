@@ -12,14 +12,9 @@ class AVoxelPlanetActor;
 class ULineBatchComponent;
 
 /**
- * 采样式表面网格。
- *
- * 不能用解析地形半径：GetSurfaceRadiusCmAtDirection 读不到体素编辑，
- * 挖出的洞和加上的凸起在它眼里不存在。这里以解析半径为初值，沿半径方向
- * 用 FVoxelData::GetValue 找符号翻转，因此网格跟着真实体素表面走。
- *
- * 采样与缓存都在**体素空间**（VoxelSize 无关）；绘制时每帧乘 VoxelSize、
- * 再乘行星变换。行星在 N 体里每帧移动，所以缓存不能是世界坐标。
+ * 采样式表面网格。不能用解析半径：GetSurfaceRadiusCmAtDirection 看不到体素编辑，
+ * 挖出的洞与凸起对它不存在。这里以解析半径为初值，沿径向用 FVoxelData::GetValue
+ * 找符号翻转，网格因此跟着真实表面走。缓存存**体素空间**（行星每帧移动）。
  */
 UCLASS(ClassGroup = (StellarEra), meta = (BlueprintSpawnableComponent))
 class STELLARERAPLANET_API UPlanetSurfaceGridComponent : public UActorComponent
@@ -77,11 +72,8 @@ private:
 	FTimerHandle RebuildTimer;
 
 	/**
-	 * 每个顶点的单位方向，**体素空间**。
-	 *
-	 * 不变量：这些方向只在行星 Actor 无旋转时与世界方向等价。缓存、采样与
-	 * GetSurfaceRadiusCmAtDirection 的调用都依赖这一点；若行星将来会自转，
-	 * 需要在边界处做世界 ↔ 体素方向变换。
+	 * 每个顶点的单位方向（**体素空间**）。只在行星 Actor 无旋转时等于世界方向；
+	 * 若将来会自转，需在边界处做世界 ↔ 体素变换。
 	 */
 	TArray<FVector> CachedDirections;
 

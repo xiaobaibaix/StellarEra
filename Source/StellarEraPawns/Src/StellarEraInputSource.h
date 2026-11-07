@@ -18,21 +18,9 @@ class UStellarEraInputSource : public UInterface
 };
 
 /**
- * 「上哪拿输入动作表」。
- *
- * 由 AStellarEraPlayerController 实现（它在 Game 模块，Pawn 看不到），Pawn 在
- * `SetupPlayerInputComponent` 里通过它取到**自己那张表**，各绑各的：
- *
- *   - APlanetCharacter   → `GetPlanetCharacterInputActions()`；
- *   - ASpaceshipPawn     → `GetSpaceshipInputActions()`；
- *   - AStarMapCameraPawn → `GetStarMapCameraInputActions()`。
- *
- * 三张表的类型都住在 Pawns（各自 Pawn 的子目录），聚合与构造在 Game 模块的
- * `FStellarEraInputActions` 里。接口只交单张表、不交出聚合 —— Pawn 也就不需要
- * 看见那个只有控制器才关心的结构体。
- *
- * 这样「当前 Possess 的是谁，就由谁响应输入」由引擎的 Pawn 输入栈完成，
- * 控制器里不再有 `Cast<APlanetCharacter>` / `Cast<ASpaceshipPawn>` 的三路分派。
+ * 「上哪拿输入动作表」：各 Pawn 在 `SetupPlayerInputComponent` 里取自己那张，
+ * 实现在 Game 模块的控制器上（Pawn 看不到）。只交单张表，不交出聚合结构 ——
+ * 输入按 Possess 的 Pawn 分派由引擎的输入栈完成。
  */
 class STELLARERAPAWNS_API IStellarEraInputSource
 {

@@ -14,29 +14,17 @@ struct FPlanetGeologyPod
 	float Radius = 0.f;
 };
 
-/**
- * 元素的运行期定义（预置资产 → 地质场的内部形态）。
- *
- * 刻意不是 USTRUCT：它只在地质系统内部按值传递，不进反射、不进蓝图。
- * 可编辑形态见 FPlanetGeologyElementParams（PlanetGeologyPreset.h），
- * 预设资产是唯一编辑入口。
- */
+/** 元素的运行期定义（预置资产 → 地质场内部形态）。刻意不是 USTRUCT：只在地质系统内部按值传递；编辑入口是 FPlanetGeologyElementParams。 */
 struct FPlanetGeologyElement
 {
 	FString Id;
 	FString DisplayName;
 	FLinearColor Color = FLinearColor::White;
 
-	/**
-	 * 只影响颜色混合权重与图例占比，不改几何。
-	 * 几何外凸量取各元素 Norm 的最大值（见 SampleGeometryDelta），与 Abundance 无关。
-	 */
+	/** 只影响颜色混合权重与图例占比，不改几何；几何外凸量取各元素 Norm 的最大值（见 SampleGeometryDelta），与 Abundance 无关。 */
 	float Abundance = 0.f;
 
-	/**
-	 * 分布生成器，顺序 = 资产里的顺序。元素 Norm = 各生成器结果取 max。
-	 * 不可变、可跨线程共享；空数组表示这个元素没有矿。
-	 */
+	/** 分布生成器，顺序 = 资产里的顺序；元素 Norm = 各生成器结果取 max。不可变、可跨线程共享，空数组表示没有矿。 */
 	TArray<TSharedPtr<const FPlanetGeologyDistributionRuntime>> Distributions;
 };
 
@@ -45,10 +33,8 @@ struct FPlanetGeologySample
 {
 	float TotalNorm = 0.f;
 	/**
-	 * 最强元素自身的归一化强度 = 矿囊衰减 × 矿脉因子（raw_i / abundance_i）。
-	 *
-	 * 与元素丰度无关：丰度 0.05 的铀在自己的矿脉里也能到 1。
-	 * 颜色显现必须用它而不是 TotalNorm，否则低丰度元素永远够不到阈值。
+	 * 最强元素自身的归一化强度（矿囊衰减 × 矿脉因子 raw_i / abundance_i）。与丰度无关：丰度 0.05 的铀在自己的矿脉里也能到 1。
+	 * 颜色显现必须用它而非 TotalNorm，否则低丰度元素永远够不到阈值。
 	 */
 	float DominantNorm = 0.f;
 	float Purity = 0.f;

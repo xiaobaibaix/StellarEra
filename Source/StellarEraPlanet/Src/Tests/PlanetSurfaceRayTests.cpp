@@ -7,8 +7,6 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-// 定半径：就是一个普通球面求交。起于球心正下方 10 cm、朝 +Z 打半径 5 的球，
-// 穿入点在 z = −5，所以距离 5。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSurfaceRayConstantRadiusTest,
 	"StellarEra.Planet.SurfaceRay.ConstantRadius",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -28,8 +26,7 @@ bool FStellarEraSurfaceRayConstantRadiusTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 方向相关半径：朝 −Z 看时半径只有 2（5 + 3 × (−1)），射线从 z = −10 打到
-// z = −2，距离正好 8。这一项钉的是「迭代真的按新半径重算了距离」。
+// 变半径（5 + 3·Z）：钉「迭代真的按新半径重算了距离」。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSurfaceRayVaryingRadiusTest,
 	"StellarEra.Planet.SurfaceRay.VaryingRadius",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -39,7 +36,6 @@ bool FStellarEraSurfaceRayVaryingRadiusTest::RunTest(const FString& Parameters)
 	const FVector Origin(0.0, 0.0, -10.0);
 	const FVector Direction(0.0, 0.0, 1.0);
 
-	// 极轴方向鼓 3 cm。命中点方向恒为 (0,0,−1)：第一次求交落在 z = −5，按该方向半径 2 重算即得到 8；第二次只是确认（变化为 0）。
 	const auto RadiusAtDirection = [](const FVector& UnitDirection)
 	{
 		return 5.0 + 3.0 * UnitDirection.Z;
@@ -55,7 +51,6 @@ bool FStellarEraSurfaceRayVaryingRadiusTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 拒绝路径：擦不到、起点在球内、半径 0、方向 0、整个球在背后。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSurfaceRayRejectsTest,
 	"StellarEra.Planet.SurfaceRay.Rejects",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -79,7 +74,6 @@ bool FStellarEraSurfaceRayRejectsTest::RunTest(const FString& Parameters)
 		PlanetSurfaceRay::SolveAnalyticHit(
 			FVector(0.0, 0.0, -10.0), FVector::ZeroVector, 5.0, 3, ConstantRadius, Distance));
 
-	// 球在射线背后：从 z = +10 往 +Z 打，球心在原点。
 	TestFalse(TEXT("球在背后"),
 		PlanetSurfaceRay::SolveAnalyticHit(
 			FVector(0.0, 0.0, 10.0), Forward, 5.0, 3, ConstantRadius, Distance));
@@ -88,8 +82,7 @@ bool FStellarEraSurfaceRayRejectsTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// RaySphereFirstHit 自身的边界：与 SolveAnalyticHit 分开测，因为星图的
-// 轨道遮挡计算也直接用它。
+// RaySphereFirstHit 自身边界；星图轨道遮挡计算也直接用它，故与 SolveAnalyticHit 分开测。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSurfaceRaySphereHitTest,
 	"StellarEra.Planet.SurfaceRay.SphereHit",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -116,16 +109,13 @@ bool FStellarEraSurfaceRaySphereHitTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 中段失败面：第一次按命中方向取到的半径让射线打空（垂距 10 > 半径 5）时，
-// 保留上一个距离而不是整体失败 —— 这是 RaycastSurfaceCm 依赖的契约。
+// 中段打空时保留上一个距离而不是整体失败 —— RaycastSurfaceCm 依赖的契约。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSurfaceRayMidIterationMissTest,
 	"StellarEra.Planet.SurfaceRay.MidIterationMiss",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FStellarEraSurfaceRayMidIterationMissTest::RunTest(const FString& Parameters)
 {
-	// 起点 (0,10,−10)：到基准球（半径 10）的垂距正好 10，擦着命中，距离 10，
-	// 命中方向 (0,1,0)。该方向上的半径只有 5 → 第二次求交打空。
 	const FVector Origin(0.0, 10.0, -10.0);
 	const FVector Direction(0.0, 0.0, 1.0);
 
@@ -139,8 +129,7 @@ bool FStellarEraSurfaceRayMidIterationMissTest::RunTest(const FString& Parameter
 	return true;
 }
 
-// 远根：与 FirstHit 唯一的语义差别就是「起点在球内也给正数」。
-// 体素射线行进拿它当几何终点，所以这两条必须钉死。
+// 远根：与 FirstHit 唯一差别是「起点在球内也给正数」；体素射线行进拿它当几何终点。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSurfaceRaySphereFarHitTest,
 	"StellarEra.Planet.SurfaceRay.SphereFarHit",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -150,7 +139,6 @@ bool FStellarEraSurfaceRaySphereFarHitTest::RunTest(const FString& Parameters)
 	const FVector Forward(0.0, 0.0, 1.0);
 	const FVector Center = FVector::ZeroVector;
 
-	// 球外、正穿球心：穿出点 z = +5，距离 15；穿入 5，弦长 10。
 	const double Entry = PlanetSurfaceRay::RaySphereFirstHit(
 		FVector(0.0, 0.0, -10.0), Forward, Center, 5.0);
 	const double Exit = PlanetSurfaceRay::RaySphereFarHit(
@@ -158,7 +146,6 @@ bool FStellarEraSurfaceRaySphereFarHitTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("穿出点 15"), FMath::IsNearlyEqual(Exit, 15.0, 1e-6));
 	TestTrue(TEXT("弦长 10 = 远根 − 近根"), FMath::IsNearlyEqual(Exit - Entry, 10.0, 1e-6));
 
-	// 起点在球心：FirstHit 返回 −1，FarHit 必须给 5。
 	TestTrue(TEXT("起点在球内时近根仍是 −1"),
 		PlanetSurfaceRay::RaySphereFirstHit(
 			Center, Forward, Center, 5.0) < 0.0);
@@ -188,8 +175,7 @@ bool FStellarEraSurfaceRaySphereFarHitTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 行进范围：钉「不再有 128 体素的深度上限」这条回归。步数只由行星几何
-// （包围球弦长）与体素尺寸决定，随半径成比例增长。
+// 行进范围：钉「不再有 128 体素深度上限」；步数只由包围球弦长与体素尺寸决定。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSurfaceRayMarchStepRangeTest,
 	"StellarEra.Planet.SurfaceRay.MarchStepRange",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -198,8 +184,7 @@ bool FStellarEraSurfaceRayMarchStepRangeTest::RunTest(const FString& Parameters)
 {
 	const FVector Forward(0.0, 0.0, 1.0);
 
-	// 基准场景：半径 1000 cm（包围球 1250），相机在球外 10R 处，体素 1 cm，
-	// 解析命中落在理想地表距离 9000。弦长 = 11250 − 9000 = 2250 体素。
+	// 基准：半径 1000 cm（包围球 1250）、相机在 10R 外、体素 1 cm ⇒ 弦长 2250 体素。
 	{
 		const PlanetSurfaceRay::FMarchStepRange Range =
 			PlanetSurfaceRay::ComputeMarchStepRange(
@@ -211,7 +196,6 @@ bool FStellarEraSurfaceRayMarchStepRangeTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("远超旧的 128 固定窗口"), Range.InwardMaxSteps > 128);
 	}
 
-	// 起比例：半径 ×1000，步数也 ×1000。
 	{
 		const PlanetSurfaceRay::FMarchStepRange Range =
 			PlanetSurfaceRay::ComputeMarchStepRange(
@@ -222,7 +206,6 @@ bool FStellarEraSurfaceRayMarchStepRangeTest::RunTest(const FString& Parameters)
 			Range.InwardMaxSteps, 2250000);
 	}
 
-	// 体素变大，同样的距离步数变少（2250 cm ÷ 100 cm = 22.5 → 向上取整 23）。
 	{
 		const PlanetSurfaceRay::FMarchStepRange Range =
 			PlanetSurfaceRay::ComputeMarchStepRange(
@@ -231,7 +214,6 @@ bool FStellarEraSurfaceRayMarchStepRangeTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("体素 100 cm → 23 步"), Range.InwardMaxSteps, 23);
 	}
 
-	// 相机已经进了包围球（近根为 −1）：朝外只走到射线原点。
 	{
 		const PlanetSurfaceRay::FMarchStepRange Range =
 			PlanetSurfaceRay::ComputeMarchStepRange(
@@ -265,16 +247,13 @@ bool FStellarEraSurfaceRayMarchStepRangeTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 径向步进判决：起点空朝里找实、起点实朝外找空，边界取两格中点。
-// Task 2 的 GetVoxelSurfaceRadiusCmAtDirection 直接调它，所以这里钉死符号约定。
+// 径向步进：起点空朝里找实、起点实朝外找空，边界取两格中点；GetVoxelSurfaceRadiusCmAtDirection 靠它。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSurfaceRayBoundaryStepTest,
 	"StellarEra.Planet.SurfaceRay.BoundaryStep",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FStellarEraSurfaceRayBoundaryStepTest::RunTest(const FString& Parameters)
 {
-	// 起点空：地表在解析点**里侧** 3 格处（挖低了 2 格多）。
-	// Step 0/1/2 为空，Step −3 起为实 → 边界 = −(3 − 0.5) = −2.5。
 	{
 		const auto SampleEmpty = [](const int32 Step)
 		{
@@ -289,8 +268,6 @@ bool FStellarEraSurfaceRayBoundaryStepTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("边界 = −2.5"), BoundaryStep, -2.5, 1.0e-12);
 	}
 
-	// 起点实：解析点比真实地表低（地形抬高）。Step 0..3 为实，Step 4 起为空
-	// → 边界 = +(4 − 0.5) = +3.5。
 	{
 		const auto SampleEmpty = [](const int32 Step)
 		{
@@ -303,8 +280,7 @@ bool FStellarEraSurfaceRayBoundaryStepTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("边界 = +3.5"), BoundaryStep, 3.5, 1.0e-12);
 	}
 
-	// 预算走完没翻转（挖穿）：返回 false，并且不写 Out 参数 ——
-	// 调用方拿它当「退回解析半径」的信号，残留的旧值会被当成真命中。
+	// 预算走完没翻转（挖穿）返回 false 且不写 Out —— 调用方靠它退回解析半径。
 	{
 		const auto SampleEmpty = [](const int32 Step)
 		{

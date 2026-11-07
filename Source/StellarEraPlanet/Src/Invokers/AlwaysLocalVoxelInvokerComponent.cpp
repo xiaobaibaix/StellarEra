@@ -6,14 +6,9 @@
 namespace
 {
 	/**
-	 * 编辑器世界（含蓝图预览）不跑 BeginPlay，也没有 OnPossess —— 视点门控一次都
-	 * 到不了这里，而基类 OnRegister（VoxelInvokerComponent.cpp:81）会无条件
-	 * EnableInvoker。结果是摆在关卡里的飞船、行星蓝图里内嵌的星图相机在编辑视口
-	 * 里也参与 LOD。
-	 *
-	 * 只关编辑器世界：PIE / Game 是另一个世界、组件重新注册，BeginPlay 与
-	 * OnPossess 的门控会按当前视点重新打开。插件对自家 UVoxelInvokerEditorComponent
-	 * 用的正是同一手法，方向相反（VoxelWorldEditorControls.cpp:67）。
+	 * 编辑器世界不跑 BeginPlay / OnPossess，门控到不了这里，而基类 OnRegister 会
+	 * 无条件 EnableInvoker —— 摆进关卡的飞船、蓝图内嵌的相机就会在编辑视口参与 LOD。
+	 * PIE / Game 是另一个世界、组件重新注册，门控会按视点重新打开。
 	 */
 	void DisableInvokerInEditorWorld(UVoxelInvokerComponentBase* const Invoker)
 	{
@@ -24,8 +19,7 @@ namespace
 			return;
 		}
 
-		// 基类只在 bStartsEnabled 为真时才启用；无条件调用 DisableInvoker 会报
-		// "Invoker already disabled"。
+		// 无条件 DisableInvoker 会报 "Invoker already disabled"。
 		if (Invoker->IsInvokerEnabled())
 		{
 			Invoker->DisableInvoker();

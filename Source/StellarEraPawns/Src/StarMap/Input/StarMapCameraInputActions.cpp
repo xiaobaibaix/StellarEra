@@ -31,9 +31,8 @@ void FStarMapCameraInputActions::Build(UObject* Outer, UInputMappingContext* Con
 			EInputActionValueType::Boolean));
 	}
 
-	// 鼠标位移本身一直有值，能不能用、拿去干什么由相机按按住的键分派：
-	// 右键 = 转头 / 瞄准，中键 = 绕行（编辑 / 矿物透视下左键被借走时用）。
-	// 两个键都要分别映射成布尔动作 —— Look 只有位移，分不清按的是哪个键。
+	// 右键 = 转头，中键 = 绕行。两个键都要各映射成布尔动作 —— Look 只有位移，
+	// 分不清按的是哪个键。
 	StellarEraInput::MapKey(Context, Look, EKeys::Mouse2D);
 	StellarEraInput::MapKey(Context, LookActivate, EKeys::RightMouseButton);
 	StellarEraInput::MapKey(Context, LookMiddle, EKeys::MiddleMouseButton);
@@ -44,10 +43,8 @@ void FStarMapCameraInputActions::Build(UObject* Outer, UInputMappingContext* Con
 
 	StellarEraInput::MapKey(Context, EditModeToggle, EKeys::G);
 
-	// 笔刷尺寸：星图里滚轮已归缩放，尺寸因此另占几对键。
-	// `]` / `=` / 小键盘 `+` = 大一档；`[` / `-` / 小键盘 `-` = 小一档。
-	// 负值那三行接 Negate，同一组映射直接出 −1。`=` 与 `-` 取的是物理键，
-	// 所以 Shift+`=`（即 `+`）同样生效。
+	// 笔刷尺寸：滚轮已归缩放，尺寸另占几对键。`]` / `=` / 小键盘 `+` 大一档，
+	// `[` / `-` / 小键盘 `-` 小一档（接 Negate 出 −1）。取物理键，Shift+`=` 也生效。
 	StellarEraInput::MapKey(Context, BrushSize, EKeys::RightBracket);
 	StellarEraInput::MapKey(Context, BrushSize, EKeys::Equals);
 	StellarEraInput::MapKey(Context, BrushSize, EKeys::Add);
@@ -68,8 +65,8 @@ void FStarMapCameraInputActions::Build(UObject* Outer, UInputMappingContext* Con
 	}
 	StellarEraInput::MapKey(Context, MineralShowAll, EKeys::Zero);
 
-	// 左键选择 / M 退出星图：这两条也各有一份在角色 / 飞船表里（进星图的入口）。
-	// 同一个 IMC 里的动作互不吞输入，谁被 Possess 谁的那条生效。
+	// 左键选择 / M 在角色 / 飞船表里也各有一份（进星图的入口）；同一 IMC 里谁被
+	// Possess 谁那条生效。
 	StellarEraInput::MapKey(Context, StarMapSelect, EKeys::LeftMouseButton);
 	StellarEraInput::MapKey(Context, StarMapToggle, EKeys::M);
 }

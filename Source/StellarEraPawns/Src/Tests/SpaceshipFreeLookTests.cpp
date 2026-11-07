@@ -1,10 +1,7 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 //
-// 落地自由视角的验收测试。
-//
-// 断言的是「何时冻结飞船、鼠标偏移怎么累加」的纯数学，不生成 Actor、不依赖关卡：
-//   - 落地且没有 W / Space 时才进入自由视角；S / Ctrl 不退出；未落地一律不自由；
-//   - 偏航累加后归一化到 (-180, 180]，俯仰夹在配置区间内。
+// 落地自由视角的验收测试：只测纯数学，不生成 Actor、不依赖关卡。
+// 覆盖「落地且没按 W / Space 才进入自由视角」与「偏航归一化、俯仰夹取」。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"

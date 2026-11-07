@@ -44,10 +44,8 @@ struct FMineralLegendEntry
 };
 
 /**
- * 星图模式的信息 UI 控制系统。
- *
- * 不 Tick、不保存跨帧状态：每帧由 AStellarEraHUD::DrawHUD 调用 Draw，
- * 现拉选中/悬停天体、现算布局、现画。纯函数单独暴露，便于无头测试。
+ * 星图模式的信息 UI 控制系统。不 Tick、不保存跨帧状态：每帧由
+ * AStellarEraHUD::DrawHUD 调用 Draw，现拉数据、现算布局、现画。
  */
 UCLASS()
 class STELLARERAUI_API UStarMapUISystem : public UObject
@@ -56,11 +54,8 @@ class STELLARERAUI_API UStarMapUISystem : public UObject
 
 public:
 	/**
-	 * 画一帧星图 UI。只在星图模式下由 HUD 调用。
-	 *
-	 * 直接吃玩家控制器：鼠标坐标、屏幕拾取、矿物透视都是对引擎 API 与
-	 * `StarMapPicking` 的一行转发，没有需要控制器独有的信息 —— 多一层接口只会
-	 * 让同一件事有两个声明。
+	 * 画一帧星图 UI，只在星图模式下由 HUD 调用。直接吃玩家控制器：鼠标坐标、
+	 * 屏幕拾取、矿物透视都是对引擎 API 与 `StarMapPicking` 的一行转发。
 	 */
 	void Draw(AStellarEraHUD& Hud, APlayerController& PlayerController);
 
@@ -72,8 +67,7 @@ public:
 
 	/**
 	 * 矿物观察图例的文本行：标题「矿物观察 — 行星名」，其后每元素一行
-	 * 「名称  百分比  开/关」，最后一行是操作提示。
-	 * 纯函数，便于无头测试。
+	 * 「名称  百分比  开/关」，最后一行是操作提示。纯函数，便于无头测试。
 	 */
 	static TArray<FString> FormatMineralLegendLines(
 		const FString& PlanetName,

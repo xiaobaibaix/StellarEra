@@ -24,24 +24,9 @@ class UTextureCube;
 class FPlanetGeologyField;
 
 /**
- * 开箱即用的行星 Actor。
- *
- * **直接继承 AVoxelWorld**，而不是把它当成子对象持有。
- *
- * 早先的写法是 `CreateDefaultSubobject<AVoxelWorld>`，那造出来的是「Actor 子对象」：
- * 它有 Outer 关系（GC、生命周期跟着走），但**不在组件树里** —— UE 的变换传播只沿
- * 组件树走，所以行星动、体素世界不动，得每帧手动同步一次。两个位置一旦分叉，就是
- * 「星球跑掉了」「渲染网格留在原地」这类问题。
- *
- * 继承之后体素世界**就是**这个 Actor：一个变换、一个生命周期，同步代码整个消失。
- * 代价是基类的属性全部出现在 Details 面板里（约 110 个），其中 `VoxelSize` /
- * `MaxLOD` / `NumberOfThreads` / `VoxelMaterial` 现在由基类自己管、也由基类自己的
- * `meta=(Recreate)` 处理重建 —— 这是有意让出去的，不是遗漏。
- *
- * 拖进关卡即可创建一颗光滑的球体行星，球心位于 Actor 所在位置。标准 Gizmo
- * 直接可用：移动即平移行星，等比缩放即改变其半径。
- *
- * 非等比缩放被有意忽略：它会剪切体素网格，把行星扭成一团畸形。
+ * 开箱即用的行星 Actor。**直接继承 AVoxelWorld** 而非持有子对象：UE 的变换只沿
+ * 组件树传播，子对象不随 Actor 动、得每帧手动同步，位置一分叉就出「星球跑了」。
+ * 拖进关卡即得光滑球体行星；移动 = 平移，等比缩放 = 改半径，非等比缩放会被忽略。
  */
 UCLASS(Blueprintable)
 class STELLARERAPLANET_API AVoxelPlanetActor : public AVoxelWorld
@@ -68,11 +53,8 @@ public:
 	void RebuildPlanet();
 
 	/**
-	 * 无条件重建，绕过「参数没变就跳过」的守卫。
-	 *
-	 * 给地形模块用：在资产面板里改模块参数时，变的是资产而不是本 Actor 的属性，
-	 * RebuildPlanet 的参数哈希察觉不到，那道守卫会把重建整个吞掉，看起来就像
-	 * 「参数没生效」。
+	 * 绕过「参数没变就跳过」的守卫强制重建。地形模块参数变的是资产而非本 Actor
+	 * 属性，RebuildPlanet 的参数哈希察觉不到，守卫会吞掉重建，看起来像参数没生效。
 	 */
 	void InvalidateAndRebuild();
 
@@ -80,75 +62,44 @@ public:
 	void SetEditGridVisible(bool bVisible);
 
 	/**
-	 * 体素被编辑后调用：通知表面网格重建，并记为「有未保存编辑」。
-	 *
-	 * **不在这里存档**（2026-10-28 改）。旧行为是每次编辑都重置一个 2 秒防抖
-	 * 定时器，停手 2 秒就整星重存一次 —— 日志实测 CompressVoxelSave 0.29–1.92 s，
-	 * 且随累计编辑量线性增长，全在游戏线程上。现在改成退出编辑模式
-	 * （RequestSaveEdits）与 EndPlay 才存。
+	 * 体素被编辑后调用：通知表面网格重建并标记未保存编辑。**不在这里存档**：旧的
+	 * 2 秒防抖重存实测 0.29–1.92 s 且随编辑量线性增长，只在 RequestSaveEdits /
+	 * EndPlay 存。
 	 */
 	void NotifyVoxelEdited();
 
 	/**
-	 * 请求把未保存的编辑写进 SaveObject。**GetSave 与压缩在后台线程完成。**
-	 *
-	 * 回游戏线程只做三件事：把压好的存档赋给 SaveObject、标脏、落盘。
-	 * 存档期间又来了编辑就置 pending，等这次任务回来后立刻再存一次 ——
-	 * 同一时刻永远只有一份任务在读体素数据。
-	 *
-	 * 由 UPlanetEditComponent 在退出编辑模式时调用。
+	 * 请求把未保存编辑写进 SaveObject，**GetSave 与压缩在后台线程完成**。同一时刻
+	 * 只有一份任务在读体素；存档期间又来的编辑置 pending，任务回来后立刻再存一次。
 	 */
 	void RequestSaveEdits();
 
 	/**
-	 * **同步**存档：GetSave + 压缩 + 落盘全在调用线程，调用方会被阻塞。
-	 *
-	 * 只给 EndPlay 用（退出 PIE 必须把最后几笔真正写进磁盘；后台任务的
-	 * 异步落盘不保证在进程退出前完成）。平时用 RequestSaveEdits。
+	 * **同步**存档：GetSave + 压缩 + 落盘全在调用线程。只给 EndPlay 用（异步落盘
+	 * 不保证进程退出前完成）；平时用 RequestSaveEdits。
 	 */
 	void SaveEditsToSaveObject();
 
 	/**
-	 * 行星表面半径（厘米，含 Actor 等比缩放），**不含地形起伏**。
-	 *
-	 * 这是基准球面的半径。有地形时地表在它上下浮动，想知道「某个方向上的地面
-	 * 有多高」要用 GetSurfaceRadiusCmAtDirection。
+	 * 行星表面基准半径（厘米，含 Actor 等比缩放），**不含地形起伏**。想知道某方向
+	 * 的地面高度用 GetSurfaceRadiusCmAtDirection。
 	 */
 	UFUNCTION(BlueprintPure, Category = "Planet")
 	float GetSurfaceRadiusCm() const;
 
 	/**
-	 * 指定方向上的地表半径（厘米，含起伏与 Actor 等比缩放）。
-	 *
-	 * 角色出生和飞船生成用它。原先它们假设地表是完美球面，有地形之后那个假设
-	 * 会把角色直接塞进山体里（振幅 8 体素 = 800cm，山峰高出基准面 1600cm）。
-	 *
-	 * WorldDirection 是世界空间方向，不必归一化。体素空间与世界空间之间只有
-	 * 等比缩放、没有旋转，方向因此可以原样传递。
+	 * 指定方向的地表半径（厘米，含起伏与 Actor 缩放），角色出生与飞船生成用。
+	 * 原先按完美球面算会把角色塞进山体（振幅 8 体素 = 800cm）。WorldDirection
+	 * 是世界空间方向、不必归一化；体素与世界空间只差等比缩放，方向可原样传递。
 	 */
 	UFUNCTION(BlueprintPure, Category = "Planet")
 	float GetSurfaceRadiusCmAtDirection(const FVector& WorldDirection) const;
 
 	/**
-	 * 指定方向上的**真实体素地表**半径（厘米）。
-	 *
-	 * 与 GetSurfaceRadiusCmAtDirection 的唯一区别：那个读的是生成器的理想地表
-	 * （噪声 + 地质场），挖掘改的是体素数据，它看不见；这个从体素数据里找空/实
-	 * 翻转，挖出来的坑它看得见。误差 ≤ 1 体素。
-	 *
-	 * 做法：解析半径当种子，沿该方向的径向线（从球心出发）march 体素数据 ——
-	 * 种子在上方就往里找第一格实，种子埋在地下就往外找第一格空。
-	 *
-	 * 找不到翻转（挖穿、整段全实）或行星还没创建（IsCreated() 为假）时返回解析
-	 * 半径。距离上的闸门（离多远就不必查）由调用方做 —— 本函数没有探针位置。
-	 *
-	 * 成本：约 1 倍基准半径 / 体素 次采样（向内预算 `ceil(解析半径 / 体素) − 1`
-	 * 是较长的那侧；向外只有 0.25 倍基准半径），按 128 体素分段持读锁。
-	 * **每帧每方向调一次就够**，不要逐子步调。
-	 *
-	 * 前提：Actor 缩放 S = 1，且体素世界没有偏移（WorldOffset = 0）—— 种子点直接
-	 * 用「方向 × 半径 / 体素尺寸」算，不走 GlobalToLocalFloat。两条当前都恒成立；
-	 * 将来若引入世界偏移，这里与 RaycastSurfaceCm 的换算方式就要统一。
+	 * 指定方向上的**真实体素地表**半径：从体素数据找空/实翻转，挖掘出的坑也看得见
+	 * （GetSurfaceRadiusCmAtDirection 只看生成器理想地表）。以解析半径为种子沿径向
+	 * march，找不到翻转或行星未创建时返回解析半径。成本约每方向 1 倍半径/体素次
+	 * 采样，**每帧每方向调一次即可**。前提：Actor 缩放 1 且无 WorldOffset。
 	 */
 	float GetVoxelSurfaceRadiusCmAtDirection(const FVector& WorldDirection) const;
 
@@ -156,18 +107,9 @@ public:
 	TSharedPtr<const FPlanetGeologyField> GetGeologyField();
 
 	/**
-	 * 世界空间射线 → 行星**体素表面**的命中点（LOD0 数据，与渲染 LOD 无关）。
-	 *
-	 * 星图用：那里摄像机离地表几千公里，体素碰撞只覆盖几十米，LineTrace 什么也打不到。
-	 * 两步：先用随方向变化的半径解析求交（PlanetSurfaceRay），再从该点沿射线做体素
-	 * 符号行进，找空/实翻转的格子。误差 ≤ 1 体素。
-	 *
-	 * 只在返回 true 时写 Out 参数。
-	 *
-	 * @param MaxDistanceCm        命中点超过这个距离就返回 false（调用方靠它做最近命中剪枝）。
-	 * @param OutHitLocationWorld  命中点（世界空间）。
-	 * @param OutHitNormalWorld    径向外法线（世界空间）。
-	 * @param OutDistanceCm        射线原点到命中点的距离（厘米）。
+	 * 世界空间射线 → 行星**体素表面**命中点（LOD0，与渲染 LOD 无关）。星图用：摄像机
+	 * 离地表几千公里、LineTrace 打不到。先解析求交，再由该点做体素符号行进，误差
+	 * ≤ 1 体素。只在返回 true 时写 Out；MaxDistanceCm 供调用方做最近命中剪枝。
 	 */
 	bool RaycastSurfaceCm(const FVector& RayOriginWorld, const FVector& RayDirectionWorld,
 		float MaxDistanceCm, FVector& OutHitLocationWorld, FVector& OutHitNormalWorld,
@@ -188,26 +130,17 @@ public:
 	// biome cubemap（颜色与网格密度解耦）
 
 	/**
-	 * biome cubemap 每面分辨率，0 = 关闭（只剩顶点色）。
-	 *
-	 * 顶点色只能存在于网格采样点上：LOD 6/7 的采样间距是 32/64 米，而配色是按
-	 * 海拔硬分带的 —— 一块粗 LOD 的整片区域会在「水」与「沙」之间整块翻面，
-	 * 于是 LOD 边界上出现一条颜色突变的直线（见 PlanetBiomeCubemap.h）。
-	 * 把配色按方向烘到 cubemap 上，材质逐像素查表，颜色就与网格密度无关了。
-	 *
-	 * 只对**噪声地形**（UVoxelPlanetNoiseTerrain）生效：配色是它的成员。
-	 * 256 在半径 1 公里的星上约 4~8 米一个纹素；烘焙是一次性成本，
-	 * 只在重建行星时发生，移动 Actor 不会重烘。
+	 * biome cubemap 每面分辨率，0 = 关闭（只剩顶点色）。顶点色只在网格采样点上，
+	 * 粗 LOD 下按海拔分带会在 LOD 边界整块翻面（见 PlanetBiomeCubemap.h）；烘到
+	 * cubemap 后颜色与网格密度无关。只对噪声地形生效，只在重建时烘焙。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Color", meta = (ClampMin = "0", ClampMax = "2048"))
 	int32 BiomeCubemapResolution = 256;
 
 	/**
-	 * 材质里顶点色与 cubemap 色的混合权重（材质参数 `BiomeCubeBlend`）。
-	 *
-	 * 1 = 完全查表（粗 LOD 平滑，近处也只剩 cubemap 的分辨率）；
-	 * 0 = 完全顶点色（回到旧行为，接缝在）。**默认 1**：接缝是当前要治的问题，
-	 * 而顶点色在粗 LOD 上本来就是错的。想保留近处细节可以调到 0.7 左右。
+	 * 顶点色与 cubemap 色的混合权重（材质参数 `BiomeCubeBlend`）。1 = 完全查表
+	 * （粗 LOD 平滑，近处也只剩 cubemap 分辨率），0 = 回到顶点色（接缝在）。
+	 * **默认 1**：接缝是要治的问题；想保留近处细节可调到 0.7 左右。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Color", meta = (ClampMin = "0", ClampMax = "1"))
 	float BiomeCubemapBlend = 1.f;
@@ -216,13 +149,9 @@ public:
 	// 地形
 
 	/**
-	 * 决定这颗行星地形长什么样的模块。
-	 *
-	 * 空 = 光滑球。模块是**可共享的资产**：在内容浏览器里建一份预设，多颗行星
-	 * 可以同时引用它，改一次参数所有引用它的行星一起变。行星自身的「在哪、多大」
-	 * 则由本 Actor 上的 Radius / 基类的 VoxelSize / 变换决定，两者互不干扰。
-	 *
-	 * 模块自带的配色会盖过上面的 SurfaceColor；纯球模块没有配色，用 SurfaceColor。
+	 * 决定这颗行星地形形态的模块，空 = 光滑球。模块是**可共享资产**：多颗行星可
+	 * 引用同一份，改参数一起变；行星的位置 / 半径由本 Actor 决定。模块自带的配色
+	 * 会盖过 SurfaceColor，纯球模块没有配色。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Terrain")
 	TObjectPtr<UVoxelPlanetTerrainModule> Terrain;
@@ -232,20 +161,15 @@ public:
 	TObjectPtr<UPlanetGeologyPreset> GeologyAsset;
 
 	/**
-	 * 上面这个指针变化时广播（Details 面板编辑会触发）。
-	 *
-	 * 镜像方订阅它保持同步 —— 目前是 `UPlanetMineralViewComponent` 的地质预设槽。
-	 * 用委托而不是让本类去调组件，是因为依赖方向是 Minerals → Terrain：Terrain
-	 * 不能反向 include Minerals，否则成环。
+	 * GeologyAsset 变化时广播。镜像方（UPlanetMineralViewComponent）订阅以保持同步；
+	 * 用委托而非直接调用，是因为 Terrain 不能反向 include Minerals，否则成环。
 	 */
 	DECLARE_MULTICAST_DELEGATE(FOnPlanetGeologyAssetChanged);
 	FOnPlanetGeologyAssetChanged OnGeologyAssetChanged;
 
 	/**
-	 * 旧字段，只用于加载时迁移（存的是 JSON 预设名）。
-	 *
-	 * **默认值 "earth" 必须保留**：旧关卡的 Actor 从来没序列化过这个字段，
-	 * 它的值一直来自 CDO 默认值。删掉默认值 = 迁移条件恒为假，老关卡直接丢矿。
+	 * 旧字段，只用于加载时迁移（JSON 预设名）。**默认值 "earth" 必须保留**：旧关卡
+	 * 从未序列化过它、值一直来自 CDO，删掉默认值会让迁移条件恒假、老关卡丢矿。
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet|Geology",
 		meta = (DeprecatedProperty))
@@ -261,8 +185,8 @@ public:
 	UPlanetGeologyPreset* GetGeologyPresetAsset() const { return GeologyAsset; }
 
 	/**
-	 * 旧字段名 → 预设资产路径：`earth` → `/Game/Code/Planet/Geology/MineralData/DA_Geology_Earth`。
-	 * 空名返回空路径。纯函数，便于测试。
+	 * 旧字段名 → 预设资产路径（`earth` → `/Game/.../DA_Geology_Earth`），空名返回
+	 * 空路径。纯函数，便于测试。
 	 */
 	static FSoftObjectPath MakeLegacyGeologyAssetPath(const FString& LegacyName);
 
@@ -270,18 +194,16 @@ public:
 	// 性能
 
 	/**
-	 * 行星全局 LOD 基准：整颗星（无论摄像机在哪）都细分到该 LOD。
-	 * -1 = 按半径自动推导，使表面三角边长约为半径的 1/16（1km 星约 64m 边长）。
-	 * 没有它，轨道视角下唯一的 LOD 来源是编辑器摄像机的短距 Invoker，
-	 * 区块会塌到八叉树底部，1km 星球以 1km 间距采样，看起来坑洼不平。
+	 * 行星全局 LOD 基准：整颗星都细分到该 LOD。-1 = 按半径自动推导（三角边长约
+	 * 半径 1/16）。没有它，轨道视角下唯一的 LOD 来源是摄像机短距 Invoker，区块会
+	 * 塌到八叉树底部，表面坑洼不平。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Performance", meta = (ClampMin = "-1", ClampMax = "26"))
 	int32 OrbitLOD = -1;
 
 	/**
-	 * 无论 World Partition 流送单元如何，都让此 Actor 常驻加载。
-	 * 若按空间加载，摄像机跨越单元边界时该 Actor 会被销毁重建，
-	 * 整个行星生成随之重启，流送空洞会重新打开数十秒。
+	 * 无视 World Partition 流送单元常驻加载。按空间加载时，摄像机跨界会销毁重建
+	 * 此 Actor，整个行星生成随之重启，流送空洞会重新打开数十秒。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Performance")
 	bool bAlwaysLoaded = true;
@@ -290,11 +212,8 @@ public:
 	// 运行时
 
 	/**
-	 * 当前驱动此行星的生成器实例。加载时重建。
-	 *
-	 * 名字不能叫 Generator —— 基类已经有一个同名的 FVoxelGeneratorPicker
-	 * （那是交给渲染器的选择器，这个是我们的适配器实例）。RebuildPlanet 负责把
-	 * 前者指向后者。
+	 * 当前驱动此行星的生成器实例，加载时重建。名字不能叫 Generator —— 基类同名
+	 * 成员是交给渲染器的 FVoxelGeneratorPicker，RebuildPlanet 负责把前者指向后者。
 	 */
 	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "Planet")
 	TObjectPtr<UVoxelPlanetGenerator> PlanetGenerator;
@@ -312,82 +231,52 @@ public:
 	TObjectPtr<UTextureCube> BiomeCubemap;
 
 	/**
-	 * 装了 BiomeCubemap 的材质实例。**运行期 VoxelMaterial 指向的就是它**。
-	 *
-	 * 它必须当独立字段持有：渲染器只在自己的动态设置里存一个弱指针，
-	 * 没有强引用的话这张 MID 会在下一次 GC 被收走。
+	 * 装了 BiomeCubemap 的材质实例，**运行期 VoxelMaterial 指向它**。必须当独立
+	 * 字段强引用：渲染器只存弱指针，否则下次 GC 会被收走。
 	 */
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> BiomeMaterial;
 
 	/**
-	 * 用户原本设的 VoxelMaterial（MID 的父材质）。从 VoxelMaterial 捕获。
-	 *
-	 * 存它是为了两件事：重建时不必回头去猜用户想用的是哪个材质，
-	 * 以及保存前把 VoxelMaterial 换回它 —— 瞬态对象不进包，留着 MID
-	 * 会被写成一个空引用。
+	 * 用户原本设的 VoxelMaterial（MID 的父材质）。重建时不必再猜用户想用的材质；
+	 * 保存前也靠它把 VoxelMaterial 换回去 —— 瞬态对象不进包。
 	 */
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInterface> BaseVoxelMaterial;
 
 	/**
-	 * 行星存档资产的路径：`/Game/Code/Maps/Saves/PlanetVoxel/<地图名>/<Actor 标签>`。
-	 *
-	 * 纯函数，便于无头测试。规则：
-	 * - 地图名剥掉 `UEDPIE_<n>_` 前缀 —— 否则每开一次 PIE 就换一个资产路径，
-	 *   编辑永远落不到同一个资产上；
-	 * - 地图名与标签里非字母数字的字符一律换成 `_`（资产名不允许 `/`、`:`、空格等）；
-	 * - 空地图 → `Untitled`，空标签 → `Planet`，保证路径恒定有效。
+	 * 行星存档资产路径：`/Game/Code/Maps/Saves/PlanetVoxel/<地图名>/<Actor 标签>`。
+	 * 地图名剥掉 `UEDPIE_<n>_` 前缀（否则每次 PIE 换路径，编辑落不到同一资产）；
+	 * 非字母数字换成 `_`；空地图 → Untitled、空标签 → Planet。纯函数，便于测试。
 	 */
 	static FString MakePlanetSaveObjectAssetPath(const FString& MapName, const FString& ActorLabel);
 
 	/**
-	 * 把 MID 一路剥到能当父材质的那个（Material / MaterialInstanceConstant）。
-	 *
-	 * 存在的唯一理由：`UMaterialInstance::SetParentInternal` 只接受
-	 * `UMaterial` 和 `UMaterialInstanceConstant`，传 MID 过去会被**静默拒绝**，
-	 * 新 MID 的 `Parent` 留在 nullptr。而 PIE 复制关卡时，`VoxelMaterial`
-	 * （非 Transient）会被拷成上一轮 MID 的副本，`BaseVoxelMaterial`
-	 * （Transient）却被清空 —— 于是「用户设的材质」读出来就是那个 MID。
-	 * 不剥的话：新 MID 父为空 → 插件建 chunk 材质时 `ParentInstance->Parent`
-	 * 为 null → 回退默认材质 → `VoxelRenderUtilities.cpp:518` 的 ensure，
-	 * 整颗星退回灰色。
-	 *
-	 * 传 nullptr 或非 MID 时原样返回；剥到空也返回 nullptr，由调用方决定兜底。
-	 * 纯函数，便于无头测试。
+	 * 把 MID 一路剥到能当父材质的 Material / MaterialInstanceConstant。
+	 * SetParentInternal 不接受 MID（静默拒绝）；而 PIE 复制关卡时 VoxelMaterial 会
+	 * 变成上一轮 MID 的副本、BaseVoxelMaterial 被清空，新 MID 父为空会让插件建
+	 * chunk 材质时 ensure、整颗星变灰。传 nullptr / 非 MID 原样返回，纯函数。
 	 */
 	static UMaterialInterface* StripMaterialInstanceDynamic(UMaterialInterface* Candidate);
 
 	/**
-	 * 建 biome MID。
-	 *
-	 * **Outer 必须是瞬态包，不能是行星 Actor。** 编辑器态插件把
-	 * bCreateMaterialInstances 硬编成 false（IVoxelRenderer.cpp:48），于是它把
-	 * 传进来的 `VoxelMaterial` 原样登记进全局 FVoxelMaterialInterfaceManager 的
-	 * MaterialInfo —— 那是 GC root，世界销毁也不会松手。MID 的 Outer 一旦指向
-	 * 行星 Actor，可达链就是 MID → Actor → Level → World → Package，旧关卡永远
-	 * 收不掉；切图时 UEditorEngine 会以 "World Memory Leaks" 直接 Fatal。
-	 * 用瞬态包当 Outer 就能把这条链断在世界外面。
+	 * 建 biome MID。**Outer 必须是瞬态包，不能是行星 Actor**：编辑器态插件会把
+	 * VoxelMaterial 登记进全局 FVoxelMaterialInterfaceManager（GC root），Outer 指向
+	 * Actor 就让旧关卡永远收不掉，切图时以 "World Memory Leaks" 直接 Fatal。
 	 */
 	static UMaterialInstanceDynamic* CreateBiomeMaterialMID(UMaterialInterface* Parent);
 
 private:
 	/**
-	 * 编辑模式下的表面网格基线。
-	 *
-	 * **由蓝图子类 BP_VoxelPlanet 挂载**（2026-10-31 从构造函数移出）：编辑是可选
-	 * 玩法，原生 AVoxelPlanetActor 实例不带它，相关调用全部按「找不到就跳过」处理。
-	 * 每次现查而不是缓存成员：组件在编辑器世界与 PIE 里都要能用，而缓存时机
-	 * （BeginPlay / PostInitializeComponents）在编辑器世界里并不可靠。
+	 * 编辑模式下的表面网格基线，**由蓝图子类 BP_VoxelPlanet 挂载**（编辑是可选
+	 * 玩法，原生实例不带它）。每次现查而不缓存：编辑器世界里的缓存时机并不可靠。
 	 */
 	UPlanetSurfaceGridComponent* FindEditGrid() const;
 
 	/**
-	 * 修正继承重构前遗留的组件树：确保基类的 WorldRoot 就是本 Actor 的根组件。
-	 *
-	 * 已保存的关卡实例把 RootComponent 序列化成了老版本的 PlanetRoot，而
-	 * WorldRoot（承载全部体素网格的那个组件）成了游离组件 —— 网格画在世界原点，
-	 * 坐标换算却按 Actor 位置算，LOD 因此完全失效。成因与推导见 .cpp。
+	 * 修正继承重构前遗留的组件树：确保基类 WorldRoot 就是本 Actor 的根组件。
+	 * 旧实例的 RootComponent 是老 PlanetRoot、WorldRoot 游离，导致网格画在世界原点、
+	 * 坐标换算按 Actor 位置算，LOD 完全失效。成因见 .cpp。
 	 */
 	void RepairLegacyRootComponent();
 
@@ -398,11 +287,9 @@ private:
 	int32 ComputeOrbitLOD() const;
 
 	/**
-	 * 把 OrbitLOD / 半径 / VoxelSize 推给 LOD Invoker，值没变就什么都不做。
-	 *
-	 * 与 RebuildPlanet 分开：这三项只影响 LOD 提示，不影响世界几何，改了不必
-	 * 重建整颗星。放在哈希守卫**之前**调用，于是拖动星球时它每帧都跑 ——
-	 * 「值没变就早退」那道判断就是为这条热路径写的。
+	 * 把 OrbitLOD / 半径 / VoxelSize 推给 LOD Invoker，值没变就早退。只影响 LOD
+	 * 提示、不影响世界几何，故与 RebuildPlanet 分开；在哈希守卫之前调用，拖动星球
+	 * 时每帧都跑。
 	 */
 	void RefreshLODInvoker();
 
@@ -410,12 +297,9 @@ private:
 	uint64 ComputeParamsHash() const;
 
 	/**
-	 * 烘焙 biome cubemap 并把材质实例装进 VoxelMaterial。
-	 *
-	 * @param bForceBake true = 无条件重烘（重建行星时用：地形参数变了，色也跟着变）；
-	 *                   false = 只在没有贴图或分辨率变了时重烘（调混合权重这类编辑用）。
-	 * @return VoxelMaterial 这次**被换掉**了吗。调用方据此决定要不要通知渲染器
-	 *         立刻换材质（ApplyNewMaterials）；世界还没建时由 CreateWorld 自己读。
+	 * 烘焙 biome cubemap 并把材质实例装进 VoxelMaterial。bForceBake true = 无条件
+	 * 重烘（地形参数变了）；false = 只在无贴图或分辨率变化时重烘。返回 VoxelMaterial
+	 * 是否**被换掉**，调用方据此决定是否 ApplyNewMaterials。
 	 */
 	bool InstallBiomeMaterial(bool bForceBake);
 
@@ -435,22 +319,15 @@ private:
 	uint64 LastParamsHash = 0;
 
 	/**
-	 * 上次重建水面用的 VoxelSize（cm）；-1 = 从没建过。
-	 *
-	 * VoxelSize 刻意不进 ComputeParamsHash（见 .cpp），但水面几何要用它把体素半径
-	 * 折成厘米。所以 RebuildPlanet 在哈希守卫**之前**单独比较一次，值变了就刷新水面
-	 * —— 否则只改 VoxelSize 时守卫会早退，水面停在旧尺寸、与体素地形错位。
+	 * 上次重建水面用的 VoxelSize（cm）；-1 = 从没建过。VoxelSize 刻意不进
+	 * ComputeParamsHash，但水面要用它折算厘米，所以 RebuildPlanet 在哈希守卫之前
+	 * 单独比较 —— 否则只改 VoxelSize 时水面会停在旧尺寸、与地形错位。
 	 */
 	float LastWaterVoxelSize = -1.f;
 
 	/**
-	 * 后台存档任务；无效 = 没有在跑。
-	 *
-	 * 存成 TFuture 是为了 EndPlay 能先等它跑完再做同步兜底 —— 否则退出时
-	 * 会有一份「读到一半」的任务和一次同步 GetSave 同时压在体素数据上。
-	 *
-	 * 结果是 TSharedPtr 而不是 TUniquePtr：TFuture::Get() 返回的是 const 引用
-	 * （Async/Future.h:226），独占指针取不出来，共享指针可以拷一份。
+	 * 后台存档任务；无效 = 没有在跑。存 TFuture 是为了 EndPlay 能先等它结束再做
+	 * 同步兜底。结果是 TSharedPtr 因为 TFuture::Get() 返回 const 引用，独占指针取不出。
 	 */
 	TFuture<TSharedPtr<FVoxelCompressedWorldSave>> SaveJob;
 
@@ -474,30 +351,17 @@ private:
 
 #if WITH_EDITOR
 	/**
-	 * 编辑器世界里懒创建 / 加载本行星的存档资产并绑定到 SaveObject。
-	 *
-	 * 只在编辑器世界执行：PIE 世界里的 Actor 是从编辑器实例复制来的，值会继承，
-	 * 不需要也不应该每开一次 PIE 就重新找资产。资产缺失（例如首次摆放）时用
-	 * MakePlanetSaveObjectAssetPath 的路径新建，创建后立刻落盘一次。
-	 *
-	 * **必须在 RebuildPlanet / CreateWorld 之前调用** —— 世界创建时会读
-	 * SaveObject；晚于它赋值，本次运行仍从空白世界开始。
+	 * 编辑器世界里懒创建 / 加载本行星的存档资产并绑定到 SaveObject（PIE 世界的值
+	 * 会继承，不重复找）。**必须在 RebuildPlanet / CreateWorld 之前调用** —— 世界
+	 * 创建时会读 SaveObject，晚赋值本次运行仍从空白世界开始。
 	 */
 	void EnsureSaveObject();
 
 	/**
-	 * 把 SaveObject 所在的资产包写到磁盘。**同步**：写完才返回。
-	 *
-	 * 编辑器里的 PIE 只把编辑写进内存中的资产副本，不调用这个函数的话退出
-	 * 编辑器后编辑就没了（用户报的「第二次运行什么也没有」的另一半原因）。
-	 *
-	 * 不用 SAVE_Async：那个标志只把**文件写入**挪到写入器线程，序列化仍在调用
-	 * 线程上，省下的不是主要那块；而异步写不保证在 PIE 进程退出前完成，代价是
-	 * 「最后一次编辑可能丢」。存档现在一次编辑会话只有一笔（退出编辑模式 /
-	 * 退出 PIE），同步写的停顿落在离散动作上，看不出来。
-	 *
-	 * @return 真的写盘为 true；SaveObject 为空、包是瞬态的（PIE 临时副本）、
-	 *         或 SavePackage 失败时为 false。
+	 * 把 SaveObject 所在资产包**同步**写到磁盘，写完才返回。不写的话退出编辑器后
+	 * 编辑就没了。不用 SAVE_Async：它只把文件写入挪到写入器线程，序列化仍在调用
+	 * 线程，且不保证 PIE 退出前完成；一次编辑会话只有一笔，停顿看不出来。
+	 * @return SaveObject 为空、包是瞬态（PIE 临时副本）或 SavePackage 失败时为 false。
 	 */
 	bool SaveSaveObjectToDisk();
 

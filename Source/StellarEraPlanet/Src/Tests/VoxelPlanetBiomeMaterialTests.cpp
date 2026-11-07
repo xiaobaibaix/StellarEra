@@ -10,19 +10,10 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-// 剥 MID 只能剥 MID，别的必须原样放行。
-//
-// 这条钉的是 VoxelRenderUtilities.cpp:518 那个 ensure 的根因：PIE 复制关卡时
-// VoxelMaterial（非 Transient）被拷成上一轮 BiomeMaterialMID 的副本，而
-// BaseVoxelMaterial（Transient）被清空。于是「用户设的材质」读出来是 MID，
-// 拿它当父材质创建新 MID 会被 SetParentInternal 静默拒绝（只接受 Material /
-// MaterialInstanceConstant），新 MID 的 Parent 留在 nullptr，插件建 chunk
-// 材质时回退默认材质，Cast<UMaterialInstanceDynamic> 失败 → ensure。
-//
-// 所以这里同时钉两个方向：
-// - MID 必须被剥到父材质，不能原样返出去；
-// - 非 MID（尤其是 MaterialInstanceConstant）必须原样返回 —— 多剥一层会把
-//   用户在 MIC 里设的参数丢掉。
+// 剥 MID 只剥 MID，别的原样放行。钉 VoxelRenderUtilities.cpp:518 那个 ensure 的根因：
+// PIE 复制后 VoxelMaterial 成了上一轮 MID 的副本，拿它当父材质创建新 MID 会被
+// SetParentInternal 静默拒绝（只接受 Material / MIC），Parent 留在 nullptr。
+// 非 MID（尤其 MIC）必须原样返回 —— 多剥一层会把用户在 MIC 里设的参数丢掉。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraBiomeMaterialUnwrapTest,
 	"StellarEra.Planet.BiomeMaterial.UnwrapDynamicInstance",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -54,9 +45,8 @@ bool FStellarEraBiomeMaterialUnwrapTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("剥完不再是 MID 自己"), Stripped != Dynamic);
 	}
 
-	// 父为空的 MID —— 正是 SetParentInternal 拒绝之后留下的形态。必须返回
-	// nullptr 让调用方走兜底：原样返出去的话，插件那边的 Cast 会成功、Parent
-	// 却是空，照样在同一个 ensure 上炸。
+	// 父为空的 MID 正是 SetParentInternal 拒绝后留下的形态，必须返回 nullptr 让调用方兜底：
+	// 原样返出的话插件那边的 Cast 会成功、Parent 却是空，照样在同一个 ensure 上炸。
 	UMaterialInstanceDynamic* Orphan = NewObject<UMaterialInstanceDynamic>(GetTransientPackage());
 	Orphan->Parent = nullptr;
 	TestNull(TEXT("父为空的 MID → nullptr"),
@@ -65,11 +55,10 @@ bool FStellarEraBiomeMaterialUnwrapTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 切图崩溃的回归钉（2026-11-01）：编辑器态插件把 bCreateMaterialInstances 硬编成
-// false，会把手上的 VoxelMaterial 原样登记进全局 FVoxelMaterialInterfaceManager，
-// 那是 GC root。MID 的 Outer 若指向行星 Actor，旧关卡的可达链就是
-// MID → Actor → Level → World → Package，永远收不掉，切图时 UEditorEngine
-// 以 "World Memory Leaks" 直接 Fatal。所以 Outer 必须是瞬态包。
+// 切图崩溃回归（2026-11-01）：编辑器态插件把 VoxelMaterial 原样登记进全局
+// FVoxelMaterialInterfaceManager（GC root）。MID 的 Outer 若是行星 Actor，可达链就是
+// MID → Actor → Level → World → Package 永远收不掉，切图时 UEditorEngine 以
+// "World Memory Leaks" 直接 Fatal。所以 Outer 必须是瞬态包。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraBiomeMaterialOuterTest,
 	"StellarEra.Planet.BiomeMaterial.TransientOuter",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

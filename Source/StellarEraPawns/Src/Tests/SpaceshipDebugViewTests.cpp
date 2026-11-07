@@ -1,10 +1,7 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 //
-// 飞船调试视角（B 键）的状态开关。
-//
-// 只测状态与接线：线框球与合力箭头的真正显示要在 PIE 里看，编辑器世界的 Tick
-// 不跑本地控制分支。这里守的是「默认关、切换可逆」——它决定合力箭头不再
-// 一上船就常驻；以及检测球组件的 tick 必须排在 N 体写回之后。
+// 飞船调试视角（B 键）的状态开关。只测状态与接线 —— 线框球与箭头的显示要在 PIE 里看。
+// 守两件事：默认关、切换可逆；检测球组件的 tick 排在 N 体写回之后。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -62,10 +59,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraLandingDebugSphereTickTest,
 
 bool FStellarEraLandingDebugSphereTickTest::RunTest(const FString& Parameters)
 {
-	// 守的是 tick 顺序，不是绘制本身：UWorld::Tick 里
-	// FTickableGameObject::TickObjects（N 体子系统写回位置的阶段）跑在
-	// TG_PostUpdateWork 之前。这个组件若换回 TG_PrePhysics，球就会画在上一帧
-	// 的船位上 —— 7 km/s @ 25 fps 偏离约 280 m，正是「球跑到船后面去了」。
+	// 守 tick 顺序：TickObjects（N 体写回位置）跑在 TG_PostUpdateWork 之前。
+	// 换回 TG_PrePhysics 就会画在上一帧的船位上 —— 7 km/s @ 25 fps 偏约 280 m。
 	UWorld* World = UWorld::CreateWorld(EWorldType::Editor, false);
 	if (!TestNotNull(TEXT("测试世界"), World))
 	{

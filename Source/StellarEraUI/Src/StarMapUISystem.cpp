@@ -39,8 +39,8 @@ bool UStarMapUISystem::BuildBodyInfo(AActor* Body, FStarMapBodyInfo& OutInfo)
 	OutInfo.bSimulated = Orbit->bSimulated;
 	OutInfo.bExertsGravity = Orbit->bExertsGravity;
 
-	// 位置/速度按需换算：组件不再每帧回显。优先用运行期子系统的标定与求解器
-	// 速度；编辑器世界没有子系统，标定退回同一份 CDO 配置，速度退回初速。
+	// 位置/速度按需换算：优先用运行期子系统的标定与求解器速度；编辑器世界
+	// 没有子系统，标定退回 CDO 配置，速度退回初速。
 	const UCosmosSimulationSubsystem* CosmosSubsystem = nullptr;
 	double CmPerAu = 0.0;
 	if (const UWorld* World = Body->GetWorld())
@@ -226,8 +226,8 @@ void UStarMapUISystem::Draw(AStellarEraHUD& Hud, APlayerController& PlayerContro
 		return;
 	}
 
-	// 星图相机：拾取容差与矿物透视都住在它上面。HUD 只在星图视角调本函数，
-	// 所以这里按空指针兜底就够（换 Pawn 的那一帧可能还没切过去）。
+	// 拾取容差与矿物透视都住在星图相机上。换 Pawn 的那一帧它可能还没切过去，
+	// 按空指针兜底即可。
 	const AStarMapCameraPawn* Camera = Cast<AStarMapCameraPawn>(PlayerController.GetPawn());
 
 	AActor* Selected = Subsystem->GetSelectedBody();
@@ -475,7 +475,7 @@ void UStarMapUISystem::DrawMineralLegend(
 	}
 
 	// 提示行贴面板底：行数变化时提示不跟着上下跳。落点由布局命名空间给出，
-	// 与 PanelHeightPx 的高度预算同源，避免两处算式再次漂移。
+	// 与高度预算同源，避免两处算式漂移。
 	const float HintY = MineralLegendLayout::HintTextTopY(Panel);
 	Hud.DrawRect(Gold, Panel.X + MineralLegendLayout::Padding,
 		MineralLegendLayout::HintSeparatorY(Panel),

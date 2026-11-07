@@ -19,26 +19,10 @@ namespace StellarEraPlanetShadow
 
 const TCHAR* const ShadowAssetPath = TEXT("/Game/Code/Planet/Materials/M_PlanetShadowLightFunction");
 
-// ---------------------------------------------------------------------------
-// 行星本体遮挡太阳 —— 光函数（Light Function）材质。
-//
-// 为什么需要它：定向光的阴影图只覆盖相机附近（本关卡 DynamicShadowDistanceMovableLight
-// = 40000 cm = 400 m），而行星半径 20 km、挡住太阳的球体离被照点 17~20 km 远。
-// 阴影图里根本没有这块遮挡物，于是夜面的飞船会被三颗太阳直射照亮。
-// 地形看着是黑的，那是 N·L < 0 的锅，不是阴影工作正常 —— 同一个手电筒照一件
-// 有朝向的物体时，物体总有几面迎着光。
-//
-// 做法：不解算阴影，直接对「指向太阳的射线 vs 行星球体」做解析求交，
-// 结果当乘数乘到该灯的直射项上（LightFunctionCommon.ush:90-100：
-// 光函数的输出就是 GetMaterialEmissive）。
-//
-// 每盏灯各自一份 MID（方向不同），SunDirection 由 C++ 按灯的朝向填，
-// 不用材质里的 LightVector 节点 —— 那个在光函数里是「光空间」的向量
-// （LightFunctionCommon.ush:23 写明），不是世界空间指向太阳的方向。
-//
-// 坐标空间：WorldPos 是绝对世界坐标（WorldPosition 节点 WPT_Default），
-// PlanetCenter 是 MID 传进来的绝对世界坐标，两者同源，与大气材质一致。
-// ---------------------------------------------------------------------------
+// 行星本体遮挡太阳的光函数材质。定向光阴影图只覆盖相机附近（本关 400 m），而行星半径
+// 20 km、遮挡球体离被照点 17~20 km，阴影图里根本没有它，夜面飞船会被直射照亮。
+// 做法：对「指向太阳的射线 vs 行星球体」解析求交，结果当乘数乘到该灯直射项上。
+// 每盏灯一份 MID；SunDirection 由 C++ 按灯朝向填，不用光空间的 LightVector 节点。
 const TCHAR* const ShadowHLSL = TEXT(R"(
 // 改公式后必须 +1：材质 shader map id 只吃 Custom 节点的 Code 字符串，
 // 不变就不重编译（同 PlanetAtmosphereMaterialBuilder 里那条注释）。
@@ -63,8 +47,8 @@ float Edge = max(Penumbra, 1.0);
 return saturate((Perp - PlanetRadius) / Edge);
 )");
 
-// helper 带 PS 前缀：unity 构建会把同模块所有 .cpp 并进一个编译单元，
-// 匿名命名空间在合并后的 blob 里其实是同一个作用域，重名就是 C2084。
+// helper 带 PS 前缀：unity 构建把同模块 .cpp 并进一个编译单元，匿名命名空间也在同一
+// 作用域，重名就是 C2084。
 
 UMaterialExpressionScalarParameter* AddPSShadowScalar(UMaterial* Material, const TCHAR* Name,
 	float Default, int32 PosX, int32 PosY)
@@ -160,7 +144,7 @@ bool BuildPlanetShadowLightFunction(FString& OutError)
 	Custom->RebuildOutputs();
 
 	// --- 材质本体 ---
-	// 光函数域：输出（Emissive）当乘数乘到该灯的直射项上，1 = 全亮、0 = 全黑。
+	// 光函数域：输出当乘数乘到该灯的直射项上，1 = 全亮、0 = 全黑。
 	Material->MaterialDomain = MD_LightFunction;
 	Material->BlendMode = BLEND_Opaque;
 	Material->SetShadingModel(MSM_Unlit);

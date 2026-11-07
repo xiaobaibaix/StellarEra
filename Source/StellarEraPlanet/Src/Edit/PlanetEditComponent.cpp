@@ -18,15 +18,14 @@ UPlanetEditComponent::UPlanetEditComponent()
 	// 预览只在编辑模式里需要；SetEditMode 打开模式时才启用，平时不占每帧。
 	PrimaryComponentTick.bStartWithTickEnabled = false;
 
-	// 与 UPlanetSurfaceGridComponent 同理：N 体子系统先搬行星，排进 TG_PostUpdateWork
-	// 的组件读到的才是本帧最终位置，预览线框不会比星球慢一帧。
+	// 与 UPlanetSurfaceGridComponent 同理：排进 TG_PostUpdateWork，等 N 体子系统搬完行星
+	// 再读位置，预览线框不会比星球慢一帧。
 	PrimaryComponentTick.TickGroup = TG_PostUpdateWork;
 }
 
 void UPlanetEditComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	// 队列里没做完的编辑必须在这里收尾：Tick 一停就再也没人推进它们，
-	// 留着就是挖了一半的坑 + 没存档。
+	// 队列里没做完的编辑必须在这里收尾：Tick 一停就没人推进，留着是半成品 + 没存档。
 	FinishAllEdits();
 
 	// 角色被销毁时把网格收掉，否则切换 Pawn 的路径漏了退出就会留下网格。
@@ -50,8 +49,7 @@ void UPlanetEditComponent::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// BrushSizeVoxels 是 EditAnywhere：蓝图或关卡实例里可能存着区间外的旧值
-	// （例如从 1..8 的组件改成 8..128 的星图 Pawn），进游戏时按区间夹一次。
+	// BrushSizeVoxels 是 EditAnywhere：蓝图或关卡实例里可能存着区间外的旧值，进游戏时夹一次。
 	BrushSizeVoxels = PlanetEditBrush::ClampSize(
 		BrushSizeVoxels, MinBrushSizeVoxels, MaxBrushSizeVoxels);
 }
@@ -68,12 +66,10 @@ void UPlanetEditComponent::SetGridPlanet(AVoxelPlanetActor* Planet)
 		return;
 	}
 
-	// 换星前把队列做干净：队列里的编辑记着旧星的体素坐标与 Actor，
-	// 换过去之后继续推进就是拿旧坐标写新星（或写已失效的 Actor）。
+	// 换星前把队列做干净：编辑记着旧星的体素坐标与 Actor，继续推进就是拿旧坐标写新星。
 	FinishAllEdits();
 
-	// 换星时先把旧星上的网格收掉，再决定新星要不要亮。这条路径原先写在
-	// APlanetCharacter::ReevaluatePlanet 里，现在收进组件：角色调它，星图不调。
+	// 换星先收旧星网格再决定新星要不要亮；角色调它，星图不调。
 	if (bEditMode)
 	{
 		if (AVoxelPlanetActor* Previous = GridPlanet.Get())
@@ -118,16 +114,13 @@ void UPlanetEditComponent::SetEditMode(const bool bEnabled)
 		HideBrushPreview();
 
 		// Tick 马上要停，队列里没做完的编辑在这里一次做完并刷渲染。
-		// 必须在下面的 RequestSaveEdits **之前**：半成品不该被存下去。
+		// 必须在 RequestSaveEdits 之前：半成品不该被存下去。
 		FinishAllEdits();
-		// 退出编辑就清连挖：Tick 虽已停，但标志留着会让下次进编辑模式直接开挖，
-		// 也会让星图相机一直以为在连挖。真要关它会先把手头攒的渲染刷新掉。
+		// 退出编辑就清连挖：标志留着会让下次进编辑模式直接开挖，也会让星图一直以为在连挖。
 		SetContinuousDigging(false);
 
-		// 退出编辑模式才存档。整星 GetSave + 压缩实测 0.29–1.92 s（随累计编辑量
-		// 增长），原先每笔编辑都重置一个 2 秒防抖定时器，等于停手 2 秒就卡一次、
-		// 而且卡在游戏线程上。现在这笔开销只在收工时付一次，且 GetSave / 压缩
-		// 在后台线程跑（见 AVoxelPlanetActor::RequestSaveEdits）。
+		// 退出编辑模式才存档。整星 GetSave + 压缩实测 0.29–1.92 s（随编辑量增长），
+		// 收工时只付一次，且 GetSave / 压缩在后台线程跑（见 AVoxelPlanetActor::RequestSaveEdits）。
 		if (AVoxelPlanetActor* Edited = LastEditedPlanet.Get())
 		{
 			if (IsValid(Edited))
@@ -138,8 +131,7 @@ void UPlanetEditComponent::SetEditMode(const bool bEnabled)
 		LastEditedPlanet.Reset();
 	}
 
-	// 网格归属由 SetGridPlanet 决定（角色 = 脚下行星，星图 = 空）。
-	// 缓存的行星在拆卸阶段可能已经失效，先验一下。
+	// 网格归属由 SetGridPlanet 决定；缓存的行星在拆卸阶段可能已失效，先验一下。
 	if (AVoxelPlanetActor* Planet = GridPlanet.Get())
 	{
 		if (IsValid(Planet))
@@ -157,21 +149,16 @@ void UPlanetEditComponent::FlushPendingRenderUpdate()
 	const FPlanetEditVoxelBox Bounds = PendingRenderBounds;
 	PendingRenderBounds = FPlanetEditVoxelBox();
 
-	// IsValid 只说明 Actor 还活着，不说明体素世界还在：AVoxelWorld::EndPlay
-	//（VoxelWorld.cpp:480）会 DestroyWorld，而 DestroyWorldInternal 里的
-	// DeleteTickable 会把 LODManager 置空（VoxelThreadingUtilities.h:46）。
-	// PIE 拆除时行星的 EndPlay 常常先于本组件（VoxelPlanetActor.cpp:993 记过
-	// 同一个坑），此时 GetLODManager() 解引用的就是空指针 —— 必须在这里挡住，
-	// 与 FPlanetProgressiveEdit::ApplyNextChunk / RequestSaveEdits 的 IsCreated
-	// 守卫同一条判据。
+	// IsValid 只说明 Actor 还活着，不说明体素世界还在：AVoxelWorld::EndPlay 会 DestroyWorld
+	// 并置空 LODManager。PIE 拆除时行星 EndPlay 常先于本组件，此时 GetLODManager() 就是空指针，
+	// 必须在这里挡住，与 FPlanetProgressiveEdit 的 IsCreated 守卫同一判据。
 	if (!IsValid(Planet) || !Planet->IsCreated() || !PlanetEditBrush::IsValidVoxelBox(Bounds))
 	{
 		return;
 	}
 
-	// 与体素工具内部走的是同一个入口（FVoxelToolHelpers::UpdateWorld →
-	// LODManager.UpdateBounds，见 VoxelToolHelpers.cpp:74）。插件自己没有
-	// 「先攒着、稍后一起刷」的机制，所以这个并集必须由本组件自己记。
+	// 与体素工具内部同一入口（LODManager.UpdateBounds）；插件没有「攒着稍后刷」的机制，
+	// 并集必须由本组件自己记。
 	Planet->GetLODManager().UpdateBounds(FVoxelIntBox(Bounds.Min, Bounds.MaxExclusive));
 }
 
@@ -183,9 +170,8 @@ void UPlanetEditComponent::AccumulateRenderBounds(
 		return;
 	}
 
-	// 换了一颗行星：旧范围的坐标属于旧星的体素空间，不能混进来。
-	// 轮转下同一帧里可能真的换星，所以必须先把旧的刷掉再换 —— 直接清空会
-	// 把旧星还等着刷的范围丢掉，那一片的网格就永远停在旧数据上。
+	// 换了一颗行星：旧范围的坐标属于旧星体素空间，不能混。先刷掉旧的再换 —— 直接清空会
+	// 丢掉旧星还等着刷的范围，那片网格就永远停在旧数据上。
 	if (PendingRenderPlanet.Get() != Planet)
 	{
 		FlushPendingRenderUpdate();
@@ -207,8 +193,7 @@ void UPlanetEditComponent::TickProgressiveEdits()
 	const double BudgetMs = FMath::Max(static_cast<double>(ProgressiveEditBudgetMs), 0.1);
 	const double Share = FMath::Clamp(
 		static_cast<double>(ProgressiveEditHeadBudgetShare), 0.0, 1.0);
-	// 只有一笔活跃时没有可以轮转的对象，余量份额无处可去：整份预算都给队首，
-	// 否则单笔挖掘会比改前慢（旧实现独占 4 ms）。
+	// 只有一笔活跃时没有轮转对象，整份预算都给队首，否则单笔挖掘会比旧实现慢。
 	const double HeadBudgetMs =
 		EditQueue.Num() > 1 ? BudgetMs * Share : BudgetMs;
 
@@ -221,10 +206,8 @@ void UPlanetEditComponent::TickProgressiveEdits()
 	bool bAppliedChunk = false;
 
 	// --- 阶段一：队首优先 ---
-	// 预算检查放在**推进过一块之后**：份额再小，这一帧也要往前走一块，
-	// 否则队列永远推不动。收尾那块（把一笔做完的块）之后同样检查 —— 否则
-	// 轮转下多笔同时接近完成时，一帧会连环推完好几笔、突破预算。现在的性质是：
-	// 一帧最多做「收尾那一块 + 份额内装得下的部分」，不会是无界的收尾链。
+	// 预算检查放在推进过一块之后：份额再小这一帧也要走一块，否则队列永远推不动。收尾块
+	// 之后同样检查，避免多笔同时接近完成时一帧连环推完、突破预算。
 	while (EditQueue.Num() > 0)
 	{
 		const TSharedPtr<FPlanetProgressiveEdit>& Edit = EditQueue[0];
@@ -238,8 +221,7 @@ void UPlanetEditComponent::TickProgressiveEdits()
 		const bool bMoreWork = Edit->ApplyNextChunk();
 		bAppliedChunk = true;
 
-		// 只并刚写完的那一块：整笔的范围在没做完时刷，会让渲染把还没改的
-		// chunk 也重建一遍。
+		// 只并刚写完的那一块：整笔范围在没做完时刷，会重建还没改的 chunk。
 		AccumulateRenderBounds(Edit->GetPlanet().Get(), Edit->GetLastChunkBounds());
 
 		if (!bMoreWork)
@@ -293,10 +275,8 @@ void UPlanetEditComponent::TickProgressiveEdits()
 		if (!bMoreWork)
 		{
 			OnEditFinished(*Edit);
-			// 删掉后数组变短：滑进游标那一格的笔此刻就在游标原来的下标上。
-			// 下一次 GetNextFairIndex 要么越过它、要么回绕 / 夹回 1，本帧具体
-			// 轮到谁取决于这次算术。游标始终在 1..N-1 之间循环、从不取 0，逐次
-			// 扫遍这些下标，所以不会有笔永远轮不到。
+			// 删掉后数组变短：滑进游标格的笔就在游标原下标上。游标始终在 1..N-1 循环、
+			// 从不取 0，逐次扫遍这些下标，不会有笔永远轮不到。
 			EditQueue.RemoveAt(NextFairEditIndex);
 		}
 	}
@@ -310,8 +290,7 @@ void UPlanetEditComponent::TickProgressiveEdits()
 
 void UPlanetEditComponent::OnEditFinished(FPlanetProgressiveEdit& Edit)
 {
-	// 一笔都没改到的编辑（在岩石里放石头、挖空气）不该让这颗星被记成
-	// 「编辑过」—— 否则退出编辑模式时会白存一次整星。
+	// 没改到任何体素的编辑不该让这颗星被记成「编辑过」，否则退出编辑模式时白存一次整星。
 	if (!Edit.DidChangeAnything())
 	{
 		return;
@@ -341,8 +320,7 @@ void UPlanetEditComponent::FinishAllEdits()
 			continue;
 		}
 
-		// ApplyAll 内部会一直推进到完成；返回 false 表示行星已经没了，
-		// 此时 AppliedBounds 就是它实际写到的那一部分。
+		// ApplyAll 会推进到完成；返回 false 表示行星没了，AppliedBounds 是实际写到的部分。
 		Edit->ApplyAll();
 		AccumulateRenderBounds(Edit->GetPlanet().Get(), Edit->GetAppliedBounds());
 		OnEditFinished(*Edit);
@@ -371,8 +349,7 @@ void UPlanetEditComponent::TickComponent(const float DeltaTime, const ELevelTick
 		return;
 	}
 
-	// 连挖期间渲染是攒着刷的（见 ApplyBrushAtScreenPosition）：到间隔就刷一次，
-	// 否则松开鼠标之前看不到坑在变大。
+	// 连挖期间渲染攒着刷：到间隔刷一次，否则松开鼠标前看不到坑在变大。
 	PendingRenderAgeSeconds += DeltaTime;
 	if (PendingRenderAgeSeconds >= ContinuousDigRenderFlushIntervalSeconds)
 	{
@@ -415,16 +392,14 @@ void UPlanetEditComponent::AdjustBrushSizeByStep(const bool bIncrease, const boo
 
 void UPlanetEditComponent::SetContinuousDigging(const bool bEnabled)
 {
-	// 松手（以及退出编辑模式）时把连挖期间攒下的渲染一次刷掉。放在改标志之前：
-	// Flush 不依赖 bContinuousDigging，但顺序清楚些 —— 关的这一刻就是收工的那一刻。
+	// 关的这一刻把连挖期间攒的渲染一次刷掉。
 	if (bContinuousDigging && !bEnabled)
 	{
 		FlushPendingRenderUpdate();
 	}
 
 	bContinuousDigging = bEnabled;
-	// 无论开还是关都清零：开启时按下那一下已经由控制器挖过，不该立刻再挖；
-	// 关闭时清掉余量，下次开启从干净状态起算。
+	// 开或关都清零：开启时按下那一下已由控制器挖过，关闭时清掉余量。
 	ContinuousDigAccumulatorSeconds = 0.f;
 }
 
@@ -453,16 +428,14 @@ bool UPlanetEditComponent::ApplyBrushAtScreenPosition(
 		Target.HitLocation, Target.HitNormal, BrushSizeVoxels, VoxelSize, bPlace,
 		MinBrushSizeVoxels, MaxBrushSizeVoxels);
 
-	// 小笔刷（角色的全部笔刷都在这一侧）包围盒切出来只有一块，排队只是白绕。
-	// 球包围盒每轴是 ±(半径+3) 再取整：半径 = SizeVoxels/2 + 1 个体素，
-	// 于是每轴最多 SizeVoxels + 7 格，+1 留余量。
+	// 小笔刷（角色的全部笔刷都在这一侧）包围盒切出来只有一块，排队白绕。
+	// 球包围盒每轴最多 SizeVoxels + 7 格，+1 留余量。
 	const bool bFitsOneChunk = BrushSizeVoxels + 8 <= ProgressiveEditChunkSizeVoxels;
 
 	if (bFitsOneChunk)
 	{
-		// 连挖期间不让工具逐笔刷渲染：0.12 s 一笔就把同一个 chunk 重建一遍，纯浪费。
-		// 关掉 bUpdateRender，把改到的范围攒进 PendingRenderBounds，由
-		// FlushPendingRenderUpdate 按间隔或松手时一次性刷。
+		// 连挖期间不让工具逐笔刷渲染：0.12 s 一笔就把同一 chunk 重建一遍。
+		// 关掉 bUpdateRender，范围攒进 PendingRenderBounds，按间隔或松手一起刷。
 		const bool bDeferRender = bContinuousDigging;
 
 		FPlanetEditVoxelBox EditedBounds;
@@ -475,8 +448,7 @@ bool UPlanetEditComponent::ApplyBrushAtScreenPosition(
 			return false;
 		}
 
-		// 只有真的改到过体素才算「这颗星被编辑过」：在岩石里放石头、挖空气不该
-		// 让退出编辑模式时白存一次整星。
+		// 只有真的改到过体素才算编辑过，否则退出编辑模式时白存一次整星。
 		LastEditedPlanet = Target.Planet;
 
 		if (bDeferRender)
@@ -487,12 +459,9 @@ bool UPlanetEditComponent::ApplyBrushAtScreenPosition(
 		return true;
 	}
 
-	// 先试着并进已有的笔。合进来的落笔只切它自己的包围盒，块接在已做前缀之后，
-	// 下一块就轮上（FPlanetProgressiveEdit::TryMerge）；重叠的格子仍会被两边的
-	// 块各写一次，所以除了包围盒完全相同的重复点击，省下的不是扫描量，而是
-	// 队列条目：被吸收的点击不占槽位，也不会在队列满时挤掉别的笔 —— 这个循环
-	// 不能动队列。从队尾往前找，最新的一笔优先接收；所有候选都合不进去，才
-	// 往下走「新开一笔」。
+	// 先试着并进已有的笔：合进来的落笔只切自己的包围盒，块接在已做前缀之后。省下的
+	// 是队列条目而非扫描量（重叠格仍会被两边各写一次）；从队尾往前找，最新优先接收；
+	// 这个循环不能动队列。都合不进去才新开一笔。
 	for (int32 Index = EditQueue.Num() - 1; Index >= 0; --Index)
 	{
 		const TSharedPtr<FPlanetProgressiveEdit>& Edit = EditQueue[Index];
@@ -509,9 +478,8 @@ bool UPlanetEditComponent::ApplyBrushAtScreenPosition(
 		}
 	}
 
-	// 大笔刷：切成块排队，由 TickProgressiveEdits 每帧推进几块。
-	// 超过上限时丢掉下标 1 的那笔：队首正在做不能丢，而最新的一笔永远比
-	// 排在中间的最有意义。
+	// 大笔刷切成块排队，由 TickProgressiveEdits 每帧推进几块。超上限丢下标 1 的笔：
+	// 队首正在做不能丢，最新的比中间的有意义。
 	const int32 MaxQueue = FMath::Max(MaxQueuedEdits, 1);
 	if (EditQueue.Num() >= MaxQueue)
 	{
@@ -531,9 +499,8 @@ bool UPlanetEditComponent::ApplyBrushAtScreenPosition(
 
 	EditQueue.Add(MoveTemp(Edit));
 
-	// 返回值语义从「有没有改到体素」变成「有没有接受这一笔」：体素要几帧后
-	// 才写得完，此刻无从知道。控制器本来就不消费它（见 StellarEraPlayerController
-	// 里「不用它判断归属」的注释）。
+	// 返回值变成「有没有接受这一笔」：体素要几帧才写完，此刻无从知道；
+	// 控制器本来就不消费它。
 	return true;
 }
 
@@ -615,15 +582,13 @@ void UPlanetEditComponent::UpdateBrushPreview()
 		const float Radius = PlanetEditBrush::GetHalfExtentCm(
 			BrushSizeVoxels, VoxelSize, MinBrushSizeVoxels, MaxBrushSizeVoxels);
 		PreviewExtentCm = Radius;
-		// 极轴用命中点的地表法线：中间那条纬线就是贴地的赤道，相机怎么转都是个
-		// 规整的球，不会退化成两条斜穿的直线。
+		// 极轴用命中点地表法线：中间那条纬线是贴地赤道，相机怎么转都是规整的球。
 		PlanetEditBrush::BuildSpherePreviewSegments(
 			Center, Target.HitNormal, Radius, Segments);
 	}
 	else
 	{
-		// 与挖 / 放走完全相同的 MakeBox → MakeVoxelBox，预览框才与真实格子一致
-		//（区间取本组件的，星图是 8..128）。
+		// 与挖 / 放走相同的 MakeBox → MakeVoxelBox，预览框才与真实格子一致。
 		PreviewExtentCm = PlanetEditBrush::GetHalfExtentCm(
 			BrushSizeVoxels, VoxelSize, MinBrushSizeVoxels, MaxBrushSizeVoxels);
 		const FVoxelVector LocalCenter = Planet->GlobalToLocalFloat(Center);
@@ -654,9 +619,8 @@ void UPlanetEditComponent::UpdateBrushPreview()
 		? FLinearColor(0.20f, 0.90f, 0.95f)
 		: FLinearColor(1.00f, 0.80f, 0.25f);
 
-	// 线宽按**屏幕像素**恒定：FBatchedLine 的厚度是世界单位，不换算的话星图远看
-	// 整颗星球时线会细成发丝。取不到相机信息（无 camera manager / 视口宽为 0）时
-	// 退回旧的 1.5 世界厘米。
+	// 线宽按屏幕像素恒定：FBatchedLine 厚度是世界单位，不换算星图远看会细成发丝；
+	// 取不到相机信息时退回 1.5 世界厘米。
 	constexpr float FallbackThicknessCm = 1.5f;
 	float LineThicknessCm = FallbackThicknessCm;
 	FVector CameraLocation = FVector::ZeroVector;
@@ -677,24 +641,19 @@ void UPlanetEditComponent::UpdateBrushPreview()
 
 		if (PreviewDepthBiasFraction > 0.f)
 		{
-			// 至少一条线宽：比线本身还薄的偏移看不出效果（星图的线宽按屏幕像素换算，
-			// 离得越远换算出来的世界厚度越大）。
+			// 至少一条线宽：比线本身还薄的偏移看不出效果。
 			const float BiasFromExtent = PreviewExtentCm * PreviewDepthBiasFraction;
 
-			// 但最多推到预览尺寸的 10%（比例本身更大的话以它为准）。再往上就不是
-			// 「压过与地形共面的那一圈」，而是把埋在地下的那半也一起翻上来了 ——
-			// 星图缩到整颗星球时线宽换算会有上千米，没有这个上限就会越界。
+			// 最多推到预览尺寸的 10%（比例本身更大时以它为准）。再往上会把埋在地下那半
+			// 也翻上来；星图整星缩放时线宽换算可上千米，没这个上限会越界。
 			const float BiasCap = PreviewExtentCm * FMath::Max(PreviewDepthBiasFraction, 0.1f);
 			DepthBiasCm = FMath::Min(FMath::Max(BiasFromExtent, LineThicknessCm), BiasCap);
 		}
 	}
 
-	// 沿「相机 → 点」这条射线把点拉近 DepthBiasCm。
-	//
-	// 投影位置一个像素都不动（同一个视线上），变的只有深度，所以它是货真价实的
-	// 深度偏置，而不是把球挪半格。贴地的赤道纬线与地形共面，不推的话深度测试会
-	// 沿地形起伏把它切成一截一截；推过之后它稳定压在贴地那一层前面，而埋在地下
-	// 半径量级深的那半仍然过不了深度测试。
+	// 沿「相机 → 点」射线把点拉近 DepthBiasCm：投影位置不动、只有深度变近，是真正的深度
+	// 偏置而非挪位置。贴地赤道线与地形共面，不推会被切成一截截；推过后压在地形前，
+	// 埋在地下半径量级深的那半仍过不了深度测试。
 	const auto PushTowardCamera = [CameraLocation, DepthBiasCm](const FVector& Point) -> FVector
 	{
 		if (DepthBiasCm <= 0.f)
@@ -716,11 +675,8 @@ void UPlanetEditComponent::UpdateBrushPreview()
 	Lines.Reserve(Segments.Num());
 	for (const FPlanetEditSegment& Segment : Segments)
 	{
-		// LifeTime < 0：不自动过期；本组件每帧 Flush + 重画，鼠标一动线框就跟着走。
-		//
-		// 深度组用 World：埋在地下的那半段本来就该被地形挡掉。断线由上面的
-		// 视线方向深度偏置负责修 —— 换成 Foreground 能让整颗球透出来，但那是
-		// 让地下那半压在地表上，等于谎报「挖的是个完整的球」。
+		// LifeTime < 0 不自动过期；本组件每帧 Flush 重画。
+		// 深度组用 World：埋在地下那段本就该被挡；换 Foreground 会让整颗球透出来，等于谎报。
 		Lines.Emplace(PushTowardCamera(Segment.Start), PushTowardCamera(Segment.End),
 			PreviewColor, -1.f, LineThicknessCm, static_cast<uint8>(SDPG_World));
 	}

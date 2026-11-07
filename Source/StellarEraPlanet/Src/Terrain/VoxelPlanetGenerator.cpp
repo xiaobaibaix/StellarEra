@@ -16,8 +16,7 @@ TVoxelSharedRef<FVoxelGeneratorInstance> UVoxelPlanetGenerator::GetInstance()
 	UVoxelPlanetTerrainModule* EffectiveTerrain = Terrain;
 	if (!EffectiveTerrain)
 	{
-		// 没挂地形 = 光滑球。这里造一个纯球模块来代理，而不是写一条独立分支：
-		// 两条路走同一段代码，就不存在「只在缺模块时才执行、平时没人测」的逻辑。
+		// 没挂地形 = 光滑球。造纯球模块代理而非独立分支，避免只在缺模块时才走的路径。
 		if (!FallbackTerrain)
 		{
 			FallbackTerrain = NewObject<UVoxelPlanetSphereTerrain>(
@@ -107,9 +106,8 @@ void UVoxelPlanetGenerator::RefreshHydrology()
 	HydrologyCacheRadius = CacheRadius;
 	HydrologyCacheParams = Config.Params;
 
-	// HeightFn 在烘焙里被并行调用：GetRawOffset 是 const、无副作用，可以安全共享。
-	// 但**必须是 const 调用** —— 任何内部缓存（比如「上一次的噪声参数」）都会
-	// 变成数据竞争。
+	// HeightFn 在烘焙里被并行调用：GetRawOffset 是 const、无副作用；**必须** const
+	// 调用，任何内部缓存都会变成数据竞争。
 	const double StartSeconds = FPlatformTime::Seconds();
 	HydrologyCache = FPlanetHydrologyBake::Bake(
 		[EffectiveTerrain](const FVector& UnitDir)

@@ -13,13 +13,7 @@ class UInputComponent;
 class UPlanetEditComponent;
 struct FInputActionValue;
 
-/**
- * 星图里鼠标位移该拿去干什么。
- *
- * - `Orbit`：绕焦点转（相机位置跟着变），见 AStarMapCameraPawn::OrbitLook。
- * - `Aim`：只转视线朝向（相机位置不变），见 AStarMapCameraPawn::AimLook。
- * - `None`：正在编辑 / 连续挖，视角一律不动。
- */
+/** 鼠标位移的去向：`Orbit` 绕焦点转（位置跟着变），`Aim` 只转朝向，`None` 编辑 / 连挖时不动。 */
 enum class EStarMapLookMode : uint8
 {
 	None,
@@ -28,11 +22,8 @@ enum class EStarMapLookMode : uint8
 };
 
 /**
- * AStarMapCameraPawn 的全部输入：绑定、回调、只服务输入的状态。
- *
- * 与 USpaceshipInputComponent 同形：一个 Bind()、一组 On*Input，回调里直接
- * 判着走，不另抽分派层。三个 Pawn 各存一份 LookSensitivity —— 星图、飞船、
- * 角色的手感本来就可以不同。
+ * AStarMapCameraPawn 的全部输入：绑定、回调、只服务输入的状态。与 USpaceshipInputComponent
+ * 同形（一个 Bind() + 一组 On*Input）；三个 Pawn 各存一份 LookSensitivity，手感本就可以不同。
  */
 UCLASS()
 class STELLARERAPAWNS_API UStarMapCameraInputComponent : public UActorComponent
@@ -52,17 +43,8 @@ public:
 	bool bInvertLookY = false;
 
 	/**
-	 * 星图的鼠标位移该拿去哪。纯函数，OnLookInput 调它，测试直接调它。
-	 *
-	 * 星图的鼠标位移只在按住鼠标（CaptureDuringMouseDown）时才有值，所以
-	 * 「按的是哪个键」只能靠按住的标志位区分。分派规则（按优先级）：
-	 *   - 连续挖期间一律 None —— 挖掘点跟着光标走，视角一动就画歪（转头也算，
-	 *     视线一变，屏幕射线就变了）。
-	 *   - 右键 → Aim：只转头、不挪相机，任何模式都可用。
-	 *   - 中键 → Orbit：编辑 / 矿物透视下左键被借走时，绕行改由它承担。
-	 *   - 左键 → Orbit，但编辑模式（挖掘 / 填充）与矿物透视（图例）下左键已被
-	 *     借走，只能是 None。
-	 *   - 都没按 → None。
+	 * 星图鼠标位移的归属（纯函数，测试直接调）。按键只能靠标志位区分：连续挖 → None
+	 * （视角一动屏幕射线就变）；右键 → Aim；中键 → Orbit；左键 → Orbit，编辑 / 矿物透视下为 None。
 	 */
 	static EStarMapLookMode ResolveLookMode(
 		bool bRightHeld,
@@ -101,11 +83,7 @@ private:
 	/** 数字键 0：全部打开。 */
 	void OnMineralShowAll(const FInputActionValue& Value);
 
-	/**
-	 * 左键按下：按钮 → 笔刷操作 → 记录按下位置预备拾取。
-	 *
-	 * 按下与松开的位移区分「点选天体」与「拖拽转视角」，见 OnStarMapSelectCompleted。
-	 */
+	/** 左键按下：笔刷操作 → 记录按下位置。与松开的位移一起区分点选与拖拽。 */
 	void OnStarMapSelectStarted(const FInputActionValue& Value);
 
 	/** 左键松开：位移没超阈值就拾取鼠标下的天体（再点一次取消选中）。 */

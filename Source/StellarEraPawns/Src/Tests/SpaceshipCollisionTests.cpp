@@ -1,14 +1,8 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 //
-// 飞船碰撞形状的资产级验收测试。
-//
-// 断言的是「改完以后资源里真的长这样」，而不是「能编译」：
-//   1. BP_SpaceshipPawn 的 CDO 上，Hull 是根组件并开启 QueryAndPhysics；
-//   2. VoxelInvoker / SpringArm 挂在 Hull 下，Camera 挂在 SpringArm 下；
-//   3. 根球 Collision 已删除，兜底接触半径仍是 300（N 体接触半径的来源）；
-//   4. Hull 用的静态网格确实带 Simple Collision 凸包 —— 没有的话打开碰撞也不会挡任何东西。
-//
-// editor world 不跑 BeginPlay，所以这里读 CDO；运行期组件用的是同一套构造逻辑。
+// 飞船碰撞形状的资产级验收测试：断言资源里真的长这样，而不只是能编译。
+// 覆盖 Hull 根组件 + QueryAndPhysics、组件挂接、根球已删、兜底接触半径 300 cm、
+// 网格带 Simple Collision 凸包。editor world 不跑 BeginPlay，所以读 CDO。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -123,8 +117,8 @@ bool FStellarEraShipContactProbesTest::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	// 结构断言而不是数字断言：每个探针都必须落在「Hull 网格包围盒 × Hull 相对变换」
-	// 附近。网格换了形状测试照样有效，只有探针变换接错时才会红。
+	// 结构断言：每个探针都必须落在「Hull 网格包围盒 × Hull 相对变换」附近。
+	// 网格换形状测试照样有效，只有探针变换接错时才红。
 	const UStaticMeshComponent* Hull = Cast<UStaticMeshComponent>(
 		CDO->GetDefaultSubobjectByName(TEXT("Hull")));
 	TestNotNull(TEXT("船体组件 Hull"), Hull);
@@ -133,16 +127,15 @@ bool FStellarEraShipContactProbesTest::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	// 参照框必须用「Hull → Actor」的相对变换，而不是 Hull->GetRelativeTransform()：
-	// Hull 是根组件时 UE 把它的 RelativeLocation 直接存成世界坐标，那个函数返回
-	// 的是世界变换，测试框会和探针一起被平移，越界永远测不出来。
+	// 参照框必须用「Hull → Actor」的相对变换，不能用 Hull->GetRelativeTransform()：
+	// Hull 是根组件时 UE 把 RelativeLocation 直接存成世界坐标，测试框会和探针一起
+	// 被平移，越界永远测不出来。
 	const FTransform HullToActor =
 		Hull->GetComponentTransform().GetRelativeTransform(CDO->GetActorTransform());
 	const FBox ExpectedBox =
 		Hull->GetStaticMesh()->GetBoundingBox().TransformBy(HullToActor);
 
-	// 容差 100 cm：Simple Collision 常常是单独导的、比渲染网格略大（本资源顶部
-	// 超出约 27 cm），所以不能要求严格在包围盒内。
+	// 容差 100 cm：Simple Collision 常是单独导的、比渲染网格略大（这里顶部超出约 27 cm）。
 	constexpr double ToleranceCm = 100.0;
 
 	const FVector* Offender = nullptr;
@@ -161,8 +154,7 @@ bool FStellarEraShipContactProbesTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("所有探针都在 Hull 包围盒 100 cm 内"), Offender == nullptr);
 	if (Offender)
 	{
-		// 失败时把第一个越界点和参照框一起打出来 —— 光说「不在盒子里」查不出是
-		// 变换漏乘还是网格本来就有碰撞体外包。
+		// 失败时把第一个越界点与参照框一起打出来，才能分清是变换漏乘还是网格外包。
 		AddError(FString::Printf(
 			TEXT("越界探针 %s（共 %d 个，最大越界 %.2f cm，探针包围盒 %s .. %s）；"
 				 "Hull 相对变换 %s；包围盒 %s .. %s"),
@@ -172,8 +164,7 @@ bool FStellarEraShipContactProbesTest::RunTest(const FString& Parameters)
 			*ExpectedBox.Min.ToString(), *ExpectedBox.Max.ToString()));
 	}
 
-	// 船体腹部在组件原点下方：全部探针都在原点之上说明 Hull 的相对变换
-	// 没乘进去。
+	// 船体腹部在原点下方：全部探针都在原点之上说明 Hull 的相对变换没乘进去。
 	double MinZ = TNumericLimits<double>::Max();
 	for (const FVector& Probe : Probes)
 	{
@@ -213,13 +204,9 @@ bool FStellarEraShipContactProbesActorLocalTest::RunTest(const FString& Paramete
 	}
 
 	// 回归测试：探针必须是 **Actor 本地**坐标，与 Actor 摆在世界哪里无关。
-	//
-	// 曾经的 bug：Hull 从「根球的子组件」变成根组件之后，BuildContactProbes 仍用
-	// Hull->GetRelativeTransform() 当「Hull → Actor」。根组件的 RelativeLocation
-	// 在 UE 里直接存世界坐标（SetWorldLocation：「No parent, relative == world」），
-	// 于是每个探针都被加上了飞船的世界位置。飞船在原点时看不出来；一旦被
-	// GameMode 摆到 PlayerStart（2 AU 高处），探针也跟着偏 2 AU，求解器再也
-	// 检测不到接触，飞船直接掉进行星里。
+	// 曾经的 bug：Hull 成了根组件后仍用 GetRelativeTransform() 当「Hull → Actor」，
+	// 而根组件的 RelativeLocation 直接存世界坐标 —— 飞船被摆到 PlayerStart（2 AU 高）
+	// 后探针跟着偏 2 AU，求解器检测不到接触，飞船直接掉进行星里。
 	const FVector OriginalLocation = CDO->GetActorLocation();
 
 	Root->SetWorldLocation(FVector::ZeroVector);
@@ -267,13 +254,9 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraShipLandingDetectionTest,
 
 bool FStellarEraShipLandingDetectionTest::RunTest(const FString& Parameters)
 {
-	// 回归测试：飞船是**船底**着地（求解器用 Hull 凸包探针接触），机身中心因此
-	// 比地面高出一整个船体深度（本资源约 1000 cm）。落地检测球心在机身中心，
-	// 旧版半径固定 600 cm，够不到地面 —— IsLanded() 恒为假，表现是「停在地面
-	// 上还能用鼠标转飞船」（自由视角不激活），按 E 也下不了船。
-	//
-	// 这里不用真实行星（UniverseMap 里的行星会干扰），而是在独立编辑器世界里
-	// 生成飞船，再用一块 WorldStatic 平台把「地面」摆在检测球边界的两侧。
+	// 回归测试：飞船是**船底**着地，机身中心比地面高一整个船体深度（本资源约 1000 cm）。
+	// 落地检测球心在机身中心，旧版固定半径 600 cm 够不到地面 —— IsLanded() 恒为假，
+	// 按 E 也下不了船。这里不用真实行星，而是在独立编辑器世界里生成飞船 + WorldStatic 平台。
 
 	UWorld* World = UWorld::CreateWorld(EWorldType::Editor, false);
 	if (!TestNotNull(TEXT("测试世界"), World))
@@ -379,10 +362,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraShipLandingUsesRelativeSpeedTest,
 
 bool FStellarEraShipLandingUsesRelativeSpeedTest::RunTest(const FString& Parameters)
 {
-	// 回归测试：飞船是 N 体天体，停在一颗公转中的行星上时，它的**绝对**速度
-	// 就是行星的轨道速度（本关卡约 7.3 km/s = 7.3e5 cm/s）。IsLanded 的 200 cm/s
-	// 速度门若比绝对速度，落地后永远为假 —— HUD 一直显示「落地 否」，按 E 也
-	// 下不了船。判据必须是**相对参考行星**的速度。
+	// 回归测试：飞船的**绝对**速度就是行星的轨道速度（本关约 7.3 km/s = 7.3e5 cm/s）。
+	// IsLanded 的 200 cm/s 速度门若比绝对值，落地后永远为假。判据必须是**相对参考行星**的速度。
 
 	UWorld* World = UWorld::CreateWorld(EWorldType::Editor, false);
 	if (!TestNotNull(TEXT("测试世界"), World))

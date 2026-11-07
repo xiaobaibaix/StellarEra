@@ -1,19 +1,9 @@
-﻿// 密度场内外早退的回归测试。
-//
-// 背景：体素工具每碰到一个 32³ 叶子，就把整叶当生成器采样一遍
-// （FVoxelDataOctreeLeaf::InitForEdit → GetValues → 逐体素 GetValueImpl），
-// 这条路径**没有**区间预判。所以 GetValueImpl 里那两支早退（比最低可能地表
-// 还深 = 必然实体；比最高可能地表还高 = 必然空气）是挖掘耗时的主要杠杆。
-//
-// 早退改的是返回值本身，因此必须钉死两件事：
-//   1) 返回值仍落在 GetValueRangeImpl 报出的区间内 —— 否则插件会误判整块
-//      为空/为实，行星表面出洞。这是硬契约。
-//   2) 早退只可能出现在真值已经饱和到 ±1 的地方 —— 否则存下来的体素数据
-//      会与精确计算不同，洞壁位置会漂。
-//
-// 另外钉住「不许夹到 ±1」：LOD > 0 的着色法线是插件对生成器浮点值做中心
-// 差分算的，夹断会让法线退化成 26 个轴向对角方向之一（见
-// PlanetTerrainGradientNormalTests.cpp 对同一机制的说明）。
+﻿// 密度场内外早退的回归测试。体素工具每碰一个 32³ 叶子就整叶逐体素采样
+// （FVoxelDataOctreeLeaf::InitForEdit → GetValues），该路径**没有**区间预判，
+// 所以 GetValueImpl 的两支早退（低于最低可能地表 = 实体；高于最高可能地表 = 空气）
+// 是挖掘耗时的主要杠杆。早退改返回值本身，故须钉死两件事：①返回值仍落在
+// GetValueRangeImpl 的区间内，否则插件误判整块为空/为实、表面出洞；②早退只出现在
+// 真值已饱和 ±1 处。另钉「不许夹到 ±1」—— LOD>0 的着色法线靠中心差分，夹断会退化。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -34,8 +24,7 @@ bool FStellarEraTerrainEarlyOutTest::RunTest(const FString& Parameters)
 
 	FVoxelPlanetTerrainContext Context;
 	Context.Radius = Radius;
-	// 不给地质场：早退的两条边界与地质无关（几何外凸只抬高上界），去掉它
-	// 才能把断言写成确定的数。
+	// 不给地质场：早退边界与地质无关（几何外凸只抬高上界），去掉才能断言确定的数。
 	const FVoxelPlanetNoiseTerrainInstance Instance(Context, FPlanetNoiseParams());
 
 	const FVoxelItemStack& Items = FVoxelItemStack::Empty;
@@ -49,8 +38,7 @@ bool FStellarEraTerrainEarlyOutTest::RunTest(const FString& Parameters)
 	const FVector UnitDir = FVector(1.0, 2.0, 3.0).GetSafeNormal();
 	const FVector SurfacePoint = Context.Center + UnitDir * double(Radius);
 
-	// 盒内采样必须被该盒子自己的区间查询覆盖。这是 1) 的机械化检查，
-	// 也是唯一能挡住「早退值跑出区间」的护栏。
+	// 盒内采样必须被该盒子自己的区间查询覆盖 —— 唯一能挡住「早退值跑出区间」的护栏。
 	const auto CheckRangeCoverage = [&](const FVector& BoxCenter, const int32 HalfSize, const TCHAR* Label)
 	{
 		const FIntVector Center(
@@ -88,9 +76,8 @@ bool FStellarEraTerrainEarlyOutTest::RunTest(const FString& Parameters)
 			Label, Lowest, Highest, double(Range.Min), double(Range.Max)), bAllCovered);
 	};
 
-	// --- 实体早退：低于最低可能地表（Radius + Amplitude × (−1)）5 体素以下 ---
-	// 默认 Amplitude 8，最低地表在 Radius - 8，所以 -100 处必然走早退。
-	// 真值此时必然 ≤ -1，存进 FVoxelValue 就是 Full()。
+	// --- 实体早退：低于最低可能地表（Radius − Amplitude）5 体素以下 ---
+	// 默认 Amplitude 8 ⇒ 最低地表 Radius−8，−100 处必然早退且真值 ≤ −1（FVoxelValue Full()）。
 	const FVector DeepInside = SurfacePoint - UnitDir * 100.0;
 	const double InsideValue = ValueAt(DeepInside);
 	TestTrue(FString::Printf(TEXT("深处必须是实体（实测 %.3f）"), InsideValue), InsideValue < 0.0);
@@ -107,15 +94,13 @@ bool FStellarEraTerrainEarlyOutTest::RunTest(const FString& Parameters)
 	CheckRangeCoverage(DeepOutside, 16, TEXT("高空盒子"));
 
 	// --- 夹断回归：早退**不许**把远处密度夹成 ±1 ---
-	// LOD 8 的中心差分采样间距是 256 体素。地表外 256 体素处的密度约
-	// (256 - 8) / 5 ≈ 50；若被夹成 1，粗 LOD 法线就会退化。
+	// LOD 8 中心差分间距 256 体素，地表外 256 处密度约 (256−8)/5 ≈ 50；夹成 1 法线就退化。
 	const double FarAbove = ValueAt(SurfacePoint + UnitDir * 256.0);
 	TestTrue(FString::Printf(TEXT("高空 256 体素处的密度不能被夹断（实测 %.2f，期望 > 10）"), FarAbove),
 		FarAbove > 10.0);
 
 	// --- 穿越地表带：符号翻转只能出现一次 ---
-	// 带内走精确路径、带外走早退。若早退把符号弄反，这里会看到「变空之后又
-	// 变回实体」。这正是洞壁位置漂移的形态。
+	// 带内精确、带外早退；早退把符号弄反会看到「变空后又变回实体」＝洞壁漂移。
 	bool bSeenEmpty = false;
 	bool bFlipIsUnique = true;
 	for (int32 Step = -40; Step <= 40; ++Step)
@@ -132,9 +117,7 @@ bool FStellarEraTerrainEarlyOutTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("从实体穿到空气之后不能再变回实体（早退符号一致性）"), bFlipIsUnique);
 
 	// --- 早退带必须真的窄 ---
-	// 只有 [Radius - Amplitude - 2 × DensityScale, Radius + Amplitude + 2 × DensityScale]
-	// 这条带需要算噪声与地质场，其余全部早退。
-	// 默认 Amplitude 8、无地质 → 带底 = Radius - 8，带顶 = Radius + 8。
+	// 只有 [Radius ± (Amplitude + 2×DensityScale)] 这条带要算噪声与地质，其余全早退。
 	const FPlanetNoiseParams Defaults;
 	const double BandBottom = double(Radius) - double(Defaults.Amplitude);
 	const double BandTop = double(Radius) + double(Defaults.Amplitude);

@@ -1,7 +1,5 @@
-﻿// 水文烘焙的回归测试。
-//
-// 用两条解析地形（碗 + 谷），断言填洼水位、湖泊特征、河流存在性与跨面连续性。
-// 地形刻意不用噪声：噪声的分布是数据性质，不是契约，写成断言会随 seed 漂。
+﻿// 水文烘焙回归测试：解析地形（碗 + 谷）断言填洼水位、湖泊特征、河流与跨面连续性。
+// 刻意不用噪声：噪声分布是数据性质不是契约，写成断言会随 seed 漂。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -29,14 +27,8 @@ namespace
 		return Params;
 	}
 
-	/**
-	 * 碗：角半径 0.3 的二次凹坑，碗缘 −0.05（高于海面 −0.3），碗外一律 −0.5（全是海）。
-	 * 于是碗里必然蓄成一片湖，水位 ≈ 碗缘，且不与海连通。
-	 *
-	 * **盆底必须高于海面**（碗心 −0.22 ⇒ 高出海面 0.64 体素）：烘焙的判据是「地形低于
-	 * 海面就是海」，盆底一旦低于海面，这片洼地里的水会被当成海而不是湖。旧夹具的碗心
-	 * 是 −0.5，恰好是「死海」那种水体 —— 它现在归海，见 BelowSeaBowlHeight 的回归测试。
-	 */
+	/** 碗：角半径 0.3，碗缘 −0.05 高于海面 −0.3，碗外 −0.5 全是海 ⇒ 碗里蓄一片湖。
+	 *  盆底必须高于海面（碗心 −0.22）：判据是「地形低于海面就是海」，否则这片洼地归海。 */
 	float BowlHeight(const FVector& Dir)
 	{
 		const float Angle = FMath::Acos(FMath::Clamp(float(Dir.Z), -1.f, 1.f));
@@ -49,13 +41,8 @@ namespace
 		return -0.22f + 0.17f * T * T;
 	}
 
-	/**
-	 * 死海式洼地：碗缘 −0.05 高于海面 −0.3，碗心 −0.5 低于海面。
-	 *
-	 * 它是「01-planet-water」最早想保留成湖的形状。实测量产地形后改判成海（见
-	 * FStellarEraHydrologyBelowSeaBasinTest）：这类洼地占真实行星湖面格子的 90%，
-	 * 湖面只比海面高零点几体素，分隔它们的「碗缘」是噪声级的坎。
-	 */
+	/** 死海式洼地：碗心 −0.5 低于海面 −0.3。量产地形里这类洼地占湖面格子的 90%、
+	 *  「碗缘」只是噪声级的坎，故判为海（见 FStellarEraHydrologyBelowSeaBasinTest）。 */
 	float BelowSeaBowlHeight(const FVector& Dir)
 	{
 		const float Angle = FMath::Acos(FMath::Clamp(float(Dir.Z), -1.f, 1.f));
@@ -68,11 +55,8 @@ namespace
 		return -0.5f + 0.45f * T * T;
 	}
 
-	/**
-	 * 谷：从 +Z（−0.8，海）向 −Z（+0.5，高山）一路升高的斜坡，再叠一个「离 lon = 0
-	 * 越远越高」的横向项。横向项让水从两侧**汇聚**到 lon = 0 的谷底 —— 没有它，
-	 * 斜坡上的水只会各自沿经线直下，汇流量永远停在 1，长不出河。
-	 */
+	/** 谷：从 +Z（−0.8，海）向 −Z（+0.5）升高，叠加「离 lon = 0 越远越高」的横向项。
+	 *  横向项让水从两侧汇聚到谷底 —— 没有它水流沿经线直下、汇流量恒为 1，长不出河。 */
 	float ValleyHeight(const FVector& Dir)
 	{
 		const double SafeZ = FMath::Clamp(double(Dir.Z), -1.0, 1.0);
@@ -122,10 +106,8 @@ bool FStellarEraHydrologyLakeTest::RunTest(const FString& Parameters)
 	}
 
 	// --- 湖面必须取块内**最小**水位，而不是最大 ---
-	//
-	// 这是「湖面不得高于溢出高度」的唯一防线（设计 §9.1）。旧断言用 0.6 体素容差，
-	// 大于 ε 阶梯在本夹具里造成的 min/max 差，把 Min 改成 Max 也照样绿。这里独立
-	// 算一遍每个湖格的水位（判据与烘焙逐字相同），直接钉住「basin == 块内最小值」。
+	// 这是「湖面不得高于溢出高度」的唯一防线（设计 §9.1）。旧断言 0.6 体素容差大于
+	// ε 阶梯造成的 min/max 差，Min→Max 也照样绿；这里按与烘焙相同的判据独立复算。
 	const int32 LakeResolution = Params.Resolution;
 	const int32 LakeCellCount = PlanetHydrologyGrid::CellCount(LakeResolution);
 	const TArray<float>& WaterGrid = Field->GetWaterLevelGrid();
@@ -184,12 +166,8 @@ bool FStellarEraHydrologyLakeTest::RunTest(const FString& Parameters)
 }
 
 /**
- * 回归：盆底低于海面的洼地归海，不是湖。
- *
- * 这是「行星表面出现大片亮蓝补丁」的根因守卫。旧规则只把低于海面区域里最大的连通块
- * 当海，其余闭塞盆地被填到溢出高度当成湖 —— 在 DA_Terrain_Earth 上量到 1131 片湖，
- * 其中 90% 的湖格盆底低于海面、湖面只比海面高零点几体素。这里用最小的夹具把判据钉住：
- * 死海式洼地里一滴湖都不许剩，水面必须正好是海面。
+ * 回归：盆底低于海面的洼地归海，不是湖 —— 「大片亮蓝补丁」的根因守卫。
+ * 旧规则把闭塞盆地填成湖（DA_Terrain_Earth 上 1131 片，90% 盆底低于海面）。
  */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraHydrologyBelowSeaBasinTest,
 	"StellarEra.Planet.Hydrology.BelowSeaBasinIsOcean",
@@ -214,8 +192,7 @@ bool FStellarEraHydrologyBelowSeaBasinTest::RunTest(const FString& Parameters)
 		CenterWater, SeaLevelRadius),
 		FMath::Abs(CenterWater - SeaLevelRadius) < 0.5f);
 
-	// 夹具有效性：碗底确实低于海面。否则「归海」这条测试可能在碗底本来就没水的情况下
-	// 空转通过 —— 那不是判据生效，是夹具没构造出死海。
+	// 夹具有效性：碗底必须真的低于海面，否则「归海」在本来没水时空转通过。
 	const double CenterTerrain =
 		TestRadius + double(Params.Amplitude) * double(BelowSeaBowlHeight(BowlCenter));
 	TestTrue(FString::Printf(TEXT("夹具有效性：碗底 %.2f 必须低于海面 %.2f"),
@@ -273,7 +250,6 @@ bool FStellarEraHydrologyRiverTest::RunTest(const FString& Parameters)
 		LongestPoints >= 8);
 
 	// --- 下切：谷底 lon = 0、极角 1.8 rad 的中段必须有河道 ---
-	// 方向 = (sin θ, 0, cos θ)，即 lon = 0、离 +Z 极 1.8 rad。
 	const FPlanetHydrologyField::FSample Sample =
 		Field->Sample(FVector(FMath::Sin(1.8), 0.0, FMath::Cos(1.8)));
 	TestTrue(FString::Printf(TEXT("谷底必须有下切（实测 %.3f 体素）"), Sample.CarveDepth),
@@ -285,12 +261,9 @@ bool FStellarEraHydrologyRiverTest::RunTest(const FString& Parameters)
 		Sample.RiverStrength > 0.f && Sample.RiverStrength <= 1.f);
 
 	// --- 下切的**幅度**：把公式钉死，而不是只钉「有下切」 ---
-	//
-	// 旧断言 `CarveDepth > 0.5` 是公式下界（1.0）就满足的，常量实现照样能过。
-	// 河宽是汇流量的公开代理：WidthVoxels = clamp(√(Accum / MinRiverFlow) × RiverWidthScale, 1, 8)，
-	// 本测试用默认的 RiverWidthScale = 1。取一个没被夹住的河宽就能反算出该格的汇流量，
-	// 进而算出**应有**的下切深度，再与场里采样到的值对齐 —— 常量 1.0 与常量 4.0 都会露馅。
-	// 采样点就是格心方向，双线性权重为 0，所以这里比的是精确值。
+	// 旧断言 `CarveDepth > 0.5` 是公式下界就满足的，常量实现照样过。河宽是汇流量的代理
+	// （WidthVoxels = clamp(√(Accum/MinRiverFlow) × RiverWidthScale, 1, 8)，此处 Scale=1），
+	// 用未被夹住的河宽反算应有下切再与采样值精确比对（采样点为格心，双线性权重为 0）。
 	const auto ExpectedCarve = [&](float WidthVoxels)
 	{
 		return FMath::Clamp(1.f + 2.f * WidthVoxels, 1.f, Field->GetMaxCarveDepth());
@@ -318,9 +291,8 @@ bool FStellarEraHydrologyRiverTest::RunTest(const FString& Parameters)
 		WorstCarveError), WorstCarveError < 0.01);
 
 	// --- 河网最终汇入海（或湖） ---
-	//
-	// 折线终点必须是「最后一道河格」：再往前一步就是水面。沿终点切向扫一圈，
-	// 只要有一个方向的水位贴着海面、或高于该方向的地形（湖面），就说明河确实到了水里。
+	// 折线终点必须是最后一道河格：沿终点切向扫一圈，只要有一方向贴海面或高于地形
+	// （湖面），就说明河确实到了水里。
 	const double CellAngle = (PI * 0.5) / double(Params.Resolution);
 	const auto HasWaterAround = [&](const FVector& Dir)
 	{
@@ -358,11 +330,9 @@ bool FStellarEraHydrologyRiverTest::RunTest(const FString& Parameters)
 		NumEndsInWater, Rivers.Num()), NumEndsInWater > 0);
 
 	// --- 折线末点必须落在接收水体的水位上（不能悬空） ---
-	//
-	// 旧实现给末点取的是最后一个河格自身的水位；它比汇入的湖面/海面高 1–3 体素，
-	// 河带末端因此悬空（规格 §6.1）。这里按烘焙的同一套规则重建 D8 流向（严格更低
-	// 水位、按格距归一化坡度、平地取下标最小者），要求末点水位与流向目标格的水位
-	// 完全一致 —— 把末点改回「末格自身水位」时这里必然变红。
+	// 旧实现取末格自身水位，比湖面/海面高 1–3 体素而悬空（规格 §6.1）。这里按烘焙同一
+	// 套规则重建 D8 流向（严格更低水位、按格距归一化坡度、平地取下标最小者），要求末点
+	// 水位与流向目标格完全一致 —— 改回「末格自身水位」时必然变红。
 	const int32 FlowResolution = Field->GetResolution();
 	const TArray<float>& FlowWater = Field->GetWaterLevelGrid();
 	struct FScanStep { int32 DX; int32 DY; double Distance; };
@@ -439,15 +409,14 @@ bool FStellarEraHydrologyRiverTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("必须至少有一条河有可判定的接收格"), EndpointsChecked > 0);
 	TestTrue(FString::Printf(TEXT("末点水位必须等于接收水体水位（最大误差 %.6f）"), WorstEndError),
 		WorstEndError < 1e-3);
-	// 若接收落差本来就接近 0，上面那条断言就是空转 —— 先钉住「落差可分辨」。
-	// 阈值取 0.02 体素（2ε）：实测最大落差 0.053，而旧实现会把这段落差原样
-	// 变成末点误差（0.053 >> 1e-3），这条断言因此不是空转。
+	// 若接收落差接近 0，上面那条断言就是空转，故先钉住「落差可分辨」。阈值 0.02 体素
+	// （2ε）：实测最大落差 0.053，旧实现会把它原样变成末点误差（0.053 >> 1e-3）。
 	TestTrue(FString::Printf(TEXT("入水落差必须可分辨（否则断言无意义；实测最大 %.3f 体素）"),
 		MaxDropToReceiver), MaxDropToReceiver > 0.02);
 
 	// --- 跨面连续：水面在 cubemap 接缝两侧不得跳变 ---
-	// 地形是光滑解析函数，一格的角距约 (π/2)/128 ≈ 0.012 rad，坡度最多 3 体素/rad，
-	// 所以两侧的水位差应当在 0.1 体素以内。超过 2 体素就说明接缝映射错了。
+	// 光滑解析地形下格距约 0.012 rad、坡度最多 3 体素/rad，水位差应 < 0.1 体素；
+	// 超过 2 体素就说明接缝映射错了。
 	double MaxSeamJump = 0.0;
 	for (int32 Face = 0; Face < PlanetBiomeCubemap::NumFaces; ++Face)
 	{

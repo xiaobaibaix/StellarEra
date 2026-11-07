@@ -5,9 +5,8 @@
 void PlanetProgressiveKernel::GetSphereThresholds(
 	const float Radius, float& OutSquaredRadiusPlus2, float& OutSquaredRadiusMinus2)
 {
-	// 与 SphereEdit 开头那两行同式，顺序也别改：FMath::Max(R - 2, 0) 先把
-	// 小于 2 的半径夹到 0，否则小笔刷会得到一个「负数的平方」，把内圈
-	// 判断翻成恒不成立。
+	// 与 SphereEdit 开头两行同式，顺序别改：先 FMath::Max(R-2,0) 夹，否则小笔刷
+	// 会得到负数的平方，内圈判断恒不成立。
 	OutSquaredRadiusPlus2 = FMath::Square(Radius + 2);
 	OutSquaredRadiusMinus2 = FMath::Square(FMath::Max(Radius - 2, 0.f));
 }
@@ -31,8 +30,7 @@ FVoxelValue PlanetProgressiveKernel::EvaluateSphereValue(
 	}
 
 	const float Distance = FMath::Sqrt(SquaredDistance);
-	// 与插件同一个表达式：clamp 到 ±2 再除 2，落到 [-1, 1]；
-	// 填取反（越靠内越「实」）。
+	// 与插件同式：clamp 到 ±2 再除 2 落到 [-1,1]；填取反（越靠内越实）。
 	const FVoxelValue NewValue{
 		FMath::Clamp(Radius - Distance, -2.f, 2.f) / 2 * (bPlace ? -1.f : 1.f) };
 
@@ -54,9 +52,8 @@ FVoxelValue PlanetProgressiveKernel::EvaluateBoxValue(
 
 	if (bOnShell)
 	{
-		// 原式：`(bAdd && Value.IsEmpty()) || (!bAdd && !Value.IsEmpty())`。
-		// 只有「空实翻转」的那一面才置 0，另一面保持原值 —— 这是插件给方块
-		// 边缘留的表面层，照抄即可，不要自己加判定。
+		// 原式：(bAdd && IsEmpty) || (!bAdd && !IsEmpty)。只有空实翻转的那面置 0，
+		// 另一面保持原值 —— 这是插件给方块边缘留的表面层，照抄即可。
 		if ((bPlace && CurrentValue.IsEmpty()) || (!bPlace && !CurrentValue.IsEmpty()))
 		{
 			return FVoxelValue(0.f);
@@ -97,10 +94,8 @@ FVoxelValue PlanetProgressiveKernel::EvaluateOps(
 		}
 		else
 		{
-			// 方块 op 只评估自己包围盒内的格子。合并后新块会落在旧 op 的盒外，
-			// 而 EvaluateBoxValue 没有盒内判定：盒外的格子会被当成「内部」写成
-			// Full/Empty，恰好落在某个贴边平面延伸面上的还会按「外壳」写 0。
-			// 插件原实现只在 Bounds 内迭代，盒外格子在它的语义里根本不该被碰。
+			// 方块 op 只评估自己包围盒内的格子：合并后新块落在旧 op 盒外，而 EvaluateBoxValue
+			// 没有盒内判定，盒外格会被当成内部写 Full/Empty。
 			const FPlanetEditVoxelBox& Bounds = Op.Bounds;
 			if (X < Bounds.Min.X || X >= Bounds.MaxExclusive.X
 				|| Y < Bounds.Min.Y || Y >= Bounds.MaxExclusive.Y

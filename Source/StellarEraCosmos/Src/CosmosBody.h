@@ -16,17 +16,10 @@ class UCosmosBody : public UInterface
 };
 
 /**
- * 受控天体（目前只有飞船）对模拟层暴露的接口。
- *
- * 为什么需要它：`UCosmosSimulationSubsystem` 与 `UCosmosTrajectoryComponent` 各有
- * 几处 `Cast<ASpaceshipPawn>`，把 Cosmos 钉死在 Pawns 上。那笔依赖反过来挡住了
- * 星图相机搬家（相机要 Cosmos，Pawns 里一放就成环）。接口抽出来后 Cosmos 只认
- * 本接口，Pawns 反而可以放心依赖 Cosmos。
- *
- * 声明在 Cosmos（消费方）、实现在 Pawns（`ASpaceshipPawn`）——依赖方向与
- * `IStellarEraNoticeSink`（UI 声明、Pawns 使用）相反，因为这次消费方在低层。
- *
- * 全部方法与 `ASpaceshipPawn` 的现有公开方法逐字对应，实现方只需加 `override`。
+ * 受控天体（目前只有飞船）对模拟层暴露的接口。抽出来是因为 Cosmos 若直接
+ * Cast<ASpaceshipPawn> 就被钉死在 Pawns 上，反过来挡住星图相机搬家（成环）。
+ * 声明在 Cosmos（消费方）、实现在 Pawns（ASpaceshipPawn），依赖方向与
+ * IStellarEraNoticeSink 相反 —— 这次消费方在低层。
  */
 class STELLARERACOSMOS_API ICosmosBody
 {
@@ -49,11 +42,7 @@ public:
 	/** 子系统每帧推进来的参考行星速度（世界空间，厘米/秒）。 */
 	virtual void SetReferencePlanetVelocity(const FVector& InVelocity) = 0;
 
-	/**
-	 * 玩家输入产生的推力加速度（世界空间，厘米/秒²）。
-	 *
-	 * 带 DeltaSeconds：飞船的制动要按「本帧满推力能改变多少速度」收敛。
-	 */
+	/** 玩家输入产生的推力加速度（世界空间，厘米/秒²）；带 DeltaSeconds 是为了制动按帧长收敛。 */
 	virtual FVector GetThrustAccelerationWorldCmPerS2(float DeltaSeconds) const = 0;
 
 	/** 阻尼时间常数（秒）；<= 0 表示不加阻尼。 */

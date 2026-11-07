@@ -59,8 +59,7 @@ EStarMapLookMode UStarMapCameraInputComponent::ResolveLookMode(
 	const bool bContinuousDigging,
 	const bool bActiveMineralView)
 {
-	// 连续挖期间一个键都不放行：挖掘点跟着光标走，视角一动路径就画歪了。
-	// 转头也算 —— 视线一变，屏幕射线跟着变，挖掘点一样会漂。
+	// 连续挖期间一个键都不放行：视角一动，屏幕射线跟着变，挖掘点就漂（转头也算）。
 	if (bContinuousDigging)
 	{
 		return EStarMapLookMode::None;
@@ -78,8 +77,7 @@ EStarMapLookMode UStarMapCameraInputComponent::ResolveLookMode(
 		return EStarMapLookMode::Orbit;
 	}
 
-	// 左键在编辑模式（挖掘 / 填充）与矿物透视（图例点击）里已经被借走，
-	// 这两种状态下按下左键必须什么都不做。
+	// 左键在编辑模式与矿物透视（图例点击）里已被借走，这两种状态下什么都不做。
 	if (bLeftHeld && !bEditMode && !bActiveMineralView)
 	{
 		return EStarMapLookMode::Orbit;
@@ -90,9 +88,8 @@ EStarMapLookMode UStarMapCameraInputComponent::ResolveLookMode(
 
 void UStarMapCameraInputComponent::Bind(UInputComponent* PlayerInputComponent)
 {
-	// 每次 Possess 都会重绑。按着鼠标切进 / 切出星图时，松开事件会送到别的 Pawn
-	// 身上，标志就永远停在 true —— 一进星图没按键也在转视角。在这里清一次。
-	// 放在早退之前：绑失败时输入本来就全哑，但标志不该留着上一轮的旧值。
+	// 每次 Possess 都会重绑：按着鼠标切 Pawn 时松开事件送到别处，标志会永远停在 true，
+	// 一进星图没按键也在转视角；放在早退之前清一次。
 	bLookHeld = false;
 	bMiddleHeld = false;
 	bSelectHeld = false;
@@ -111,8 +108,7 @@ void UStarMapCameraInputComponent::Bind(UInputComponent* PlayerInputComponent)
 		return;
 	}
 
-	// 只取星图相机自己那张表：别的 Pawn 的动作不归这里管，也就不可能绑错。
-	// 左键选择 / M 也在这张表里 —— 同样的按键在角色与飞船上各有一条，语义不同。
+	// 只取星图相机自己那张表：别的 Pawn 的动作不归这里管。左键选择 / M 也在这张表里。
 	const FStarMapCameraInputActions& Input = Source->GetStarMapCameraInputActions();
 
 	EnhancedInput->BindAction(Input.Look, ETriggerEvent::Triggered, this, &UStarMapCameraInputComponent::OnLookInput);
@@ -124,8 +120,7 @@ void UStarMapCameraInputComponent::Bind(UInputComponent* PlayerInputComponent)
 	// 只绑 Triggered：滚轮每格是一次独立冲量，不滚就不产生值，没有 Completed 可收。
 	EnhancedInput->BindAction(Input.Zoom, ETriggerEvent::Triggered, this, &UStarMapCameraInputComponent::OnZoomInput);
 
-	// 编辑模式是「这个 Pawn 自己的组件」，所以 G 与笔刷尺寸跟着相机走。
-	// 只绑 Started：Axis1D 的 Triggered 在按住时每帧触发一次，笔刷会瞬间冲到上限。
+	// 只绑 Started：Axis1D 的 Triggered 按住时每帧触发，笔刷会瞬间冲到上限。
 	EnhancedInput->BindAction(Input.EditModeToggle, ETriggerEvent::Started, this, &UStarMapCameraInputComponent::OnEditModeToggle);
 	EnhancedInput->BindAction(Input.BrushSize, ETriggerEvent::Started, this, &UStarMapCameraInputComponent::OnBrushSize);
 
@@ -140,8 +135,7 @@ void UStarMapCameraInputComponent::Bind(UInputComponent* PlayerInputComponent)
 	EnhancedInput->BindAction(Input.MineralShowAll, ETriggerEvent::Started,
 		this, &UStarMapCameraInputComponent::OnMineralShowAll);
 
-	// 左键选择与 M 都在相机自己那张表里。M 必须也绑在这里，否则进了星图之后
-	// 就没有「按 M 退出」的入口（此刻 Possess 的是本相机）。
+	// M 必须绑在这里，否则进了星图就没有「按 M 退出」的入口（此刻 Possess 的是本相机）。
 	EnhancedInput->BindAction(Input.StarMapSelect, ETriggerEvent::Started,
 		this, &UStarMapCameraInputComponent::OnStarMapSelectStarted);
 	EnhancedInput->BindAction(Input.StarMapSelect, ETriggerEvent::Completed,
@@ -189,8 +183,7 @@ void UStarMapCameraInputComponent::OnLookInput(const FInputActionValue& Value)
 
 void UStarMapCameraInputComponent::OnLookActivateStarted(const FInputActionValue& Value)
 {
-	// 「按住右键 = 转头」。角色的右键（视角开关 + 编辑点放）由
-	// UPlanetCharacterInputComponent 自己绑同一个动作、自己处理。
+	// 「按住右键 = 转头」。角色的右键由 UPlanetCharacterInputComponent 自己绑同一个动作。
 	bLookHeld = true;
 }
 
@@ -222,8 +215,7 @@ void UStarMapCameraInputComponent::OnEditModeToggle(const FInputActionValue& Val
 {
 	AStarMapCameraPawn* Pawn = GetPawn();
 
-	// 矿物透视下左键归图例：编辑模式会抢左键并改写体素，所以直接忽略切换，
-	// 保持进入观察时强制退出的状态。
+	// 矿物透视下左键归图例：编辑模式会抢左键并改写体素，所以直接忽略切换。
 	if (!Pawn || Pawn->IsMineralViewActive())
 	{
 		return;
@@ -300,8 +292,7 @@ void UStarMapCameraInputComponent::OnStarMapSelectStarted(const FInputActionValu
 		return;
 	}
 
-	// 编辑模式：按钮优先，其次一次笔刷操作。按钮命中不能顺带挖到脚下的地形。
-	// 矿物透视激活期间左键归图例：短路编辑分支，否则左键会挖 / 填体素。
+	// 编辑模式：按钮优先，其次一次笔刷操作（按钮命中不能顺带挖到脚下）。矿物透视期间左键归图例。
 	UPlanetEditComponent* Edit = Pawn->IsMineralViewActive() ? nullptr : GetEditComponentInEditMode();
 	if (Edit)
 	{
@@ -314,8 +305,7 @@ void UStarMapCameraInputComponent::OnStarMapSelectStarted(const FInputActionValu
 		}
 		const FVector2D MousePosition(MouseX, MouseY);
 
-		// AHUD::Canvas 只在 PostRender 期间有效，而输入回调跑在 tick 里 —— 问
-		// HUD 要视口尺寸永远拿到 (0,0)，按钮命中会全部落空。所以从控制器自己查。
+		// AHUD::Canvas 只在 PostRender 期间有效，输入回调里问 HUD 要视口尺寸永远是 (0,0)；从控制器查。
 		int32 ViewportSizeX = 0;
 		int32 ViewportSizeY = 0;
 		PC->GetViewportSize(ViewportSizeX, ViewportSizeY);
@@ -332,13 +322,12 @@ void UStarMapCameraInputComponent::OnStarMapSelectStarted(const FInputActionValu
 			return;
 		}
 
-		// 这次点击归不归编辑，由「射线打没打到行星」回答。不能用 DigAtScreenPosition
-		// 的返回值判断：打到了行星但没改到任何体素（比如往空气里挖）也会返回 false。
+		// 这次点击归不归编辑，看「射线打没打到行星」；不能看 DigAtScreenPosition 返回值
+		// （打到行星但没改到体素，如往空气里挖，也返回 false）。
 		FPlanetEditTarget Target;
 		if (Edit->TryResolveTarget(MousePosition, Target))
 		{
-			// Shift+左键按住 = 连续挖（移动光标沿路径挖）；Ctrl+左键 = 填一次；
-			// 左键 = 挖一次。
+			// Shift+左键按住 = 连续挖（沿路径挖）；Ctrl+左键 = 填一次；左键 = 挖一次。
 			const bool bShift =
 				PC->IsInputKeyDown(EKeys::LeftShift) || PC->IsInputKeyDown(EKeys::RightShift);
 			const bool bCtrl =
@@ -361,10 +350,8 @@ void UStarMapCameraInputComponent::OnStarMapSelectStarted(const FInputActionValu
 			return;
 		}
 
-		// 编辑模式下左键只归挖掘 / 填充：连「按下的位置」都不记。否则点在行星
-		// 轮廓边上一圈（射线没打到地表，但落在拾取的像素半径内）时，松开那一下
-		// 会把当前聚焦的天体取消选中 —— 挖着挖着焦点就没了。想换选中就退出
-		// 编辑模式（G）。
+		// 编辑模式下**连按下位置都不记**：否则点在行星轮廓边缘（射线没打到地表但
+		// 在拾取半径内），松开那一下会取消选中，挖着挖着焦点就没了。换选中请按 G 退出。
 		return;
 	}
 
@@ -401,9 +388,7 @@ void UStarMapCameraInputComponent::OnStarMapSelectStarted(const FInputActionValu
 		return;
 	}
 
-	// 用 double 重载，是为了后面直接喂给 FVector2D（UE5 里是双精度）时少一次转换。
-	// **但精度上并不占便宜**：引擎那个重载内部就是 `float X, Y; GetMousePosition(X, Y);`
-	// —— 先过 float 再展宽，两个重载拿到的是同一个值。
+	// 用 double 重载只为少一次转换；引擎内部是 `float X, Y` 再展宽，精度上并不占便宜。
 	double MouseX = 0.0;
 	double MouseY = 0.0;
 	if (APlayerController* PC = GetPlayerController(); PC && PC->GetMousePosition(MouseX, MouseY))
@@ -415,17 +400,13 @@ void UStarMapCameraInputComponent::OnStarMapSelectStarted(const FInputActionValu
 
 void UStarMapCameraInputComponent::OnStarMapSelectCompleted(const FInputActionValue& Value)
 {
-	// 连续挖必须在所有早退之前关掉：按下时命中了行星走的是「消费点击」分支，
-	// bSelectHeld 没被置位，下面的早退会把它跳过。
-	// 按当前 Pawn 查组件不会漏：现有的每条退出路径（M、G、H、登船）都经过
-	// SetEditMode(false)，它会顺手清掉连挖标志（见 UPlanetEditComponent::SetEditMode）。
+	// 连续挖必须在所有早退之前关掉：按下时命中行星走「消费点击」分支，bSelectHeld 没置位，
+	// 下面早退会跳过它。按当前 Pawn 查组件不会漏 —— 每条退出路径都经 SetEditMode(false) 顺手清掉。
 	if (UPlanetEditComponent* Edit = GetEditComponentInEditMode())
 	{
 		Edit->SetContinuousDigging(false);
 
-		// 编辑模式下按下时不会记位置，这里也不拾取：挖矿期间左键只挖，焦点不该
-		// 被点没。顺手清掉可能残留的标志 —— 进编辑模式前就按着的左键，松开时
-		// 不该补一次选中切换。
+		// 编辑模式下按下时没记位置，这里也不拾取（挖矿期间左键只挖）；顺手清掉残留标志。
 		bSelectHeld = false;
 		return;
 	}
@@ -464,8 +445,7 @@ void UStarMapCameraInputComponent::OnStarMapSelectCompleted(const FInputActionVa
 		return;
 	}
 
-	// 点空白什么都不做（spec §5.2：取消选中会让相机停止跟随、丢失目标，
-	// 绑在误点很容易触发的动作上不划算）。要取消就明确地点回它自己。
+	// 点空白什么都不做：取消选中会让相机停止跟随、丢失目标；要取消就明确地点回它自己。
 	AActor* Picked = StarMapPicking::PickBodyUnderScreenPosition(
 		GetWorld(), PC, FVector2D(MouseX, MouseY), Pawn->GetSelectionPixelRadius());
 	if (!Picked)
@@ -486,8 +466,7 @@ void UStarMapCameraInputComponent::OnStarMapSelectCompleted(const FInputActionVa
 
 void UStarMapCameraInputComponent::OnStarMapToggle(const FInputActionValue& Value)
 {
-	// 退图完全不问控制器：相机自己记着是哪个 Pawn 把它叫出来的，退回去 Possess
-	// 谁、混合多久、相机搬回哪里，全是它自己的事。
+	// 退图不问控制器：相机自己记着是谁把它叫出来的，Possess 谁、混合多久都是它的事。
 	if (AStarMapCameraPawn* Pawn = GetPawn())
 	{
 		Pawn->ExitStarMap();

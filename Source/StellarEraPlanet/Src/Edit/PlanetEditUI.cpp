@@ -4,8 +4,7 @@
 
 namespace
 {
-	// 参数用 double：FVector2D 的分量在 UE5 里是 double，直接传给 float 参数
-	// 会触发 C4244，而本项目警告即错误。
+	// 参数用 double：FVector2D 分量在 UE5 是 double，传 float 会触发 C4244（本项目警告即错误）。
 	double GetLeft(const double ViewportWidth)
 	{
 		const double TotalWidth = PlanetEditUI::ButtonSize * 2.0 + PlanetEditUI::ButtonGap;

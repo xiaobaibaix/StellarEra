@@ -28,25 +28,15 @@ namespace
 const TCHAR* const PlanetWaterMaterialAssetPath = TEXT("/Game/Code/Planet/Materials/M_PlanetWater");
 const TCHAR* const PlanetWaterMaterialAssetName = TEXT("M_PlanetWater");
 
-// 名字统一带 PlanetWater 前缀：UBT 默认开 unity build，本模块的多个 .cpp 会被拼进
-// 同一个翻译单元，匿名 namespace 也跟着合并。PlanetMineralMaterialBuilder.cpp 与
-// PlanetAtmosphereMaterialBuilder.cpp 里的 `AddScalarParam` / `AddVectorParam` 已经
-// 占用了通用名，这里再叫同名就是 C2084 重定义。
-// （测试文件 PlanetWaterMaterialTests.cpp 里还有一个 `WaterMaterialPath`，也不同名。）
+// 名字统一带 PlanetWater 前缀：UBT 默认 unity build 会把本模块多个 .cpp 拼进同一
+// 翻译单元，匿名 namespace 也跟着合并，通用名会撞 C2084 重定义。
 
 // ---------------------------------------------------------------------------
-// 水色与不透明度。自包含，不用 IncludeFilePaths（那需要 shader 目录映射）。
+// 水色与不透明度。坐标空间全部是绝对世界坐标（cm）：WorldPos 取 WPT_Default，
+// CameraPos 是视图 uniform，NormalDir 是网格的径向单位法线。
 //
-// 坐标空间全部是**绝对世界坐标（cm）**：
-//   WorldPos  —— WorldPosition 节点 WPT_Default 的标题字面就是 "Absolute World Position"
-//   CameraPos —— CameraPositionWS 是视图 uniform
-//   NormalDir —— 网格顶点法线，我们写的就是径向单位向量（见 PlanetWaterSurfaceBuilder）
-//
-// 深度渐变用「深度缓冲里的场景深度 − 本像素深度」：正数表示水后面还有东西，
-// 数值就是水层厚度。负数（水面前面还有更近的几何）夹到 0。
-//
-// DepthBuffer 是 SceneTexture 节点的输出：该节点恒为 float4，SceneDepth 走
-// CalcSceneDepth（标量）隐式转成四个分量相同，所以取 .x 才是深度（cm）。
+// 深度渐变用「场景深度 − 本像素深度」，即水层厚度，负数夹到 0。DepthBuffer 是
+// SceneTexture 的 float4 输出，只有 .x 是深度（cm）。
 //
 // Custom 节点里有 return，UE 不会再自动包一层，末尾必须自己 return。
 // ---------------------------------------------------------------------------
@@ -123,11 +113,9 @@ enum class EPlanetWaterMaterialLoad : uint8
 };
 
 /**
- * 拿到可写的 UMaterial。
- *
- * 关键在「已存在」这条路径：走 LoadPackage 而不是 CreatePackage。CreatePackage 对
- * 磁盘上已有的包只会造出一个 IsFullyLoaded() == false 的空壳，后面的 SavePackage
- * 必定失败（错误还会被 SAVE_NoError 吞掉），也就是「重跑生成器只会打 ok=0」。
+ * 拿到可写的 UMaterial。「已存在」必须走 LoadPackage：CreatePackage 对磁盘上已有
+ * 的包只造一个未完全加载的空壳，SavePackage 必定失败（表现为「重跑生成器只会打
+ * ok=0」）。
  */
 UMaterial* LoadOrCreatePlanetWaterMaterial(EPlanetWaterMaterialLoad& OutLoad, FString& OutError)
 {
@@ -170,9 +158,8 @@ UMaterial* LoadOrCreatePlanetWaterMaterial(EPlanetWaterMaterialLoad& OutLoad, FS
 	Material->PreEditChange(nullptr);
 	Material->GetExpressionCollection().Empty();
 
-	// 本构建器依赖的资产属性全部在这里显式复位。重建路径载入的是磁盘上的旧资产，
-	// 它可能被人手改过 —— 图由代码重建，属性也必须由代码重建，否则「材质图完全由
-	// 代码生成、可复现」这个承诺只对节点成立、对材质属性不成立。
+	// 资产属性全部显式复位：重建路径载入的旧资产可能被人手改过，属性也必须由
+	// 代码重建，否则「材质图可复现」只对节点成立。
 	Material->MaterialDomain = MD_Surface;
 	Material->BlendMode = BLEND_Translucent;
 	Material->TwoSided = true;   // 水下抬头要看得见水面
@@ -228,11 +215,9 @@ UMaterial* BuildPlanetWaterMaterialInternal(EPlanetWaterMaterialLoad& OutLoad, F
 	NormalWs->MaterialExpressionEditorY = -600;
 	Material->GetExpressionCollection().AddExpression(NormalWs);
 
-	// 深度缓冲与像素深度。
-	//
-	// ScreenPosition 节点在 UE 5.8 有两个输出：0 = ViewportUV、1 = PixelPosition。
-	// SceneTexture 要的是 **0..1 的视口 UV**，所以取输出 0（默认）；喂 PixelPosition
-	// 会采到贴图外，整片水全黑。5.8 已经删掉了旧的 SEM_ViewportUV 属性，不要再设。
+	// 深度缓冲与像素深度。ScreenPosition 在 UE 5.8 输出 0 = ViewportUV、
+	// 1 = PixelPosition；SceneTexture 要的是 0..1 视口 UV，喂 PixelPosition 会采到
+	// 贴图外、整片水全黑。旧的 SEM_ViewportUV 属性已被删除，不要再设。
 	UMaterialExpressionScreenPosition* ScreenPos = NewObject<UMaterialExpressionScreenPosition>(Material);
 	ScreenPos->Material = Material;
 	ScreenPos->MaterialExpressionEditorX = -1100;
@@ -267,8 +252,8 @@ UMaterial* BuildPlanetWaterMaterialInternal(EPlanetWaterMaterialLoad& OutLoad, F
 	UMaterialExpressionScalarParameter* ShallowOpacity = AddPlanetWaterScalarParam(Material, TEXT("ShallowOpacity"), 0.35f, -1100, 100);
 	UMaterialExpressionScalarParameter* FresnelPower = AddPlanetWaterScalarParam(Material, TEXT("FresnelPower"), 4.0f, -1100, 200);
 	UMaterialExpressionScalarParameter* FoamStrength = AddPlanetWaterScalarParam(Material, TEXT("FoamStrength"), 0.8f, -1100, 300);
-	// 高光强度（设计 §6.3 的 SpecularPower）。TLM_Surface 下 Specular 输入才生效；
-	// 没有它就只是一片漫反射色的半透明面，水面最可辨识的太阳反光会完全消失。
+	// TLM_Surface 下 Specular 输入才生效；没有它水面就只是一片漫反射色，
+	// 最可辨识的太阳反光会完全消失。
 	UMaterialExpressionScalarParameter* SpecularPower = AddPlanetWaterScalarParam(Material, TEXT("SpecularPower"), 0.85f, -1100, 350);
 
 	UMaterialExpressionVectorParameter* ShallowColor = AddPlanetWaterVectorParam(Material, TEXT("ShallowColor"),
@@ -334,7 +319,7 @@ UMaterial* BuildPlanetWaterMaterialInternal(EPlanetWaterMaterialLoad& OutLoad, F
 
 	// --- 材质本体 ---
 	// 混合模式 / 双面 / 着色模型 / 半透明光照模式在 LoadOrCreatePlanetWaterMaterial
-	// 里统一复位（重建路径也要覆盖人手改过的旧资产）。
+	// 里统一复位。
 
 	UMaterialEditorOnlyData* EditorData = Material->GetEditorOnlyData();
 	if (!EditorData)
@@ -397,8 +382,7 @@ FAutoConsoleCommandWithWorldAndArgs GBuildPlanetWaterMaterialCommand(
 			{
 				UE_LOG(LogTemp, Error, TEXT("[水体] 材质生成失败：%s"), *Error);
 			}
-			// 这行只是给人看的结果标记：-TestExit 等的是自动化测试队列空，与它无关。
-			// 无头跑本命令时 -ExecCmds 里的 QUIT 不生效，进程不会自己退；要用
+			// 无头跑本命令时 -ExecCmds 里的 QUIT 不生效，进程不会自己退；用
 			// StellarEra.PlanetWaterMaterial.Done + 资产字节数判断成功，再按 PID 杀掉。
 			UE_LOG(LogTemp, Display, TEXT("StellarEra.PlanetWaterMaterial.Done ok=%d"),
 				bOk ? 1 : 0);

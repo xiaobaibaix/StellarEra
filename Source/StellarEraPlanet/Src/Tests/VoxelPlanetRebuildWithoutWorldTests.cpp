@@ -1,12 +1,7 @@
-﻿// 行星在没有世界的宿主上重建的回归测试。
-//
-// 蓝图类默认值对象（Default__Xxx_C）不在任何世界里，GetWorld() 返回 nullptr。
-// 而 AVoxelWorld::CreateWorld 第一件事就是取 GetWorld()->WorldType
-// （VoxelWorld.cpp:245），所以 RebuildPlanet 一旦走到 CreateWorld 就是空指针
-// 访问违例。PostEditChangeProperty 会把 CDO 上的每一次属性编辑导到这里，
-// 于是「在蓝图编辑器的类默认值面板里改 Terrain / Radius」会直接崩编辑器。
-//
-// 本测试的宿主就是原生 CDO：它与蓝图 CDO 同样满足 GetWorld() == nullptr。
+﻿// 行星在没有世界的宿主上重建的回归：CDO（Default__Xxx_C）不在任何世界里，GetWorld()
+// 返回 nullptr，而 AVoxelWorld::CreateWorld 第一件事就是取 GetWorld()->WorldType
+// （VoxelWorld.cpp:245）—— RebuildPlanet 走到 CreateWorld 就是空指针违例。
+// 蓝图编辑器改 Terrain / Radius 会经 PostEditChangeProperty 打到 CDO；本测试宿主就是原生 CDO。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"

@@ -14,12 +14,8 @@
 
 namespace
 {
-	/**
-	 * 取编辑器世界。
-	 *
-	 * 不能写 GEngine->GetEditorWorldContext()：那是 UEditorEngine 的方法，本模块
-	 * 刻意不带 UnrealEd 依赖。按 WorldType 扫一遍 UEngine 的世界上下文等价。
-	 */
+	/** 取编辑器世界。不能写 GEngine->GetEditorWorldContext() —— 那是 UEditorEngine 的
+	 *  方法，本模块不带 UnrealEd 依赖；按 WorldType 扫 UEngine 的世界上下文等价。 */
 	UWorld* FindStarBodyEditorWorld()
 	{
 		if (!GEngine)
@@ -64,12 +60,10 @@ namespace
 			return nullptr;
 		}
 
-		// 不要调 AddInstanceComponent：它会把 CreationMethod 改成 Instance，而
-		// UActorComponent::OnRegister 对 Instance 组件**故意跳过** AddOwnedComponent
-		// （"Instance components will be added during the owner's initialization"）。
-		// 我们是在 SpawnActor 之后才挂组件的，那次初始化已经过去了，组件就永远进不了
-		// OwnedComponents —— 而 AActor::FindComponentByClass 只遍历 OwnedComponents，
-		// FindNearest 会一直返回 nullptr。保持默认的 Native 即可。
+		// 不要调 AddInstanceComponent：它把 CreationMethod 改成 Instance，而 OnRegister
+		// 对 Instance 组件**故意跳过** AddOwnedComponent（要等 owner 初始化）。这里是
+		// SpawnActor 之后才挂组件、初始化已过，组件永远进不了 OwnedComponents，而
+		// FindComponentByClass 只遍历它 —— FindNearest 会一直返回 nullptr。
 		UStarBodyComponent* Star = NewObject<UStarBodyComponent>(Actor);
 		Star->RegisterComponent();
 
@@ -106,11 +100,9 @@ bool FStellarEraStarBodyFindNearestTest::RunTest(const FString& Parameters)
 
 	if (bOk)
 	{
-		// 站在近处那颗旁边探：必须返回近处那颗，而不是更远处（或关卡里原有的）恒星。
-		//
-		// 必须用 TestSamePtr：`TestSame` 比的是两个**参数自己的地址**
-		// （`&Actual != &Expected`，AutomationTest.h:2549），传两个不同的指针变量
-		// 进去永远失败 —— 它只用来判断"是不是同一个对象参数"，不是比指针值。
+		// 站在近处那颗旁边探，必须返回近处这颗。必须用 TestSamePtr：`TestSame` 比的是
+		// 两个**参数自己的地址**（&Actual != &Expected，AutomationTest.h:2549），传两个
+		// 不同指针变量进去永远失败。
 		UStarBodyComponent* Found = UStarBodyComponent::FindNearest(World, NearLocation + FVector(200.0, 0.0, 0.0));
 		TestSamePtr(TEXT("离近处恒星 200cm 时找到它"), Found, NearStar);
 		TestEqual(TEXT("近处恒星的位置"), NearStar->GetOwner()->GetActorLocation(), NearLocation);
@@ -153,18 +145,14 @@ bool FStellarEraSunDirectionComputeTest::RunTest(const FString& Parameters)
 		Star, nullptr, FVector::ZeroVector);
 	TestEqual(TEXT("恒星在 +X：方向应为 +X"), Direction, FVector(1.0, 0.0, 0.0), 1e-6);
 
-	// 探针在恒星 +Y 侧 1000cm：方向 = 恒星位置 − 探针位置，指向 −Y。
 	const FVector Offset = UPlanetAtmosphereComponent::ComputeSunDirection(
 		Star, nullptr, FVector(1000.0, 1000.0, 0.0));
 	TestEqual(TEXT("探针在恒星 +Y 侧：方向指向 −Y"), Offset, FVector(0.0, -1.0, 0.0), 1e-6);
 
-	// 2) 只有灯：沿用旧行为 —— 灯 forward 是光传播方向，太阳在反向。
-	//
-	// 期望值**不能**从 spawn 时传的 FRotator 推：ADirectionalLight 的构造函数
-	// 给灯光组件写死了相对旋转 pitch −46°（Engine/Source/Runtime/Engine/Private/
-	// Light.cpp:239），而 GetActorForwardVector() 返回的是根组件（即灯组件）的
-	// 世界朝向，相对旋转会叠在 Actor 旋转上。传 (−90,0,0) 实际拿到的是 −136°。
-	// 所以这里拿灯自己的 forward 当参照物，只钉住"取反向"这一层语义。
+	// 2) 只有灯：沿用旧行为 —— 灯 forward 是光传播方向，太阳在反向。期望值**不能**
+	// 从 spawn 的 FRotator 推：ADirectionalLight 的构造函数给灯组件写死相对旋转
+	// pitch −46°（Light.cpp:239），GetActorForwardVector 返回灯组件的世界朝向，
+	// 传 (−90,0,0) 实际是 −136°。故拿灯自己的 forward 当参照物。
 	ADirectionalLight* Light = World->SpawnActor<ADirectionalLight>(
 		FVector(0.0, 0.0, 500.0), FRotator(-90.0, 0.0, 0.0));
 	if (!TestNotNull(TEXT("方向光"), Light))
@@ -180,7 +168,6 @@ bool FStellarEraSunDirectionComputeTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("不是灯 forward 本身（符号不能写反）"),
 		(FromLight | LightForward) < -0.99);
 
-	// 3) 都没有：零向量。
 	TestTrue(TEXT("没有恒星也没有灯 = 零向量"),
 		UPlanetAtmosphereComponent::ComputeSunDirection(nullptr, nullptr, FVector::ZeroVector).IsNearlyZero());
 

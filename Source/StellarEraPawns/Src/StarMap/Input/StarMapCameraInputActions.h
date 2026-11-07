@@ -10,18 +10,10 @@ class UInputAction;
 class UInputMappingContext;
 
 /**
- * 星图相机用到的动作（视角、缩放、编辑、矿物透视、选择、星图开关）。
- *
- * 由 FStellarEraInputActions 组合持有、由控制器构造，相机在
- * `UStarMapCameraInputComponent::SetupPlayerInputComponent` 里绑。
- * 动作全部 NewObject 到控制器名下，没有磁盘资产 —— 改键只改这里的映射表。
- *
- * 对象名带 `IA_StarMap_` 前缀：三张表共用同一个 Outer，同名会被引擎改名成
- * 不可预测的 `_1` / `_0`，前缀保证每张表的动作能按名字认出来。
- *
- * 左键与 M 在角色 / 飞船表里也各有一条：进星图之后 Possess 的是本相机，
- * 退出必须由它自己绑；而角色 / 飞船要能按 M 进来、角色编辑模式要能用左键。
- * 同一个 IMC 里的同名按键互不吞输入，谁被 Possess 谁那条生效。
+ * 星图相机用到的动作（视角、缩放、编辑、矿物透视、选择、星图开关），全部 NewObject 到
+ * 控制器名下，没有磁盘资产。对象名带 `IA_StarMap_` 前缀：三张表共用同一个 Outer，同名
+ * 会被引擎改名成不可预测的 `_1` / `_0`。左键与 M 在角色 / 飞船表里也各有一条 ——
+ * 进星图后 Possess 的是本相机，退出得由它自己绑；同一 IMC 里同名按键谁被 Possess 谁生效。
  */
 USTRUCT()
 struct STELLARERAPAWNS_API FStarMapCameraInputActions
@@ -37,9 +29,8 @@ struct STELLARERAPAWNS_API FStarMapCameraInputActions
 	TObjectPtr<UInputAction> LookActivate;
 
 	/**
-	 * 星图的中键（绕行）。与 LookActivate 同一个套路：Look 只有鼠标位移，
-	 * 「按的是哪个键」得另有布尔动作来分辨。编辑 / 矿物透视下左键被借走，
-	 * 绕行就改由中键承担。
+	 * 星图的中键（绕行）。Look 只有位移，「按的是哪个键」得另有布尔动作分辨；
+	 * 编辑 / 矿物透视下左键被借走时，绕行由中键承担。
 	 */
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> LookMiddle;

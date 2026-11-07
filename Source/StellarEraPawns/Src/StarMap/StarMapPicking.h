@@ -11,11 +11,8 @@ class UWorld;
 struct FStarMapScreenCandidate;
 
 /**
- * 星图拾取。
- *
- * 投影要用 APlayerController（视口与视点），但不需要控制器的任何业务状态；
- * 星图相机的输入回调（Pawns）与 HUD 的悬停查询（经控制器转发）都调这里，
- * 两边判据才一致。
+ * 星图拾取。投影要用 APlayerController（视口与视点），但不要控制器的业务状态；
+ * 相机输入回调与 HUD 悬停查询都调这里，两边判据才一致。
  */
 namespace StarMapPicking
 {
@@ -23,25 +20,18 @@ namespace StarMapPicking
 	constexpr float DefaultPixelTolerance = 20.f;
 
 	/**
-	 * 天体的世界半径（厘米）。体素行星用它的地表半径；其它天体退回碰撞半径。
-	 * 取不到（非正）返回 0 —— 调用方按「没算出来」处理。
-	 *
-	 * 拾取与「按 M 进场聚焦」共用这一份：两边对「半径」的口径必须一致。
+	 * 天体的世界半径（厘米）：体素行星用地表半径，其它退回碰撞半径，取不到返回 0。
+	 * 拾取与「按 M 进场聚焦」共用这一份口径。
 	 */
 	STELLARERAPAWNS_API double GetBodyRadiusCm(const AActor* Body);
 
-	/**
-	 * 把一颗天体投到屏幕。Out.ScreenRadiusPx 是视角下的轮廓半径（像素）；
-	 * 边缘点投不出来时留 0，调用方退回固定像素容差。
-	 */
+	/** 把天体投到屏幕；边缘点投不出来时 ScreenRadiusPx 留 0，调用方退回固定容差。 */
 	STELLARERAPAWNS_API bool MakeScreenCandidate(
 		const APlayerController* PC, AActor* Body, FStarMapScreenCandidate& Out);
 
 	/**
-	 * 屏幕点下的已注册天体；没有返回空。
-	 *
-	 * 只有挂了星图相机的天体可被点中（见 AStarMapCameraPawn::HasStarMapCamera）：
-	 * 星图的相机是「照某颗天体」的视点，选中即焦点，飞船不该抢走焦点。
+	 * 屏幕点下的已注册天体；没有返回空。只有挂了星图相机的天体可被点中 ——
+	 * 相机是「照某颗天体」的视点，选中即焦点，飞船不该抢走焦点。
 	 */
 	STELLARERAPAWNS_API AActor* PickBodyUnderScreenPosition(
 		const UWorld* World,

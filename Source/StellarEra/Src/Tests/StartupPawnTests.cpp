@@ -3,15 +3,9 @@
 // 开局把飞船交给玩家，而不是生成角色。
 //
 // 守的是这次的回归：飞船摆在 PlayerStart 上，引擎的 EncroachingBlockingGeometry
-// 会把出生点整条判掉（船体是 ECC_Pawn 且 Block 全通道），Pawn 于是落到
-// WorldSettings —— 世界原点，离行星 2000 km。角色因此找不到行星，开局登船
-// 仍然「成功」（FindNearestTo 没有距离判据），落地后按 E 舱里没有角色，
-// 离船流程静默返回。
-//
-// 现在选点直接取 PlayerStart（不做遮挡检测），默认 Pawn 先去关卡里找飞船，
-// 找不到才在出生点生成一艘。这里锁住这三件事。
-//
-// 验不了的部分：真正按下 E 生成角色要 PIE 的输入，这里只锁住选点与默认 Pawn。
+// 会把出生点整条判掉（船体 ECC_Pawn 且 Block 全通道），Pawn 落到世界原点。
+// 现在选点直接取 PlayerStart（不做遮挡检测），默认 Pawn 优先取关卡里的飞船。
+// 真正按下 E 生成角色要 PIE 的输入，这里只锁住选点与默认 Pawn。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"

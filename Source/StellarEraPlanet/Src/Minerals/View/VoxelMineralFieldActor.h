@@ -1,8 +1,5 @@
-﻿// 一个元素一个体素世界。
-//
-// 它继承 AVoxelWorld（与 AVoxelPlanetActor 同一种做法），所以「世界就是本 Actor」，
-// 没有子对象层。世界参数在 CreateForElement 里从行星整份复制，保证两边的体素
-// 索引一一对应 —— 生成器因此不需要任何坐标换算。
+﻿// 一个元素一个体素世界。继承 AVoxelWorld（与 AVoxelPlanetActor 同做法），「世界就是本 Actor」，没有子对象层。
+// 世界参数在 CreateForElement 里从行星整份复制，两边体素索引一一对应 —— 生成器因此不需要坐标换算。
 
 #pragma once
 
@@ -23,14 +20,9 @@ public:
 	AVoxelMineralFieldActor();
 
 	/**
-	 * 复制行星的世界参数、挂上生成器、建世。
-	 *
-	 * 复制哪些：VoxelSize / RenderOctreeDepth / WorldSizeInVoxel /
-	 * bUseCustomWorldBounds / CustomWorldBounds / MaxLOD / MinLOD / LODMaterials /
-	 * Transform。不复制 SaveObject（矿物体素世界不存盘）。
-	 *
+	 * 复制行星的世界参数（VoxelSize / RenderOctreeDepth / WorldSizeInVoxel / 自定义边界 / LOD / Transform，不含 SaveObject）、
+	 * 挂生成器并建世界。失败时打 Error 返回 false，调用方应 Destroy 本 Actor。
 	 * @param BaseMaterial 创建 MID 用的父材质（M_MineralBlock）。
-	 * @return 失败时打 Error 并返回 false；调用方应当 Destroy 本 Actor。
 	 */
 	bool CreateForElement(
 		const FPlanetMineralVoxelParams& Params,

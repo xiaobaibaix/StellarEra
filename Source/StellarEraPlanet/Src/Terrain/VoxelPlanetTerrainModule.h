@@ -15,13 +15,8 @@ class FPlanetGeologyField;
 class FPlanetHydrologyField;
 
 /**
- * 行星交给地形模块的上下文。
- *
- * 模块刻意拿不到 Actor：它只认半径、球心和一个颜色。所以同一套地形预设能挂在
- * 任意位置、任意尺寸的行星上，行星的「在哪、多大」与模块的「长什么样」在这里
- * 交汇，也只在这里交汇。
- *
- * 刻意不做成 USTRUCT：它只在 C++ 侧按值传递，不需要反射，也不需要进蓝图。
+ * 行星交给地形模块的上下文。模块刻意拿不到 Actor，只认半径/球心/颜色，所以同一
+ * 套预设能挂任意位置与尺寸的行星。不做 USTRUCT：只在 C++ 侧按值传递。
  */
 struct FVoxelPlanetTerrainContext
 {
@@ -31,44 +26,20 @@ struct FVoxelPlanetTerrainContext
 	/** 行星球心（体素坐标，VoxelWorld 局部空间）。 */
 	FVector Center = FVector::ZeroVector;
 
-	/**
-	 * 行星上的基准色。纯球模块直接用它；自带配色的模块可以当兜底色，
-	 * 也可以完全忽略。
-	 */
+	/** 基准色。纯球模块直接用它；自带配色的模块可当兜底色或忽略。 */
 	FLinearColor BaseColor = FLinearColor(0.18f, 0.42f, 0.16f);
 
-	/**
-	 * 这颗行星的地质场；为空 = 没有矿。
-	 *
-	 * 只读指针，构造后不可变，因此可以安全地在后台体素线程上共享。
-	 */
+	/** 地质场；空 = 没有矿。只读、构造后不可变，可安全在后台体素线程共享。 */
 	TSharedPtr<const FPlanetGeologyField> Geology;
 
-	/**
-	 * 这颗行星的水文场；为空 = 这颗星没有水（纯球模块，或者模块不重写
-	 * GetWaterConfig）。
-	 *
-	 * 只读指针，构造后不可变，因此可以安全地在后台体素线程上共享 —— 与
-	 * Geology 同理。密度场靠它做河道下切。
-	 */
+	/** 水文场；空 = 没有水（纯球模块或未重写 GetWaterConfig）。只读、不可变，密度场靠它下切河道。 */
 	TSharedPtr<const FPlanetHydrologyField> Hydrology;
 };
 
 /**
- * 行星地形的可插拔模块。
- *
- * 模块负责**生成密度场** —— 给定体素坐标，回答「这里是实体还是空气」。
- * 行星只负责把球心、半径和基准色递进来，以及把产出的实例交给 VoxelWorld。
- *
- * 做成 UDataAsset 而不是内联子对象，是为了让一套地形能在多颗行星之间共享：
- * 在内容浏览器里改一次预设，引用它的行星一起变。
- *
- * 加一种新地形 = 加一个子类 + 在它的资产里调参数，行星和生成器都不用动。
- *
- * 子类必须保证的一件事：产出的实例，其 GetValueRangeImpl 返回的区间**必须覆盖**
- * GetValueImpl 在同样范围内可能产生的所有值。这是插件的契约，估低了地表会出洞，
- * 估高了行星会卡死，而且两种都是静默的。推荐做法是把区间从模块自己声明的包络
- * （振幅、海平面之类）推导出来，而不是手算常量 —— 见 VoxelPlanetNoiseTerrain.cpp。
+ * 行星地形的可插拔模块：给定体素坐标回答「实体还是空气」。做成 UDataAsset 让一套
+ * 地形在多颗行星间共享。子类必须保证 GetValueRangeImpl 覆盖 GetValueImpl 的所有
+ * 取值 —— 估低出洞、估高卡死，且都是静默的。
  */
 UCLASS(Abstract)
 class UVoxelPlanetTerrainModule : public UDataAsset
@@ -77,54 +48,26 @@ class UVoxelPlanetTerrainModule : public UDataAsset
 
 public:
 	/**
-	 * 产出密度场实例。行星的生成器在重建世界时调用一次，实例随后被快照下来，
-	 * 在后台线程上被调用几百万次。
-	 *
-	 * 基类的默认实现返回纯球，见 .cpp —— 抽象类不该被实例化，但真有子类忘了
-	 * 重写时，给一颗光滑球总好过让整颗行星消失。
+	 * 产出密度场实例，重建世界时调用一次，随后快照在后台线程跑几百万次。
+	 * 默认实现返回纯球：子类忘重写时给颗光滑球，好过行星消失。
 	 */
 	virtual TVoxelSharedRef<FVoxelGeneratorInstance> GetInstance(const FVoxelPlanetTerrainContext& Context);
 
-	/**
-	 * 某个方向上的地表半径（体素，含起伏）。
-	 *
-	 * 给角色出生和飞船生成用。它们原先假设地表是一个完美球面
-	 * （见 PlanetCharacter.cpp 的 SnapToPlanetSurface），有地形之后那个假设会把
-	 * 角色直接塞进山体里。海平面之类的 clamp 由模块内部消化，调用方不必知道
-	 * 有海这回事。
-	 *
-	 * UnitDir 是体素空间的单位方向（由球心指向外的方向）。
-	 */
+	/** 某方向的地表半径（体素，含起伏）。原先假设完美球面会把角色塞进山体；
+	 * 海平面 clamp 由模块内部消化。UnitDir 为体素空间单位方向。 */
 	virtual float GetSurfaceRadiusVoxels(const FVoxelPlanetTerrainContext& Context, const FVector& UnitDir) const
 		PURE_VIRTUAL(UVoxelPlanetTerrainModule::GetSurfaceRadiusVoxels, return Context.Radius;);
 
-	/**
-	 * 未削平的归一化位移（0 = 基准球面，范围 −1..1）。
-	 *
-	 * 与 GetSurfaceRadiusVoxels 的区别正是「有没有被海平面削平」：后者回答
-	 * 「角色该站在哪」，会避开水面；前者回答「地形本来长多高」，是水文烘焙的
-	 * 唯一输入。混用会把海床当成陆地再淹一遍。
-	 *
-	 * 默认返回 0：抽象类不该被实例化，但真有子类忘了重写时，给一颗光滑球
-	 * 总好过让水文烘焙读到随机值。
-	 */
+	/** 未削平的归一化位移（0 = 基准球面）。与 GetSurfaceRadiusVoxels 的区别是有
+	 * 没有被海平面削平，是水文烘焙的唯一输入 —— 混用会把海床当陆地再淹一遍。 */
 	virtual float GetRawOffset(const FVector& UnitDir) const;
 
-	/**
-	 * 水体配置。返回 false = 这颗星不要水（纯球模块就是 false）。
-	 *
-	 * OutConfig 在返回 false 时仍被写成一个合法的默认值 —— 调用方可以先取值
-	 * 再看返回值，不必分支初始化。
-	 */
+	/** 水体配置。false = 不要水；OutConfig 在 false 时仍是合法默认值，调用方不必分支。 */
 	virtual bool GetWaterConfig(FPlanetWaterConfig& OutConfig) const;
 
 #if WITH_EDITOR
-	/**
-	 * 改了地形参数要让引用它的行星重建。
-	 *
-	 * 行星的 RebuildPlanet 只在**自己的**属性被改时触发，资产里的参数改了它毫不知情
-	 * —— 在资产面板里调半天振幅，关卡里的行星纹丝不动，看起来像「参数没生效」。
-	 */
+	/** 改了地形参数要重建引用它的行星 —— RebuildPlanet 只认自己的属性，
+	 * 资产参数变化它毫不知情，看起来像「参数没生效」。 */
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
 };

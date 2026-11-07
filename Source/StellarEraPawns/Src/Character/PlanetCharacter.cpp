@@ -25,19 +25,14 @@
 
 namespace
 {
-	// 占位网格的资产路径。构造函数和 ApplyCharacterMesh 都要用，写在一处，
-	// 免得两边的字符串对不上。
+	// 占位网格的资产路径：构造函数和 ApplyCharacterMesh 都要用，写在一处免得对不上。
 	const TCHAR* FallbackMeshPath = TEXT("/Engine/EngineMeshes/SkeletalCube.SkeletalCube");
 
 	/**
-	 * 角色的「屏幕射线 → 编辑目标」：普通碰撞射线。
-	 *
-	 * 角色站在地表、射线只打一千米，LineTrace 最直接：它天然尊重体素碰撞，
-	 * 也天然被地形挡住。星图不能这么做 —— 那里离地表几千公里，碰撞范围只有
-	 * 几十米，射线什么也打不到。这正是把解析器做成可注入的原因。
-	 *
-	 * 逐字保留旧 TraceEditTarget 的语义：Visibility 优先，整条射线打空才退到
-	 * WorldStatic；命中的 Actor 必须是脚下那颗行星。
+	 * 角色的「屏幕射线 → 编辑目标」：普通碰撞射线。角色贴地、射线只打一千米，
+	 * LineTrace 天然尊重体素碰撞也被地形挡住；星图离地表几千公里、碰撞只有几十米，
+	 * 必须换解析器 —— 这正是把解析器做成可注入的原因。
+	 * 语义：Visibility 优先，整条打空退 WorldStatic；命中 Actor 必须是脚下这颗星。
 	 */
 	bool TraceTargetForCharacter(
 		APlanetCharacter& Character,
@@ -86,10 +81,9 @@ namespace
 	}
 }
 
-// SetDefaultSubobjectClass 必须写在初始化列表里：UObjectGlobals.h:1729 明确 assert
-// 「不能在构造函数体内调用」。ACharacter 的构造函数会用 CharacterMovementComponentName
-// 这个名字建 CMC，在这里先把它换成我们自己的子类，Super 跑完 GetCharacterMovement()
-// 拿到的就是 UPlanetCharacterMovementComponent。
+// SetDefaultSubobjectClass 必须写在初始化列表里（UObjectGlobals.h 有 assert）。ACharacter
+// 构造会按 CharacterMovementComponentName 建 CMC，这里先换成自己的子类，Super 跑完
+// GetCharacterMovement() 拿到的就是 UPlanetCharacterMovementComponent。
 APlanetCharacter::APlanetCharacter(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer.SetDefaultSubobjectClass<UPlanetCharacterMovementComponent>(
 		ACharacter::CharacterMovementComponentName))
@@ -98,13 +92,9 @@ APlanetCharacter::APlanetCharacter(const FObjectInitializer& ObjectInitializer)
 
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 88.f);
 
-	// 角色平时挂在行星下（见 SetRidePlanet）。行星的大小是靠 Actor 缩放做的
-	// （AVoxelPlanetActor::GetScaledRadiusVoxels 读 GetActorScale3D()），子物体
-	// 默认继承父级缩放 —— 一旦有人缩放星球，胶囊、网格、相机臂、四圈调用器的
-	// 厘米量会跟着一起打折。让根组件忽略父级缩放，世界缩放恒为 1。
-	//
-	// 本关卡三颗星球 S = 1，所以这条今天看不出效果；它是为了不让「缩放行星」
-	// 这个既有工作流在将来踩雷。位置与旋转仍然跟随父级，只有缩放是绝对的。
+	// 角色平时挂在行星下（见 SetRidePlanet），而行星大小靠 Actor 缩放做：子物体默认
+	// 继承父级缩放，一有人缩放星球，胶囊、网格、相机臂与调用器的厘米量就跟着打折。
+	// 让根组件忽略父级缩放（位置与旋转仍跟随），世界缩放恒为 1。
 	GetCapsuleComponent()->SetAbsolute(/*bAbsoluteLocation=*/false,
 		/*bAbsoluteRotation=*/false, /*bAbsoluteScale=*/true);
 
@@ -115,8 +105,7 @@ APlanetCharacter::APlanetCharacter(const FObjectInitializer& ObjectInitializer)
 	bUseControllerRotationYaw = false;
 	bUseControllerRotationRoll = false;
 
-	// 局部变量不能叫 CharacterMovement：那是 ACharacter 的成员，UE 把变量遮蔽
-	// 当错误（C4458）。
+	// 局部变量不能叫 CharacterMovement：那是 ACharacter 的成员，遮蔽会报 C4458。
 	UCharacterMovementComponent* Movement = GetCharacterMovement();
 	Movement->bOrientRotationToMovement = true;
 	Movement->RotationRate = FRotator(0.f, 540.f, 0.f);
@@ -128,19 +117,9 @@ APlanetCharacter::APlanetCharacter(const FObjectInitializer& ObjectInitializer)
 	Movement->PerchRadiusThreshold = 0.f;
 	Movement->LedgeCheckThreshold = 4.f;
 
-	// 关掉「离开底座时把底座自己的速度加进角色 Velocity」。
-	//
-	// CMC 默认在每次 Walking→Falling 时调 ApplyImpartedMovementBaseVelocity()
-	// （CharacterMovementComponent.cpp:1463 → :2747），而它加的就是底座的速度
-	// （同文件 :1202 MovementBaseUtility::GetMovementBaseVelocity）。行星速度是 km/s，
-	// 角色一离地就被发射出去。而且 FormerBaseVelocityDecayHalfLife 默认 0（同文件
-	// CharacterMovementComponent.h:1092），注入值不衰减，直接变成角色自己的速度。
-	//
-	// 四个开关是 UPROPERTY(EditAnywhere, BlueprintReadWrite) 且在 public 段
-	// （CharacterMovementComponent.h:928-954），这里关掉之后
-	// GetImpartedMovementBaseVelocity() 恒返回零向量。
-	//
-	// 注意：走路、摩擦、地板判定、台阶、跳跃都不走这条路，关掉它们不受影响。
+	// 关掉「离开底座时把底座自己的速度加进角色 Velocity」：CMC 在 Walking→Falling 时
+	// 会把行星的 km/s 速度注入角色，而 FormerBaseVelocityDecayHalfLife 默认 0、注入值
+	// 不衰减，一离地就被发射。走路/摩擦/地板/台阶/跳跃都不走这条路，关掉无副作用。
 	Movement->bImpartBaseVelocityX = false;
 	Movement->bImpartBaseVelocityY = false;
 	Movement->bImpartBaseVelocityZ = false;
@@ -148,11 +127,9 @@ APlanetCharacter::APlanetCharacter(const FObjectInitializer& ObjectInitializer)
 
 	CameraPivot = CreateDefaultSubobject<USceneComponent>(TEXT("CameraPivot"));
 	CameraPivot->SetupAttachment(GetCapsuleComponent());
-	// 位置跟随胶囊，旋转必须**不**跟随。枢轴的旋转是 Tick 每帧按球面法线写死的
-	// 世界旋转，而 SetWorldRotation 存下来的是「相对父级」的旋转；角色一拐弯
-	// （bOrientRotationToMovement 转的是整个 Actor，胶囊跟着转），父级随后转动，
-	// 枢轴的世界旋转就被带着一起甩 —— 表现为走动拐弯时画面跟着晃。
-	// 绝对旋转让 CalcNewComponentToWorld 直接取枢轴自己的旋转，父级转多少都不影响。
+	// 位置跟随胶囊，旋转必须**不**跟随：枢轴每帧写世界旋转，而 SetWorldRotation 存的
+	// 是相对父级的旋转，角色拐弯（bOrientRotationToMovement）时父级一转就带着枢轴甩。
+	// 绝对旋转让 CalcNewComponentToWorld 直接取枢轴自己的旋转。
 	CameraPivot->SetUsingAbsoluteRotation(true);
 
 	SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArm"));
@@ -170,9 +147,8 @@ APlanetCharacter::APlanetCharacter(const FObjectInitializer& ObjectInitializer)
 	Camera->SetupAttachment(SpringArm, USpringArmComponent::SocketName);
 	Camera->bUsePawnControlRotation = false;
 
-	// 用 AlwaysLocal 版：进星图时控制器 Possess 星图相机，普通调用器会当场掉出
-	// LOD（IsLocalInvoker 只认本地控制的 Pawn），触发整棵八叉树重建。详见
-	// AlwaysLocalVoxelInvokerComponent.h。
+	// 用 AlwaysLocal 版：进星图时控制器 Possess 星图相机，普通调用器会当场掉出 LOD
+	// 触发整棵八叉树重建。详见 AlwaysLocalVoxelInvokerComponent.h。
 	VoxelInvoker = CreateDefaultSubobject<UAlwaysLocalVoxelInvokerComponent>(TEXT("VoxelInvoker"));
 	VoxelInvoker->SetupAttachment(GetCapsuleComponent());
 	// LODToSet = 0 表示最精细，这是插件对“贴着表面的 Pawn”的约定用法。
@@ -186,17 +162,10 @@ APlanetCharacter::APlanetCharacter(const FObjectInitializer& ObjectInitializer)
 	VoxelInvoker->bUseForEvents = false;
 	VoxelInvoker->bUseForPriorities = false;
 
-	// 200 米以外的过渡环。上面那个 Invoker 只管到 200 米（叶块 32 · VoxelSize），
-	// 再外面就只剩行星自带的 OrbitLOD（调用器给 8，实际被行星的 MaxLOD 夹住 ——
-	// 这颗星现在是 LOD 7，叶块 2 公里），中间一档都没有。
-	// 两档分辨率对同一片山坡的近似不同，粗的那层会从细的表面里戳出来，
-	// 视觉上就是「大片三角面横穿地形」。
-	//
-	// 每圈把 LODToSet +2、LODRange 大约 ×4：叶块边长翻 4 倍，而表面积翻 16 倍，
-	// 覆盖的块数反而少。这三圈加起来只多几百个表面块，比 200 米那圈的 600 多块还少。
-	//
-	// 全部用 AlwaysLocal 版，理由同上面的 VoxelInvoker：进星图时控制器换 Possess，
-	// 普通调用器会掉出 LOD 触发整棵八叉树重建。
+	// 200 米以外的过渡环。主 Invoker 只管到 200 米（叶块 32 · VoxelSize），再外面只有
+	// 行星自带 OrbitLOD（这颗星 LOD 7，叶块 2 公里），中间一档都没有，两档近似不同会
+	// 让粗层从细表面里戳出来。每圈 LODToSet +2、LODRange 约 ×4：加起来只多几百块。
+	// 全部用 AlwaysLocal 版，理由同上。
 	static constexpr struct
 	{
 		int32 LODToSet;
@@ -227,19 +196,11 @@ APlanetCharacter::APlanetCharacter(const FObjectInitializer& ObjectInitializer)
 		FarVoxelInvokers.Add(NewInvoker);
 	}
 
-	// 行星编辑组件不在这里创建：它由 BP_PlanetCharacter 挂载（2026-10-31 移出）。
-	// 原生 APlanetCharacter 实例因此没有编辑功能，GetPlanetEditComponent() 返回
-	// 空，调用方都按空处理。
+	// 行星编辑组件不在 C++ 创建，由 BP_PlanetCharacter 挂载；原生实例没有，调用方按空处理。
 
-	// C++ 只给一个引擎骷髅方块兜底，让裸放的 APlanetCharacter 不至于隐形。
-	//
-	// 真实模型不在这里。它属于「具体表现」，由子蓝图 BP_PlanetCharacter 在
-	// Class Defaults 里填 CharacterMesh / MeshRelativeLocation /
-	// MeshRelativeRotation / MeshScale 提供，换模型、调朝向都不必重新编译。
-	//
-	// 也正因为如此，这里不能写项目资产路径：蓝图 CDO 构造时会先跑一遍这个
-	// 构造函数，之后才加载蓝图里存的值，构造期读到的永远是 C++ 默认值。
-	// 真正套用那四个属性的地方是 ApplyCharacterMesh。
+	// C++ 只给一个引擎骷髅方块兜底，让裸放的 APlanetCharacter 不至于隐形。真实模型由子蓝图的
+	// CharacterMesh / MeshRelativeLocation / MeshRelativeRotation / MeshScale 提供。
+	// 这里不能写项目资产路径：蓝图 CDO 构造时先跑本构造函数，之后才加载蓝图里存的值。
 	static ConstructorHelpers::FObjectFinder<USkeletalMesh> FallbackMesh(FallbackMeshPath);
 	if (FallbackMesh.Succeeded())
 	{
@@ -247,8 +208,7 @@ APlanetCharacter::APlanetCharacter(const FObjectInitializer& ObjectInitializer)
 	}
 	else
 	{
-		// 连引擎骷髅方块都拿不到时会得到一个没有网格、完全不可见的角色。
-		// 宁可吵一句，也不要静默失败。
+		// 连占位网格都拿不到会得到完全不可见的角色，宁可吵一句也不静默失败。
 		UE_LOG(LogTemp, Warning,
 			TEXT("APlanetCharacter: 找不到占位网格 %s，Mesh 将没有模型。"), FallbackMeshPath);
 	}
@@ -258,8 +218,7 @@ APlanetCharacter::APlanetCharacter(const FObjectInitializer& ObjectInitializer)
 
 UPlanetEditComponent* APlanetCharacter::GetPlanetEditComponent() const
 {
-	// 组件由 BP_PlanetCharacter 挂载，这里现查不缓存：缓存时机（构造 / BeginPlay）
-	// 在编辑器世界里不可靠，而本函数只在输入处理与换星时调用，开销可忽略。
+	// 组件由蓝图挂载，这里现查不缓存：缓存时机在编辑器世界里不可靠，调用开销可忽略。
 	return FindComponentByClass<UPlanetEditComponent>();
 }
 
@@ -271,10 +230,7 @@ void APlanetCharacter::ApplyCharacterMesh()
 		return;
 	}
 
-	// 有就用蓝图给的，没有就退回占位网格。
-	//
-	// 这里不能直接 return —— 在编辑器里把 CharacterMesh 清空后，上一次套用的模型
-	// 会留在 Mesh 上，看起来像"属性没生效"。显式放回占位网格才是所见即所得。
+	// 有就用蓝图给的，没有就退回占位网格；不能直接 return，否则清空后旧模型会残留在 Mesh 上。
 	USkeletalMesh* MeshToUse = CharacterMesh
 		? CharacterMesh.Get()
 		: LoadObject<USkeletalMesh>(nullptr, FallbackMeshPath);
@@ -284,8 +240,7 @@ void APlanetCharacter::ApplyCharacterMesh()
 	MeshComponent->SetRelativeRotation(MeshRelativeRotation);
 	MeshComponent->SetRelativeScale3D(FVector(MeshScale));
 
-	// 动画类也在这里套用：它与上面四个属性一样是 EditAnywhere，构造期读不到蓝图值。
-	// SetAnimClass 在 5.5 起已弃用，用 SetAnimInstanceClass。
+	// 动画类同样是 EditAnywhere、构造期读不到蓝图值；SetAnimClass 已弃用，用 SetAnimInstanceClass。
 	MeshComponent->SetAnimInstanceClass(CharacterAnimClass.Get());
 }
 
@@ -332,8 +287,7 @@ void APlanetCharacter::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
 
-	// 外观在这里套用，而不是构造函数里：OnConstruction 是编辑器里能读到蓝图
-	// 覆盖值的第一个时机，在蓝图 Class Defaults 里改 CharacterMesh 立刻能在视口看到。
+	// 外观在这里套用：OnConstruction 是编辑器里能读到蓝图覆盖值的第一个时机，改完立刻可见。
 	ApplyCharacterMesh();
 }
 
@@ -341,29 +295,25 @@ void APlanetCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// WalkSpeed 是 EditAnywhere：在蓝图/实例上改过之后这里应用一次，否则要等到
-	// 按一次冲刺（SetSprinting）才会生效。
+	// WalkSpeed 是 EditAnywhere，这里应用一次，否则要等到按一次冲刺才生效。
 	GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
 
-	// 再套一次：角色由 GameMode 按 DefaultPawnClass 运行时生成，实例的
-	// OnConstruction 未必在蓝图属性就位之后跑过。重复调用是幂等的。
+	// 再套一次：角色运行时生成，实例的 OnConstruction 未必在蓝图属性就位后跑过；重复调用幂等。
 	ApplyCharacterMesh();
 
 	// 面部网格用不同骨架，必须在身体网格有模型之后才能挂到 Head_50。
 	AttachFaceMeshesToHead();
 
-	// 臂长同理：CameraArmLength 是 EditAnywhere，蓝图或关卡实例改过的值构造函数
-	// 读不到，这里才是它第一次生效的地方。基准臂长只在这一处抄，之后滚轮改的是
-	// 相对它的偏移（见 AddZoom 与 Tick），不会把蓝图设的值冲掉。
+	// 臂长同理：CameraArmLength 是 EditAnywhere，构造期读不到蓝图值。基准臂长只在此抄
+	// 一次，之后滚轮改的是相对它的偏移（见 AddZoom 与 Tick），不会冲掉蓝图设的值。
 	if (SpringArm)
 	{
 		SpringArm->TargetArmLength = CameraArmLength;
 		BaseCameraArmLength = CameraArmLength;
 	}
 
-	// 解析器必须在「找不到行星」的早退之前装好：它读的是 PlanetActor 的当前值，
-	// 而不是安装时的快照，所以先装后查没有时序问题；反过来（查到之后才装）
-	// 一旦此刻没找到行星，早退就把安装也跳过了，再也补不上。
+	// 解析器必须在「找不到行星」的早退之前装好：它读 PlanetActor 的当前值而非安装时快照，
+	// 所以先装后查没有时序问题；反过来一旦此刻没找到行星，早退就把安装也跳过了。
 	if (UPlanetEditComponent* Edit = GetPlanetEditComponent())
 	{
 		Edit->SetTargetResolver(
@@ -375,14 +325,12 @@ void APlanetCharacter::BeginPlay()
 			});
 	}
 
-	// 调用器在 OnRegister 里自动启用（VoxelInvokerComponent.cpp:83），那时还没有
-	// 任何人告诉过我们是不是视点。这里按当前已知状态重新应用一次。
-	// 必须在下面「找不到行星」的早退之前 —— 早退之后就没有第二次机会，
-	// 角色会在没被 Possess 的情况下一直开着调用器。
+	// 调用器在 OnRegister 里自动启用，那时没人告诉过我们是不是视点，这里按当前状态重应用。
+	// 必须早于下面「找不到行星」的早退，否则角色会在没被 Possess 时一直开着调用器。
 	ApplyViewpointInvokerState(bBoarded);
 
-	// 走 SetRidePlanet 而不是直接赋值：它会同时把角色挂到这颗行星下，此后
-	// 行星平移多少、角色就跟着平移多少，不再依赖 CarryRiders 每帧推位移。
+	// 走 SetRidePlanet 而不是直接赋值：它同时把角色挂到行星下，平移随附着层级走，
+	// 不再依赖 CarryRiders 每帧推位移。
 	SetRidePlanet(FindNearestPlanet());
 
 	if (UPlanetEditComponent* Edit = GetPlanetEditComponent())
@@ -398,12 +346,9 @@ void APlanetCharacter::BeginPlay()
 		return;
 	}
 
-	// 出生点以关卡里的 PlayerStart 为准：有 PlayerStart 时角色已经被引擎摆在那儿，
-	// 再吸附一次等于把出生点作废（GameMode 也把飞船摆在同一个 PlayerStart 上，
-	// 吸到地表会让两者拉开距离，开局登船失败）。
-	//
-	// 没有 PlayerStart 时才需要摆位：角色会生成在世界原点，对球心在原点的行星
-	// 来说就是生成在实心内部。
+	// 出生点以关卡里的 PlayerStart 为准：有它时角色已被引擎摆好，再吸附等于作废出生点
+	// （飞船也摆在同一 PlayerStart 上，吸到地表会让开局登船失败）。没有时才摆位 ——
+	// 角色会生成在世界原点，对球心在原点的行星就是生成在实心内部。
 	bSpawnedAtPlayerStart = HasPlayerStartInLevel();
 	if (!bSpawnedAtPlayerStart)
 	{
@@ -413,8 +358,7 @@ void APlanetCharacter::BeginPlay()
 
 bool APlanetCharacter::HasPlayerStartInLevel() const
 {
-	// APlayerStartPIE 派生自 APlayerStart，所以「Play From Here」同样算数 ——
-	// 那种情况下引擎会把它摆在编辑器摄像机处，正是作者当时想要的出生点。
+	// APlayerStartPIE 派生自 APlayerStart，「Play From Here」同样算数。
 	for (TActorIterator<APlayerStart> It(GetWorld()); It; ++It)
 	{
 		return true;
@@ -426,8 +370,8 @@ void APlanetCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
-	// 滚轮缩放。放在行星判空之前：臂长与重力无关，没找到行星时也该能拉远拉近。
-	// 这里是**唯一**写 TargetArmLength 的地方，别处直接赋值会在下一帧被冲掉。
+	// 滚轮缩放。放在行星判空之前：臂长与重力无关。这里是**唯一**写 TargetArmLength
+	// 的地方，别处直接赋值会在下一帧被冲掉。
 	if (SpringArm)
 	{
 		ZoomOffset = FMath::FInterpTo(ZoomOffset, TargetZoomOffset, DeltaSeconds, ZoomInterpSpeed);
@@ -435,14 +379,10 @@ void APlanetCharacter::Tick(float DeltaSeconds)
 			BaseCameraArmLength + ZoomOffset, MinCameraArmLength, MaxCameraArmLength);
 	}
 
-	// 行星在动，最近的一颗会换人。放在 PlanetActor 判空之前：开局若一颗都没
-	// 找到（PlanetActor 为空），这里才有机会在后续帧找回来。
-	//
-	// 登船期间不重评：角色此刻挂在飞船下跟着飞船跨星球移动，重评会把角色从
-	// 船里瞬移到新星的地表上。
-	//
+	// 行星在动，最近的一颗会换人；开局找不到行星时也要有后续帧找回的机会。
+	// 登船期间不重评：角色挂在飞船下跨星球移动，重评会把它瞬移到新星地表。
 	// 判据是 bBoarded，**不是** GetAttachParentActor()：角色平时就挂在行星下，
-	// 用父级判断会把「在地表走路」误当成「在船上」，重评从此再也不会发生。
+	// 用父级会把「走路」误当成「在船上」，重评从此再也不会发生。
 	if (!bBoarded && PlanetReevaluateInterval > 0.f)
 	{
 		PlanetReevaluateTimer -= DeltaSeconds;
@@ -454,12 +394,8 @@ void APlanetCharacter::Tick(float DeltaSeconds)
 	}
 
 	// 「上」的来源：有行星就是球面法线，没有就退回角色自己的 up。
-	//
-	// 相机必须放在行星判空**之前**算。以前这里跟着行星一起 return，后果是
-	// 「关卡里没有体素行星时，鼠标怎么拖相机都不动」—— CameraYaw / CameraPitch
-	// 一直在累加，却没有任何一行代码去消费它们（写枢轴旋转的全工程只有下面
-	// 那一处）。相机是角色的相机，不该以「脚下有没有我们自己的行星 Actor」
-	// 为前提：纯地形测试图、或者还没摆行星的关卡，都该能正常看。
+	// 相机必须放在行星判空**之前**算：以前跟着一起 return，导致无行星关卡里鼠标
+	// 拖不动相机（CameraYaw/Pitch 一直在累加却没人消费）。相机不该以脚下有没有行星为前提。
 	FVector Up;
 	if (PlanetActor)
 	{
@@ -482,9 +418,8 @@ void APlanetCharacter::Tick(float DeltaSeconds)
 		Up = GetActorUpVector();
 	}
 
-	// 基座沿球面连续平移：求出把上一帧法线转到本帧法线的旋转，作用在基座上。
-	// 这样朝向在任何位置都连续，极点处也不会退化。
-	// 平地上 Up 逐帧不变，这个旋转是单位阵，基座就是那个恒定基座。
+	// 基座沿球面连续平移：把上一帧法线转到本帧法线的旋转作用在基座上，任何位置都连续、
+	// 极点不退化；平地上 Up 不变，旋转是单位阵，基座恒定。
 	if (LastSurfaceUp.IsNearlyZero())
 	{
 		// 第一帧：任取一个切向参考建基，保证“上”就是球面法线。
@@ -505,23 +440,18 @@ void APlanetCharacter::Tick(float DeltaSeconds)
 	}
 	LastSurfaceUp = Up;
 
-	// 玩家视角是相对基座的局部旋转：偏航绕法线水平环绕，俯仰绕切向倾斜。
-	// 基座连续 ⟹ 画面不会翻滚。
+	// 玩家视角是相对基座的局部旋转；基座连续 ⟹ 画面不会翻滚。
 	CameraPivot->SetWorldRotation(
 		CameraBaseRotation * FRotator(CameraPitch, CameraYaw, 0.f).Quaternion());
 
-	// 以下只对行星有意义。没有行星时（纯地形关卡）角色由地形碰撞支撑，
-	// 既不需要也不该被按到「球面」上。
+	// 以下只对行星有意义：纯地形关卡里角色由地形碰撞支撑，不该被按到球面上。
 	if (!PlanetActor)
 	{
 		return;
 	}
 
-	// 碰撞体是异步流送出来的：第一次踩到地面之前，每帧把角色按回球面，
-	// 否则它会在碰撞体生成之前落进球体内部，然后卡在实心里。
-	//
-	// 出生点来自 PlayerStart 时整段跳过（见 bSpawnedAtPlayerStart）：角色出生在
-	// 作者选好的位置，可能在半空也可能在球体之外，按回球面等于把出生点作废。
+	// 碰撞体是异步流送出来的：第一次踩到地面前每帧把角色按回球面，否则它会落进球体
+	// 卡在实心里。出生点来自 PlayerStart 时整段跳过（见 bSpawnedAtPlayerStart）。
 	if (!bSpawnedAtPlayerStart && !bHasLanded)
 	{
 		if (GetCharacterMovement()->IsMovingOnGround())
@@ -569,9 +499,8 @@ void APlanetCharacter::SnapToPlanetSurface()
 	}
 
 	const float CapsuleHalfHeight = GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
-	// 按方向取地表：有地形时地表在基准球面上下浮动，用基准半径会把角色塞进
-	// 山体里（振幅 8 体素 = 800cm，山峰比基准面高 1600cm）。
-	// 多抬 1 厘米，避免刚好贴面时被判定为“已经在实体内部”。
+	// 按方向取地表：有地形时地表在基准球面上下浮动（振幅 8 体素），用基准半径会把
+	// 角色塞进山体。多抬 1 厘米，避免贴面时被判成「已在实体内部」。
 	const FVector Location =
 		PlanetCenter + Up * (PlanetActor->GetSurfaceRadiusCmAtDirection(Up) + CapsuleHalfHeight + 1.f);
 
@@ -587,8 +516,7 @@ void APlanetCharacter::SnapToPlanetSurface()
 
 void APlanetCharacter::SetRidePlanet(AVoxelPlanetActor* NewPlanet)
 {
-	// 登船期间父级归飞船，不抢；只更新「脚下是哪颗星」。
-	// 登船时保留旧值本来就是这个类的既有行为（见 Tick 里的重评守卫）。
+	// 登船期间父级归飞船，不抢，只更新「脚下是哪颗星」。
 	if (bBoarded)
 	{
 		PlanetActor = NewPlanet;
@@ -624,8 +552,7 @@ void APlanetCharacter::ReevaluatePlanet()
 		return;
 	}
 
-	// 换星：旧星已经不在脚下了（或者本来就没找到）。把「已落地」清掉 ——
-	// 新星的地表还没流送出来，得让 Tick 末尾的兜底逻辑重新把角色按到球面上。
+	// 换星：清掉「已落地」，新星地表还没流送出来，让 Tick 末尾的兜底重新把角色按到球面。
 	bHasLanded = false;
 
 	if (PlanetActor)
@@ -648,8 +575,7 @@ void APlanetCharacter::Move(const FVector2D& Value)
 		return;
 	}
 
-	// 以相机朝向为基准：W 永远是“往画面里走”。相机枢轴已经被摆成“以球面
-	// 法线为上”，所以它的前向天然切于球面。
+	// 以相机朝向为基准：枢轴已摆成「球面法线为上」，前向天然切于球面。
 	const FVector Desired =
 		CameraPivot->GetForwardVector() * Value.X + CameraPivot->GetRightVector() * Value.Y;
 
@@ -684,16 +610,13 @@ void APlanetCharacter::AddZoom(float Value)
 	TargetZoomOffset = FMath::Clamp(TargetZoomOffset - Value * ZoomStep, MinOffset, MaxOffset);
 }
 
-// ---------------------------------------------------------------------------
 // 输入：由本角色自己绑定，只有被 Possess 时引擎才启用这个输入组件。
-// ---------------------------------------------------------------------------
 
 void APlanetCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 
-	// 引擎只在**本地 Possess 这个 Pawn** 时调用这里，所以「谁被操控谁响应输入」
-	// 由 Pawn 栈保证；真正的绑定与回调都在组件里。
+	// 引擎只在本地 Possess 这个 Pawn 时调用这里，真正的绑定与回调都在组件里。
 	if (PlayerInput)
 	{
 		PlayerInput->Bind(PlayerInputComponent);
@@ -716,9 +639,8 @@ void APlanetCharacter::SetBoarded(bool bInBoarded)
 	GetCharacterMovement()->StopMovementImmediately();
 	GetCharacterMovement()->SetMovementMode(bBoarded ? MOVE_None : MOVE_Walking);
 
-	// 登船后角色只是被隐藏/禁撞，Actor 和调用器仍然挂在飞船上，会跟着飞船
-	// 一起高速平移：LODToSet = 0 + 200 米的盒子每帧都要重网格化，是飞船自己
-	// 那三档之外的一块大头。这里连同「是不是当前视点」一起交给同一个谓词。
+	// 登船后角色仍挂在飞船上跟着高速平移，LODToSet = 0 + 200 米盒子每帧重网格化
+	// 是飞船三档之外的一块大头；和「是不是当前视点」交给同一个谓词。
 	ApplyViewpointInvokerState(bBoarded);
 
 	if (!bBoarded)
@@ -726,13 +648,11 @@ void APlanetCharacter::SetBoarded(bool bInBoarded)
 		// 离船后重新踩上球面：碰撞体可能已经因为距离太远被回收了。
 		bHasLanded = false;
 
-		// 离船时可能已经在另一颗星球旁边了（开船过来、下船）。把计时器清零，
-		// 让下一帧立刻重找最近的行星，而不是拿着旧星的重力方向等半秒。
+		// 离船时可能已到另一颗星旁，清零计时器让下一帧立刻重找，别拿着旧星重力等半秒。
 		PlanetReevaluateTimer = 0.f;
 
-		// 摘掉飞船之后角色是「无父级」状态，位移重新交给行星附着关系。这里先
-		// 挂回「上一次已知的那颗星」，紧接着的 ReevaluatePlanet 会把它纠正成
-		// 真正最近的一颗。
+		// 摘掉飞船后角色无父级，先挂回上次已知的星，紧接着的 ReevaluatePlanet
+		// 会把它纠正成真正最近的一颗。
 		SetRidePlanet(PlanetActor);
 	}
 }
@@ -749,8 +669,7 @@ void APlanetCharacter::ApplyViewpointInvokerState(const bool bBoardedIn)
 	const bool bActive = bIsViewpoint && !bBoardedIn;
 	VoxelViewpointInvokers::SetEnabled(VoxelInvoker, bActive);
 
-	// 过渡环与主 Invoker 同进同退：留下任何一个都会在星图里继续生效，
-	// 让「只有被 Possess 的 Pawn 起作用」这条契约失效。
+	// 过渡环与主 Invoker 同进同退：留下一个就会让「只有被 Possess 的 Pawn 起作用」失效。
 	for (const TObjectPtr<UVoxelSimpleInvokerComponent>& Invoker : FarVoxelInvokers)
 	{
 		VoxelViewpointInvokers::SetEnabled(Invoker, bActive);

@@ -46,9 +46,8 @@ bool StarMapPicking::MakeScreenCandidate(
 		FVector2D EdgePosition;
 		if (PC->ProjectWorldLocationToScreen(Center + ViewRight * WorldRadiusCm, EdgePosition))
 		{
-			// 直接投影「中心 + 右向 × R」量到的是 f·R/d，比切线决定的真实轮廓半径
-			// 小一个 cos α（见 SilhouetteRadiusScale）。系数为 0 表示相机在球内
-			// 或贴着球面，此时留 0、退回固定像素容差。
+			// 直接投影「中心 + 右向 × R」量到的是 f·R/d，比切线决定的轮廓半径小一个
+			// cos α（见 SilhouetteRadiusScale）。系数 0 = 相机在球内，留 0 退回固定容差。
 			const double CameraDistanceCm = FVector::Dist(ViewLocation, Center);
 			Out.ScreenRadiusPx = float(
 				FVector2D::Distance(Out.ScreenPosition, EdgePosition)

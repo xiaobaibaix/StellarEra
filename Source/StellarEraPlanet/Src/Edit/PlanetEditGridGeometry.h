@@ -6,10 +6,8 @@
 #include "CoreMinimal.h"
 
 /**
- * 一条经纬网格线。
- *
- * Directions 是单位球方向（行星体素空间；世界与体素空间只差等比缩放，方向可直接共用）。
- * bClosed = true 表示首尾相接（纬线）；经线是开放的折线。
+ * 一条经纬网格线。Directions 是单位球方向（世界与体素空间只差等比缩放，方向可共用）；
+ * bClosed = 首尾相接（纬线），经线是开放折线。
  */
 struct FPlanetEditGridLine
 {
@@ -20,11 +18,8 @@ struct FPlanetEditGridLine
 namespace PlanetEditGrid
 {
 	/**
-	 * 按步长生成经纬线。步长夹到 [1, 90] 度。
-	 *
-	 * 经线：固定经度，纬度从 -90° 到 +90°（含两极），每条 LatCount+1 个点。
-	 * 纬线：跳过两极（在极点会退化成重复点），每条 LonCount 个点并闭合。
-	 * 数量：经线 LonCount 条、纬线 LatCount-1 条。
+	 * 按步长生成经纬线，步长夹到 [1, 90] 度。经线固定经度、纬度 -90..+90（含两极），每条
+	 * LatCount+1 点；纬线跳过两极（会退化成重复点），每条 LonCount 点并闭合。
 	 */
 	STELLARERAPLANET_API void BuildLines(float StepDegrees, TArray<FPlanetEditGridLine>& OutLines);
 

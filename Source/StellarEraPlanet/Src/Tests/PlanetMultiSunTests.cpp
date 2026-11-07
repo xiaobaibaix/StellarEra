@@ -143,8 +143,8 @@ bool FStellarEraSunRadianceMathTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 从材质实例读颜色与亮度。不写死预设数值（预设调色会红测试），
-// 只断言三个预设的相对关系 —— 这才是"真的读到 MI 覆盖值"的证据。
+// 从材质实例读颜色与亮度：不写死预设数值（预设调色会红测试），
+// 只断言三个预设的相对关系。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSunMaterialReadTest,
 	"StellarEra.Planet.Atmosphere.SunRadiance.MaterialRead",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -246,7 +246,6 @@ bool FStellarEraSunListBuildTest::RunTest(const FString& Parameters)
 	const FVector Probe(5.0e13, 0.0, 0.0);
 	TArray<AActor*> Spawned;
 
-	// 距离 1e6 / 2e6 / 3e6，方向 +X / +Y / +Z。
 	TArray<UStarBodyComponent*> Stars;
 	Stars.Add(StellarEraMultiSunTests::AddStarComponent(
 		StellarEraMultiSunTests::SpawnRootedActor(World, Probe + FVector(1.0e6, 0, 0), Spawned)));

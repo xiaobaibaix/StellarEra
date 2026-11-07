@@ -53,8 +53,7 @@ bool FPlanetGeologyPresetDefaultsTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// PostEditChangeProperty / FPropertyChangedEvent 只在编辑器目标存在，
-// 而 WITH_DEV_AUTOMATION_TESTS 在 Game 目标同样为 1，故整块再包一层 WITH_EDITOR。
+// 这两个 API 只在编辑器目标存在，而 WITH_DEV_AUTOMATION_TESTS 在 Game 目标同样为 1，故再包 WITH_EDITOR。
 #if WITH_EDITOR
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyPresetRevisionTest,
 	"StellarEra.Planet.Geology.PresetRevision",
@@ -102,9 +101,8 @@ bool FPlanetGeologyPresetNestedEditTest::RunTest(const FString& Parameters)
 }
 #endif
 
-// 迁移路径的锚点：PostLoad 拿旧字段去 MakeLegacyGeologyAssetPath 拼路径，而
-// DA_Geology_Earth 这个资产是建资产命令用字符串另外拼出来的。两边一旦漂移，
-// 旧关卡就永久没矿，且症状只是「行星没矿」。这条测试把两边钉在同一路径上。
+// 迁移路径的锚点：PostLoad 用旧字段拼路径，而 DA_Geology_Earth 是建资产命令字符串另拼的；
+// 两边漂移旧关卡就永久没矿（症状只是「行星没矿」）。这条把两边钉在同一路径上。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyLegacyPathTest,
 	"StellarEra.Planet.Geology.LegacyAssetPath",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -139,9 +137,8 @@ bool FPlanetGeologyLegacyPathTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 迁移链的端到端验证：旧关卡只存 GeologyPreset 字符串，PostLoad 把它换成资产并清空旧字段。
-// 起点是 CDO 默认值 "earth" —— 旧 Actor 从未序列化过该字段，删掉默认值迁移条件恒假，
-// 老关卡会永久丢矿（Task 3 审查抓到过一次）。
+// 迁移链端到端：旧关卡只存 GeologyPreset 字符串，PostLoad 换成资产并清空旧字段。
+// 起点是 CDO 默认值 "earth"：旧 Actor 从未序列化该字段，删掉默认值迁移条件恒假、老关卡丢矿。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyLegacyMigrationTest,
 	"StellarEra.Planet.Geology.LegacyMigration",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -152,9 +149,8 @@ bool FPlanetGeologyLegacyMigrationTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("CDO 默认迁移名是 earth"),
 		GetDefault<AVoxelPlanetActor>()->GeologyPreset, FString(TEXT("earth")));
 
-	// 2) 真跑一次迁移。对象不放进世界：PostLoad 的迁移分支只读旧字段并 TryLoad；
-	//    基类 PostLoad 的编辑器 Actor 元素、DataLayer 修复都以 GetLevel() 为守卫，
-	//    GetLinkerUEVersion / GetLinkerCustomVersion 在无 Linker 时返回当前版本。
+	// 2) 真跑一次迁移。对象不放进世界：迁移分支只读旧字段并 TryLoad；基类 PostLoad 的
+	//    元素/DataLayer 修复以 GetLevel() 为守卫，无 Linker 时版本查询返回当前版本。
 	AVoxelPlanetActor* Actor = NewObject<AVoxelPlanetActor>();
 	if (!TestNotNull(TEXT("新建一个不入世界的行星 Actor"), Actor))
 	{
@@ -395,10 +391,9 @@ bool FPlanetGeologyLegacyMigrationFidelityTest::RunTest(const FString& Parameter
 	return true;
 }
 
-// 遗留兜底的判据必须是数据层的 Params.Distributions，不是过滤掉空 runtime 之后的
-// Definition.Distributions：挂一个暂时为空的生成器（SeamCount = 0 这类调参中间态）时
-// 数据层明明有生成器，过滤后却变空 —— 拿过滤后的数组判会凭空冒出 PodCount 个旧矿囊，
-// 而且与 MigrateLegacyElement（按数据层判、不会迁）对同一输入不等价。
+// 遗留兜底的判据必须是数据层 Params.Distributions，而不是过滤掉空 runtime 后的
+// Definition.Distributions：挂一个暂时为空的生成器（SeamCount = 0 这类调参中间态）时，
+// 按过滤后的数组判会凭空冒出 PodCount 个旧矿囊，还与 MigrateLegacyElement 不等价。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetGeologyLegacyFallbackNeedsNoDataDistributionsTest,
 	"StellarEra.Planet.Geology.LegacyFallbackNeedsNoDataDistributions",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

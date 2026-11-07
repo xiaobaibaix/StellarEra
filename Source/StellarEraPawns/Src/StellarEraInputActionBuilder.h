@@ -14,12 +14,8 @@ struct FKey;
 namespace StellarEraInput
 {
 	/**
-	 * 左键「点击」与「拖拽」的分界（像素）。
-	 *
-	 * 角色的编辑点放（`UPlanetCharacterInputComponent`）与星图左键拾取
-	 * （`UStarMapCameraInputComponent`）共用同一个阈值，所以放在这里而不是各自的
-	 * .cpp 里 —— 两处不一致会出现「手抖 4 像素算点击、6 像素算拖拽」这种没人
-	 * 查得出来的偏差。
+	 * 左键「点击」与「拖拽」的分界（像素）。角色编辑点放与星图拾取共用，
+	 * 分开放会让两处行为出现查不出来的偏差。
 	 */
 	constexpr double ClickMoveThresholdPx = 5.0;
 

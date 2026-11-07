@@ -39,16 +39,13 @@ void FPlanetCharacterInputActions::Build(UObject* Outer, UInputMappingContext* C
 	StellarEraInput::MapKey(Context, Jump, EKeys::SpaceBar);
 	StellarEraInput::MapKey(Context, Sprint, EKeys::LeftShift);
 
-	// 滚轮是轴键（每格 ±1），不是按键，所以映射到 Axis1D 的动作上直接取值。
-	// 不需要任何修饰器：方向约定（上滚 = 拉近）由 APlanetCharacter::AddZoom 负责。
+	// 滚轮是轴键（每格 ±1）；方向约定（上滚 = 拉近）由 APlanetCharacter::AddZoom 负责。
 	StellarEraInput::MapKey(Context, Zoom, EKeys::MouseWheelAxis);
 
 	StellarEraInput::MapKey(Context, EditModeToggle, EKeys::G);
 
-	// 笔刷尺寸：星图里滚轮已归缩放（角色编辑模式下滚轮同样调笔刷），尺寸因此另占
-	// 几对键，两个模式都能用。`]` / `=` / 小键盘 `+` = 大一档；
-	// `[` / `-` / 小键盘 `-` = 小一档。负值那三行接 Negate，同一组映射直接出 −1。
-	// `=` 与 `-` 取的是物理键，所以 Shift+`=`（即 `+`）同样生效。
+	// 笔刷尺寸另占几对键，两个模式都能用：`]` / `=` / 小键盘 `+` 大一档，`[` / `-` 小一档
+	// （负值三行接 Negate）；`=` 与 `-` 取物理键，所以 Shift+`=` 也生效。
 	StellarEraInput::MapKey(Context, BrushSize, EKeys::RightBracket);
 	StellarEraInput::MapKey(Context, BrushSize, EKeys::Equals);
 	StellarEraInput::MapKey(Context, BrushSize, EKeys::Add);
@@ -56,8 +53,7 @@ void FPlanetCharacterInputActions::Build(UObject* Outer, UInputMappingContext* C
 	StellarEraInput::MapKey(Context, BrushSize, EKeys::Hyphen, { StellarEraInput::MakeNegate(Outer) });
 	StellarEraInput::MapKey(Context, BrushSize, EKeys::Subtract, { StellarEraInput::MakeNegate(Outer) });
 
-	// 左键 / E / M 在别的表里也有同名按键的动作（星图相机、飞船各造各的）。
-	// 同一个 IMC 里的动作互不吞输入，真正响应的是被 Possess 那个 Pawn 绑的那条。
+	// 左键 / E / M 在别的表里也有同名动作，同一 IMC 里互不吞输入，谁被 Possess 谁响应。
 	// 左键在角色这里只服务编辑：点笔刷按钮、挖掘。
 	StellarEraInput::MapKey(Context, EditPrimary, EKeys::LeftMouseButton);
 	StellarEraInput::MapKey(Context, Interact, EKeys::E);

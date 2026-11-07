@@ -56,8 +56,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraHUDGravityTest,
 
 bool FStellarEraHUDGravityTest::RunTest(const FString& Parameters)
 {
-	// 换算出来的数值要同时给出 km/s² 与 m/s²：前者与推力同单位便于比较，
-	// 后者便于和现实重力（9.8 m/s²）对感觉。
+	// 同时给出 km/s²（与推力同单位）与 m/s²（与现实重力对照）。
 	const FString HeavyLine = AStellarEraHUD::FormatGravityLine(43.776f, 12.5f);
 	TestTrue(TEXT("含 km/s² 读数"), HeavyLine.Contains(TEXT("43.78 km/s²")));
 	TestTrue(TEXT("含 m/s² 读数"), HeavyLine.Contains(TEXT("43776 m/s²")));
@@ -89,8 +88,7 @@ bool FStellarEraHUDSpeedLinesTest::RunTest(const FString& Parameters)
 	FString Absolute;
 	FString Relative;
 
-	// 有上限：上限作用在**相对参考行星**的速度上（推力衰减比的就是相对速度），
-	// 所以「当前 / 上限」印在相对速度行；绝对速度只报读数。
+	// 上限作用在**相对参考行星**的速度上，所以「当前 / 上限」印在相对速度行。
 	AStellarEraHUD::FormatSpeedLines(1.665f, 0.25f, 1.5f, true, Absolute, Relative);
 	TestTrue(TEXT("绝对速度标明绝对"), Absolute.Contains(TEXT("绝对速度")));
 	TestTrue(TEXT("绝对速度含当前值"), Absolute.Contains(TEXT("1.66 km/s")));

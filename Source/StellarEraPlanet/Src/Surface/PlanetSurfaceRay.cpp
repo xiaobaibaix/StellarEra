@@ -21,8 +21,7 @@ namespace PlanetSurfaceRay
 			return -1.0;
 		}
 
-		// 射线 P(t) = Origin + Direction × t。把球心投到射线上：投影长度 Projection
-		// 对应最近点，垂距平方 PerpSq = |ToCenter|² − Projection²。
+		// P(t) = Origin + Direction × t；Projection 对应最近点，PerpSq 是垂距平方。
 		const FVector ToCenter = SphereCenter - RayOrigin;
 		const double Projection = ToCenter.Dot(Direction);
 		const double PerpSq = ToCenter.SizeSquared() - Projection * Projection;
@@ -37,8 +36,7 @@ namespace PlanetSurfaceRay
 		const double Entry = Projection - HalfChord;
 		const double Exit = Projection + HalfChord;
 
-		// Exit ≤ 0：整个球在射线背后；Entry ≤ 0 < Exit：起点在球内。
-		// 两种都不给约束 —— 返回 −1，避免调用方把缩放锁死在 0。
+		// 整个球在背后或起点在球内 → −1，避免调用方把缩放锁死在 0。
 		return (Exit > 0.0 && Entry > 0.0) ? Entry : -1.0;
 	}
 
@@ -70,8 +68,7 @@ namespace PlanetSurfaceRay
 		}
 
 		const double Exit = Projection + FMath::Sqrt(RadiusSq - PerpSq);
-		// 只有 Exit ≤ 0（整个球在背后）才算失败；起点在球内时 Entry < 0 < Exit，
-		// 照样给出尽头 —— 这正是与 FirstHit 的区别。
+		// 只有整个球在背后才算失败；起点在球内时照样给出尽头（与 FirstHit 的区别）。
 		return Exit > 0.0 ? Exit : -1.0;
 	}
 
@@ -85,12 +82,12 @@ namespace PlanetSurfaceRay
 		FMarchStepRange Range;
 		const double StepCm = FMath::Max(VoxelSizeCm, 1.0e-4);
 
-		// 往里：走到包围球在行星**另一侧**的穿出点，也就是整条弦。
+		// 往里：走到包围球在行星另一侧的穿出点（整条弦）。
 		double FarRootCm = RaySphereFarHit(
 			RayOrigin, UnitDir, FVector::ZeroVector, BoundingRadiusCm);
 		if (FarRootCm < 0.0)
 		{
-			// 解析命中点必然落在包围球内，理论上走不到这里。真走到了也给一个有限终点。
+			// 理论上走不到这里；真走到了也给一个有限终点。
 			FarRootCm = AnalyticDistanceCm + FMath::Max(BoundingRadiusCm, 0.0);
 		}
 
@@ -114,8 +111,7 @@ namespace PlanetSurfaceRay
 		// 起点单独抽一次：它决定往哪个方向走。
 		const bool bStartsEmpty = SampleEmptyAt(0);
 
-		// 起点空 = 在解析地表之上 → 朝里（负方向）找第一格实。
-		// 起点实 = 地形被抬高 → 朝外（正方向）找第一格空。
+		// 起点空 = 在解析地表之上 → 朝负向找第一格实；起点实 → 朝正向找第一格空。
 		const int32 StepSign = bStartsEmpty ? -1 : 1;
 		const int32 MaxSteps = bStartsEmpty ? MaxBackwardSteps : MaxForwardSteps;
 

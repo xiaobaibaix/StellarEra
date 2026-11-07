@@ -50,8 +50,7 @@ bool FPlanetGeologyDistributionNoiseTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("同参数同点确定"), A, B);
 	TestTrue(*FString::Printf(TEXT("范围 [0,1]（%.4f）"), A), A >= 0.f && A <= 1.f);
 
-	// 片层拿原始噪声做形变，必须独立于阈值可读。入参是噪声空间坐标，
-	// 所以这里自己乘一个任意缩放（7.5），与 EvaluateVein 内部的折频无关。
+	// 片层形变读原始噪声，必须独立于阈值：入参是噪声空间坐标，这里自乘 7.5。
 	const FVector NoiseSpacePoint = P * 7.5f;
 	const float Raw = Noise.EvaluateAt(NoiseSpacePoint);
 	TestTrue(*FString::Printf(TEXT("EvaluateAt 范围 [0,1]（%.4f）"), Raw),
@@ -95,8 +94,7 @@ namespace PlanetGeologyDistributionTest
 		Distribution->PodCount = PodCount;
 		Distribution->PodRadius = PodRadius;
 		Distribution->Seed = Seed;
-		// 刻意不设 bSeedExplicit：Seed=0 必须走派生，否则 SeedDerivation 的前两段
-		// 会两条都锁死成种子 0，囊表相同，测试变成永真。
+		// 刻意不设 bSeedExplicit：Seed=0 必须走派生，否则两条都锁死成种子 0，测试永真。
 		Element.Distributions.Add(Distribution);
 		return Distribution;
 	}
@@ -263,10 +261,9 @@ bool FPlanetGeologyDistributionSeedTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("同种子两次生成逐位相同"), AreRegionsEqual(First, Second));
 	}
 
-	// 4) 跨进程稳定：把派生结果钉成字面量。
-	// GetTypeHash(FName) 取的是名字池下标，换个进程就可能变；字符串哈希（FCrc::Strihash）才是确定的。
-	// 这条字面量让「悄悄改回 FName 哈希」立刻变成失败。首次实现时先写成 0，
-	// 从失败信息读出实际值再填回来 —— 不要反过来先算出值再写测试。
+	// 4) 跨进程稳定：把派生结果钉成字面量。GetTypeHash(FName) 取名字池下标，换进程
+	// 就可能变；字符串哈希（FCrc::Strihash）才是确定的。首次实现先写成 0，从失败信息
+	// 读出实际值再填回来 —— 不要反过来先算值再写测试。
 	{
 		UPlanetGeologyPreset* Preset = MakePreset();
 		UPlanetGeologySpherePodsDistribution* Distribution =
@@ -276,10 +273,8 @@ bool FPlanetGeologyDistributionSeedTest::RunTest(const FString& Parameters)
 			Distribution->ResolveSeed(TEXT("iron"), 3), 1033752709);
 	}
 
-	// 5) bSeedExplicit 单独成立：Seed=0 时它必须压过派生规则。
-	// 前面第 1/2/4 条也都是 Seed=0 走派生（钉的是派生出的字面值），但它们从没设过
-	// bSeedExplicit，所以删掉 ResolveSeed 里的位标记分支照样全绿。这一条同时断言
-	// 「没标记时派生非 0」与「标记后就是字面值 0」，才真的钉得住。
+	// 5) bSeedExplicit 单独成立：前几条从没设过它，删掉 ResolveSeed 的位标记分支
+	// 照样全绿；这里同时断言「没标记时派生非 0」与「标记后就是字面值 0」才钉得住。
 	{
 		UPlanetGeologyPreset* Preset = MakePreset();
 		UPlanetGeologySpherePodsDistribution* ExplicitZero =
@@ -351,14 +346,9 @@ namespace PlanetGeologyDistributionTest
 		return Lens;
 	}
 
-	/** 加速路径与暴力路径的逐点一致性。
-	 *
-	 * 采样范围必须**超出**上报的包围盒：只在盒内采样时，包围盒算小了也发现不了 ——
-	 * 盒内每一格索引都登记过，当然一致。所以区域点按 2× extent 采，再在特征半径内侧 0.9r、
-	 * 外侧 1.05r 各补 8 点 —— 刻意避开 d = r 的等值面：那里两条路径按定义都返回 0，
-	 * 探针无论实现对错都一致，判别力为零。
-	 * 失配要打出坐标：不说清是哪个点、差多少，两个 0.x 的浮点差根本 loc 不到。
-	 */
+	/** 加速路径与暴力路径的逐点一致性。采样必须**超出**上报包围盒（盒内每格都登记过，
+	 *  算小了也发现不了）；区域点按 2× extent 采，并在 0.9r / 1.05r 各补 8 点，刻意
+	 *  避开 d = r 等值面（那里两条路径都返回 0，判别力为零）。失配要打出坐标才 loc 得到。 */
 	int32 CountBruteForceMismatches(FAutomationTestBase& Test, const FPlanetGeologyField& Field,
 		int32 ElementIndex, const TArray<FPlanetGeologyRegion>& Regions, FRandomStream& Rng)
 	{
@@ -408,12 +398,8 @@ namespace PlanetGeologyDistributionTest
 		return Mismatches;
 	}
 
-	/** 包围盒的保守性：暴力路径说有矿的点，必须落在某个区域的包围盒里。
-	 *
-	 * 这条**不依赖包围盒的算法**，所以公式写反（盒子比真实矿体小）时它立刻红。
-	 * 上面那条「索引 == 暴力」在盒子偏小时可能结构性失明：索引只登记盒内格子，
-	 * 盒外没有候选可查；只有主动去盒外采样的人才会发现那里本该有矿。
-	 */
+	/** 包围盒的保守性：暴力路径说有矿的点必须落在某个区域包围盒里。这条不依赖包围盒
+	 *  算法，盒子写小立刻红；「索引 == 暴力」在盒子偏小时会结构性失明（索引只登记盒内格）。 */
 	int32 CountOreOutsideAllRegions(const FPlanetGeologyField& Field, int32 ElementIndex,
 		const TArray<FPlanetGeologyRegion>& Regions, FRandomStream& Rng)
 	{
@@ -444,8 +430,7 @@ namespace PlanetGeologyDistributionTest
 				++Violations;
 			}
 		}
-		// 区域包围盒内部（真实矿体所在）按 2× extent 补采：命中率比整个球体随机高得多，
-		// 而且正是盒子偏小时矿体探出盒外的位置。
+		// 盒内（真实矿体所在）按 2× extent 补采：命中率高，且正是盒子偏小时矿体探出盒外的位置。
 		for (const FPlanetGeologyRegion& Region : Regions)
 		{
 			const FVector Center = Region.Bounds.GetCenter();
@@ -558,8 +543,7 @@ bool FPlanetGeologyLensWarpBruteForceTest::RunTest(const FString& Parameters)
 {
 	using namespace PlanetGeologyDistributionTest;
 
-	// 域扭曲会把点沿局部 Z 挪 WarpAmplitude × 厚度，包围盒必须按放大后的厚度外扩。
-	// 不开扭曲时这条路径完全走不到，所以单独来一例。
+	// 域扭曲沿局部 Z 挪 WarpAmplitude × 厚度，包围盒须按放大后的厚度外扩；不开扭曲走不到这条路径。
 	UPlanetGeologyPreset* Preset = MakePreset();
 	FPlanetGeologyElementParams& Element = AddElement(*Preset, TEXT("silicon"));
 	AddLens(*Preset, Element, 1.0f);
@@ -635,12 +619,9 @@ bool FPlanetGeologyVeinContinuityTest::RunTest(const FString& Parameters)
 		Centers.Add(Region.Bounds.GetCenter());
 	}
 
-	// 段中点是骨架上的点：VeinThreshold = 0 时那里必须真的有矿。
-	// 但这**证明不了「脉是连续的」**：包围盒是 min/max ± r，盒心恒等于段中点，
-	// 所以任意一组互不相连的胶囊都能让「中点有矿」全绿。
-	// 真正的判据是相邻段中点必须靠得足够近：每段恰好前进 SegmentLength，
-	// 链上相邻中点间距恰好 = SegmentLength，分支首段离锚点 ≤ SegmentLength。
-	// 骨架若断了（每段独立摆放），中点会散布在整个球面，几乎每个段都成孤点。
+	// 段中点是骨架上的点：VeinThreshold = 0 时必须真的有矿。但这证明不了「脉连续」——
+	// 包围盒盒心恒等于段中点，任意一组不相连的胶囊都能全绿。真正的判据是相邻段中点
+	// 靠得足够近（每段恰好前进 SegmentLength）；骨架若断了，中点散在整个球面。
 	int32 ZeroCenters = 0;
 	int32 IsolatedSegments = 0;
 	float MinRadius = TNumericLimits<float>::Max();
@@ -777,8 +758,8 @@ bool FPlanetGeologyDisseminatedCountsTest::RunTest(const FString& Parameters)
 	}
 	TestEqual(TEXT("颗粒半径都在抖动范围内"), OutOfRange, 0);
 	TestEqual(TEXT("没有颗粒中心越出球体"), OutsideSphere, 0);
-	// 半径带是「落在区间内」，对「抖动被写死、恒定 0.0025」同样成立 —— 所以另起一条比值判据：
-	// 320 粒、±50% 抖动下如果看不到散布，就是 RadiusScale 根本没被乘进去。
+	// 半径带对「抖动写死、恒定 0.0025」同样成立，故另起比值判据：320 粒 ±50% 抖动下
+	// 看不到散布，就是 RadiusScale 根本没被乘进去。
 	TestTrue(*FString::Printf(TEXT("粒径抖动确实生效（%.4f..%.4f）"), MinSeen, MaxSeen),
 		MaxSeen > MinSeen * 1.01f);
 

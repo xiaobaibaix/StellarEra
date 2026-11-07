@@ -9,10 +9,8 @@
 #include "PlanetGeologyDisseminatedDistribution.h"
 #include "PlanetGeologyLensDistribution.h"
 #include "PlanetGeologyVeinDistribution.h"
-// ICONSOLEMANAGER：文件末尾的 StellarEra.CreateEarthGeologyPreset 用 FAutoConsoleCommand，
-// 它不在 CoreMinimal 里。
+// 以下几项只服务末尾的建资产命令（FAutoConsoleCommand 不在 CoreMinimal 里）。
 #include "HAL/IConsoleManager.h"
-// 以下几项只服务那条建资产命令：登记到资产注册表、拼磁盘路径、保存包。
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Misc/PackageName.h"
 #include "UObject/Package.h"
@@ -21,9 +19,7 @@
 
 FSoftObjectPath UPlanetGeologyPreset::MakeAssetPath(const FString& PlanetName)
 {
-	// 路径规则只留这一份（见头文件注释）。这里的实现从
-	// AVoxelPlanetActor::MakeLegacyGeologyAssetPath 整体搬过来：迁移目标与建资产命令
-	// 必须逐字一致，所以不许再各写一份。
+	// 迁移目标与建资产命令必须逐字一致，路径规则只留这一份，别另写。
 	FString Name = PlanetName;
 	Name.TrimStartAndEndInline();
 	if (Name.IsEmpty())
@@ -72,8 +68,7 @@ void UPlanetGeologyPreset::PostLoad()
 {
 	Super::PostLoad();
 
-	// 异步加载线程上不能建 UObject。跳过迁移不会改变行为：BuildFromPreset 的
-	// 遗留兜底会按同一份旧字段建出同样的囊表；下次重新加载这份资产时会再试一次。
+	// 异步加载线程上不能建 UObject；跳过迁移不影响行为（BuildFromPreset 的遗留兜底等价），下次加载再试。
 	if (!IsInGameThread())
 	{
 		UE_LOG(LogTemp, Verbose,
@@ -111,8 +106,8 @@ namespace
 	TDistribution* AddEarthDistribution(UPlanetGeologyPreset& Preset,
 		FPlanetGeologyElementParams& Element)
 	{
-		// 只清 PodCount：它是遗留兜底的唯一开关（Distributions 为空 **且** PodCount > 0 才生效），
-		// 其余遗留字段在有生成器时根本不参与采样。别删这一行 —— 删了这里的两套数据就会并存。
+		// 别删：PodCount 是遗留兜底的唯一开关（Distributions 空 **且** PodCount > 0 才生效），
+		// 不清会让新生成器与旧字段两套数据并存。
 		Element.PodCount = 0;
 		TDistribution* Distribution = NewObject<TDistribution>(&Preset);
 		Distribution->ShapeDetail = 3.0f;
@@ -138,7 +133,7 @@ namespace
 
 		Preset.Elements.Reset();
 
-		// 硅：片层，近地表的薄板
+		// 硅：片层
 		{
 			FPlanetGeologyElementParams& Element = *AddElement(
 				TEXT("silicon"), TEXT("硅"), FLinearColor(0.62f, 0.58f, 0.50f), 0.60f);
@@ -153,7 +148,7 @@ namespace
 			Lens->VeinThreshold = 0.45f;
 		}
 
-		// 铁：脉状，穿切地层
+		// 铁：脉状
 		{
 			FPlanetGeologyElementParams& Element = *AddElement(
 				TEXT("iron"), TEXT("铁"), FLinearColor(0.72f, 0.42f, 0.36f), 0.75f);
@@ -179,7 +174,7 @@ namespace
 			Vein->VeinThreshold = 0.55f;
 		}
 
-		// 钛：浸染，细颗粒铺开
+		// 钛：浸染
 		{
 			FPlanetGeologyElementParams& Element = *AddElement(
 				TEXT("titanium"), TEXT("钛"), FLinearColor(0.70f, 0.72f, 0.78f), 0.15f);
@@ -217,12 +212,8 @@ namespace
 		const FString AssetName = AssetPath.GetAssetName();
 		const FString ObjectPath = AssetPath.ToString();
 
-		// 先看包在不在盘上，再决定要不要 LoadObject：首次创建时探一次加载会在日志里留下
-		// 「未找到 Object」的噪音，而这里本来就预期它不存在。
-		//
-		// 仍用 LoadObject 而不是 CreatePackage 之后 FindObject：新进程里 CreatePackage 返回的是
-		// 空包，FindObject 恒为 null，那样永远走「新建」，也就没法验证上一轮存下去的资产
-		// 能不能读回来。这里读不到才建，读到就覆盖 —— 于是跑两次就能证明磁盘往返。
+		// 先探测包是否存在再 LoadObject：直接加载首次创建时会在日志里留「未找到 Object」噪音。
+		// 用 LoadObject 而非 CreatePackage+FindObject：新进程里后者恒返回空包，就验证不了磁盘往返；这里读不到才建，读到就覆盖。
 		UPlanetGeologyPreset* Preset = FPackageName::DoesPackageExist(PackageName)
 			? LoadObject<UPlanetGeologyPreset>(nullptr, *ObjectPath)
 			: nullptr;
@@ -239,15 +230,13 @@ namespace
 		}
 
 		FillEarthPreset(*Preset);
-		// Revision 只是缓存键（GetRevision 的消费者用它判断「同一份资产的内容变了」），
-		// 不是内容。重跑这条命令也会自增，所以即使元素值一个字都没改，落盘后的资产字节也会变。
+		// Revision 只是缓存键，不是内容；重跑这条命令也会自增，落盘字节因此总在变。
 		++Preset->Revision;
 
 		if (bCreated)
 		{
 			FAssetRegistryModule::AssetCreated(Preset);
 		}
-		// 覆盖分支里没有局部 Package 变量，包从资产本身取。
 		UPackage* const AssetPackage = Preset->GetPackage();
 		AssetPackage->MarkPackageDirty();
 

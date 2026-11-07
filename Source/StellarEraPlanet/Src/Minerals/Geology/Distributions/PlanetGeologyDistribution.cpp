@@ -16,8 +16,7 @@ void FPlanetGeologyDistributionNoise::Init(const int32 InSeed, const float InFea
 	const float InShapeDetail, const int32 InOctaves, const float InLacunarity,
 	const float InGain, const float InVeinThreshold)
 {
-	// 不在这里抬到 1e-4：抬了会让「特征半径为 0 时恒 0」那条测试失效。
-	// 极小半径的保护放在 EvaluateVein 里。
+	// 不在这里抬到 1e-4：抬了会让「特征半径为 0 时恒 0」那条测试失效；极小半径保护放在 EvaluateVein。
 	FeatureRadius = FMath::Max(InFeatureRadius, 0.f);
 	ShapeDetail = FMath::Max(InShapeDetail, 1.f);
 	Octaves = FMath::Clamp(InOctaves, 1, 6);
@@ -43,15 +42,13 @@ float FPlanetGeologyDistributionNoise::EvaluateAt(const FVector& NoiseSpacePoint
 
 float FPlanetGeologyDistributionNoise::EvaluateVein(const FVector& P) const
 {
-	// 1e-4 与旧实现的 Max(PodRadius, 1e-4) 对齐：半径趋近 0 时 Scale 会炸成天文数字，
-	// 噪声坐标失去意义。小于它一律当 0（旧路径上这种囊本身也不产出）。
+	// 1e-4 与旧实现的 Max(PodRadius, 1e-4) 对齐：半径趋近 0 时 Scale 会炸，噪声坐标失去意义，小于它一律当 0。
 	if (FeatureRadius < 1e-4f)
 	{
 		return 0.f;
 	}
 
-	// 频率折叠进坐标：ShapeDetail 是「每特征直径的周期数」，直径 = 2r。
-	// 用 double 乘（FVector 分量本来就是 double），不要先把 Scale 窄化成 float。
+	// 频率折叠进坐标：ShapeDetail 是每特征直径的周期数，直径 = 2r；用 double 乘，别先把 Scale 窄化成 float。
 	const double Scale = double(ShapeDetail) / (2.0 * double(FeatureRadius));
 	const double Noise01 = double(EvaluateAt(P * Scale));
 	if (VeinThreshold <= 0.0)
@@ -75,8 +72,7 @@ FVector SamplePlanetGeologyPlacement(FRandomStream& Rng, const float InDepthBias
 	// ∛U 让**体积**均匀（近地表体积大，基元自然更多）。
 	double RadiusRatio = FMath::Pow(double(Rng.FRand()), 1.0 / 3.0);
 
-	// 作者参数里的 DepthCenter 是「深度」（0 = 地表，1 = 球心），与半径比例
-	// 互为补角 —— 带权时必须先换算成 1 - r 再比。
+	// DepthCenter 是深度（0 = 地表，1 = 球心），与半径比例互补，带权时须先换算成 1 - r 再比。
 	if (DepthBias > 0.0)
 	{
 		for (int32 Attempt = 0; Attempt < 64; ++Attempt)
@@ -133,8 +129,7 @@ int32 UPlanetGeologyDistribution::ResolveSeed(const FName ElementId,
 	{
 		return Seed;
 	}
-	// 必须哈希字符串：GetTypeHash(FName) 取的是名字池下标，跨进程不稳定，
-	// 编辑器与打包版会长出不同的矿。GetTypeHash(FString) 走 FCrc::Strihash，是确定性的。
+	// 必须哈希字符串：GetTypeHash(FName) 取名字池下标，跨进程不稳定，编辑器与打包版会长出不同的矿。
 	const uint32 Mixed = GetTypeHash(ElementId.ToString())
 		^ (uint32(DistributionIndex) * 0x9E3779B1u)
 		^ GetTypeHash(GetClass()->GetFName().ToString());

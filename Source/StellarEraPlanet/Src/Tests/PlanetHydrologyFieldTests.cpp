@@ -1,10 +1,5 @@
-﻿// 水文场栅格约定与双线性采样的回归测试。
-//
-// 钉两件事：
-//   1) 格 ↔ 方向 的往返：CellDirection 得到的格必须还是自己（否则烘焙写到一个格、
-//      采样读另一个格，水位整体错位）；
-//   2) 跨面连续：同一个方向在相邻两个面上采样，结果必须一致 —— cubemap 接缝
-//      出错时最先在这里显形，而不是在 PIE 里。
+﻿// 水文场栅格约定与双线性采样回归测试。钉两件事：①格 ↔ 方向的往返（否则烘焙写一个格、
+// 采样读另一个格，水位整体错位）；②跨面连续（cubemap 接缝出错时最先在这里显形）。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -82,8 +77,7 @@ bool FStellarEraHydrologyGridTest::RunTest(const FString& Parameters)
 		MaxRoundTripError < 1e-3);
 
 	// --- 双线性取 X0/X1 永远不越界 ---
-	// U ∈ [0,1] ⇒ g ∈ [0.5, N+0.5] ⇒ X0 ∈ [0, N]、X1 ∈ [1, N+1]。
-	// 这是「采样永远不需要分支」的全部依据。
+	// U ∈ [0,1] ⇒ g ∈ [0.5, N+0.5] ⇒ X0 ∈ [0,N]、X1 ∈ [1,N+1]，这是「采样不需分支」的依据。
 	bool bInBounds = true;
 	for (int32 Step = 0; Step <= 256; ++Step)
 	{
@@ -123,8 +117,7 @@ bool FStellarEraHydrologyFieldSampleTest::RunTest(const FString& Parameters)
 		MaxConstantError < 1e-3);
 
 	// --- 线性场：跨面必须连续 ---
-	// 场值 = 1000 + 100 × Direction.Z。跨面取相邻两个方向，值之差必须与几何
-	// 间距同阶；接缝映射写错时会看到一整格的跳变（>= 100 × 一格的角距）。
+	// 场值 = 1000 + 100×Z；接缝映射写错会看到整格跳变（>= 100 × 一格角距）。
 	const TSharedRef<FPlanetHydrologyField> Linear = MakeAnalyticField(
 		Resolution, [](const FVector& Dir) { return float(1000.0 + 100.0 * Dir.Z); });
 
@@ -175,9 +168,8 @@ bool FStellarEraHydrologyInvalidFieldTest::RunTest(const FString& Parameters)
 	}
 
 	// --- 任一副栅格短一格：IsValid 必须为 false，Sample 必须返回全零 ---
-	// 只把副栅格截短：WaterLevel 长度仍然正确。旧实现只校验 WaterLevel，会判有效，
-	// 然后 Sample 用同一组下标去读短数组 —— Development 下命中 TArray 范围检查，
-	// Shipping 下越界。契约（PlanetHydrologyField.h：「场无效时返回全零」）要求这里返回零。
+	// 只截短副栅格（WaterLevel 长度仍正确）：旧实现只校验它，判有效后 Sample 用同一组
+	// 下标读短数组，Development 命中范围检查、Shipping 越界。契约要求这里返回零。
 	for (int32 ShortGrid = 0; ShortGrid < 2; ++ShortGrid)
 	{
 		TArray<float> Water;

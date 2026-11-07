@@ -1,11 +1,6 @@
-﻿// 水面几何的回归测试。
-//
-// 三条用例各用一条解析地形，断言「该有的顶点有、不该有的顶点没有、半径对得上」。
-// 不检查三角面的数量与形状 —— 那是观感问题，由 PIE 验收（Task 9）负责。
-//
-// 本文件里的匿名名字空间 helper 都带 WaterTest 前缀：unity build 会把多个
-// *Tests.cpp 塞进同一个 TU，匿名名字空间随之合并，PlanetHydrologyBakeTests.cpp
-// 已经有 BowlHeight / ValleyHeight 了。
+﻿// 水面几何回归测试：三条用例各用一条解析地形，断言顶点该有的有、不该有的没有、半径对得上。
+// 不查三角面数量与形状（观感问题由 PIE 验收）。helper 带 WaterTest 前缀：unity build
+// 会把多个 *Tests.cpp 并进同一 TU，匿名名字空间随之合并，避免与 HydrologyBakeTests 撞名。
 
 #include "CoreMinimal.h"
 #include "DynamicMesh/DynamicMesh3.h"
@@ -50,12 +45,8 @@ namespace
 		return (Angle < 0.4f) ? 0.5f : -0.5f;
 	}
 
-	/**
-	 * 与 Task 3 的碗一致：碗里蓄湖、碗外是海。
-	 *
-	 * 碗心 −0.22 高于海面 −0.3：盆底低于海面的洼地现在归海（判据是「地形低于海面就是
-	 * 海」），拿原来的 −0.5 碗心当夹具会直接烘焙出零片湖。
-	 */
+	/** 与 HydrologyBakeTests 的碗一致：碗里蓄湖、碗外是海。碗心 −0.22 必须高于海面
+	 *  −0.3：盆底低于海面的洼地归海，拿 −0.5 碗心当夹具会烘焙出零片湖。 */
 	float WaterTestBowlHeight(const FVector& Dir)
 	{
 		const float Angle = FMath::Acos(FMath::Clamp(float(Dir.Z), -1.f, 1.f));
@@ -117,11 +108,9 @@ bool FStellarEraWaterOceanTest::RunTest(const FString& Parameters)
 		NearestOnLandCap = FMath::Min(NearestOnLandCap, AngleFromCap);
 	}
 
-	// 法线必须**绑在三角形上**，而且按三角形读。只往法线层 AppendElement 而不
-	// SetTriangle 时，三角形的三个元素一直是 INDEX_NONE，渲染端回退到顶点法线
-	// (0,1,0) —— 球面上等于整片水面都朝上打光；而按顶点读孤立元素仍是漂亮的
-	// 径向值，正好看不见这个错。所以这里逐三角形断言 IsSetTriangle，并从三角形
-	// 上取角元素比对径向方向。
+	// 法线必须**绑在三角形上**并按三角形读：只 AppendElement 不 SetTriangle 时三角形
+	// 元素恒为 INDEX_NONE，渲染端回退到顶点法线 (0,1,0)，整片水面朝上打光；而按顶点读
+	// 孤立元素仍是漂亮的径向值，恰好看不见这个错。
 	const UE::Geometry::FDynamicMeshNormalOverlay* Normals = Mesh.Attributes()->PrimaryNormals();
 	int32 UnboundTriangles = 0;
 	double WorstNormalDot = 1.0;
@@ -210,10 +199,9 @@ bool FStellarEraWaterLakeTest::RunTest(const FString& Parameters)
 		Lake.AngularRadius, FarthestAngle),
 		FarthestAngle <= double(Lake.AngularRadius) + 1e-3);
 
-	// 湖的**真实范围**只到「烘焙的最大角距」；`AngularRadius` 在它之上又加了 2 格，
-	// 那 2 格是刻意探进岸里的余量。岸外地形若低于湖的水位，水面的这圈余量就会
-	// 悬在空中（碗形夹具里表现为高出海面的一圈）。所以：余量只允许出现在地形
-	// 高过水位、水面埋进地里的地方。
+	// 湖的真实范围只到烘焙最大角距；`AngularRadius` 在其上多加 2 格是刻意探进岸里的
+	// 余量。岸外地形若低于湖面，这圈余量就悬空 —— 余量只允许出现在地形高过水位、
+	// 水面埋进地里的地方。
 	const double CellAngle = (PI * 0.5) / double(MakeWaterTestParams().Resolution);
 	const double InnerAngle = FMath::Max(
 		double(Lake.AngularRadius) - double(PlanetLakeCapMarginCells) * CellAngle, 0.0);
@@ -239,11 +227,9 @@ bool FStellarEraWaterLakeTest::RunTest(const FString& Parameters)
 		}
 	}
 
-	// 反过来也要钉住：真实湖域（InnerAngle 以内，即烘焙的最大角距）**每个方位**都必须
-	// 被水面盖到。只断言「没有悬空余量」的话，误裁到湖域内部照样绿。
-	//
-	// 重建构建器的环/段划分（同一套公式与同一切平面基），取「InnerAngle 以内最后
-	// 一环」，要求每个方位段上的最大极角都不小于它。
+	// 反过来也要钉住：真实湖域（InnerAngle 以内）**每个方位**都必须被水面盖到，
+	// 否则误裁到湖域内部照样绿。重建构建器的环/段划分，取 InnerAngle 以内最后一环，
+	// 要求每个方位段的最大极角都不小于它。
 	const int32 Rings = FMath::Clamp(
 		FMath::CeilToInt(double(Lake.AngularRadius) / CellAngle), 2, 64);
 	const int32 Segments = FMath::Clamp(Rings * 4, 8, 256);
@@ -332,13 +318,10 @@ bool FStellarEraWaterRiverTest::RunTest(const FString& Parameters)
 	}
 	TestTrue(TEXT("河面顶点必须是有限值且高于海面"), bAllSane);
 
-	// 每个顶点的半径必须来自「方向最近的那个折线点」：河带只在切平面上偏一点，
-	// 最近点就是它自己的格。把别处的水位用到这里（或者顶点顺序错位）会在这里现形。
-	//
-	// 不再按顶点顺序断言「沿下游单调不增」：烘焙对每个源头各给一条折线、每条都画到
-	// 入海口（谷地上这次是 296 条），构建器又把干流去重了 —— 顶点顺序里没有
-	// 「一条河」的连续分组可言。水位单调是折线本身的性质（BakeRiver 已经钉住），
-	// 这里钉的是「顶点 ↔ 折线点」的对应关系。
+	// 每个顶点的半径必须来自「方向最近的那个折线点」：河带只在切平面上偏一点，最近点
+	// 就是它自己的格。不按顶点顺序断言「沿下游单调不增」—— 烘焙对每个源头各给一条
+	// 折线（谷地上 296 条）且构建器会去重干流，顶点顺序里没有「一条河」的分组；
+	// 水位单调已由 BakeRiver 钉住，这里钉的是「顶点 ↔ 折线点」的对应关系。
 	TArray<FVector> PointDirections;
 	TArray<double> PointSurfaceRadiiCm;
 	for (const FPlanetRiverPolyline& River : Field->GetRivers())
@@ -411,11 +394,9 @@ bool FStellarEraWaterRiverTest::RunTest(const FString& Parameters)
 }
 
 /**
- * 真实地形端到端：DA_Terrain_Earth 的参数 + HydrologyResolution = 128。
- *
- * 这是 F1 的回归门：海平面默认值若退回「削平阈值」时代的 −0.35，连通海洋只剩
- * 0.01% 表面积，这里的「>= 25%」会立刻变红。合成地形（碗/谷/台）抓不到这个缺口，
- * 因为它们的「海」是解析写死的 −0.5。
+ * 真实地形端到端：DA_Terrain_Earth 参数 + HydrologyResolution = 128。海平面默认值
+ * 若退回 −0.35（削平阈值时代），连通海洋只剩 0.01% 表面积；合成地形（碗/谷/台）的
+ * 「海」是解析写死的 −0.5，抓不到这个缺口。
  */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraWaterEndToEndTest,
 	"StellarEra.Planet.Water.EndToEnd",
@@ -435,9 +416,8 @@ bool FStellarEraWaterEndToEndTest::RunTest(const FString& Parameters)
 	Terrain->GetWaterConfig(Config);
 	Config.Params.Resolution = 128;
 
-	// 夹具行星半径（体素）。烘焙里半径只作整体平移（Height = Radius + Amplitude × 噪声），
-	// 所有断言都是相对量、与取值无关 —— 取 UniverseMap 中两颗 10,000 体素行星的值，
-	// 与 DA_Terrain_Earth 那颗的 20,000 不同，不必对齐。
+	// 夹具行星半径（体素）。半径只作整体平移（Height = Radius + Amplitude × 噪声），
+	// 断言全是相对量、与取值无关 —— 取 UniverseMap 的 10,000，不必对齐真实地形的 20,000。
 	constexpr double PlanetRadiusVoxels = 10000.0;
 	const TSharedPtr<FPlanetHydrologyField> Field = FPlanetHydrologyBake::Bake(
 		[Terrain](const FVector& UnitDir) { return Terrain->GetRawOffset(UnitDir); },
@@ -483,10 +463,9 @@ bool FStellarEraWaterEndToEndTest::RunTest(const FString& Parameters)
 	TestTrue(FString::Printf(TEXT("连通海洋必须覆盖星球的 25%%–60%%（实测 %.2f%%）"),
 		OceanFraction * 100.0), OceanFraction >= 0.25 && OceanFraction <= 0.60);
 
-	// 河网必须在**生产分辨率**下验：128 下实测 0 条河（MinRiverFlow = 24 格、
-	// 最短河 4 格，格距翻倍后所有汇流路径都短于 4 格 —— 这是分辨率效应，不是缺陷）。
-	// 256 下 5 条（太脆），512 下 757 条。DA_Terrain_Earth 的 HydrologyResolution
-	// 就是 512，所以这也是水面真正运行的分辨率。
+	// 河网必须在**生产分辨率**下验：128 下实测 0 条（格距翻倍后汇流路径都短于最短河
+	// 4 格，是分辨率效应不是缺陷），256 下仅 5 条太脆，512 下 757 条 ——
+	// DA_Terrain_Earth 的 HydrologyResolution 就是 512，也是水面真正运行的分辨率。
 	const int32 ProductionResolution = FMath::Max(Terrain->HydrologyResolution, 128);
 	FPlanetHydrologyParams ProductionParams = Config.Params;
 	ProductionParams.Resolution = ProductionResolution;
@@ -502,9 +481,8 @@ bool FStellarEraWaterEndToEndTest::RunTest(const FString& Parameters)
 		ProductionResolution, ProductionField->GetRivers().Num()),
 		ProductionField->GetRivers().Num() > 0);
 
-	// 湖同理只能在生产分辨率下验：128 的预览栅格把地形抹平，低于海面的洼地连成一片，
-	// 一片湖都不剩（实测 res=128 → 0 片、res=512 → 365 片）。拿预览栅格断言「必须
-	// 有湖」，测的就是分辨率效应而不是水文规则。
+	// 湖同理只能在生产分辨率下验：128 的预览栅格把地形抹平、低于海面的洼地连成一片
+	// （实测 128 → 0 片、512 → 365 片），断言「必须有湖」测的就是分辨率效应。
 	TestTrue(FString::Printf(TEXT("必须仍有内陆湖（res=%d，实测 %d 片）"),
 		ProductionResolution, ProductionField->GetLakes().Num()),
 		ProductionField->GetLakes().Num() > 0);

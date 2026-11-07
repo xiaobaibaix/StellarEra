@@ -1,7 +1,5 @@
-﻿// 矿量区域采样的纯函数测试：并集去重、边界条件、谓词过滤。
-//
-// 这里全是**数值**断言，不是「没崩就算过」：I3 修的就是「区域 AABB 重叠导致
-// 重复计数」，只有数字对得上才算真的修好。
+﻿// 矿量区域采样的纯函数测试：并集去重、边界条件、谓词过滤 —— 全是**数值**断言，
+// 不是「没崩就算过」：I3 修的就是「区域 AABB 重叠导致重复计数」，数字对得上才算真修好。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -41,7 +39,6 @@ bool FPlanetMineralVolumeSingleBoxTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("单盒 11³ = 1331"),
 		CountMergedBoxSamples(Boxes, 1.0, AlwaysSolid), int64(1331));
 
-	// 谓词只看得到一半：X < 5 → 5 个 X 采样点。
 	const int64 Half = CountMergedBoxSamples(Boxes, 1.0,
 		[](const FVector3d& Point) { return Point.X < 5.0; });
 	TestEqual(TEXT("谓词 X < 5 时 5 × 11 × 11 = 605"), Half, int64(605));
@@ -112,7 +109,6 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralVolumePredicateTest,
 
 bool FPlanetMineralVolumePredicateTest::RunTest(const FString& Parameters)
 {
-	// Z ≤ 5：6 层（0..5），X/Y 各 11 个采样点。
 	TArray<FPlanetMineralRegionBox> Boxes;
 	Boxes.Add(MakeVolumeTestBox(0., 0., 0., 10., 10., 10.));
 

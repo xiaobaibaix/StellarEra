@@ -2,16 +2,10 @@
 //
 // 星图相机的键鼠输入真的接到了相机身上，而控制器不再绑视角、缩放、编辑与矿物透视键。
 //
-// 守的是这次搬运最容易哑掉的一环：`AStarMapCameraPawn::SetupPlayerInputComponent`
-// 只是四行转发，整个 override 删掉、或里面的 `PlayerInput->Bind(...)` 被删，
-// 都不会有编译错误，进星图后视角与滚轮直接没反应。
-// CDO 断言（StellarEra.Pawns.StarMapInputComponentWiring）只证明组件存在，
-// 证明不了它被 Bind 过 —— 这条补上。
-//
-// 覆盖不到：漏调 `Super::SetupPlayerInputComponent`。基类那句是空实现，删了本测试照绿。
-//
-// 不走 Possess：`AController::Possess` 会顺带动鼠标模式、遍历体素调用器，在测试世界里
-// 全是噪音。`APawn::PossessedBy` 只设 `Controller` 指针，正是 `Bind` 唯一需要的东西。
+// 守的是最容易哑掉的一环：删掉 `SetupPlayerInputComponent` 的转发、或里面的
+// `PlayerInput->Bind(...)`，都不会有编译错误，进星图后视角与滚轮直接没反应。
+// 覆盖不到漏调 `Super::SetupPlayerInputComponent`（基类是空实现）。
+// 不走 Possess（会带动鼠标模式、遍历体素调用器），`PossessedBy` 只设 Controller 指针。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -65,10 +59,7 @@ bool FStellarEraStarMapInputWiringTest::RunTest(const FString& Parameters)
 	// 它有自己的 EnhancedActionEventBindings —— 读错容器会得到恒 0。
 	const TArray<TUniquePtr<FEnhancedInputActionEventBinding>>& Bindings = Input->GetActionEventBindings();
 
-	// 星图视角、编辑与矿物透视、选择与会话共二十二条：Look /
-	// LookActivate(Started,Completed) / LookMiddle(Started,Completed) / Zoom /
-	// EditModeToggle / BrushSize / MineralViewToggle / MineralFilter×9 /
-	// MineralShowAll / StarMapSelect(Started,Completed) / StarMapToggle。
+	// 星图视角、编辑、矿物透视、选择与会话共二十二条，
 	// 少一条就是某个键静默失灵。
 	if (!TestEqual(TEXT("星图相机绑定的动作数"), Bindings.Num(), 22))
 	{

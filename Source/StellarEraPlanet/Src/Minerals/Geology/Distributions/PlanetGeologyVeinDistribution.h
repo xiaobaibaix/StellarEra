@@ -8,11 +8,8 @@
 #include "PlanetGeologyVeinDistribution.generated.h"
 
 /**
- * 脉状 / 折线骨架。
- *
- * 一条脉按 `SegmentLengthRatio × 半径` 拆成短段，每段一个胶囊。拆段是刻意的：
- * 单段包围半径因此稳定在 (0.5 × 段长 + r) 量级，观测视图的稀疏网格格边不会被
- * 一条长脉拉大（spec §3.2）。
+ * 脉状 / 折线骨架：一条脉按 SegmentLengthRatio × 半径拆成短段，每段一个胶囊。拆段是刻意的 ——
+ * 单段包围半径稳定在 (0.5 × 段长 + r) 量级，观测视图的稀疏网格格边不会被一条长脉拉大。
  */
 UCLASS(DisplayName = "脉状（穿切）", EditInlineNew)
 class STELLARERAPLANET_API UPlanetGeologyVeinDistribution : public UPlanetGeologyDistribution

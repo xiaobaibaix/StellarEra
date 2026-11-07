@@ -18,13 +18,9 @@ namespace
 	constexpr float OceanLevelEpsilon = 1e-3f;
 
 	/**
-	 * 每次重建都从一张干净的表开始。
-	 *
-	 * 不用 OutMesh.Clear()：它不清 Attributes，残留的法线槽位会让 AppendElement
-	 * 的索引与顶点对不上（表现为第一次重建正常、第二次法线全乱）。
-	 *
-	 * 第四个参数是 bWantTriGroups：UE 5.8 的 FDynamicMesh3 构造函数没有默认值，
-	 * 少写一个参数直接编译失败。
+	 * 每次重建都从一张干净的表开始。不用 Clear()：它不清 Attributes，残留的法线
+	 * 槽位会让 AppendElement 的索引与顶点对不上（第二次重建法线全乱）。
+	 * UE 5.8 的 FDynamicMesh3 构造函数没有默认参数，bWantTriGroups 必须显式给。
 	 */
 	void ResetMesh(UE::Geometry::FDynamicMesh3& Mesh)
 	{
@@ -44,12 +40,9 @@ namespace
 	}
 
 	/**
-	 * 追加三角形，并把三个角上的径向法线元素**绑定**到这个三角形上。
-	 *
-	 * 只 AppendElement 而不 SetTriangle 是不够的：三角形的三个法线元素会一直是
-	 * INDEX_NONE，渲染端于是回退到顶点法线 (0,1,0) —— 球面上等于整片水面都朝上
-	 * 打光。元素下标 == 顶点下标（AddWaterVertex 顶点与法线一一对应追加），
-	 * 所以这里直接填 (A,B,C)。返回三角形下标，失败时 -1（退化 / 非流形）。
+	 * 追加三角形并绑定三个角的径向法线。只 AppendElement 不 SetTriangle 的话法线
+	 * 元素一直是 INDEX_NONE，渲染端回退到 (0,1,0) —— 整片水面都朝上打光。
+	 * 元素下标 == 顶点下标，所以直接填 (A,B,C)。失败时返回 -1（退化 / 非流形）。
 	 */
 	int32 AppendWaterTriangle(
 		UE::Geometry::FDynamicMesh3& Mesh, const int32 A, const int32 B, const int32 C)
@@ -98,13 +91,9 @@ void PlanetWaterSurfaceBuilder::BuildOcean(
 			Face, float(X) / float(Resolution), float(Y) / float(Resolution));
 	};
 
-	// 顶点按面独立生成：面边界处两份顶点在球面上完全重合，视觉不可见，
-	// 换来的是索引简单、不需要跨面查找。
-	//
-	// 顶点必须**按需**创建，不能先把整面 (N+1)² 个都建出来再挑格子：FDynamicMesh3
-	// 会保留没有三角形引用的孤立顶点，而「水面不得出现在陆地内部」这条契约是按
-	// 顶点判的 —— 先建后挑等于把整片陆地都算成水面。跨格共用的角因此记在
-	// CornerVertex 里，同一格角只建一次。
+	// 顶点按面独立生成：面边界两份顶点在球面上重合，视觉不可见，换来索引简单。
+	// 顶点必须按需创建：FDynamicMesh3 会保留孤立顶点，而「水面不得出现在陆地
+	// 内部」是按顶点判的 —— 先整面建好再挑等于把整片陆地都算成水面。
 	int32 RejectedTriangles = 0;
 	for (int32 Face = 0; Face < PlanetBiomeCubemap::NumFaces; ++Face)
 	{
@@ -171,8 +160,7 @@ void PlanetWaterSurfaceBuilder::BuildLakes(
 		return;
 	}
 
-	// 一格的角距：把「湖的角半径」换算成环数，让湖面的顶点密度与水文栅格同阶。
-	// 再密一倍没有意义 —— 湖的水位与边界本来就只精确到一格。
+	// 一格的角距：湖面顶点密度与水文栅格同阶，再密没有意义。
 	const double CellAngle = (PI * 0.5) / double(FMath::Max(Field.GetResolution(), 1));
 
 	// 没有地形高度就裁不了余量（旧行为：整张球冠铺满 AngularRadius）。
@@ -196,16 +184,10 @@ void PlanetWaterSurfaceBuilder::BuildLakes(
 			FMath::CeilToInt(double(Lake.AngularRadius) / CellAngle), 2, 64);
 		const int32 Segments = FMath::Clamp(Rings * 4, 8, 256);
 
-		// 每段（方位角）能保留到第几环；默认铺满，bClipMargin 时把「岸外」的
-		// 余量环砍掉。
-		//
-		// 湖的真实范围只到 AngularRadius − PlanetLakeCapMarginCells 格：烘焙在
-		// 最大角距之上加了这个常量那么多格（见 FPlanetLakeBasin::AngularRadius）。
-		// 那些格是刻意探进岸里
-		// 的，**只有地形高过水位时**才是安全的 —— 水面埋在地里、由深度测试裁掉。
-		// 地形低于水位时（岸外的海床、崖下），这圈水面底下是空气，就是「水面
-		// 悬空」。所以余量按段从内往外走，遇到第一环地形低于水位就停 —— 不是
-		// 挖洞：外侧余量本来就没有存在的理由。
+		// 每段（方位角）能保留到第几环；bClipMargin 时砍掉岸外的余量环。
+		// 湖的真实范围只到 AngularRadius − PlanetLakeCapMarginCells 格。余量探进
+		// 岸里，只有地形高过水位时才安全（水面埋地里由深度测试裁掉）；地形更低时
+		// 水面悬空。所以按段从内往外走，遇到第一环地形低于水位就停。
 		TArray<int32> KeepRing;
 		KeepRing.Init(Rings, Segments);
 		if (bClipMargin)
@@ -241,9 +223,7 @@ void PlanetWaterSurfaceBuilder::BuildLakes(
 			}
 		}
 
-		// 顶点按需创建：只建被保留三角形用到的。FDynamicMesh3 会保留没有三角形
-		// 引用的孤立顶点，而余量裁掉之后每段的边缘是锯齿状的，先整环建好就会
-		// 留下一批永远看不见的顶点。
+		// 顶点按需创建：裁剪后每段边缘是锯齿状的，先整环建好会留下看不见的孤立顶点。
 		TMap<int32, int32> RingVertices;   // 键 = Ring * Segments + Segment
 		int32 CenterVertex = INDEX_NONE;
 
@@ -339,11 +319,10 @@ void PlanetWaterSurfaceBuilder::BuildRivers(
 	const double PlanetRadiusCm = Params.PlanetRadiusVoxels * Params.VoxelSize;
 	const int32 Resolution = Field.GetResolution();
 
-	// 每个水文栅格的河岸顶点。烘焙对**每个源头**各给一条折线，而且每条都一路画到
-	// 入海口 —— 干流的每一格因此同时属于所有上游折线。每条折线各建一套顶点的话，
-	// 干流上就是完全重合的两层条带：半透明材质下表现为 z-fighting，或一条更深的带子。
-	// 所以一格的河岸只发一次：按折线顺序走，每条只画到第一个已经被画过的格
-	// （**含**它 —— 支流要接上干流，停在半路会断开），之后的部分归先画的那条折线。
+	// 每个水文栅格的河岸顶点。烘焙给每个源头一条折线、每条都画到入海口，干流每格
+	// 同时属于所有上游折线；各建一套顶点会重合出两层条带（半透明下表现为
+	// z-fighting）。所以一格只发一次：每条只画到第一个已被画过的格（含它，支流
+	// 要接上干流），之后归先画的那条。
 	TMap<int32, FIntPoint> EmittedBanks;
 
 	int32 RejectedTriangles = 0;
@@ -392,8 +371,8 @@ void PlanetWaterSurfaceBuilder::BuildRivers(
 				break;
 			}
 
-			// 切线：前后点的方向差，再投影回切平面（球面上相邻方向的差本来就在
-			// 切平面里，投影是防浮点噪声）。
+			// 切线：前后点的方向差再投影回切平面（球面相邻方向的差本就在切平面里，
+			// 投影是防浮点噪声）。
 			const int32 PreviousIndex = FMath::Max(Index - 1, 0);
 			const int32 NextIndex = FMath::Min(Index + 1, NumPoints - 1);
 			FVector Tangent = River.Points[NextIndex].Dir - River.Points[PreviousIndex].Dir;
@@ -408,8 +387,7 @@ void PlanetWaterSurfaceBuilder::BuildRivers(
 				double(Point.WidthVoxels) * 0.5 * Params.VoxelSize + RiverMarginCm;
 			const double HalfAngle = HalfWidthCm / PlanetRadiusCm;
 
-			// 河面比水位再抬 5 cm：河床被下切过，理论上不共面，但河岸的顶点
-			// 恰好落在体素面上，抬一点可以彻底避免 z-fighting。
+			// 河面比水位再抬 5 cm：河岸顶点恰好落在体素面上，抬一点彻底避免 z-fighting。
 			SurfaceRadiiCm.Add(
 				double(Point.WaterLevelRadius) * Params.VoxelSize + RiverSurfaceLiftCm);
 			LeftDirections.Add((Direction - Side * HalfAngle).GetSafeNormal());

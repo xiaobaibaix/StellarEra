@@ -1,7 +1,5 @@
-﻿// 地形消费水文场的回归测试。
-//
-// 全部用手工构造的均匀水文场（FPlanetHydrologyField::Create）：均匀意味着双线性
-// 采样在哪儿都是精确值，断言因此是确定的数，不需要跑烘焙。
+﻿// 地形消费水文场的回归测试。全部用手工构造的均匀水文场（FPlanetHydrologyField::Create）：
+// 均匀意味着双线性采样处处精确，断言是确定的数，不需要跑烘焙。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -81,13 +79,9 @@ bool FStellarEraTerrainHydrologyCarveTest::RunTest(const FString& Parameters)
 		FMath::Abs(Terrain->GetSurfaceRadiusVoxels(Context, Direction) - NoWater) < 1e-3f);
 
 	// --- 密度场本身也下切 ---
-	//
-	// HydrologyCarveRange 只检查「区间覆盖取值」：把 GetValueImpl 里的
-	// + CarveDepth 删掉、区间里的 + MaxCarveDepth 留着，区间只会更宽，
-	// 那条用例照样通过。这里直接比较同一个采样点在有/无水文场时的密度，
-	// 钉住下切项确实进入了密度，而不只是被区间包络吸收掉。
-	//
-	// 采样距离取 Radius，落在两条早退边界之间（带内走精确计算）。
+	// HydrologyCarveRange 只查「区间覆盖取值」：删掉 GetValueImpl 的 + CarveDepth
+	// 而保留区间里的 + MaxCarveDepth，区间只会更宽、照样通过。这里直接比同一采样点
+	// 有/无水文场时的密度（采样距离取 Radius，落在两条早退边界之间）。
 	constexpr double ProbeDistance = CarveTestRadius;
 	constexpr double ProbeDensityScale = 5.0;   // 与 VoxelPlanetNoiseTerrain.cpp 的 DensityScale 一致
 	const FVoxelItemStack& EmptyItems = FVoxelItemStack::Empty;
@@ -109,8 +103,7 @@ bool FStellarEraTerrainHydrologyCarveTest::RunTest(const FString& Parameters)
 	const double CarvedValue = double(CarvedInstance.GetValueImpl(
 		v_flt(ProbePoint.X), v_flt(ProbePoint.Y), v_flt(ProbePoint.Z), 0, EmptyItems));
 
-	// Value = (Distance − Surface) / DensityScale ⇒ Surface = Distance − Value × DensityScale。
-	// 两条路径的 Distance 相同，所以地表半径的差就是 Value 差乘回 DensityScale。
+	// Value = (Distance − Surface) / DensityScale；两路径 Distance 相同，于是地表差 = Value 差 × DensityScale。
 	const double SurfaceDrop = (CarvedValue - DryValue) * ProbeDensityScale;
 	TestTrue(FString::Printf(TEXT("同一采样点处密度场报出的地表半径必须正好低 3 体素（实测 %.4f）"),
 		SurfaceDrop),
@@ -172,8 +165,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraTerrainSeafloorColorTest,
 
 bool FStellarEraTerrainSeafloorColorTest::RunTest(const FString& Parameters)
 {
-	// 把海平面抬到 0.99：几乎所有方向都落到「海床」分支。
-	// 水深范围压到 0.01：只要低于海平面 1% 的位移就已经是「深水」。
+	// 海平面抬到 0.99、水深范围压到 0.01：几乎所有方向都落进「深水海床」分支。
 	FPlanetNoiseParams Params;
 	Params.SeaLevel = 0.99f;
 	Params.WaterDepthRange = 0.01f;
@@ -187,8 +179,7 @@ bool FStellarEraTerrainSeafloorColorTest::RunTest(const FString& Parameters)
 	const float Offset = ComputeRawPlanetOffset(Params, Direction);
 	if (Offset > 0.97f)
 	{
-		// 这个方向恰好高到不会落进海床分支（概率极低）。换个方向重试没有意义 ——
-		// 直接用固定种子下的另一个方向会失去可复现性，所以这里显式记一条跳过。
+		// 该方向恰好高到不会落进海床分支（概率极低）；换方向会失去可复现性，故显式跳过。
 		AddInfo(TEXT("该方向的位移高于 0.97，跳过海床断言"));
 		return true;
 	}
@@ -203,9 +194,8 @@ bool FStellarEraTerrainSeafloorColorTest::RunTest(const FString& Parameters)
 			&& FMath::Abs(Color.G - Params.DeepWaterColor.G) < 0.02f
 			&& FMath::Abs(Color.B - Params.DeepWaterColor.B) < 0.02f);
 
-	// --- 河床变暗：把海平面压到 −0.9，同一方向就成了陆地 ---
-	// 河床变暗只在陆地上做（海底已经被深度插值盖住），所以必须换一套参数。
-	// 注意 ComputeRawPlanetOffset 不读 SeaLevel，Offset 与上面那一次相同。
+	// --- 河床变暗：海平面压到 −0.9，同一方向成陆地（海底已被深度插值盖住）---
+	// ComputeRawPlanetOffset 不读 SeaLevel，Offset 与上面那次相同。
 	FPlanetNoiseParams LandParams = Params;
 	LandParams.SeaLevel = -0.9f;
 	if (Offset > LandParams.SeaLevel)
@@ -233,20 +223,13 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraTerrainHydrologyRangeTest,
 bool FStellarEraTerrainHydrologyRangeTest::RunTest(const FString& Parameters)
 {
 	// 区间覆盖的机械化检查：盒子里的**实际**取值必须落在它自己的区间里。
-	//
-	// 这条用例专钉「下切项加在哪一侧」。下切让地表变低、最实的点变得更空，
-	// 所以 **MaxValue** 必须加 MaxCarveDepth。写在下界一侧就永远查不出来 ——
-	// 区间只会变得更宽，而插件据此会把整块判成「全实体」，河床里冒出实体块。
-	//
-	// 越界的条件是位移 c < −0.5：
-	//   真值（最深处） = (D − R − 8c + 4) / 5
-	//   上界（漏项）   = (D − R + 8) / 5
-	//   前者更大 ⟺ −8c + 4 > 8 ⟺ c < −0.5
+	// 这条专钉「下切项加在哪一侧」：下切让地表变低、最实的点更空，所以 **MaxValue**
+	// 必须加 MaxCarveDepth；写到下界侧只会让区间更宽，插件据此把整块判成「全实体」，
+	// 河床里冒出实体块。越界条件 c < −0.5（真值 (D−R−8c+4)/5 > 上界 (D−R+8)/5）。
 	FPlanetNoiseParams Params;   // Amplitude 8
-	// 这条用例要一个位移 < −0.6 的深谷，才可能让「漏掉下切项」的旧包络越界。
-	// 实测四层 fbm 的归一化输出在整颗球上只到 −0.46 左右（各层极值很少对齐），
-	// 两层能到 −0.64；采样偏移取非零值（与 PlanetTerrainRawOffsetTests 同一个），
-	// 让搜索确定地落在噪声起伏明显的区域。
+	// 要一个位移 < −0.6 的深谷才能让「漏掉下切项」的旧包络越界：四层 fbm 只到
+	// −0.46 左右（各层极值很少对齐），两层能到 −0.64；采样偏移取非零值，让搜索
+	// 确定地落在噪声起伏明显的区域。
 	Params.Octaves = 2;
 	Params.SeedOffset = FVector(137.5, -42.25, 911.75);
 	const float Amplitude = Params.Amplitude;
@@ -286,8 +269,7 @@ bool FStellarEraTerrainHydrologyRangeTest::RunTest(const FString& Parameters)
 	const FVoxelPlanetNoiseTerrainInstance Instance(Context, Params);
 	const FVoxelItemStack& Items = FVoxelItemStack::Empty;
 
-	// 盒子以「下切后的地表」为中心：最远的角落在更深的实体里，
-	// 那里的密度正是上界的定义点。
+	// 盒子以「下切后的地表」为中心：最远的角落在更深的实体里，正是上界的定义点。
 	const double Surface =
 		double(CarveTestRadius) + double(Amplitude) * double(Offset) - 4.0;
 	const FVector BoxCenter = Direction * Surface;
@@ -301,10 +283,9 @@ bool FStellarEraTerrainHydrologyRangeTest::RunTest(const FString& Parameters)
 
 	const TVoxelRange<v_flt> Range = Instance.GetValueRangeImpl(FVoxelIntBox(Min, Max), 0, Items);
 
-	// 步长 2 而不是 3：盒子边长是 32（偶数），步长 2 会**恰好踩到八个角**，
-	// 包括区间查询定义 MaxValue 用的那个最远角。步长 3 会停在距角 2 体素处，
-	// 下切给出的 4 体素余量刚好被这点距离吃掉 —— 实测把 MaxValue 里的
-	// + MaxCarveDepth 删掉，步长 3 的版本照样通过，护栏就成了摆设。
+	// 步长 2 而不是 3：边长 32 是偶数，步长 2 恰好踩到八个角（含定义 MaxValue 的最远角）；
+	// 步长 3 停在距角 2 体素处，下切给的 4 体素余量被吃掉 —— 实测删掉 MaxValue 里的
+	// + MaxCarveDepth，步长 3 照样通过，护栏成摆设。
 	bool bAllCovered = true;
 	double WorstValue = 0.0;
 	for (int32 X = Min.X; X <= Max.X; X += 2)

@@ -26,10 +26,8 @@
 namespace
 {
 	/**
-	 * 屏幕上一行提示（每帧刷新，duration 0）。
-	 *
-	 * 固定 key 让屏幕上永远只有一行，不会堆积。两个调用点共用这一个 key，
-	 * 所以留在文件内，而不是每个调用点各编一个。
+	 * 屏幕上一行提示（每帧刷新，duration 0）。固定 key 让屏幕上永远只有一行，
+	 * 两个调用点共用，所以留在文件内而不是各编一个。
 	 */
 	void ShowPrompt(const FString& Text)
 	{
@@ -59,22 +57,15 @@ namespace
 
 AStellarEraPlayerController::AStellarEraPlayerController()
 {
-	// 输入组件由 DefaultInput.ini 指定为 EnhancedInput 版本；这里不额外设置。
-	// 若 DefaultInput.ini 缺失，Cast<UEnhancedInputComponent> 会失败。
-
-	// 本类不生成星图相机：它由行星的 Child Actor Component 提供
-	// （BP_VoxelPlanet → BP_StarMapCameraPawn），由 FindStarMapCameraFor 取用。
-
-	// 本类也不生成下船用的角色：乘员由飞船自己提供（舱里的记账，或直接挂在
-	// 飞船下的 APlanetCharacter），查找在基类的 GetOrSpawnCrewCharacter 里。
+	// 输入组件由 DefaultInput.ini 指定为 EnhancedInput 版；缺失时 Cast 会失败。
+	// 星图相机由行星的 Child Actor Component 提供，乘员由飞船提供；本类只查询。
 }
 
 void AStellarEraPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// 动作资产在 BeginPlay 构造好再塞 IMC；Pawn 的 SetupPlayerInputComponent
-	// 若更早来取，三个 getter 自己也会 Build（幂等）。
+	// 动作资产在 BeginPlay 构造好再塞 IMC；三个 getter 若被更早调用也会自己 Build（幂等）。
 	Input.Build(this);
 
 	if (UEnhancedInputLocalPlayerSubsystem* Subsystem =
@@ -86,20 +77,17 @@ void AStellarEraPlayerController::BeginPlay()
 
 void AStellarEraPlayerController::OnPossess(APawn* InPawn)
 {
-	// 先拍下旧 Pawn：Super 会在内部 UnPossess 并清空 GetPawn()，
-	// 之后再想找「刚被换下的星图相机」就找不到了。
+	// 先拍下旧 Pawn：Super 会 UnPossess 并清空 GetPawn()，之后找不回刚换下的星图相机。
 	APawn* const PreviousPossessed = GetPawn();
 	Super::OnPossess(InPawn);
 
-	// 换 Pawn（登船 / 离船 / 进出星图）一律退出矿物透视。
-	// 会话状态住在相机 Pawn 上，这里只是命令那台旧相机收尾。
+	// 换 Pawn（登船 / 离船 / 进出星图）一律退出矿物透视；会话状态住在相机 Pawn 上。
 	if (AStarMapCameraPawn* PreviousCamera = Cast<AStarMapCameraPawn>(PreviousPossessed))
 	{
 		PreviousCamera->ExitMineralViewIfActive();
 	}
 
-	// 换视点：只有新 Pawn 的体素调用器参与 LOD 与碰撞。这是所有换 Pawn 路径的
-	// 唯一收口，所以门控挂在这里，而不是登船 / 离船 / 星图三处各写一遍。
+	// 换视点：只有新 Pawn 的体素调用器参与 LOD 与碰撞。所有换 Pawn 路径都收口在这里。
 	ApplyViewpointInvokerGate(GetWorld(), InPawn);
 
 	ApplyMouseModeForPawn(InPawn);
@@ -129,8 +117,7 @@ void AStellarEraPlayerController::ApplyViewpointInvokerGate(
 
 void AStellarEraPlayerController::ApplyMouseModeForPawn(APawn* InPawn)
 {
-	// 输入状态（左键 / 右键 / 中键）全归各 Pawn 的输入组件，它们在 Bind 时自己清零 ——
-	// 换 Pawn 时松开事件会送到新 Pawn 身上，不归本类管了。
+	// 输入状态（左 / 右 / 中键）全归各 Pawn 的输入组件：换 Pawn 时松开事件送到新 Pawn。
 
 	const bool bWalking = Cast<APlanetCharacter>(InPawn) != nullptr;
 	const bool bStarMap = Cast<AStarMapCameraPawn>(InPawn) != nullptr;
@@ -147,39 +134,21 @@ void AStellarEraPlayerController::ApplyMouseModeForPawn(APawn* InPawn)
 
 	if (bWalking)
 	{
-		// SetInputMode 一次做三件这里都必需、手写又容易漏的事：
-		//
-		//   1. SlateOperations.ReleaseMouseCapture() —— 从飞船里下来时视口还攥着
-		//      永久捕获，不放掉光标就被锁在窗口里，看得见也动不了。SetMouseCaptureMode
-		//      单独调是没用的，它只改一个枚举，不会松开已经握在手里的捕获。
-		//   2. SetHideCursorDuringCapture(false) —— **光标能看见的原因就是这一条**。
-		//      引擎在捕获鼠标时会把光标藏掉：FSceneViewport::AcquireFocusAndCapture
-		//      判断 HideCursorDuringCapture() 且 ShouldShowMouseCursor()，两个都为真
-		//      才藏。光把 bShowMouseCursor 设成 true 不够，捕获一发生光标照样消失，
-		//      而 CaptureDuringRightMouseDown 下按住右键一定会捕获。
-		//   3. SetMouseCaptureMode(CaptureDuringMouseDown) —— 紧跟着改成右键版。
-		//
-		// 锁鼠标用 LockOnCapture：只有按住右键时才会锁，而那正是需要无限旋转的时候；
-		// 不按的时候光标自由。
+		// SetInputMode 一次做三件手写易漏的事：ReleaseMouseCapture（下船时视口还攥着
+		// 永久捕获）、SetHideCursorDuringCapture(false)（引擎捕获时会藏光标）、把捕获
+		// 模式改成右键版。LockOnCapture 只在按住右键时锁，那正是需要无限旋转的时候。
 		SetInputMode(FInputModeGameAndUI()
 			.SetLockMouseToViewportBehavior(EMouseLockMode::LockOnCapture)
 			.SetHideCursorDuringCapture(false));
 
-		// 只有按住右键才捕获。**捕获是必需的，不是可选的美化**：
-		// FSceneViewport::OnMouseMove 只在视口握着鼠标捕获时才累加位移，没有捕获就
-		// 没有 Mouse2D，相机收不到任何输入 —— 那样右键"按住了也没反应"。
-		// 反过来，CaptureDuringRightMouseDown 让 OnMouseButtonDown 里的 bTemporaryCapture
-		// 在右键按下时为真，于是同一次右键既被送进 InputKey（触发 Input.LookActivate）、
-		// 又触发 AcquireFocusAndCapture 拿到位移，松开时再自动放掉。
+		// 捕获是必需的：OnMouseMove 只在视口有捕获时累加位移，否则右键「按住了也没反应」。
+		// CaptureDuringRightMouseDown 让同一次右键既进 InputKey 又拿位移，松开自动放掉。
 		ViewportClient->SetMouseCaptureMode(EMouseCaptureMode::CaptureDuringRightMouseDown);
 	}
 	else if (bStarMap)
 	{
-		// 星图：光标要可见可点，而且**必须有捕获** —— SceneViewport 里 MouseDelta 的
-		// 累加整段包在 if (bViewportHasCapture) 里（SceneViewport.cpp:905 判定、
-		// :923-933 累加），没有捕获就收不到任何位移，左键拖拽等于没接上。
-		// CaptureDuringMouseDown 正是为此存在的枚举：「按住鼠标时捕获，松开释放」
-		// （EngineBaseTypes.h:49）。角色用的是右键版，星图要任意键版。
+		// 星图必须有捕获：MouseDelta 累加整段包在 if (bViewportHasCapture) 里（SceneViewport.cpp:905）。
+		// 角色用右键版，星图要任意键版 CaptureDuringMouseDown（EngineBaseTypes.h:49）。
 		SetInputMode(FInputModeGameAndUI()
 			.SetLockMouseToViewportBehavior(EMouseLockMode::LockOnCapture)
 			.SetHideCursorDuringCapture(false));
@@ -187,10 +156,8 @@ void AStellarEraPlayerController::ApplyMouseModeForPawn(APawn* InPawn)
 	}
 	else
 	{
-		// 飞船：永久捕获 + 光标隐藏。鼠标是它的操纵杆，位移必须一直有值。
-		// GameOnly 自己会把捕获模式设成 CapturePermanently*，但不管
-		// HideCursorDuringCapture，所以这里显式写回引擎默认值，免得被上面的
-		// 角色模式留下的 false 带过去。
+		// 飞船：永久捕获 + 光标隐藏，鼠标是它的操纵杆。GameOnly 会设捕获模式但
+		// 不管 HideCursorDuringCapture，这里显式写回 true，免得被角色模式留下的 false 带过去。
 		SetInputMode(FInputModeGameOnly());
 		ViewportClient->SetHideCursorDuringCapture(true);
 	}
@@ -212,9 +179,8 @@ void AStellarEraPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);
 
-	// 矿物透视绑在「选中的那颗行星」上。焦点被改选就立刻命令相机退出 ——
-	// 否则球壳与矿体会跟着一颗已取消选中的行星。换 Pawn 的退出在 OnPossess 收口，
-	// 相机不 Tick，所以「选中变了没有」这条巡检留在这里。
+	// 矿物透视绑在选中的行星上，改选就命令相机退出；换 Pawn 的退出在 OnPossess 收口，
+	// 相机不 Tick，这条巡检只能留在这里。
 	if (AStarMapCameraPawn* Camera = Cast<AStarMapCameraPawn>(GetPawn()))
 	{
 		if (UPlanetMineralViewComponent* MineralView = Camera->GetActiveMineralView())
@@ -244,16 +210,14 @@ void AStellarEraPlayerController::PlayerTick(float DeltaTime)
 	}
 	else if (ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(GetPawn()))
 	{
-		// 落地就提示，不再要求「舱里有角色」：开局操控的就是飞船，角色要等第一次
-		// 按 E 才生成。按 E 一定会生成一个，提示不会骗人。
+		// 落地就提示，不要求舱里有角色：开局操控的就是飞船，角色第一次按 E 才生成。
 		if (Ship->IsLanded())
 		{
 			ShowPrompt(TEXT("按 E 离船"));
 		}
 	}
 
-	// 星图模式不在这里刷操作提示：那是每帧一条 AddOnScreenDebugMessage（黄字），
-	// 看起来就是调试输出，而且和星图自己的 UI 重复。操作说明归星图 UI 管。
+	// 星图模式不在这里刷操作提示：每帧一条黄字像调试输出，且与星图 UI 重复。
 }
 
 void AStellarEraPlayerController::DebugDisembark()
@@ -267,9 +231,8 @@ void AStellarEraPlayerController::DebugDisembark()
 		return;
 	}
 
-	// 与飞船的 E 同一条路径：取得飞船上的角色（舱里没人时从挂接的子 Actor 取），
-	// 摆好，再换控制对象。落地判据之外不做任何额外检查（无头验证时飞船可能还
-	// 在下落，但取角色的逻辑与 IsLanded 无关）。
+	// 与按 E 同一条路径：取飞船上的角色（舱里没人时从挂接的子 Actor 取），摆好后换控制对象。
+	// 不检查 IsLanded —— 无头验证时飞船可能还在下落。
 	APlanetCharacter* Crew = GetOrSpawnCrewCharacter(Ship);
 	if (!Crew)
 	{
@@ -285,9 +248,8 @@ void AStellarEraPlayerController::DebugPossessShip()
 	// 已经在飞船里就换回角色，否则找一艘最近的飞船坐进去。
 	if (ASpaceshipPawn* CurrentShip = Cast<ASpaceshipPawn>(GetPawn()))
 	{
-		// 真登船（走 E 流程）时不接管：角色此时是隐藏、附着在飞船上、MOVE_None 的，
-		// 直接 possess 回来会让飞船的 BoardedCharacter 仍然指着它，状态不一致。
-		// 这种情况请按 E 走正常的离船流程。
+		// 真登船时不接管：角色隐藏、附着、MOVE_None，直接 possess 会让 BoardedCharacter
+		// 仍指着它。这种情况请按 E 走正常离船流程。
 		if (CurrentShip->GetBoardedCharacter())
 		{
 			UE_LOG(LogTemp, Warning,

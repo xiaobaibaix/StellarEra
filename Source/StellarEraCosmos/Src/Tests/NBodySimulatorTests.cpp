@@ -1,14 +1,7 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 //
-// N 体求解器「预测」与「接触」功能的自动化测试。
-//
-// 这几组断言挡的是同一类错误：功能看起来像那么回事、其实是错的。
-// 全是纯数学 —— 不依赖世界、不依赖编辑器，这是本项目唯一能自动验证的地方。
-//
-// 跑法：用 UnrealEditor-Cmd 跑自动化测试 StellarEra.Core（六个用例：
-// StellarEra.Cosmos.NBodyPrediction、StellarEra.Cosmos.ClosedOrbitPrediction、
-// StellarEra.Cosmos.NBodyContact、StellarEra.Cosmos.NBodyExternalForce、
-// StellarEra.Cosmos.NBodyTestParticle、StellarEra.Cosmos.Units）。
+// N 体求解器「预测」与「接触」的自动化测试：纯数学，不依赖世界/编辑器。用例都是
+// StellarEra.Cosmos.*，跑法见 CLAUDE.md。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -56,15 +49,9 @@ bool FStellarEraNBodyPredictionTest::RunTest(const FString& Parameters)
 	const double G = CosmosUnits::GravitationalConstant_Game;
 
 	// ── 1. 配对周期公式：钉住具体数值 ──
-	// 下表的期望值是 2π√( r³ / (G·(m_A+m_B)) ) 的**精确输出**：行星质量 3e-6 是
-	// **算进去的**，不是忽略的。不要把它们「化简」回 √(r³/m_中心) —— 那样更符合
-	// 直觉，却会放过「公式漏掉行星质量」这类错误，而正是这类错误会污染
-	// FinalizeRegistration 里取最短周期的那一步。写成小数值而不是再写一遍公式，
-	// 是为了让「G 改了」或「漏了/多了个 2π」真的会让测试红。
-	//
-	// 前两行（等质量 1+1）带一个 ~2e-8 的偏移，来源是 UE 的 PI 宏是 float 字面量：
-	// 公式里的 2.0*PI 是「float 提升成 double」的 6.2831854820251465，不是 2π 的
-	// 双精度值。手算对不出这个偏移，别照着双精度 π 去「修正」它们。
+	// 期望值是公式的**精确输出**，行星质量 3e-6 算进去了；别「化简」回 √(r³/m_中心)，
+	// 那会放过「公式漏掉行星质量」这类错误。
+	// 前两行有 ~2e-8 偏移：UE 的 PI 宏是 float 字面量（6.2831854820251465），不是双精度 2π，别照着后者「修正」。
 	{
 		FCosmosBodyState A;
 		A.Mass = 1.0;
@@ -98,8 +85,7 @@ bool FStellarEraNBodyPredictionTest::RunTest(const FString& Parameters)
 			FNBodySimulator::PairOrbitalPeriod(A, B, G), 0.0);
 	}
 
-	// ── 2. 最短时标取的是「配对最小值」 ──
-	// 恒星 + 近行星(0.5AU) + 远行星(4AU)。恒星与近行星那一对最短。
+	// ── 2. 最短时标取「配对最小值」：恒星 + 近行星(0.5AU) + 远行星(4AU)，恒-近最短 ──
 	{
 		FNBodySimulator Simulator;
 		Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
@@ -151,8 +137,7 @@ bool FStellarEraNBodyPredictionTest::RunTest(const FString& Parameters)
 	}
 
 	// ── 4. 预测不得改动被预测的求解器 ──
-	// 这条挡的是最危险的 bug：预测把真实模拟带跑偏。那种错在 PIE 里表现为
-	// 「轨道慢慢变形」，很容易被当成积分器精度问题查半天。
+	// 最危险的 bug：预测把真实模拟带跑偏，PIE 里表现为「轨道慢慢变形」，易被当成积分器精度问题。
 	{
 		FNBodySimulator Simulator = MakeCircularTwoBody(0.718, 1.0);
 
@@ -208,14 +193,9 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraNBodyContactTest,
 
 bool FStellarEraNBodyContactTest::RunTest(const FString& Parameters)
 {
-	// ── 1. 接触的纯几何：一步、且这一步里积分器什么都不做 ──
-	// dt = 0 让 StepExact 只剩 ResolveContacts 有作用 —— 引力推进量是零，接触是
-	// 唯一的变量。这样期望值能按公式手算出来钉死，而不是「跑跑看差不多」。
-	//
-	// 两颗质量不等的天体迎面对撞，且**总动量不为零**（3×0.05 + 1×(−0.01) = 0.14）。
-	// 这一条同时挡两种写错的接触：
-	//   · 只推一颗的 —— 位移必须按 0.25 / 0.75 分（轻的让得多）；
-	//   · 抹掉各自**绝对**法向速度的 —— 那会把总动量吃成 0，而不是保持 0.14。
+	// ── 1. 接触的纯几何：dt = 0，StepExact 只剩 ResolveContacts，期望值可按公式钉死 ──
+	// 总动量不为零（3×0.05 + 1×(−0.01) = 0.14），同时挡两种写错：只推一颗的；
+	// 抹掉各自**绝对**法向速度的（那会把总动量吃成 0）。
 	{
 		FNBodySimulator Simulator;
 		Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
@@ -240,9 +220,7 @@ bool FStellarEraNBodyContactTest::RunTest(const FString& Parameters)
 
 		Simulator.StepExact(0.0);
 
-		// 半径之和 0.1，初始间距 0.08 → 重叠 0.02。让路比例 = 对方质量 / 总质量：
-		//   Heavy 让 1/4 = 0.25： −0.04 − 0.02×0.25 = −0.045
-		//   Light 让 3/4 = 0.75： +0.04 + 0.02×0.75 = +0.055
+		// 半径和 0.1、间距 0.08 → 重叠 0.02；让路比例 = 对方质量/总质量：Heavy 让 1/4 → −0.045，Light 让 3/4 → +0.055。
 		TestEqual(TEXT("重的一方少让路"),
 			Simulator.GetBody(0).Position.X, -0.045, 1.0e-15);
 		TestEqual(TEXT("轻的一方多让路"),
@@ -251,8 +229,7 @@ bool FStellarEraNBodyContactTest::RunTest(const FString& Parameters)
 			(Simulator.GetBody(1).Position - Simulator.GetBody(0).Position).Size(),
 			0.1, 1.0e-15);
 
-		// 相对法向速度被抹平 → 两者沿 X 的速度变得**相等**，而**不是都变成 0**。
-		// 相等值由动量守恒定：0.14 / (3+1) = 0.035。
+		// 相对法向速度被抹平 → 沿 X 速度**相等**（不是都变 0），由动量守恒定：0.14/4 = 0.035。
 		TestEqual(TEXT("接触后两者法向速度相等"),
 			Simulator.GetBody(0).Velocity.X, Simulator.GetBody(1).Velocity.X, 1.0e-15);
 		TestEqual(TEXT("相等值 = 总动量 / 总质量 = 0.035"),
@@ -261,11 +238,7 @@ bool FStellarEraNBodyContactTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("接触不改变总动量"),
 			(Simulator.GetTotalMomentum() - MomentumBefore).Size() < 1.0e-15);
 
-		// 切向分量必须原样留着（接触面是光滑的）。
-		//
-		// 初态要**重新摆成迎面接近**：位置与 X 向速度都复位，否则相对法向速度
-		// 已经是 0，接触那一支根本不执行，这条断言就变成恒真的了。Y 分量是这里
-		// 唯一新增的东西，接触解算不该碰它。
+		// 切向分量必须原样留着。重摆成迎面接近：否则相对法向速度已是 0、接触分支不执行、断言恒真。
 		Simulator.GetBodyMutable(0).Position = FVector3d(-0.04, 0.0, 0.0);
 		Simulator.GetBodyMutable(1).Position = FVector3d(0.04, 0.0, 0.0);
 		Simulator.GetBodyMutable(0).Velocity = FVector3d(0.05, 0.007, 0.0);
@@ -278,15 +251,12 @@ bool FStellarEraNBodyContactTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("切向速度不被接触改动（轻）"),
 			Simulator.GetBody(1).Velocity.Y, -0.003, 1.0e-15);
 
-		// 同时确认法向确实被处理了 —— 否则上面两条可能只是因为整个接触分支
-		// 没执行而通过。
+		// 同时确认法向确实被处理了，否则上面两条可能只是分支没执行而通过。
 		TestEqual(TEXT("同一步里法向速度仍被抹平"),
 			Simulator.GetBody(0).Velocity.X, Simulator.GetBody(1).Velocity.X, 1.0e-15);
 	}
 
-	// ── 2. 自由落体落到地表并停住 ──
-	// 质量与半径都取本关卡 A 的实际值（0.873237 M☉ / 0.075 AU），飞船取
-	// AddBodyToSimulator 里实际填的（质量 0、半径 0 —— 它不是体素星球）。
+	// ── 2. 自由落体落到地表并停住。取本关卡实际值（0.873237 M☉ / 0.075 AU；飞船质量 0） ──
 	{
 		FNBodySimulator Simulator;
 		Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
@@ -322,14 +292,11 @@ bool FStellarEraNBodyContactTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("落到地表：距离收敛到半径"),
 			FMath::Abs(FinalShip.Position.Size() - 0.075) < 1.0e-12);
 
-		// 全程一次都没穿透。位置钳制不留余量、且每步都在 StepExact 末尾执行，
-		// 所以**任何一步结束时**的距离都不该小于半径。留的 1e-12 是浮点舍入，
-		// 不是穿透余量 —— 把它放大到 1e-3 就会放过「每步往下陷一点」那类错。
+		// 全程没穿透：钳制不留余量、每步末尾执行。1e-12 是浮点舍入不是穿透余量 —— 放大到 1e-3 会放过「每步下陷一点」。
 		TestTrue(TEXT("全程没有穿透地表"),
 			DeepestBelowSurface < 1.0e-12);
 
-		// 停住而不是弹跳：法向速度被抹掉。这一条不是恒真的 —— 每步重力都会给
-		// 飞船加上 a·dt ≈ 6.1e-3 AU/年 的接近速度，是接触解算把它抹回去的。
+		// 停住而非弹跳：每步重力都给 a·dt ≈ 6.1e-3 AU/年 的接近速度，是接触解算抹回去的。
 		TestTrue(TEXT("法向速度归零（停住、不回弹）"),
 			FMath::Abs(FinalShip.Velocity.X) < 1.0e-12);
 
@@ -338,9 +305,7 @@ bool FStellarEraNBodyContactTest::RunTest(const FString& Parameters)
 			Simulator.GetBody(0).Position.X, 0.0, 1.0e-15);
 	}
 
-	// ── 3. 对照组：把半径去掉，同一套初态就会穿过去 ──
-	// 这是「接触项确实是拦住它的那一项」的反证。没有它，第 2 组断言有可能被
-	// 别的东西（比如软化长度）意外满足，而接触项其实没生效。
+	// ── 3. 对照组：去掉半径，同一初态就会穿过去。反证「接触项确实是拦住它的那一项」 ──
 	{
 		FNBodySimulator Simulator;
 		Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
@@ -369,9 +334,7 @@ bool FStellarEraNBodyContactTest::RunTest(const FString& Parameters)
 	}
 
 	// ── 4. 飞船撞地即停：bZeroVelocityOnContact 把整条速度钉到行星上 ──
-	// 飞船带切向速度斜撞向行星。默认的光滑硬球会保留切向分量（沿地表滑），
-	// 但飞船开了 bZeroVelocityOnContact，所以接触后它的速度应**完全等于**行星
-	// 的速度（相对速度归零），切向分量一并被抹掉。
+	// 默认光滑硬球保留切向（沿地表滑）；开了这一项后整条速度等于行星速度，切向一并被抹掉。
 	{
 		FNBodySimulator Simulator;
 		Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
@@ -414,14 +377,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraNBodyExternalForceTest,
 bool FStellarEraNBodyExternalForceTest::RunTest(const FString& Parameters)
 {
 	// ── 1. 常力下的抛物线是**精确**的 ──
-	//
-	// Velocity Verlet 对「加速度与位置、速度都无关」的力是精确解，不是近似解：
-	// 每一步的 x += v·dt/2 → 算 a → v += a·dt → x += v·dt/2 串起来正好等于
-	// x₀ + v₀t + ½at²，与步长无关。所以这里可以用 1e-9 这种量级的容差 ——
-	// 留出来的余量只装浮点累加误差（1000 次加法，量级 1e-13）。
-	//
-	// 这条钉住的是「外力真的进了积分器」。写错成「每帧只加一次」「忘了乘 dt」
-	// 「加到了位置上而不是加速度上」都会让末点偏出十万八千里。
+	// Velocity Verlet 对「加速度与位置、速度无关」的力是精确解（x₀ + v₀t + ½at²，与步长无关），
+	// 1e-9 容差只装浮点累加误差。这条钉住「外力真的进了积分器」：每帧只加一次、忘乘 dt 都会偏出十万八千里。
 	{
 		FNBodySimulator Simulator;
 		Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
@@ -456,14 +413,8 @@ bool FStellarEraNBodyExternalForceTest::RunTest(const FString& Parameters)
 	}
 
 	// ── 2. 阻尼是指数衰减，且误差随步长**线性**下降 ──
-	//
-	// 阻尼项在 StepVelocityVerlet 里用的是**踢之前**的速度（步骤②重算加速度时
-	// 速度还没更新），所以它是显式欧拉：v_{n+1} = v_n·(1 − k·dt)，闭式解
-	// v_N = v₀·(1 − k·dt)^N，恒小于解析解 v₀·e^(−k·t)。显式欧拉是一阶的，
-	// 所以步长减半、误差也减半 —— 这正是下面那条「一阶收敛」断言钉的东西。
-	//
-	// 为什么要钉「一阶」而不只钉数值：只钉数值的话，把阻尼写成用**踢之后**的
-	// 速度（隐式欧拉，误差反号）照样能过。阶数对了，说明实现方式就是设计里那一种。
+	// 阻尼项用**踢之前**的速度 → 显式欧拉，v_N = v₀(1−k·dt)^N，恒小于解析解。钉「一阶」
+	// 而不只钉数值，是为了挡住「改用踢之后的速度」（隐式欧拉，误差反号，数值照样能过）。
 	{
 		const double K = 2.0;             // 1/年
 		const double V0 = 1.0;
@@ -498,18 +449,14 @@ bool FStellarEraNBodyExternalForceTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("阻尼：粗步长解低于解析解（显式欧拉的符号）"), Coarse < Exact);
 		TestTrue(TEXT("阻尼：误差在 1e-4 以内"), ErrCoarse < 1.0e-4);
 		TestTrue(TEXT("阻尼：误差不为零（真的在积分，不是抄了解析解）"), ErrCoarse > 1.0e-8);
-		// 期望比值 ≈ 0.5（一阶），放到 0.6 留余量 —— 挡得住「零阶」（比值 1）。
-		// **挡不住二阶**：0.25 照样小于 0.6。二阶由上面那行下限
-		// ErrCoarse > 1e-8 挡（本配置下二阶格式的误差约 1e-9，落在下限之下），
-		// 所以那个看着多余的下限是二阶的唯一鉴别力，别删。
+		// 期望比值 ≈ 0.5（一阶），0.6 留余量，挡得住零阶（比值 1）但挡不住二阶
+		// （0.25 < 0.6）。二阶由上面 ErrCoarse > 1e-8 那条挡（二阶误差约 1e-9），别删。
 		TestTrue(TEXT("阻尼：步长减半，误差减半（一阶收敛）"), ErrFine < ErrCoarse * 0.6);
 	}
 
 	// ── 3. 终端速度 v → A/k ──
-	//
-	// 这是飞船赖以工作的那一条：阻尼模型下按 W 会收敛到「推力 × τ」，而 τ = 1/k。
-	// 离散系统的不动点**恰好**是 A/k（解 v = A·dt + v·(1 − k·dt) 即得），
-	// 所以长跑之后应该贴在 A/k 上。写成 A/(k·dt) 或 A·k 都会在这里红。
+	// 阻尼下按 W 会收敛到「推力 × τ」，τ = 1/k。离散系统的不动点**恰好**是 A/k；
+	// 写成 A/(k·dt) 或 A·k 都会红。
 	{
 		const double A = 2.0;
 		const double K = 4.0;
@@ -538,21 +485,15 @@ bool FStellarEraNBodyExternalForceTest::RunTest(const FString& Parameters)
 	}
 
 	// ── 4. 预测副本不继承外力 ──
-	//
-	// PredictTrajectory 是 `FNBodySimulator Copy = *this;` 再往前跑。值拷贝会把
-	// ExternalAcceleration / LinearDamping 一起带过去，星图上就会画出一条「一直
-	// 加速」的线 —— 那不是玩家要的信息（预测的是**松手之后**的纯引力轨迹）。
-	//
-	// 用「同一初态、一份设外力一份不设」的对照跑逐点比对，比「主求解器没被改动」
-	// 更严：后者只挡得住「忘了用副本」，挡不住「副本继承了外力」。
+	// 值拷贝会把 ExternalAcceleration / LinearDamping 带过去，星图就画出「一直加速」的线。
+	// 用「一份设外力一份不设」逐点比对，比「主求解器没被改动」更严。
 	{
 		auto MakePair = [](bool bForced)
 		{
 			FNBodySimulator Simulator = MakeCircularTwoBody(0.718, 1.0);
 			if (bForced)
 			{
-				// 施在**下标 1** 那个天体身上（也就是下面预测的那个）—— 一旦副本
-				// 继承了外力，预测线会被推得肉眼可见（0.608 年里偏 ½×5×0.608² ≈ 0.92 AU）。
+				// 施在下标 1（下面预测的那个）—— 副本若继承外力，0.608 年里预测线会偏 ≈ 0.92 AU。
 				Simulator.GetBodyMutable(1).ExternalAcceleration = FVector3d(0.0, 5.0, 0.0);
 				Simulator.GetBodyMutable(1).LinearDamping = 3.0;
 			}
@@ -571,8 +512,7 @@ bool FStellarEraNBodyExternalForceTest::RunTest(const FString& Parameters)
 
 		TestEqual(TEXT("预测点数一致"), ForcedPoints.Num(), ControlPoints.Num());
 
-		// 逐点比，只累加「不一样」的个数 —— 64 次 Printf 会淹掉日志。
-		// 两份求解器由同一个函数、同一串运算造出来，浮点结果必须逐位相同。
+		// 逐点比、只数「不一样」的个数（64 次 Printf 会淹日志）；同一函数造出的两份必须逐位相同。
 		const int32 Count = FMath::Min(ForcedPoints.Num(), ControlPoints.Num());
 		int32 Mismatched = 0;
 		for (int32 Index = 0; Index < Count; ++Index)
@@ -596,9 +536,7 @@ bool FStellarEraNBodyTestParticleTest::RunTest(const FString& Parameters)
 {
 	const double G = CosmosUnits::GravitationalConstant_Game;
 
-	// 两体系统：中心天体 + 一颗候选测试粒子，距离 1 AU、质量都是 1 M☉。
-	// 质量取这么大是为了让「粒子仍然施力」时的后果一眼可见 —— 若它还在拽中心
-	// 天体，0.04 年里中心天体就移动约 0.03 AU，不可能被容差吃掉。
+	// 两体：中心天体 + 候选测试粒子，距离 1 AU、质量各 1 M☉ —— 质量取大是让「粒子仍在施力」可见。
 	auto MakePair = [](bool bTestParticle)
 	{
 		FNBodySimulator Simulator;
@@ -619,9 +557,7 @@ bool FStellarEraNBodyTestParticleTest::RunTest(const FString& Parameters)
 		return Simulator;
 	};
 
-	// ── 1. 加速度：粒子仍被吸引，中心天体不受它吸引 ──
-	// 这条挡的是「把测试粒子的引力整条关掉」—— 那会让粒子也不动，功能看起来
-	// 一样是「不拽别人」，但飞船就不受行星引力了。
+	// ── 1. 粒子仍被吸引，中心天体不受它吸引。挡「把测试粒子的引力整条关掉」 ──
 	{
 		FNBodySimulator Simulator = MakePair(true);
 
@@ -654,15 +590,12 @@ bool FStellarEraNBodyTestParticleTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("测试粒子照常掉向中心天体"),
 			Simulator.GetBody(1).Position.X < 0.99);
 
-		// 同一段积分在对照组里必须把中心天体拉开 —— 否则上面那条「不动」可能只是
-		// 因为两体问题本身就不动，而测试粒子标志根本没参与。
+		// 对照组必须把中心天体拉开，否则上面那条「不动」可能只是两体问题本身不动。
 		TestTrue(TEXT("对照：普通粒子把中心天体拉离原点"),
 			Control.GetBody(0).Position.X > 1.0e-3);
 	}
 
-	// ── 3. 单向不进入能量诊断：不贡献幻影势能 ──
-	// 两个天体都静止，动能项为 0。测试粒子作为引力源质量 0，于是势能项也为 0：
-	// 总能量必须是 0，而不是普通两体的 −G·M·m/r。
+	// ── 3. 单向不进入能量诊断：两天体静止、测试粒子引力源质量为 0 → 总能量必须是 0，不是 −G·M·m/r ──
 	{
 		FNBodySimulator Simulator = MakePair(true);
 		TestEqual(TEXT("总能量不含测试粒子的幻影势能"),
@@ -673,9 +606,7 @@ bool FStellarEraNBodyTestParticleTest::RunTest(const FString& Parameters)
 			Control.GetTotalEnergy(), -G, 1.0e-6);
 	}
 
-	// ── 4. 预测副本继承标志 ──
-	// PredictTrajectory 是值拷贝，bTestParticle 会跟着过去；这里钉住「中心天体的
-	// 预测线不被测试粒子拉动」，同时钉住预测本身仍在推进（粒子确实下落）。
+	// ── 4. 预测副本继承 bTestParticle：中心天体预测线不被拉、粒子确实在动 ──
 	{
 		FNBodySimulator Simulator = MakePair(true);
 		FNBodySimulator Control = MakePair(false);
@@ -711,10 +642,7 @@ bool FStellarEraNBodyTestParticleTest::RunTest(const FString& Parameters)
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// 单位换算
-//
-// 这些断言挡的是「换算写反/写错一个量级」：solve 和编辑器边界都靠它们。
-// 容差取到能分辨最后几位有效数字，但不会被浮点噪声误伤。
+// 单位换算：挡「换算写反/写错一个量级」，solve 与编辑器边界都靠它们。
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraUnitsTest,
 	"StellarEra.Cosmos.Units",
@@ -795,9 +723,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraNBodyProbeContactTest,
 
 bool FStellarEraNBodyProbeContactTest::RunTest(const FString& Parameters)
 {
-	// 几何：球体半径 0.1 在原点（质量 3），探针体质量 1 在 x=0.15。
-	// 探针偏移 -0.06 落在 x=0.09，穿进球内 0.01；偏移 -0.08 落在 x=0.07，穿 0.03。
-	// 深者胜：位移必须由 -0.08 那个探针决定。
+	// 几何：球体半径 0.1 在原点（质量 3），探针体质量 1 在 x=0.15。偏移 -0.06 穿 0.01，-0.08 穿 0.03，深者胜。
 	{
 		FNBodySimulator Simulator;
 		Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
@@ -898,12 +824,9 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraNBodyPredictionContactTest,
 
 bool FStellarEraNBodyPredictionContactTest::RunTest(const FString& Parameters)
 {
-	// 复现编辑器预览里「预测线飞出去」的机制：中心星半径 2 AU，飞船悬在
-	// 2.054 AU、初速为零。**不给半径**时飞船会穿过 2 AU 的星体扎进软化核，
-	// 被数值踢成一条几十 AU 的直线；给上半径 + 撞上即停，预测线就停在表面。
-	//
-	// 预览（DrawInEditor）以前只设质量/速度/引力源，不设半径 —— 它和运行期
-	// 用的是同一个求解器，所以这条测试锁的是「预览必须把半径传进来」。
+	// 复现编辑器预览「预测线飞出去」：中心星半径 2 AU，飞船悬在 2.054 AU、初速零。
+	// 不给半径时飞船穿过星体扎进软化核、被踢成直线；给半径 + 撞上即停就停在表面。
+	// 预览（DrawInEditor）以前不传半径 —— 这条锁的是「预览必须把半径传进来」。
 	FNBodySimulator Simulator;
 	Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
 	Simulator.SetIntegrator(ECosmosIntegrator::VelocityVerlet);
@@ -973,10 +896,7 @@ bool FStellarEraClosedOrbitPredictionTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("周期 = 估算周期"),
 			Closed.PeriodYears, Simulator.EstimateOrbitalPeriod(1), 1.0e-3);
 
-		// 圆轨道半径不变：相对主导天体的距离全程贴着 0.718 AU。
-		//
-		// 容差 1% 是积分误差，不是物理效应 —— 256 点/圈的 Velocity Verlet 在
-		// 这一步的闭合误差本来就在 1% 轨道半径以内（见 NBodyPrediction 第 3 节）。
+		// 圆轨道半径不变。容差 1% 是积分误差不是物理效应（见 NBodyPrediction 第 3 节）。
 		double MinRadius = TNumericLimits<double>::Max();
 		double MaxRadius = 0.0;
 		for (const FVector3d& Point : Closed.RelativePositions)
@@ -1029,12 +949,8 @@ bool FStellarEraClosedOrbitPredictionTest::RunTest(const FString& Parameters)
 	}
 
 	// ── 6. 三体系统：密切周期 ≠ 真实一圈，仍必须闭合 ──
-	//
-	// 复刻 UniverseMap 的初始构型：1e4 M☉ 中心星，两颗 2500 M☉ 行星分居
-	// ±50 AU，处在 e≈0.75 椭圆轨道的远拱点（速度 50 AU/年）。两颗行星互相
-	// 拉扯，有效 μ 变大，真实一圈约 1.55 年，而密切周期只有 1.37 年。
-	// 旧实现按密切周期截断，末点横向漂出 0.32 个半长轴，闭合判据整圈失效 ——
-	// 玩家看到的就是「启动时闭合，跑一会儿预测线断成半截」。
+	// 复刻 UniverseMap 构型：1e4 M☉ 中心星 + 两颗 2500 M☉ 行星分居 ±50 AU、处 e≈0.75 椭圆
+	// 远拱点。真实一圈约 1.55 年，密切周期只有 1.37 年；旧实现按密切周期截断会断成半截。
 	{
 		FNBodySimulator Simulator;
 		Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
@@ -1058,9 +974,8 @@ bool FStellarEraClosedOrbitPredictionTest::RunTest(const FString& Parameters)
 		PlanetB.Velocity = FVector3d(0.0, -50.0, 0.0);
 		Simulator.AddBody(PlanetB);
 
-		// 注意不能用 EstimateOrbitalPeriod：它把当前距离当圆轨道半径（3.16 年），
-		// 而这里的密切轨道是 e≈0.75 的椭圆（a≈28.6 AU），密切周期 1.37 年。
-		// 两者不是同一个量，混用会把回归判据写反。
+		// 不能用 EstimateOrbitalPeriod：它把当前距离当圆轨道半径（3.16 年），而这里是
+		// e≈0.75 的椭圆（a≈28.6 AU），密切周期 1.37 年。混用会把回归判据写反。
 		const FCosmosBodyState& Tracked = Simulator.GetBody(1);
 		const double Mu = CosmosUnits::GravitationalConstant_Game * (2500.0 + 1.0e4);
 		const double TrackedDistance = Tracked.Position.Size();
@@ -1105,16 +1020,15 @@ bool FStellarEraClosedOrbitPredictionTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 逐探针地表半径：飞船停在哪，由「那个探针方向上的真实地表」决定，而不是由
-// 行星那一颗解析球的半径决定。挖出来的坑就靠这条落下去。
+// 逐探针地表半径：飞船停在哪由「那个探针方向上的真实地表」决定，而不是行星解析球的
+// 半径 —— 挖出来的坑就靠这条落下去。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraNBodyProbeSurfaceRadiiTest,
 	"StellarEra.Cosmos.NBodyProbeSurfaceRadii",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FStellarEraNBodyProbeSurfaceRadiiTest::RunTest(const FString& Parameters)
 {
-	// 统一几何：球体（行星）质量 3、半径 0.1 在原点；探针体（飞船）质量 1，
-	// 一个探针在本地 (−0.06, 0, 0)。
+	// 统一几何：球体（行星）质量 3、半径 0.1 在原点；探针体（飞船）质量 1，探针在本地 (−0.06, 0, 0)。
 
 	const auto MakeSimulator = []()
 	{
@@ -1131,8 +1045,7 @@ bool FStellarEraNBodyProbeSurfaceRadiiTest::RunTest(const FString& Parameters)
 		return Simulator;
 	};
 
-	// 每条分支都要在 SetContactProbes **之后**才写逐探针半径：那个函数会把
-	// 它清空（防止探针重建后留下对不上的旧半径）。
+	// 逐探针半径必须在 SetContactProbes **之后**写：那个函数会清空它（防止探针重建后留下旧半径）。
 	const auto MakeShip = [](const double ShipX)
 	{
 		FCosmosBodyState Ship;
@@ -1164,8 +1077,7 @@ bool FStellarEraNBodyProbeSurfaceRadiiTest::RunTest(const FString& Parameters)
 				- Simulator.GetBody(0).Position).Size(), 0.05, 1.0e-15);
 	}
 
-	// ── 2. 同一个坑，船悬在 0.12：探针落在 0.06，比 0.05 高 → 不接触 ──
-	// 这条是「停在空气上」的反向断言：装着逐探针半径时，探针已在坑底之下才算碰到。
+	// ── 2. 同一个坑，船悬在 0.12：探针落在 0.06 高于 0.05 → 不接触（「停在空气上」的反向断言） ──
 	{
 		FNBodySimulator Simulator = MakeSimulator();
 
@@ -1179,8 +1091,7 @@ bool FStellarEraNBodyProbeSurfaceRadiiTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("没碰到 0.05 的地表就不该被推开"),
 			Simulator.GetBody(1).Position.X, 0.12, 1.0e-15);
 
-		// 对照组：同样的摆位、不给逐探针半径，必须被 0.1 的球面拦住 ——
-		// 否则上一条是恒真的。
+		// 对照组：同样摆位不给逐探针半径，必须被 0.1 球面拦住 —— 否则上一条恒真。
 		FNBodySimulator Control = MakeSimulator();
 		Control.AddBody(MakeShip(0.12));
 		Control.StepExact(0.0);
@@ -1220,9 +1131,7 @@ bool FStellarEraNBodyProbeSurfaceRadiiTest::RunTest(const FString& Parameters)
 			Simulator.GetBody(1).Position.X, 0.1425, 1.0e-15);
 	}
 
-	// ── 5. 抬高地形：逐探针半径**大于**球半径时，快速排除不能误杀 ──
-	// 探针在船心（ContactProbeRadius = 0），船心距 0.15 ≥ 球半径 0.1 ——
-	// 只按球半径做快速排除会把这条接触整个漏掉。
+	// ── 5. 抬高地形：逐探针半径**大于**球半径时，快速排除不能误杀（只按球半径排除会整条漏掉） ──
 	{
 		FNBodySimulator Simulator = MakeSimulator();
 
@@ -1244,9 +1153,7 @@ bool FStellarEraNBodyProbeSurfaceRadiiTest::RunTest(const FString& Parameters)
 			0.2, 1.0e-15);
 	}
 
-	// ── 6. 三个探针各带半径：最深的那一个说了算 ──
-	// 探针 (−0.06) / (−0.08) / (−0.02)，船心 0.15 → 距球心 0.09 / 0.07 / 0.13。
-	// 半径 {0.1, 0.06, 0.06} → 穿透 0.01 / −0.01 / −0.07：只有第一个是真穿透。
+	// ── 6. 三个探针各带半径：船心 0.15 → 距球心 0.09/0.07/0.13；半径 {0.1,0.06,0.06} → 只有第一个真穿透 ──
 	{
 		FNBodySimulator Simulator = MakeSimulator();
 

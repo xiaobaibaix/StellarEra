@@ -2,15 +2,10 @@
 //
 // 角色的键鼠输入真的接到了角色身上，且编辑键（G / 笔刷尺寸）也在其中。
 //
-// 守的是这次搬运最容易哑掉的一环：`APlanetCharacter::SetupPlayerInputComponent`
-// 只是转发，整个 override 删掉、或组件 `Bind` 里少一行 `BindAction`，都不会有
-// 编译错误 —— 进游戏后那个键直接没反应。CDO 断言
-// （StellarEra.Pawns.InputComponentWiring）只证明组件存在，证明不了它绑了什么。
-//
-// 覆盖不到：漏调 `Super::SetupPlayerInputComponent`。基类那句是空实现，删了本测试照绿。
-//
-// 不走 Possess：`AController::Possess` 会顺带动鼠标模式、遍历体素调用器，在测试世界里
-// 全是噪音。`APawn::PossessedBy` 只设 `Controller` 指针，正是 `Bind` 唯一需要的东西。
+// 守的是最容易哑掉的一环：删掉 `SetupPlayerInputComponent` 的整个 override、或
+// `Bind` 里少一行 `BindAction`，都不会有编译错误，进游戏后那个键直接没反应。
+// 覆盖不到漏调 `Super::SetupPlayerInputComponent`（基类是空实现）。
+// 不走 Possess（会带动鼠标模式、遍历体素调用器），`PossessedBy` 只设 Controller 指针。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -64,9 +59,7 @@ bool FStellarEraCharacterInputWiringTest::RunTest(const FString& Parameters)
 	// 它有自己的 EnhancedActionEventBindings —— 读错容器会得到恒 0。
 	const TArray<TUniquePtr<FEnhancedInputActionEventBinding>>& Bindings = Input->GetActionEventBindings();
 
-	// 十三条：Move / Look / LookActivate(Started,Completed) / Jump /
-	// Sprint(Started,Completed) / Zoom / EditModeToggle / BrushSize，
-	// 加角色表自己的 StarMapToggle / Interact / EditPrimary(Started)。
+	// 十三条：移动 / 视角 / 跳 / 冲刺 / 缩放 / 编辑 / 笔刷 / 星图 / 交互 / 挖掘，
 	// 少一条就是某个键静默失灵。
 	if (!TestEqual(TEXT("角色绑定的动作数"), Bindings.Num(), 13))
 	{

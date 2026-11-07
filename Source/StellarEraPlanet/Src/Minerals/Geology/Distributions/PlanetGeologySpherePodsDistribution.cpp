@@ -120,8 +120,7 @@ namespace
 		float MaxRadius = 0.f;
 		for (int32 PodIndex = 0; PodIndex < PodCount; ++PodIndex)
 		{
-			// 随机流顺序必须与旧 PlacePods 逐位一致：先抖动半径，再方向，再径向距离。
-			// 调换任何两步，旧行星的矿囊位置就全变了。
+			// 随机流顺序必须与旧 PlacePods 逐位一致（先半径，再方向，再径向距离），否则旧行星的矿囊位置全变。
 			const double RadiusJitter = 1.0 + Jitter * (2.0 * double(Rng.FRand()) - 1.0);
 			const double Radius = FMath::Clamp(double(NominalRadius) * RadiusJitter, 1e-3, 0.25);
 

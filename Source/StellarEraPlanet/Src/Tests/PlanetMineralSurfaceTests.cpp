@@ -32,10 +32,7 @@ namespace PlanetMineralSurfaceTest
 		return Params;
 	}
 
-	/**
-	 * 矿囊位置由预设的随机流决定，不能指定。所以本文件所有几何断言
-	 * 都先读 Field.GetPods() 拿到实际位置，再拿它当基准。
-	 */
+	/** 矿囊位置由预设随机流决定、不能指定，所以几何断言先读 GetPods() 拿实际位置当基准。 */
 	UPlanetGeologyPreset* MakePreset(const TArray<FPlanetGeologyElementParams>& Elements)
 	{
 		UPlanetGeologyPreset* Preset = NewObject<UPlanetGeologyPreset>();
@@ -74,11 +71,8 @@ namespace PlanetMineralSurfaceTest
 	}
 
 	/**
-	 * 与 PlanetMineralSurface::Build 同一套格边公式（基准 + 两条上限钳制）。
-	 *
-	 * 测试里凡是「顶点最多离矿囊包围盒一格」这类界，都必须用钳制后的格边，
-	 * 否则上限一旦生效（夹具变大 / 改参数）就会假红。
-	 * RawExtentCm 是矿囊包围盒并集的原始边长；外扩量按基准格边计（与 Build 一致）。
+	 * 与 Build 同一套格边公式（基准 + 两条上限钳制）。「顶点最多离包围盒一格」这类界必须用
+	 * 钳制后的格边，否则上限一生效（夹具变大）就假红。
 	 */
 	double ExpectedCellSizeCm(double MinRadiusCm, const FVector& RawExtentCm, int32 CellsPerFeature)
 	{
@@ -243,9 +237,8 @@ bool FPlanetMineralSurfaceRegionLocalTest::RunTest(const FString& Parameters)
 				continue;
 			}
 
-			// 该元素所有区域的并集，外扩「1 格」（spec §7.3）。格边按簇内最小特征半径算，
-			// 簇里可能混着更小的区域 —— 取该元素最大特征半径当上界就够；再乘 1.5
-			// 吸收三线性插值（顶点最多离区域包围盒一格）。
+			// 该元素所有区域的并集外扩 1 格。格边按簇内最小特征半径算，这里取该元素
+			// 最大特征半径当上界；再乘 1.5 吸收三线性插值。
 			TArray<FPlanetGeologyRegion> Regions;
 			Field.EnumerateRegions(ElementIndex, Regions);
 			TestTrue(*FString::Printf(TEXT("元素 %d 报出了区域"), ElementIndex),
@@ -298,9 +291,8 @@ bool FPlanetMineralSurfaceRegionLocalTest::RunTest(const FString& Parameters)
 		Element.DisplayName = TEXT("薄片");
 		UPlanetGeologyLensDistribution* Lens =
 			AddDistribution<UPlanetGeologyLensDistribution>(*Preset, Element);
-		// 单片、无尺寸抖动：两片相距较远时并集包围盒会大到触发格边上限，与上面那条
-		// 「夹具不触发格边上限」断言自相矛盾（实测两片相距约 1.47 归一化）。
-		// 夹具的目的只是「让 GetPods 回归变红」—— 单缝照样满足（GetPods 对片层恒空）。
+		// 单片、无尺寸抖动：两片相距远时并集包围盒会大到触发格边上限，与上面的
+		// 「夹具不触发格边上限」自相矛盾。单缝照样能让 GetPods 回归变红。
 		Lens->SeamCount = 1;
 		Lens->SeamLength = 0.12f;
 		Lens->SeamWidth = 0.06f;
@@ -401,12 +393,9 @@ bool FPlanetMineralSurfaceIsoAccuracyTest::RunTest(const FString& Parameters)
 		int32 Probes = 0;
 		int32 OffSurface = 0;
 
-		// 露头矿囊的顶点不参与等值线精度，由 SurfaceOutcrop 覆盖。但排除范围不能只按
-		// 「被夹回球面」（|v| ≥ R − 1 cm）：球外角点恒为 0（SampleElementNormAtNormalized
-		// 的球外早退），跨球面的网格边上因此有一条台阶，MC 顶点落在台阶近旁时离球面
-		// 最多差一格再多出球外容差（1.0001 R 的 10 cm），这些点上的真值远高于插入值。
-		// 一格的上界取「该元素最大矿囊半径 + 该元素矿囊包围盒并集」代入 Build 的
-		// 同一套钳制公式（簇内最小半径 ≤ 该元素最大半径，所以这里是上界）。
+		// 露头矿囊的顶点不参与等值线精度（由 SurfaceOutcrop 覆盖）。排除范围不能只按
+		// 「被夹回球面」：球外角点恒为 0，跨球面的网格边上有一条台阶，落在近旁的 MC
+		// 顶点真值远高于插入值。一格的上界取该元素最大矿囊半径代入 Build 的钳制公式。
 		FBox ElementBounds(ForceInit);
 		double MaxPodRadiusCm = 0.0;
 		for (const FPlanetGeologyPod& Pod : Field->GetPods(ElementIndex))
@@ -765,10 +754,9 @@ bool FPlanetMineralSurfaceRadiusInvarianceTest::RunTest(const FString& Parameter
 
 	const PlanetMineralSurface::FBuildParams Base = MakeParams(*Field, 12);
 
-	// --- (1) 尺度等变性：补充不变量，**不**单独证明分辨率解耦 ---
-	// 矿囊存的是归一化坐标，半径翻倍后几何形状完全不变，网格应逐项相同。
-	// 但任何尺度等变的实现都能过（包括整球栅格），所以本测试的名字只对它负责；
-	// 「分辨率与行星直径解耦」由下面 (a) 的绝对门槛与 (b) 的外来小矿囊隔离把关。
+	// --- (1) 尺度等变性：补充不变量，不单独证明分辨率解耦 ---
+	// 矿囊存归一化坐标，半径翻倍几何不变。但任何尺度等变实现都能过，解耦由下面
+	// (a) 的绝对门槛与 (b) 的外来小矿囊隔离把关。
 	PlanetMineralSurface::FBuildParams Doubled = Base;
 	Doubled.SurfaceRadiusCm = Base.SurfaceRadiusCm * 2.f;
 
@@ -799,19 +787,14 @@ bool FPlanetMineralSurfaceRadiusInvarianceTest::RunTest(const FString& Parameter
 	TestEqual(TEXT("角点数完全不随半径变"), DoubledResult.GridPoints, BaseResult.GridPoints);
 
 	// --- (a) 绝对参照：抓「退回整球栅格」 ---
-	// 本夹具两簇各 15³ = 3375 角点，合计约 6750。旧「整球一个栅格」在同参数下
-	// 起点就是 41³ = 68921（每元素），按 CellsPerFeature 推则约 240³ ≈ 1.4e7。
-	// 20000 是绝对门槛，不依赖任何相对比较。
+	// 本夹具约 6750 角点；旧「整球一个栅格」同参数下 ≥ 68921。20000 是绝对门槛。
 	AddInfo(FString::Printf(TEXT("RadiusInvariance 夹具 GridPoints = %d"), BaseResult.GridPoints));
 	TestTrue(*FString::Printf(TEXT("角点数 %d < 20000（整球栅格 ≥ 68921）"), BaseResult.GridPoints),
 		BaseResult.GridPoints < 20000);
 
 	// --- (b) 外来小矿囊不影响本元素：抓「簇内最小半径 → 全局最小半径」 ---
-	// 场 A：元素 0 一个 r = 0.20 的矿囊。
-	// 场 B：同一个元素 0 同一个矿囊 + 元素 1 一个远离它的 r = 0.01 小矿囊。
-	// 按簇定尺时两簇互不相干 ⇒ 元素 0 的网格完全相同；换成全局最小半径 ⇒
-	// 格边基准被 0.01 拖小 20 倍，叠加 8M 预算钳制后实际约 16 倍（3333 → ~205 cm）
-	// ⇒ 三角形数必然不等。
+	// 场 A 只有 r=0.20 的矿囊；场 B 再加一个远离它的 r=0.01。按簇定尺两簇互不相干、
+	// 元素 0 网格完全相同；换成全局最小半径则格边被拖小约 16 倍。
 	FPlanetGeologyElementParams BigParams = MakeElement(TEXT("big"), 0.20f, 11);
 	const auto AloneField = MakeField(*MakePreset({BigParams}));
 
@@ -877,9 +860,8 @@ bool FPlanetMineralSurfaceRadiusInvarianceTest::RunTest(const FString& Parameter
 	return true;
 }
 
-// 分簇合并是 spec §4.1 的硬性要求 2：同元素的重叠矿囊必须并成一簇，否则重叠处会留下
-// 两张互穿的面。矿囊位置由种子决定，所以先搜夹具再断言 —— 两条断言互为对照，
-// 缺了「相距很远 = 2 簇」那条，把实现改成「永远一簇」也能让「相交 = 1 簇」通过。
+// 同元素的重叠矿囊必须并成一簇，否则重叠处留下两张互穿的面。两条断言互为对照：
+// 缺了「相距很远 = 2 簇」，把实现改成「永远一簇」也能过。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceClusterMergeTest,
 	"StellarEra.Minerals.MineralSurface.ClusterMerge",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -975,13 +957,9 @@ bool FPlanetMineralSurfaceClusterMergeTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 钳制的冒烟测试：**单个元素、单片薄透镜**。
-// 片层宽而薄（0.30 × 0.30 × 0.002）⇒ 基准格边由 200 cm 的半厚定（约 33 cm），
-// 簇盒却由 0.6 的长轴定 ⇒ 两条硬上限（每轴 512 格 / 单任务 8e6 角点）都会触发。
-//
-// 分簇改成按元素之后，跨元素的「大盒子 + 极小特征」再也不能合成一个任务（那正是
-// 慢的根因，见 ElementIsolation 测试），所以夹具也改成单元素单片，直接指着钳制本身。
-// 断言的是「不崩、不丢几何、落在上限内」，不是等值面精度。
+// 钳制冒烟测试：单个元素、单片薄透镜。片层宽而薄（0.30 × 0.30 × 0.002）让基准
+// 格边由半厚定、簇盒由长轴定，两条硬上限（每轴 512 格 / 单任务 8e6 角点）都会
+// 触发。断言「不崩、不丢几何、落在上限内」，不是等值面精度。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceClampSmokeTest,
 	"StellarEra.Minerals.MineralSurface.ClampSmoke",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -1064,21 +1042,16 @@ bool FPlanetMineralSurfaceClampSmokeTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("元素 0 一个簇"), Result.ClustersByElement[0], 1);
 	TestEqual(TEXT("每元素角点之和等于总数"), Result.CornersByElement[0], Result.GridPoints);
 
-	// 单片透镜的区域包围盒**就是**它自己那一簇的盒子，于是块掩码铺满整盒、
-	// 没有一块可跳：求值角点数应当**恰好**等于栅格盒子的角点数。
-	// 这条同时钉住了块掩码的覆盖算术 —— 漏写会产生小于，重复写会产生大于。
+	// 单片区域盒就是自己那一簇的盒子，块掩码铺满整盒、无块可跳：求值角点应恰好
+	// 等于栅格盒角点（同时钉住块掩码的覆盖算术：漏写偏小、重复写偏大）。
 	TestTrue(*FString::Printf(TEXT("没有可跳的块：求值角点 %d == 整盒角点 %lld"),
 		Result.GridPoints, CornerProduct), int64(Result.GridPoints) == CornerProduct);
 	return true;
 }
 
-// 分簇按元素之后，一个元素的网格与其它元素**互不影响**。这条测试直接量的是原来的
-// 根因：跨元素分簇会让「一个元素的包围盒」去背「另一个元素的空域」，还会让簇内最小
-// 特征半径（例如铀颗粒 0.0015）决定整簇格边 —— 两者叠加把每个任务都顶到 8e6 角点上限。
-//
-// 夹具刻意选**重叠**的一对：元素 0 一片大薄透镜（盒子大、半厚小），元素 1 一颗落进
-// 它盒子里的极小矿囊。按元素分簇时两者各算各的，角点数必须可加、元素 0 的网格必须
-// 与「只有元素 0」时逐顶点相同；换回跨元素分簇，格边会被 0.001 拖细 20 倍，两条都挂。
+// 按元素分簇后，一个元素的网格与其它元素互不影响。跨元素分簇会让包围盒背上别人的空域、
+// 最小特征半径决定整簇格边，两者叠加把任务顶到 8e6 角点上限。夹具选重叠的一对：
+// 大薄透镜 + 落进其盒子的极小矿囊；按元素分簇时角点必须可加、元素 0 网格逐顶点相同。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceElementIsolationTest,
 	"StellarEra.Minerals.MineralSurface.ElementIsolation",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -1112,13 +1085,9 @@ bool FPlanetMineralSurfaceElementIsolationTest::RunTest(const FString& Parameter
 	const FBox SheetBoundsCm(SheetRegions[0].Bounds.Min * double(SurfaceRadiusCm),
 		SheetRegions[0].Bounds.Max * double(SurfaceRadiusCm));
 
-	// 元素 1：极小矿囊，位置由种子定。搜一个**落进**片层盒子里的（这正是旧实现会把
-	// 两者并成同一簇、并让 0.002 的格边被 0.001 再拖细一倍的夹具）。
-	//
-	// 复制进新预设的必须是 `SheetPreset->Elements[0]`，不是上面的 `Sheet`：生成器挂在
-	// 预设里的那个元素上（`AddDistribution` 同时把 PodCount 归零），`Sheet` 只是造预设
-	// 时用的参数副本，仍带着 PodCount = 1 —— 照抄过去会走遗留兜底多长一颗囊，
-	// 合建的元素 0 就不是片层了。
+	// 元素 1：极小矿囊，搜一个落进片层盒子里的（旧实现会把两者并成一簇、让格边被
+	// 0.001 再拖细一倍）。复制进新预设的必须是 Preset->Elements[0] 而非 Sheet：
+	// 生成器挂在预设元素上，Sheet 只是参数副本、仍带 PodCount=1，照抄会多长一颗囊。
 	FPlanetGeologyElementParams Speck = MakeElement(TEXT("speck"), 0.001f, 0);
 	int32 SpeckSeed = 0;
 	for (int32 Seed = 1; Seed <= 4096 && SpeckSeed == 0; ++Seed)
@@ -1208,9 +1177,8 @@ bool FPlanetMineralSurfaceElementIsolationTest::RunTest(const FString& Parameter
 	return true;
 }
 
-// 稀疏块只少算、不改值：块外恒为 0（判据是每个分布的零支持域 ⊆ 它报出的 Region.Bounds），
-// 所以「每个角点都求值」与「跳过空块」必须给出逐顶点、逐索引相同的网格。
-// `bSampleEveryCorner` 只给测试用，生产路径恒为稀疏。
+// 稀疏块只少算、不改值：块外恒为 0（每个分布的零支持域 ⊆ 它报出的 Region.Bounds），
+// 所以密集与稀疏必须给出逐顶点、逐索引相同的网格。bSampleEveryCorner 只给测试用。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPlanetMineralSurfaceSparseMatchesDenseTest,
 	"StellarEra.Minerals.MineralSurface.SparseMatchesDense",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -1531,13 +1499,8 @@ bool FPlanetMineralSurfaceGridCapTest::RunTest(const FString& Parameters)
 	FPlanetGeologyElementParams& Element = Preset->Elements.AddDefaulted_GetRef();
 	Element.Id = TEXT("longvein");
 	Element.DisplayName = TEXT("长脉");
-	// 半径取得比默认小：基准格边 ∝ 半径，未钳制角点 ∝ (1/半径)²，而钳制后的角点只由
-	// 包围盒定 —— 半径越小，「未钳制 / 钳制后」的比值越大，守卫的鉴别力越强。
-	//
-	// 别指望「512 格/轴」那条：它在本实现里恒不生效（两条上限共用被除数，除数
-	// 197 < 510，轴上那条恒被支配）；`VeinLength = 1.0` 也长不到整个球
-	// （`GrowChain` 在球面处停）。
-	// 所以本夹具触发的是**总角点上限**，断言也按它写。
+	// 半径取小：基准格边 ∝ 半径，未钳制角点 ∝ (1/半径)²，半径越小鉴别力越强。
+	// 本夹具触发的是总角点上限 —— 「512 格/轴」那条恒被支配，不生效。
 	UPlanetGeologyVeinDistribution* Vein =
 		AddDistribution<UPlanetGeologyVeinDistribution>(*Preset, Element);
 	Vein->VeinCount = 1;
@@ -1557,14 +1520,12 @@ bool FPlanetMineralSurfaceGridCapTest::RunTest(const FString& Parameters)
 		return false;
 	}
 	TestTrue(TEXT("触发上限后仍然有网格（不跳簇）"), !Result.MeshesByElement[0].IsEmpty());
-	// 下面的解析复算用「全部区域并集成一个盒子」，只有单簇时才与 Build 逐簇求和等价。
-	// 夹具必须把它钉住：换成两条相距很远的脉，并集乘积会远大于各簇和，(c) 就对
-	// 「两条上限都删掉」也放绿。
+	// 解析复算用「全部区域并集成一个盒子」，只有单簇时才与 Build 逐簇求和等价；
+	// 换成相距很远的两条脉，(c) 对「两条上限都删掉」也会放绿。
 	TestEqual(TEXT("夹具合成单簇（解析复算的前提）"), Result.ClustersByElement[0], 1);
 
-	// 解析复算未钳制 / 钳制后的角点数：全部从 Region 数据推，不写死数量级。
-	// 判据必须挂在**上限公式**上，而不是「一个足够大的常数」—— 常数既可能被夹具
-	// 悄悄满足（上一版就是这样），也可能随取整口径变化假红。
+	// 角点数全部从 Region 数据推。判据必须挂在钳制公式上，而不是「一个足够大的
+	// 常数」—— 常数可能被夹具悄悄满足，也可能随取整口径变化假红。
 	TArray<FPlanetGeologyRegion> Regions;
 	Field->EnumerateRegions(0, Regions);
 	if (!TestTrue(TEXT("报出了区域"), Regions.Num() > 0))
@@ -1616,10 +1577,8 @@ bool FPlanetMineralSurfaceGridCapTest::RunTest(const FString& Parameters)
 		BaseCellSizeCm, ClampedCellSizeCm), ClampedCellSizeCm > BaseCellSizeCm * 1.2);
 	TestTrue(*FString::Printf(TEXT("夹具未钳制时角点远超钳制后（%lld vs %lld）"),
 		UnclampedCorners, ClampedCorners), UnclampedCorners > 2 * ClampedCorners);
-	// 上面那次是**生产路径**（稀疏块）：细脉的簇盒虽然撞满 8e6 上限，真正有矿的块
-	// 只占一部分，GridPoints 会明显小于盒角点数 —— 所以它能证明「剪枝在跑」，
-	// 却**不能**拿来约束上限公式本身（钳制放宽了它也一样小）。这里只卡严格小于：
-	// 剪枝被关掉时两者恰好相等，够区分；再写「小于几倍」就会随随机游走的长短假红。
+	// 稀疏路径 GridPoints 会明显小于盒角点数，只能证明剪枝在跑，不能约束上限公式
+	// （钳制放宽了它也小）。只卡严格小于：剪枝关掉时两者相等，够区分。
 	TestTrue(*FString::Printf(TEXT("稀疏路径确实少算了（%d < 盒角点 %lld）"),
 		Result.GridPoints, ClampedCorners),
 		int64(Result.GridPoints) < ClampedCorners);
@@ -1633,18 +1592,8 @@ bool FPlanetMineralSurfaceGridCapTest::RunTest(const FString& Parameters)
 	AddInfo(FString::Printf(TEXT("密集路径实测 %d 角点（解析钳制值 %lld）"),
 		DenseResult.GridPoints, ClampedCorners));
 
-	// **只有这一条约束实现**：实测值必须落在解析钳制值上（当前逐位相等）。
-	// 容差取 5% 而不是 2× —— 2× 会放过「钳制变松但没删」的退化，例如把除数里的 -3
-	// 去掉（格边 129.35→127.41）后仍能通过。
-	//
-	// 余量提醒：「去掉 -3」这档只比上界高 0.8~1.3%（实测 1,266,540~1,273,206 vs
-	// 上界 1,257,043）。现在抓得住是因为取整口径完全确定 —— 改 `CountCorners` 的取整、
-	// 改常量或调容差时都要重算这一档，别以为余量宽裕。
-	//
-	// 这条断言是单边的（只卡上界）：「上限被收得更紧」也是合法状态（GridPoints 更小、
-	// 网格非空），不该假红。所以文案写「不超过」，不写「等于」。
-	// 注意：TEXT 里的字面百分号要写成 `%%`，否则 UE 的 printf 格式串检查（consteval）
-	// 会把「5%（」里的孤立 % 判成非法格式并编译失败；渲染后的文案仍是「5%」。
+	// 只有这一条约束实现：实测值必须落在解析钳制值上（容差 5%，2× 会放过「钳制变松但没删」
+	// 的退化）。余量不宽裕，改取整或常量时要重算；TEXT 里的字面百分号写 %%，否则编译失败。
 	TestTrue(*FString::Printf(TEXT("密集路径角点不超过解析钳制值的 5%%（%d vs %lld）"),
 		DenseResult.GridPoints, ClampedCorners), DenseResult.GridPoints <= ClampedCorners * 1.05);
 	TestTrue(TEXT("密集路径同样出面（对照有效）"), !DenseResult.MeshesByElement[0].IsEmpty());

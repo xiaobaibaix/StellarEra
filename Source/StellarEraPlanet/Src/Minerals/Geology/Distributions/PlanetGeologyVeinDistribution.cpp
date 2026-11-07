@@ -15,10 +15,8 @@ namespace
 	};
 
 	/**
-	 * 从 Point 出发沿 Direction 走 TargetLength，把每一段写进 Segments。
-	 *
-	 * 随机流顺序固定：扰动轴 → 扰动角 → （新点出球则停）→ 半径抖动。
-	 * 停止条件是「新点离球心超过 1 − 0.5r」：露头靠胶囊自身探出，不额外外推。
+	 * 从 Point 沿 Direction 走 TargetLength，逐段写入 Segments。随机流顺序固定，改动会让矿脉换形。
+	 * 停止条件是新点离球心超过 1 − 0.5r：露头靠胶囊自身探出，不额外外推。
 	 */
 	void GrowChain(TArray<FVeinSegment>& Segments, TArray<FVector>& OutPoints,
 		FRandomStream& Rng, FVector Point, FVector Direction, const double TargetLength,

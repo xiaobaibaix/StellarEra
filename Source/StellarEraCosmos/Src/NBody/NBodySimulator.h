@@ -1,13 +1,7 @@
 ﻿// N 体引力求解器 —— 纯数学核心，不碰任何 UObject 逻辑。
 //
-// 积分、能量、碰撞全部只作用在 FCosmosBodyState 数组上，与引擎无关；
-// 唯一的外来物是每个天体的 TWeakObjectPtr<AActor> 标记（用来把求解结果
-// 反查回 Actor），它只被比较、不被解引用，求解本身并不依赖它。
-// 这样仍然可以脱离 UE 写测试：设几个初始条件，跑一百万步，看总能量漂移多少。
-// 这是验证积分器写对没有的唯一可靠方法。
-//
-// 位置：原 StellarEraCore 模块，2026-10 拆掉 Core 后并入 Cosmos ——
-// 它唯一的使用方 CosmosSimulationSubsystem 就在这里。
+// 只作用在 FCosmosBodyState 数组上；唯一的 UObject 是只被比较、不被解引用的
+// TWeakObjectPtr<AActor>，因此可脱离 UE 写测试（跑百万步看能量漂移）。
 
 #pragma once
 
@@ -16,11 +10,7 @@
 
 class AActor;
 
-/**
- * 单个天体的完整状态。
- *
- * 位置与速度一律用 FVector3d（双精度）。原因见类注释中的精度说明。
- */
+/** 单个天体的完整状态。位置与速度一律用 FVector3d（双精度）。 */
 struct FCosmosBodyState
 {
 	/** 位置。游戏单位 AU 或 SI 单位厘米。 */
@@ -33,13 +23,8 @@ struct FCosmosBodyState
 	FVector3d Acceleration = FVector3d::ZeroVector;
 
 	/**
-	 * 纯引力加速度（AU/年² 或 SI 厘米/秒²，随 UnitSystem）。
-	 *
-	 * 只含万有引力项 `G · Σ m_j·Δ/r³`，**不含**外力（ExternalAcceleration）与阻尼。
-	 * 与 Acceleration 的区别：Acceleration 是「引力 + 外力 − 阻尼」的合力，用来积分；
-	 * 这一项单独存引力部分，供星图里画「引力合力箭头」这类诊断读取 —— 否则把外力
-	 * 算进去，推力会把箭头方向搅混。
-	 *
+	 * 纯引力加速度（AU/年² 或 SI，随 UnitSystem）。Acceleration 是「引力 + 外力 − 阻尼」
+	 * 的合力用于积分，这一项单独存供星图画引力箭头，否则推力会搅混方向。
 	 * 由 ComputeAccelerations 写入，不要手动设置。
 	 */
 	FVector3d GravitationalAcceleration = FVector3d::ZeroVector;
@@ -48,40 +33,22 @@ struct FCosmosBodyState
 	double Mass = 0.0;
 
 	/**
-	 * 测试粒子：作为**引力源**不贡献质量（质量按 0 参与别人的加速度），但自己
-	 * 作为**受引力体**仍照常被其他天体吸引。即「单向引力」——大天体吸引它，
-	 * 它不反过来吸引大天体。
-	 *
-	 * 典型用途是本项目的飞船：玩家飞船不该把行星从轨道上拽动，所以给飞船开
-	 * 这个标志，让它对行星完全无反作用。注意这只是「不参与别人加速度」，
-	 * 接触解算（ResolveContacts）仍按真实质量分配让路权重。
+	 * 测试粒子：作为引力源质量按 0（不拽别人），自己仍照常被吸引。飞船用它避免把行星
+	 * 从轨道上拽动；接触解算仍按真实质量分配让路。
 	 */
 	bool bTestParticle = false;
 
 	/**
-	 * 半径。**不参与引力，只参与接触**：两个天体的中心距小于半径之和时，它们被
-	 * 推开到刚好相切，相互接近的法向速度被抹掉（见 ResolveContacts）。
-	 *
-	 * 为 0 表示点质量，永不接触 —— 没设半径的天体都是这样（AddBodyToSimulator
-	 * 只给 AVoxelPlanetActor 和飞船写半径）。星球取当前朝向下的地形地表高度
-	 * （RefreshPlanetContactRadii），飞船取兜底接触半径 300 厘米
-	 * （ASpaceshipPawn::GetContactRadiusCm）。飞船的半径**不是 0**，否则它的
-	 * **中心点**会被钳在地表上、机身下半截埋进地形里。
-	 *
-	 * 带接触探针（ContactProbes）的天体**不用**这一项做接触形状：探针非空时
-	 * 走 ResolveProbeContact，Radius 应同时置 0，否则球体会抢在探针之前触发。
+	 * 半径。不参与引力只参与接触：中心距小于半径之和时推开到相切并抹掉接近法向速度。
+	 * 0 = 点质量永不接触。飞船取兜底 300 cm 而不是 0，否则中心点会被钳在地表。
+	 * 带 ContactProbes 的天体不用这一项，Radius 应同时置 0，否则球体会抢先触发。
 	 */
 	double Radius = 0.0;
 
 	/**
-	 * 接触探针（相对天体中心，求解器单位）。非空时**取代** Radius 的球-球接触：
-	 * 每个探针按一个点与对方球体求穿透，取最深的一个把天体推出去。
-	 *
-	 * 用途是飞船：整船若只用一个半径 300 cm 的球，机头/机尾与地形的接触位置
-	 * 全是错的。探针由 ASpaceshipPawn 从 Hull 的 Simple Collision 凸包顶点生成，
-	 * 子系统每帧转成求解器坐标写入。
-	 *
-	 * 空数组 = 按 Radius 做球-球接触（行星与所有非飞船天体都走这一支）。
+	 * 接触探针（相对天体中心，求解器单位）。非空时取代 Radius 的球-球接触，取最深探针
+	 * 解算。用途是飞船 —— 整船只用一个球时机头/机尾的接触位置全错。
+	 * 空数组 = 按 Radius 做球-球接触。
 	 */
 	TArray<FVector3d> ContactProbes;
 
@@ -89,20 +56,12 @@ struct FCosmosBodyState
 	double ContactProbeRadius = 0.0;
 
 	/**
-	 * 逐探针的真实地表半径（求解器单位 AU），与 ContactProbes 一一对应。
-	 *
-	 * 空数组 / 数量对不上 = 全部按对方的 Radius 球面接触（加这个字段之前的行为）。
-	 * 由子系统每帧写一次（UCosmosSimulationSubsystem::RefreshShipContactProbes），
-	 * 求解器只读 —— 求解器一帧最多跑 200 个子步，体素查询不能放在这里。
+	 * 逐探针真实地表半径（AU），与 ContactProbes 一一对应；空/数量对不上 = 退回球面接触。
+	 * 子系统每帧写一次，求解器只读 —— 一帧最多 200 个子步，体素查询不能放这里。
 	 */
 	TArray<double> ContactProbeSurfaceRadii;
 
-	/**
-	 * 上面这份半径是对着哪个天体（求解器下标）算的。INDEX_NONE = 没有。
-	 *
-	 * 接触是成对的：同一份半径拿去碰另一颗星就是错的，所以 ResolveProbeContact
-	 * 只在「当前这颗星的下标 == 这里记录的下标」时才用逐探针半径。
-	 */
+	/** 上面的半径是对着哪个天体算的。索引对不上就不用逐探针半径（接触是成对的）。 */
 	int32 ContactSurfaceSphereIndex = INDEX_NONE;
 
 	/** 写入探针并同步 ContactProbeRadius。传空数组即退回球-球接触。 */
@@ -115,8 +74,7 @@ struct FCosmosBodyState
 			ContactProbeRadius = FMath::Max(ContactProbeRadius, Probe.Size());
 		}
 
-		// 探针换了，逐探针地表半径就不再对应任何东西 —— 一并清掉，让接触退回
-		// 球面，而不是拿旧世界的半径去碰。子系统每帧先调本函数、再写半径。
+		// 探针换了，逐探针地表半径一并清掉，让接触退回球面而不是拿旧半径去碰。
 		ContactProbeSurfaceRadii.Reset();
 		ContactSurfaceSphereIndex = INDEX_NONE;
 	}
@@ -124,33 +82,18 @@ struct FCosmosBodyState
 	/** 软化半径。等于 0 时使用求解器的全局设置。 */
 	double SofteningOverride = 0.0;
 
-	/**
-	 * 外力加速度（AU/年²）。**不是引力** —— 由外部每帧写入，求解器只加不解释。
-	 *
-	 * 默认零 = 纯引力天体，现有行为一字不变（`x + 0.0` 在 IEEE 下是精确运算）。
-	 * 本项目的飞船用它承载推力，见 UCosmosSimulationSubsystem::ApplyControlledBodyForces。
-	 */
+	/** 外力加速度（AU/年²），不是引力；默认零 = 纯引力天体。飞船用它承载推力。 */
 	FVector3d ExternalAcceleration = FVector3d::ZeroVector;
 
 	/**
-	 * 线性阻尼系数（1/年）：a_damp = −k·v。默认 0 = 无阻尼。
-	 *
-	 * 单位是 1/年 而不是 1/秒，因为求解器的时间单位是模拟年。
-	 *
-	 * 必须在求解器里**逐子步**算，不能在外部按帧算好一个常量加速度：一帧最多跑
-	 * MaxStepsPerFrame = 200 个子步，这些子步覆盖的世界时间与飞船的阻尼时间常数
-	 * τ = 10 毫秒同量级 —— 一帧之内速度要变 2 倍以上，按帧首速度算常量阻力等于
-	 * 把阻尼削掉一大截。
+	 * 线性阻尼系数（1/年，因为求解器时间单位是模拟年）：a_damp = −k·v。默认 0 = 无阻尼。
+	 * 必须逐子步计算：一帧最多 200 步，按帧首速度算常量阻力会把阻尼削掉一大截。
 	 */
 	double LinearDamping = 0.0;
 
 	/**
-	 * 接触时把**全部**速度清零（相对速度归零，跟随对方一起动），而不是默认的
-	 * 「只抹相互接近的法向分量、切向沿地表滑」。为 true 的天体撞上别的天体时，
-	 * 其速度被直接设成对方的速度 —— 飞船撞地即停、并随行星一起动。
-	 *
-	 * 只给飞船开（见 AddBodyToSimulator）。行星之间仍走默认的光滑硬球语义，
-	 * 这样「行星撞行星」不会被这个开关误伤。
+	 * 接触时把整条速度设成对方速度（撞地即停），而不是只抹法向分量。只给飞船开，
+	 * 行星之间仍走默认的光滑硬球语义。
 	 */
 	bool bZeroVelocityOnContact = false;
 
@@ -159,15 +102,8 @@ struct FCosmosBodyState
 };
 
 /**
- * 闭合轨道预测的结果（坐标在**主导天体参考系**里）。
- *
- * RelativePositions[i] = p_body(t_i) − p_primary(t_i)。想还原成绝对游戏坐标，
- * 把 PrimaryPosition（主导天体在 t=0 的位置）加到每个点上：
- *     absolute_i = RelativePositions[i] + PrimaryPosition
- *
- * 为什么不用世界坐标直接画：世界系里主导天体自己在动。飞船绕行星跑一圈的同时，
- * 行星沿自己的轨道走了很远，绝对路径是摆线，首尾永远不会回到同一点。只有相对
- * 主导天体的坐标才会闭合；绘制时把闭环锚在主导天体**当前**的位置上即可。
+ * 闭合轨道预测结果（相对主导天体坐标）。世界系里主导天体自己在动、绝对路径是摆线，
+ * 只有相对坐标才闭合；还原绝对坐标 = RelativePositions + PrimaryPosition。
  */
 struct FCosmosClosedOrbitPrediction
 {
@@ -177,30 +113,14 @@ struct FCosmosClosedOrbitPrediction
 	/** 主导天体在 t=0 的位置（AU）。 */
 	FVector3d PrimaryPosition = FVector3d::ZeroVector;
 
-	/**
-	 * 实测闭合时间，单位年：相对位置第一次回到起点容差内所用的时间。
-	 *
-	 * 不是密切周期。多体扰动会改变有效 μ，两者可以相差数倍 —— 按密切周期截断
-	 * 会把闭环画成半截（见 PredictClosedOrbit 的说明）。
-	 */
+	/** 实测闭合时间（年），不是密切周期 —— 多体扰动下两者可差数倍。 */
 	double PeriodYears = 0.0;
 };
 
 /**
- * N 体引力求解器。
- *
- * 实现牛顿万有引力：
- *     a_i = G · Σ_j≠i  m_j · (r_j − r_i) / |r_j − r_i|³
- *
- * 复杂度 O(N²)。太阳系这种量级（N ≤ 50）完全无压力，
- * 真正的瓶颈是数值稳定性而非算力。
- *
- * ── 为什么默认积分器必须是辛的 ───────────────────────────────
- * 显式欧拉法是一阶方法，每步误差同向累积。后果是轨道能量单调流失，
- * 行星越掉越快，最终螺旋坠入恒星。典型表现是跑一小时就崩。
- *
- * Velocity Verlet 保持相空间体积，误差有界不累积，
- * 轨道可以稳定运行数百万年。代价仅是每步多算一次加速度。
+ * N 体引力求解器：a_i = G · Σ_j≠i m_j·(r_j − r_i)/|r_j − r_i|³，复杂度 O(N²)。
+ * 默认 Velocity Verlet 是辛积分器，保持相空间体积、误差有界；显式欧拉误差同向累积，
+ * 轨道会螺旋坠入恒星（仅用于对比测试）。
  */
 class STELLARERACOSMOS_API FNBodySimulator
 {
@@ -215,16 +135,9 @@ public:
 	ECosmosUnitSystem GetUnitSystem() const { return UnitSystem; }
 
 	/**
-	 * 1 AU 对应多少世界厘米。**本项目最重要的一个标定值。**
-	 *
-	 * 真实值是 1.496e13，但那样 float32 在该处的 ULP 会到 18 公里 —— 比本项目的
-	 * 星球（半径 1 公里）还大 18 倍，位置会剧烈抖动，星球直接看不出在哪。
-	 * 所以本项目的世界按「1 AU = 10 公里」标定：1e6 厘米处 ULP 是 0.12 厘米，
-	 * 远小于 100 厘米的体素边长，体素渲染不会抖。
-	 *
-	 * 只影响 AU ↔ 世界厘米的换算，**不影响求解器内部**：位置、速度、质量全程是
-	 * AU / AU每年 / M☉ 的双精度，G 仍然是 4π²。改这个值不改变轨道形状，
-	 * 只改变「轨道画在世界里多大」。
+	 * 1 AU 对应多少世界厘米，本项目最重要的标定值。真值 1.496e13 处 float32 的 ULP 达
+	 * 18 公里，比星球还大、位置会抖；本项目按 1 AU = 10 公里（1e6）标定。
+	 * 只影响 AU ↔ 世界厘米换算，不改变求解器内部（AU/M☉ 双精度，G = 4π²）与轨道形状。
 	 */
 	void SetCentimetersPerAu(double InCentimetersPerAu);
 	double GetCentimetersPerAu() const { return CentimetersPerAu; }
@@ -234,20 +147,13 @@ public:
 	ECosmosIntegrator GetIntegrator() const { return Integrator; }
 
 	/**
-	 * 软化长度。防止两体近距离时引力趋向无穷大导致数值溢出。
-	 * 等价于给每个天体加一个很小的额外半径。
-	 *
-	 * 取值建议：游戏单位下取轨道半长轴的 1e-4 量级。
+	 * 软化长度，防止近距离引力趋于无穷；游戏单位下取轨道半长轴 1e-4 量级。
 	 * 太大会削弱真实引力，太小则失去保护作用。
 	 */
 	void SetSofteningLength(double InSoftening);
 	double GetSofteningLength() const { return SofteningLength; }
 
-	/**
-	 * 超出最大轨道的引力截断半径。
-	 * 距离超过此值的天体被视为不受彼此吸引。
-	 * 这是广袤宇宙中常用的近似，能显著减少无效计算。
-	 */
+	/** 引力截断半径：距离超过此值的天体互不吸引（减少无效计算）。 */
 	void SetGravityCutoff(double InCutoff) { GravityCutoff = InCutoff; }
 	double GetGravityCutoff() const { return GravityCutoff; }
 
@@ -269,10 +175,7 @@ public:
 	int32 FindBodyByActor(const AActor* Actor) const;
 
 	/**
-	 * 清空所有天体，并把模拟时间、时间余量与能量基线一并复位。
-	 *
-	 * 三者都要清：只清 Bodies 的话，GetSimulatedTime() 会带着旧值继续累加，
-	 * GetEnergyDriftRatio() 会拿清空前的基线去比，两个读数都会失去意义。
+	 * 清空天体，并复位模拟时间、时间余量与能量基线 —— 只清 Bodies 会让后两个读数失真。
 	 */
 	void Clear()
 	{
@@ -287,16 +190,8 @@ public:
 	// 轨道求解
 
 	/**
-	 * 推进一个时间步。
-	 *
-	 * **本函数是变步长积分器，会破坏辛性质。**
-	 * 实现是 Accumulator += Dt; StepExact(Accumulator); Accumulator = 0.0;——
-	 * 累加器加完立刻被清零，所以它实际上等价于 StepExact(Dt)，
-	 * GetPendingTime() 恒为 0。每帧传入的 Dt 一旦不同，就等同于变步长积分，
-	 * Velocity Verlet「误差有界不累积」的前提不再成立。
-	 *
-	 * 需要真正的辛积分（误差有界、轨道可长期稳定）时，请**直接调 StepExact**
-	 * 并自行保证步长固定；本函数只适合不在乎长期精度的场合。
+	 * 推进一个时间步。实现是 Accumulator += Dt 后立刻清零，等价于 StepExact(Dt) ——
+	 * 每帧 Dt 不同即变步长，破坏辛性质。需要长期精度请直接调 StepExact 并保证步长固定。
 	 */
 	void Step(float Dt);
 
@@ -324,10 +219,7 @@ public:
 	/** 系统总角动量（相对质心）。 */
 	FVector3d GetTotalAngularMomentum() const;
 
-	/**
-	 * 相对初始状态的总能量漂移比例。
-	 * 跑一百万步后应该在 1e-6 量级；若达到 1e-2 以上说明积分器有问题。
-	 */
+	/** 相对初始状态的总能量漂移比例；百万步后应在 1e-6 量级，1e-2 以上说明积分器有问题。 */
 	double GetEnergyDriftRatio() const;
 
 	/** 记录当前能量作为基准，供GetEnergyDriftRatio 比较。 */
@@ -355,14 +247,9 @@ public:
 	// 预测 —— 只读，不改本对象
 
 	/**
-	 * 一对天体相互绕转的周期：T = 2π√( r³ / (G·(m_i + m_j)) )，r 取当前间距。
-	 *
-	 * 注意项目里 G = 4π²，所以 2π 与 G 抵消，游戏单位下这个式子化简成
-	 * √(r³/(m_i+m_j))。看着「偏小」的周期（0.718 AU 绕 1 M☉ → 0.608 年）
-	 * 就是这么来的，不是写错。
-	 *
-	 * G 由调用方传入而不是从 UnitSystem 推：这样它是纯函数，能脱离求解器
-	 * 单独测试。间距或质量之和非正时返回 0，表示「这一对没有有限的绕转周期」。
+	 * 一对天体绕转周期 T = 2π√(r³/(G(m_i+m_j)))，r 取当前间距。项目里 G = 4π²，
+	 * 化简成 √(r³/(m_i+m_j))，看着偏小的周期不是写错。
+	 * G 由调用方传入以保持纯函数；间距或质量之和非正时返回 0。
 	 */
 	static double PairOrbitalPeriod(const FCosmosBodyState& A, const FCosmosBodyState& B, double G);
 
@@ -370,49 +257,17 @@ public:
 	double EstimateOrbitalPeriod(int32 BodyIndex) const;
 
 	/**
-	 * 预测天体 i 未来 Horizon 年的轨迹，输出 AU 坐标序列。
-	 *
-	 * 含首尾共 NumSamples 个点：首点 = 当前位置，末点 = 恰好 Horizon 处。
-	 * **不修改本对象** —— 内部复制一份求解器再推进副本。之所以这样是安全的：
-	 * 积分器的全部状态就是每颗星的 (Position, Velocity)，复制求解器即复制状态。
-	 *
-	 * 返回 false（并清空 OutPositions）当：索引无效、Horizon ≤ 0、NumSamples < 2。
+	 * 预测天体未来 Horizon 年的轨迹（AU），含首尾共 NumSamples 点，末点恰好落在 Horizon。
+	 * 内部复制求解器再推进，不改本对象。索引无效 / Horizon ≤ 0 / NumSamples < 2 时返回 false。
 	 */
 	bool PredictTrajectory(int32 BodyIndex, double Horizon, int32 NumSamples,
 	                       TArray<FVector3d>& OutPositions) const;
 
 	/**
-	 * 预测天体相对其引力主导天体的**闭合轨道**（整整一圈）。
-	 *
-	 * ── 怎么判定「理论上可以闭合」 ──
-	 * 主导天体 = 对本天体引力 M/r² 最大、且质量大于本天体的那一颗。用当前相对
-	 * 位置/速度算密切轨道（osculating orbit）：
-	 *     μ = G·(m_body + m_primary)
-	 *     ε = v²/2 − μ/r
-	 *     a = −μ/(2ε)
-	 *     T = 2π√(a³/μ)
-	 * ε < 0 且偏心率 e < 0.99（不是径向/抛物退化）才是椭圆，才继续预测一整圈。
-	 *
-	 * ── 怎么找「一圈」──
-	 * 密切周期只是 t=0 的局部线性化，别拿它当闭合时刻。其他天体在改变有效 μ，
-	 * 真实返回时间和密切周期可以差数倍：UniverseMap 的双行星 + 恒星里，接近
-	 * 近拱点时密切周期 0.63 年、实际一圈 1.55 年。照密切周期截断的话，末点会
-	 * 横向漂出 1.5 个半长轴，闭合判据几乎整圈都在失败。
-	 *
-	 * 所以按密切周期只定**步长**（保持采样密度），持续积分最多 3 个密切周期，
-	 * 取相对位置**第一次**回到起点容差（5% 半长轴）内的采样点作为闭合时刻。
-	 * 这个判据对三体扰动天然稳健：闭环是「实测回到原点」，不是「理论应该回到」。
-	 *
-	 * ── 输出 ──
-	 * 成功时 Out.RelativePositions 从 t=0 起，到实测闭合时刻为止，**并追加首点**，
-	 * 所以 Last() 与 [0] 逐位相等；Out.PrimaryPosition 是主导天体在 t=0 的位置，
-	 * Out.PeriodYears 是实测闭合时间。调用方把每个相对位置加上 PrimaryPosition
-	 * 再转世界坐标，就得到套在主导天体当前位置上的闭环。
-	 *
-	 * ── 失败（返回 false、清空输出）──
-	 * 索引无效、采样不足、找不到更重的主导天体、密切轨道非椭圆、偏心率过高，
-	 * 或 3 个密切周期内相对位置没有回到起点容差内（真双曲线 / 已经被拽走）。
-	 * 这些情况调用方应退回 PredictTrajectory 的有限窗口。
+	 * 预测天体相对主导天体（引力 M/r² 最大且更重的那颗）的闭合轨道（一整圈）。
+	 * 密切周期只用来定步长，最多积 3 个周期，取扫满 2π 后离起点最近的点为闭合时刻 ——
+	 * 多体扰动下实测一圈可与密切周期差数倍，按密切周期截断会把闭环画成半截。
+	 * 非椭圆 / e ≥ 0.99 / 找不到主导天体 / 回不到起点附近时返回 false；成功时首尾逐位相等。
 	 */
 	bool PredictClosedOrbit(int32 BodyIndex, int32 NumSamplesPerOrbit,
 	                        FCosmosClosedOrbitPrediction& Out) const;
@@ -422,10 +277,7 @@ private:
 	double GetG() const;
 
 	/**
-	 * 天体作为**引力源**时的有效质量：测试粒子（如飞船）不吸引别人，返回 0。
-	 *
-	 * 与 Mass 字段本身区分开 —— Mass 仍用于接触解算、动量/角动量诊断这些需要
-	 * 「真实惯性」的场合；引力源质量则额外过一道测试粒子判定。
+	 * 引力源质量：测试粒子返回 0。Mass 本身仍用于接触解算与惯性诊断。
 	 */
 	static double GravitationalSourceMass(const FCosmosBodyState& Body)
 	{
@@ -436,31 +288,18 @@ private:
 	void ComputeAccelerations();
 
 	/**
-	 * 解算所有天体对的接触：重叠的推开到相切，相互接近的法向速度抹掉。
-	 *
-	 * 在 StepExact 的积分之后调用，所以三种积分器、以及 Step 与 PredictTrajectory
-	 * 走的是同一套约束（预测跑的是同一个 StepExact 的副本）。
-	 *
-	 * 半径全为 0 的天体对永不接触 —— 现有的能量漂移测试造的都是点质量，
-	 * 因此不受这一项影响。
+	 * 解算所有天体对的接触：重叠推开到相切，抹掉接近的法向速度。在积分之后调用，
+	 * 三种积分器与预测路径共用一套约束；半径全为 0 的天体对永不接触。
 	 */
 	void ResolveContacts();
 
-	/**
-	 * 探针接触：ProbeIndex 天体带凸包探针，SphereIndex 天体按半径 Radius 当球体。
-	 * 取「最深探针」做穿透解算，让路比例与速度规则和球-球分支完全一致。
-	 */
+	/** 探针接触：ProbeIndex 带凸包探针、SphereIndex 按 Radius 当球，取最深探针解算。 */
 	void ResolveProbeContact(int32 ProbeIndex, int32 SphereIndex);
 
 	/**
-	 * 接触时两个天体各让多少位移，按「谁轻谁让路」分配，两者之和恒为 1。
-	 *
-	 * 质量 ≤ 0 视为测试粒子：它让全部，对方一点都不让。取质量倒数会除零，
-	 * 所以这里必须显式分情形，不能写成 m_j/(m_i+m_j)。
-	 *
-	 * 本项目的飞船**是**测试粒子（UCosmosOrbitComponent::bExertsGravity = false），
-	 * 但这里不看那个标志：它仍按真实质量比让路。MassEarth = 0.332946 相对行星的
-	 * 290740.84 等于让全部，行为上仍是「行星纹丝不动」。
+	 * 接触时两者各让多少位移，按质量分配、两者之和恒为 1。质量 ≤ 0 视为测试粒子：它让
+	 * 全部、对方一点都不让 —— 取倒数会除零，必须显式分情形。
+	 * 飞船虽是测试粒子，这里仍按真实质量比让路（相对行星等于让全部）。
 	 */
 	static void ComputeContactShares(double MassI, double MassJ,
 	                                 double& OutShareI, double& OutShareJ);

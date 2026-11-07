@@ -1,6 +1,4 @@
-﻿// 水材质的资产回归测试。
-//
-// 它不重建材质（重建是编辑器命令的事），只检查「资产在、是半透明双面、参数齐全」。
+﻿// 水材质资产回归：不重建材质（那是编辑器命令的事），只检查「资产在、半透明双面、参数齐全」。
 // 资产缺失时的失败信息会直接告诉你该跑哪条命令。
 
 #include "CoreMinimal.h"
@@ -34,9 +32,8 @@ bool FStellarEraWaterMaterialTest::RunTest(const FString& Parameters)
 
 	// 参数齐全只说明「名字在」，说明不了「接到哪个插槽」。下面钉住实际接线。
 	//
-	// GetEditorOnlyData() 与 UMaterialEditorOnlyData 只在 WITH_EDITORONLY_DATA 下
-	// 存在，而本文件只被 WITH_DEV_AUTOMATION_TESTS 包着 —— Development 的 Game
-	// 目标里两个宏取值不同，不包这一层 Game 目标编不过。
+	// GetEditorOnlyData() 只在 WITH_EDITORONLY_DATA 下存在，而本文件只被
+	// WITH_DEV_AUTOMATION_TESTS 包着 —— Development 的 Game 目标里两宏取值不同，不包编不过。
 #if WITH_EDITORONLY_DATA
 	UMaterialEditorOnlyData* EditorData = Material->GetEditorOnlyData();
 	if (TestNotNull(TEXT("必须拿到 EditorOnlyData"), EditorData))

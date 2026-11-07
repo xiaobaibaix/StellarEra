@@ -163,10 +163,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMineralLegendSpacingTest,
 
 bool FMineralLegendSpacingTest::RunTest(const FString& Parameters)
 {
-	// 断言的是「高度预算与排布同源」：提示分隔线不得压到最后一行的命中带，
-	// 提示文字不得越出面板底边的内边距。提示区块的落点全部取自
-	// MineralLegendLayout::Hint*，测试不另写一份公式。
-	// 三个 N 都跑：1 是占位边界、3 是常规、9 是长表，防「只在某个 N 恰好对上」。
+	// 断言「高度预算与排布同源」：提示分隔线不压最后一行，提示文字不越出内边距。
+	// 提示落点全取自 MineralLegendLayout::Hint*，测试不另写公式。三个 N 都跑防特例。
 	const int32 EntryCounts[] = { 1, 3, 9 };
 	for (const int32 EntryCount : EntryCounts)
 	{

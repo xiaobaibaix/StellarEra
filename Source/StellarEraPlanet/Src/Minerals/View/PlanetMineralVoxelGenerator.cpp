@@ -20,8 +20,7 @@ void UPlanetMineralVoxelGenerator::Configure(
 
 FPlanetMineralVoxelInstance::FPlanetMineralVoxelInstance(
 	const FPlanetMineralVoxelParams& InParams, const FLinearColor& InColor)
-	// 宿主指针传空：它只是序列化用的软引用，而本实例从不被序列化
-	// （FVoxelGeneratorPicker 每次建世界都重新调 GetInstance）。
+	// 宿主指针传空：它只是序列化用的软引用，而本实例从不被序列化（FVoxelGeneratorPicker 每次建世界都重新调 GetInstance）。
 	: Super(nullptr)
 	, Params(InParams)
 	, Color(InColor)
@@ -43,8 +42,7 @@ FPlanetMineralVoxelInstance::FPlanetMineralVoxelInstance(
 v_flt FPlanetMineralVoxelInstance::GetValueImpl(
 	v_flt X, v_flt Y, v_flt Z, int32 LOD, const FVoxelItemStack& Items) const
 {
-	// 插件用浮点坐标调用，但我们的判据定义在整数体素索引上。
-	// 取整而不是截断：负坐标下截断会往 0 靠，让球心附近错半格。
+	// 插件用浮点坐标调用，判据定义在整数体素索引上。取整而非截断：负坐标截断会往 0 靠，球心附近错半格。
 	const FIntVector Index(
 		FMath::RoundToInt(double(X)),
 		FMath::RoundToInt(double(Y)),
@@ -66,10 +64,8 @@ FVoxelMaterial FPlanetMineralVoxelInstance::GetMaterialImpl(
 TVoxelRange<v_flt> FPlanetMineralVoxelInstance::GetValueRangeImpl(
 	const FVoxelIntBox& Bounds, int32 LOD, const FVoxelItemStack& Items) const
 {
-	// 纯空气块：插件整块跳过，一个体素都不求。矿物体素世界的性能全靠这一条。
-	//
-	// 逐盒求交，与 EvaluateVoxel 的 IsInsideAnyRegion 等价：区域散开时并集 AABB
-	// 会把整片壳层都算成「相交」，性能杠杆就没了。
+	// 纯空气块：插件整块跳过，一个体素都不求 —— 矿物体素世界的性能全靠这一条。逐盒求交，与 EvaluateVoxel 的 IsInsideAnyRegion 等价
+	// （并集 AABB 会把整片壳层都算成相交，杠杆就没了）。
 	const FBox3d Bounds3d(FVector3d(Bounds.Min), FVector3d(Bounds.Max));
 	const bool bIntersectsAnyRegion = RegionBoxesVoxels.ContainsByPredicate(
 		[&Bounds3d](const FBox3d& RegionBox)
@@ -81,16 +77,10 @@ TVoxelRange<v_flt> FPlanetMineralVoxelInstance::GetValueRangeImpl(
 		return TVoxelRange<v_flt>(v_flt(PlanetMineralVoxel::AirValue));
 	}
 
-	// 与区域相交的块：给一个保守但紧的区间。契约要求它必须覆盖块内可能出现的
-	// 所有取值，估窄了矿上会出洞。
-	//
-	// 块里同时有两种体素：
-	//   ① 区域内的矿：Norm ∈ [0, 1] → (Iso - Norm) / Fade ∈ [(Iso - 1) / Fade, Iso / Fade]
-	//   ② 区域外的空气：恒为 AirValue（EvaluateVoxel 的第一条早退）
-	// 所以上界必须**同时**盖住 Iso / Fade 和 AirValue —— 主预设 ColorThreshold = 0.05、
-	// FadeRange = 0.12 时 Iso / Fade 只有 0.4167，光用它当上界会把 1.0 排除在区间外。
-	//
-	// 下界不用同样处理：Iso ≤ 1 时 (Iso - 1) / Fade ≤ 0 < AirValue，本来就盖住了。
+	// 与区域相交的块给保守但紧的区间，契约要求覆盖块内所有取值，估窄了矿上会出洞：
+	// ① 区域内矿 Norm ∈ [0,1] → (Iso - Norm) / Fade ∈ [(Iso-1)/Fade, Iso/Fade]；② 区域外空气恒为 AirValue。
+	// 上界必须同时盖住 Iso/Fade 与 AirValue（ColorThreshold 0.05、FadeRange 0.12 时 Iso/Fade 只有 0.4167，光用它会把 1.0 排除在外）；
+	// 下界 (Iso-1)/Fade ≤ 0 < AirValue，本来就盖住了。
 	const double Fade = FMath::Max(Params.FadeRange, 1e-4);
 	const double MaxValue = FMath::Max(
 		Params.IsoValue / Fade, double(PlanetMineralVoxel::AirValue));
@@ -100,14 +90,8 @@ TVoxelRange<v_flt> FPlanetMineralVoxelInstance::GetValueRangeImpl(
 
 FVector FPlanetMineralVoxelInstance::GetUpVector(v_flt X, v_flt Y, v_flt Z) const
 {
-	// 与行星体素索引空间同一套坐标（行星中心恒为原点，见
-	// PlanetMineralVoxelSampling.h 的坐标约定），所以「上」就是行星径向，
-	// 而不是世界 Z 轴 —— 与 FVoxelPlanetSphereTerrainInstance 同一个理由。
-	//
-	// 原点处没有方向可言，退回世界 Z 轴。GetSafeNormal 在长度为 0 时返回零向量，
-	// 拿零向量去定向会让物体整个塌掉。
-	// 写成 = FVector(...) 而不是 FVector P(...)：后者在参数形如 double(X) 时会
-	// 被解析成函数声明（most vexing parse），C2228「.SizeSquared 左边必须有类/结构」。
+	// 与行星体素索引空间同一套坐标（中心恒为原点），「上」是行星径向而非世界 Z 轴；原点处无方向可言，退回 Z 轴
+	// （GetSafeNormal 长度为 0 时返回零向量，拿它定向会让物体塌掉）。写成 = FVector(...) 而非 FVector P(...)，否则会被解析成函数声明。
 	const FVector P = FVector(double(X), double(Y), double(Z));
 	if (P.SizeSquared() < UE_DOUBLE_SMALL_NUMBER)
 	{
