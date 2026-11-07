@@ -6,6 +6,7 @@
 
 #include "HAL/IConsoleManager.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialExpressionCameraPositionWS.h"
 #include "Materials/MaterialExpressionCustom.h"
 #include "Materials/MaterialExpressionScalarParameter.h"
 #include "Materials/MaterialExpressionVectorParameter.h"
@@ -26,8 +27,12 @@ const TCHAR* const ShadowAssetPath = TEXT("/Game/Code/Planet/Materials/M_PlanetS
 const TCHAR* const ShadowHLSL = TEXT(R"(
 // 改公式后必须 +1：材质 shader map id 只吃 Custom 节点的 Code 字符串，
 // 不变就不重编译（同 PlanetAtmosphereMaterialBuilder 里那条注释）。
-#define PLANET_SHADOW_VERSION 1
+#define PLANET_SHADOW_VERSION 2
 
+// 球心不能由 C++ 直接给绝对坐标：行星 15 km/s，CPU 侧读到的永远是上一帧，实测球心
+// 偏 1.6 km 且逐帧来回跳，而半影只有 200 m —— 晨昏线整片翻面就是「光影闪烁」。
+// 传进来的是「球心 − 相机」这个小向量，这里加回渲染侧的当前相机位置。
+float3 PlanetCenter = CameraPos + PlanetCenterOffset;
 float3 ToCenter = PlanetCenter - WorldPos;
 float TowardSun = dot(ToCenter, SunDirection);
 
@@ -109,14 +114,21 @@ bool BuildPlanetShadowLightFunction(FString& OutError)
 	// 默认值只是占位：C++ 每帧按灯的实际朝向覆盖。
 	UMaterialExpressionVectorParameter* SunDirection = AddPSShadowVector(Material,
 		TEXT("SunDirection"), FLinearColor(0.0f, 0.0f, 1.0f, 0.0f), -600, -60);
-	UMaterialExpressionVectorParameter* PlanetCenter = AddPSShadowVector(Material,
-		TEXT("PlanetCenter"), FLinearColor(0.0f, 0.0f, 0.0f, 0.0f), -600, 80);
+	// 「行星球心 − 相机」而非绝对坐标：同一帧内相减，CPU 侧慢的那一帧自动抵消。
+	UMaterialExpressionVectorParameter* PlanetCenterOffset = AddPSShadowVector(Material,
+		TEXT("PlanetCenterOffset"), FLinearColor(0.0f, 0.0f, 0.0f, 0.0f), -600, 80);
 	// 20 km：UniverseMap 里那颗体素行星的表面半径（AVoxelPlanetActor::GetSurfaceRadiusCm）。
 	UMaterialExpressionScalarParameter* PlanetRadius = AddPSShadowScalar(Material,
 		TEXT("PlanetRadius"), 2000000.0f, -600, 220);
-	// 2 km 半影：球缘的软边。太窄会在地平线上出现锯齿状硬边。
+	// 200 m 半影：球缘的软边。太窄会在地平线上出现锯齿状硬边。
 	UMaterialExpressionScalarParameter* Penumbra = AddPSShadowScalar(Material,
 		TEXT("Penumbra"), 20000.0f, -600, 300);
+
+	UMaterialExpressionCameraPositionWS* CameraPos = NewObject<UMaterialExpressionCameraPositionWS>(Material);
+	CameraPos->Material = Material;
+	CameraPos->MaterialExpressionEditorX = -600;
+	CameraPos->MaterialExpressionEditorY = 400;
+	Material->GetExpressionCollection().AddExpression(CameraPos);
 
 	UMaterialExpressionCustom* Custom = NewObject<UMaterialExpressionCustom>(Material);
 	Custom->Material = Material;
@@ -137,9 +149,10 @@ bool BuildPlanetShadowLightFunction(FString& OutError)
 	};
 	AddInput(TEXT("WorldPos"), WorldPos);
 	AddInput(TEXT("SunDirection"), SunDirection);
-	AddInput(TEXT("PlanetCenter"), PlanetCenter);
+	AddInput(TEXT("PlanetCenterOffset"), PlanetCenterOffset);
 	AddInput(TEXT("PlanetRadius"), PlanetRadius);
 	AddInput(TEXT("Penumbra"), Penumbra);
+	AddInput(TEXT("CameraPos"), CameraPos);
 
 	Custom->RebuildOutputs();
 

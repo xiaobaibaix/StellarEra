@@ -1,11 +1,13 @@
 ﻿#include "PlanetAtmosphereComponent.h"
 
+#include "Camera/PlayerCameraManager.h"
 #include "Components/LightComponent.h"
 #include "Components/SceneComponent.h"
 #include "Engine/DirectionalLight.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "GameFramework/PlayerController.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "PlanetAtmosphereParams.h"
@@ -25,7 +27,7 @@ namespace
 
 	// 行星阴影光函数的参数名，必须与 PlanetShadowLightFunctionBuilder.cpp 里的一致。
 	const FName ParamShadowSunDirection(TEXT("SunDirection"));
-	const FName ParamShadowPlanetCenter(TEXT("PlanetCenter"));
+	const FName ParamShadowPlanetCenterOffset(TEXT("PlanetCenterOffset"));
 	const FName ParamShadowPlanetRadius(TEXT("PlanetRadius"));
 	const FName ParamShadowPenumbra(TEXT("Penumbra"));
 
@@ -513,6 +515,21 @@ void UPlanetAtmosphereComponent::ApplyPlanetShadow(UWorld* World)
 	const float PenumbraCm = PlanetRadiusCm * 0.01f;
 	const FVector PlanetCenter = GetComponentLocation();
 
+	// 光函数要的是「渲染时」的球心，这里读到的却永远是上一帧：Cosmos 子系统在
+	// UWorld::Tick 末尾才写回 Actor。行星 15 km/s，实测球心偏 1.6 km 且逐帧来回跳，
+	// 而半影只有 200 m —— 晨昏线于是整片翻面，就是山体阴影一闪一闪。
+	// 相机与行星刚性相连，改传两者之差（同一帧相减，慢的那一帧抵消），着色器里再加回
+	// 渲染侧的 CameraPositionWS。
+	const APlayerController* PlayerController = World->GetFirstPlayerController();
+	const APlayerCameraManager* CameraManager =
+		PlayerController ? PlayerController->PlayerCameraManager : nullptr;
+	if (!CameraManager)
+	{
+		// 没有视口就没有光函数可挂，不必纠正。
+		return;
+	}
+	const FVector PlanetCenterOffset = PlanetCenter - CameraManager->GetCameraLocation();
+
 	for (TActorIterator<ADirectionalLight> It(World); It; ++It)
 	{
 		ADirectionalLight* Light = *It;
@@ -535,8 +552,8 @@ void UPlanetAtmosphereComponent::ApplyPlanetShadow(UWorld* World)
 		const FVector DirectionToSun = -Light->GetActorForwardVector();
 		ShadowMID->SetVectorParameterValue(ParamShadowSunDirection,
 			FLinearColor(DirectionToSun.X, DirectionToSun.Y, DirectionToSun.Z, 0.0f));
-		ShadowMID->SetVectorParameterValue(ParamShadowPlanetCenter,
-			FLinearColor(PlanetCenter.X, PlanetCenter.Y, PlanetCenter.Z, 0.0f));
+		ShadowMID->SetVectorParameterValue(ParamShadowPlanetCenterOffset,
+			FLinearColor(PlanetCenterOffset.X, PlanetCenterOffset.Y, PlanetCenterOffset.Z, 0.0f));
 		ShadowMID->SetScalarParameterValue(ParamShadowPlanetRadius, PlanetRadiusCm);
 		ShadowMID->SetScalarParameterValue(ParamShadowPenumbra, PenumbraCm);
 

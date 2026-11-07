@@ -144,7 +144,7 @@ bool FStellarEraPlanetShadowMaterialTest::RunTest(const FString& Parameters)
 	TArray<FMaterialParameterInfo> VectorInfos;
 	TArray<FGuid> VectorIds;
 	Material->GetAllVectorParameterInfo(VectorInfos, VectorIds);
-	for (const TCHAR* Name : { TEXT("SunDirection"), TEXT("PlanetCenter") })
+	for (const TCHAR* Name : { TEXT("SunDirection"), TEXT("PlanetCenterOffset") })
 	{
 		TestTrue(FString::Printf(TEXT("向量参数 %s"), Name), HasParameter(VectorInfos, FName(Name)));
 	}
@@ -158,6 +158,8 @@ bool FStellarEraPlanetShadowMaterialTest::RunTest(const FString& Parameters)
 			bFoundCustom = true;
 			TestTrue(TEXT("Custom 节点里有 TowardSun"), Custom->Code.Contains(TEXT("TowardSun")));
 			TestTrue(TEXT("Custom 节点里有 PlanetRadius"), Custom->Code.Contains(TEXT("PlanetRadius")));
+			// 球心由渲染侧相机重建；退回绝对坐标会让晨昏线慢一帧、逐帧跳 1.6 km。
+			TestTrue(TEXT("Custom 节点用 CameraPos 重建球心"), Custom->Code.Contains(TEXT("CameraPos")));
 			TestEqual(TEXT("Custom 输出是标量"), Custom->OutputType, CMOT_Float1);
 		}
 	}
