@@ -286,7 +286,7 @@ bool FStellarEraSkyPlanetHasComponentTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 这一条钉的是「面主序 + 索引映射」：FaceCenters / FaceCorner 只锁方向表，锁不住 RenderCube 的写入顺序。
+// 钉住面主序与 +Z / +X 索引；锁不住 ±X、±Y 之间的互换（均值分不开），那些仍靠方向表核对。
 // 对比同一张脸在两种太阳方向下的结果而非常量绝对大小：地平线路径远长于天顶，绝对亮度不按太阳方向排。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSkyFaceDirectionEndToEndTest,
 	"StellarEra.Planet.SkyLight.FaceDirectionEndToEnd",
@@ -316,10 +316,15 @@ bool FStellarEraSkyFaceDirectionEndToEndTest::RunTest(const FString& Parameters)
 	PlanetSky::FModelInput HorizonSun = MakeInput();
 	HorizonSun.Suns.Add(MakeSun(0.0f, 0.0f, FLinearColor::White));
 
+	PlanetSky::FModelInput PlusYSun = MakeInput();
+	PlusYSun.Suns.Add(MakeSun(0.0f, 90.0f, FLinearColor::White));
+
 	float ZenithLuma[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 	float HorizonLuma[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+	float PlusYLuma[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 	FaceLuma(ZenithSun, ZenithLuma);
 	FaceLuma(HorizonSun, HorizonLuma);
+	FaceLuma(PlusYSun, PlusYLuma);
 
 	AddInfo(FString::Printf(
 		TEXT("太阳天顶：%.5f %.5f %.5f %.5f %.5f %.5f"),
@@ -327,12 +332,21 @@ bool FStellarEraSkyFaceDirectionEndToEndTest::RunTest(const FString& Parameters)
 	AddInfo(FString::Printf(
 		TEXT("太阳+地平线：%.5f %.5f %.5f %.5f %.5f %.5f"),
 		HorizonLuma[0], HorizonLuma[1], HorizonLuma[2], HorizonLuma[3], HorizonLuma[4], HorizonLuma[5]));
+	AddInfo(FString::Printf(
+		TEXT("太阳+Y 地平线：%.5f %.5f %.5f %.5f %.5f %.5f"),
+		PlusYLuma[0], PlusYLuma[1], PlusYLuma[2], PlusYLuma[3], PlusYLuma[4], PlusYLuma[5]));
 
 	// 太阳换了方向后，正对它的那一面必须变亮：面序/索引写错时这两条至少一条会红。
 	TestTrue(FString::Printf(TEXT("+Z 面在太阳天顶时更亮: %.6f vs %.6f"),
 		ZenithLuma[4], HorizonLuma[4]), ZenithLuma[4] > HorizonLuma[4]);
 	TestTrue(FString::Printf(TEXT("+X 面在太阳位于 +X 时更亮: %.6f vs %.6f"),
 		HorizonLuma[0], ZenithLuma[0]), HorizonLuma[0] > ZenithLuma[0]);
+
+	// 迎光面必须亮过背光面：只比同一面在两个太阳方向下的数值，分不出 ±X、±Y 被对调。
+	TestTrue(FString::Printf(TEXT("+X 面亮过 -X 面: %.6f vs %.6f"),
+		HorizonLuma[0], HorizonLuma[1]), HorizonLuma[0] > HorizonLuma[1]);
+	TestTrue(FString::Printf(TEXT("+Y 面亮过 -Y 面: %.6f vs %.6f"),
+		PlusYLuma[2], PlusYLuma[3]), PlusYLuma[2] > PlusYLuma[3]);
 	return true;
 }
 

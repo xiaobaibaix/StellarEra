@@ -318,7 +318,8 @@ bool UPlanetSkyLightComponent::UpdateCube(const FVector& Observer, const FUpdate
 		Input.Scattering.MieBeta = FVector3f::ZeroVector;
 	}
 	Input.SunIntensity = Key.SunIntensity;
-	Input.CloudCoverage = Key.bCloudsEnabled ? Key.CloudCoverage : 0.0f;
+	// 大气关掉时云壳也跟着隐藏，所以云的压暗也要一起停，不能只看 bCloudsEnabled。
+	Input.CloudCoverage = (Key.bAtmosphereEnabled && Key.bCloudsEnabled) ? Key.CloudCoverage : 0.0f;
 	Input.SpaceSkyRadiance = SpaceSkyRadiance;
 	Input.BrightnessScale = BrightnessScale;
 
