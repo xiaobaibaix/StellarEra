@@ -16,6 +16,7 @@ class UMaterialInterface;
 class UMaterialInstanceDynamic;
 class UPlanetSurfaceGridComponent;
 class UPlanetWaterComponent;
+class UPlanetSkyLightComponent;
 class UVoxelPlanetGenerator;
 class UVoxelPlanetTerrainModule;
 class UVoxelSimpleInvokerComponent;
@@ -225,6 +226,10 @@ public:
 	/** 行星水面。构造函数里创建，挂在根组件下面。 */
 	UPROPERTY(Transient, VisibleAnywhere, Category = "水体")
 	TObjectPtr<UPlanetWaterComponent> WaterComponent;
+
+	/** 自建大气的天光：按玩家视角算天空立方图喂关卡 SkyLight。缺了环境光就永远是同一张静态图。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet")
+	TObjectPtr<UPlanetSkyLightComponent> PlanetSkyLight;
 
 	/** 运行期烘焙的 biome cubemap（瞬态：每次重建重烘，不落盘）。 */
 	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "Planet|Color")

@@ -2,6 +2,8 @@
 #include "Misc/AutomationTest.h"
 #include "PlanetSkyModel.h"
 #include "PlanetAtmosphereParams.h"
+#include "VoxelPlanetActor.h"
+#include "PlanetSkyLightComponent.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -262,6 +264,24 @@ bool FStellarEraSkyCubeShapeTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("finite"), bAllFinite);
 	TestTrue(TEXT("non-negative"), bAllNonNegative);
 	TestTrue(TEXT("alpha == 1"), bAlphaOne);
+	return true;
+}
+
+// 天光是骨架：行星 CDO 上必须自带，不能靠蓝图补。蓝图 SCS 组件不在 CDO 上，这条能区分两种做法。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSkyPlanetHasComponentTest,
+	"StellarEra.Planet.SkyLight.PlanetHasComponent",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FStellarEraSkyPlanetHasComponentTest::RunTest(const FString& Parameters)
+{
+	const AVoxelPlanetActor* Planet = GetDefault<AVoxelPlanetActor>();
+	TestNotNull(TEXT("行星 CDO"), Planet);
+	if (!Planet)
+	{
+		return false;
+	}
+	const UPlanetSkyLightComponent* Component =
+		Planet->FindComponentByClass<UPlanetSkyLightComponent>();
+	TestNotNull(TEXT("PlanetSkyLight"), Component);
 	return true;
 }
 

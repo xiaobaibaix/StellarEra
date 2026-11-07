@@ -16,6 +16,7 @@
 #include "PlanetGeologyField.h"
 #include "PlanetGeologyPreset.h"
 #include "PlanetWaterComponent.h"
+#include "Sky/PlanetSkyLightComponent.h"
 // biome cubemap：配色按方向烘成贴图，材质逐像素查表 —— 颜色与网格密度解耦。
 #include "PlanetBiomeCubemap.h"
 #include "VoxelPlanetNoiseTerrain.h"
@@ -173,6 +174,9 @@ AVoxelPlanetActor::AVoxelPlanetActor()
 
 	// 水面组件；海洋/湖泊/河流分量由它自己在重建时创建。
 	WaterComponent = CreateDefaultSubobject<UPlanetWaterComponent>(TEXT("PlanetWater"));
+
+	// 天光不是可选项：没有它环境光永远是同一张静态立方图。骨架留 C++，蓝图不用管。
+	PlanetSkyLight = CreateDefaultSubobject<UPlanetSkyLightComponent>(TEXT("PlanetSkyLight"));
 
 	// 大气壳、矿物观察与表面编辑网格由 BP_VoxelPlanet 挂载；原生实例不带，
 	// 编辑相关调用走 FindEditGrid()，找不到就跳过。
