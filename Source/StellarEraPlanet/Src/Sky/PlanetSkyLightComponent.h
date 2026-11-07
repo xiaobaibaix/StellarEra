@@ -66,6 +66,13 @@ private:
 		float AltitudeCm = 0.0f;
 		float SurfaceRadiusCm = 0.0f;
 		float ShellRadiusCm = 0.0f;
+		/** 直接进积分的参数：改任何一个，玩家看得见的天空就变了。 */
+		float RayleighScaleHeightRatio = 0.0f;
+		float MieScaleHeightRatio = 0.0f;
+		FLinearColor SunIntensity = FLinearColor::Black;
+		float CloudCoverage = 0.0f;
+		bool bAtmosphereEnabled = true;
+		bool bCloudsEnabled = true;
 		TArray<FVector> SunDirections;
 	};
 
@@ -74,7 +81,8 @@ private:
 	bool GetObserverLocation(FVector& OutLocation);
 	bool BuildKey(const FVector& Observer, FUpdateKey& OutKey);
 	bool NeedsUpdate(const FUpdateKey& Key) const;
-	void UpdateCube(const FVector& Observer, const FUpdateKey& Key);
+	/** 成功才返回 true；失败不推进节流状态，下次 Tick 重试。 */
+	bool UpdateCube(const FVector& Observer, const FUpdateKey& Key);
 
 	UPROPERTY(Transient)
 	TObjectPtr<UTextureCube> CurrentCubemap;

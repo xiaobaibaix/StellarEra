@@ -7,7 +7,8 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-// 断言写法说明：浮点一律显式带容差；颜色用 Equals(容差) 而不是 ==。
+// 断言写法说明：浮点一律显式带容差；判「颜色完全相同」要逐通道 ==（Equals 用严格小于，
+// 传 0 容差恒为 false）。
 //
 // 这里**不断言色相**（天更蓝/日落更红）。模型照抄壳着色器，没有太阳路径透射项，
 // 色相是否如预期要跑起来看，断言它只会得到一条没意义的红。色相验证在 Task 4 的 PIE 里。
@@ -282,6 +283,56 @@ bool FStellarEraSkyPlanetHasComponentTest::RunTest(const FString& Parameters)
 	const UPlanetSkyLightComponent* Component =
 		Planet->FindComponentByClass<UPlanetSkyLightComponent>();
 	TestNotNull(TEXT("PlanetSkyLight"), Component);
+	return true;
+}
+
+// 这一条钉的是「面主序 + 索引映射」：FaceCenters / FaceCorner 只锁方向表，锁不住 RenderCube 的写入顺序。
+// 对比同一张脸在两种太阳方向下的结果而非常量绝对大小：地平线路径远长于天顶，绝对亮度不按太阳方向排。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSkyFaceDirectionEndToEndTest,
+	"StellarEra.Planet.SkyLight.FaceDirectionEndToEnd",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FStellarEraSkyFaceDirectionEndToEndTest::RunTest(const FString& Parameters)
+{
+	constexpr int32 Resolution = 8;
+	const auto FaceLuma = [](const PlanetSky::FModelInput& Input, float OutLuma[6])
+	{
+		TArray<FLinearColor> Pixels;
+		PlanetSky::RenderCube(Input, Resolution, Pixels);
+		const int32 FacePixels = Resolution * Resolution;
+		for (int32 Face = 0; Face < 6; ++Face)
+		{
+			float Sum = 0.0f;
+			for (int32 Index = 0; Index < FacePixels; ++Index)
+			{
+				Sum += Pixels[Face * FacePixels + Index].GetLuminance();
+			}
+			OutLuma[Face] = Sum / static_cast<float>(FacePixels);
+		}
+	};
+
+	PlanetSky::FModelInput ZenithSun = MakeInput();
+	ZenithSun.Suns.Add(MakeSun(90.0f, 0.0f, FLinearColor::White));
+
+	PlanetSky::FModelInput HorizonSun = MakeInput();
+	HorizonSun.Suns.Add(MakeSun(0.0f, 0.0f, FLinearColor::White));
+
+	float ZenithLuma[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+	float HorizonLuma[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+	FaceLuma(ZenithSun, ZenithLuma);
+	FaceLuma(HorizonSun, HorizonLuma);
+
+	AddInfo(FString::Printf(
+		TEXT("太阳天顶：%.5f %.5f %.5f %.5f %.5f %.5f"),
+		ZenithLuma[0], ZenithLuma[1], ZenithLuma[2], ZenithLuma[3], ZenithLuma[4], ZenithLuma[5]));
+	AddInfo(FString::Printf(
+		TEXT("太阳+地平线：%.5f %.5f %.5f %.5f %.5f %.5f"),
+		HorizonLuma[0], HorizonLuma[1], HorizonLuma[2], HorizonLuma[3], HorizonLuma[4], HorizonLuma[5]));
+
+	// 太阳换了方向后，正对它的那一面必须变亮：面序/索引写错时这两条至少一条会红。
+	TestTrue(FString::Printf(TEXT("+Z 面在太阳天顶时更亮: %.6f vs %.6f"),
+		ZenithLuma[4], HorizonLuma[4]), ZenithLuma[4] > HorizonLuma[4]);
+	TestTrue(FString::Printf(TEXT("+X 面在太阳位于 +X 时更亮: %.6f vs %.6f"),
+		HorizonLuma[0], ZenithLuma[0]), HorizonLuma[0] > ZenithLuma[0]);
 	return true;
 }
 

@@ -10,7 +10,7 @@
  */
 namespace PlanetSky
 {
-	/** 一颗太阳：单位方向（观察点 → 太阳）与颜色×相对亮度。 */
+	/** 一颗太阳：单位方向（行星中心 → 光源，来自 CollectSunsFor）与颜色×相对亮度。 */
 	struct FSun
 	{
 		FVector Direction = FVector::UpVector;
@@ -26,7 +26,7 @@ namespace PlanetSky
 		float SurfaceRadiusCm = 0.0f;
 		float ShellRadiusCm = 0.0f;
 		PlanetAtmosphere::FShellScatteringParams Scattering;
-		/** 最多 4 颗，与 PlanetClouds::MaxSuns 同源；超出部分由调用方截断。 */
+		/** 最多 4 颗，与 PlanetClouds::MaxSuns 同源；由 CollectSunsFor 按 MaxSuns 截断。 */
 		TArray<FSun> Suns;
 		/** 壳材质里的补偿系数（默认 14），不是太阳真亮了 14 倍。 */
 		FLinearColor SunIntensity = FLinearColor(14.0f, 14.0f, 14.0f, 1.0f);
@@ -42,7 +42,7 @@ namespace PlanetSky
 
 	/**
 	 * 立方图第 FaceIndex 面、第 (PixelX, PixelY) 个像素对应的世界方向（单位向量）。
-	 * 面序与 UV 映射抄自 ReflectiveEnvironmentShaders.usf 的 GetCubemapVector：
+	 * 面序与 UV 映射抄自 ReflectionEnvironmentShaders.usf 的 GetCubemapVector：
 	 * ScaledUVs = ((FaceCoord + 0.5) / Res) * 2 - 1，FaceCoord = (col, row) = (PixelX, PixelY)。
 	 * 这张表错了环境光就会从错误的方向来，改之前先回引擎源码对一遍。
 	 */

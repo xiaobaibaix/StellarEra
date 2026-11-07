@@ -59,7 +59,10 @@ void UPlanetSkyLightComponent::TickComponent(float DeltaTime, ELevelTick TickTyp
 		return;
 	}
 
-	UpdateCube(Observer, Key);
+	if (!UpdateCube(Observer, Key))
+	{
+		return;
+	}
 	LastKey = MoveTemp(Key);
 	bHasUpdated = true;
 	LastUpdateTime = World->GetTimeSeconds();
@@ -85,7 +88,10 @@ void UPlanetSkyLightComponent::RefreshNow()
 		return;
 	}
 
-	UpdateCube(Observer, Key);
+	if (!UpdateCube(Observer, Key))
+	{
+		return;
+	}
 	LastKey = MoveTemp(Key);
 	bHasUpdated = true;
 	LastUpdateTime = World->GetTimeSeconds();
@@ -206,6 +212,12 @@ bool UPlanetSkyLightComponent::BuildKey(const FVector& Observer, FUpdateKey& Out
 	OutKey.Up = Offset.GetSafeNormal();
 	OutKey.SurfaceRadiusCm = SurfaceRadiusCm;
 	OutKey.ShellRadiusCm = ShellRadiusCm;
+	OutKey.RayleighScaleHeightRatio = Atmo->RayleighScaleHeightRatio;
+	OutKey.MieScaleHeightRatio = Atmo->MieScaleHeightRatio;
+	OutKey.SunIntensity = Atmo->SunIntensity;
+	OutKey.CloudCoverage = Atmo->CloudCoverage;
+	OutKey.bAtmosphereEnabled = Atmo->bAtmosphereEnabled;
+	OutKey.bCloudsEnabled = Atmo->bCloudsEnabled;
 	// 钳到壳内：飞到深空以后「高度」每帧都在变，不钳的话节流形同虚设。
 	OutKey.AltitudeCm = FMath::Clamp(Offset.Size() - SurfaceRadiusCm,
 		0.0f, FMath::Max(ShellRadiusCm - SurfaceRadiusCm, 0.0f));
@@ -221,7 +233,27 @@ bool UPlanetSkyLightComponent::BuildKey(const FVector& Observer, FUpdateKey& Out
 
 bool UPlanetSkyLightComponent::NeedsUpdate(const FUpdateKey& Key) const
 {
+	if (!Atmosphere.IsValid())
+	{
+		return true;
+	}
+
 	if (!bHasUpdated)
+	{
+		return true;
+	}
+
+	// 参数被改就必须下一次 Tick 重算，不等最小间隔：环境光要立刻跟上可见天空。
+	if (Key.bAtmosphereEnabled != LastKey.bAtmosphereEnabled
+		|| Key.bCloudsEnabled != LastKey.bCloudsEnabled
+		|| !FMath::IsNearlyEqual(Key.RayleighScaleHeightRatio, LastKey.RayleighScaleHeightRatio,
+			KINDA_SMALL_NUMBER)
+		|| !FMath::IsNearlyEqual(Key.MieScaleHeightRatio, LastKey.MieScaleHeightRatio,
+			KINDA_SMALL_NUMBER)
+		|| !FMath::IsNearlyEqual(Key.CloudCoverage, LastKey.CloudCoverage, KINDA_SMALL_NUMBER)
+		|| !FMath::IsNearlyEqual(Key.SunIntensity.R, LastKey.SunIntensity.R, KINDA_SMALL_NUMBER)
+		|| !FMath::IsNearlyEqual(Key.SunIntensity.G, LastKey.SunIntensity.G, KINDA_SMALL_NUMBER)
+		|| !FMath::IsNearlyEqual(Key.SunIntensity.B, LastKey.SunIntensity.B, KINDA_SMALL_NUMBER))
 	{
 		return true;
 	}
@@ -259,17 +291,17 @@ bool UPlanetSkyLightComponent::NeedsUpdate(const FUpdateKey& Key) const
 
 	// 高度阈值取瑞利标高的四分之一：比这更小的变化看不出来，却会让 5 Hz 的节流白跑。
 	const float AltitudeThresholdCm = FMath::Max(
-		Atmosphere->RayleighScaleHeightRatio * Key.ShellRadiusCm * 0.25f, 1.0f);
+		Key.RayleighScaleHeightRatio * Key.ShellRadiusCm * 0.25f, 1.0f);
 	return FMath::Abs(Key.AltitudeCm - LastKey.AltitudeCm) > AltitudeThresholdCm;
 }
 
-void UPlanetSkyLightComponent::UpdateCube(const FVector& Observer, const FUpdateKey& Key)
+bool UPlanetSkyLightComponent::UpdateCube(const FVector& Observer, const FUpdateKey& Key)
 {
 	UPlanetAtmosphereComponent* Atmo = Atmosphere.Get();
 	USkyLightComponent* Target = SkyLight.Get();
 	if (!Atmo || !Target)
 	{
-		return;
+		return false;
 	}
 
 	PlanetSky::FModelInput Input;
@@ -278,9 +310,15 @@ void UPlanetSkyLightComponent::UpdateCube(const FVector& Observer, const FUpdate
 	Input.SurfaceRadiusCm = Key.SurfaceRadiusCm;
 	Input.ShellRadiusCm = Key.ShellRadiusCm;
 	Input.Scattering = PlanetAtmosphere::ComputeShellScatteringParams(
-		Key.ShellRadiusCm, Atmo->RayleighScaleHeightRatio, Atmo->MieScaleHeightRatio);
-	Input.SunIntensity = Atmo->SunIntensity;
-	Input.CloudCoverage = Atmo->CloudCoverage;
+		Key.ShellRadiusCm, Key.RayleighScaleHeightRatio, Key.MieScaleHeightRatio);
+	// 环境光必须和玩家看得见的天空一致：大气/云关掉时，可见天空里也没有它们。
+	if (!Key.bAtmosphereEnabled)
+	{
+		Input.Scattering.RayleighBeta = FVector3f::ZeroVector;
+		Input.Scattering.MieBeta = FVector3f::ZeroVector;
+	}
+	Input.SunIntensity = Key.SunIntensity;
+	Input.CloudCoverage = Key.bCloudsEnabled ? Key.CloudCoverage : 0.0f;
 	Input.SpaceSkyRadiance = SpaceSkyRadiance;
 	Input.BrightnessScale = BrightnessScale;
 
@@ -293,10 +331,11 @@ void UPlanetSkyLightComponent::UpdateCube(const FVector& Observer, const FUpdate
 		Input.Suns.Add(Converted);
 	}
 
-	const double StartSeconds = FPlatformTime::Seconds();
-	PlanetSky::RenderCube(Input, CubeResolution, Pixels);
+	const int32 Resolution = FMath::Clamp(CubeResolution, 4, 64);
 
-	const int32 Resolution = FMath::Max(CubeResolution, 1);
+	const double StartSeconds = FPlatformTime::Seconds();
+	PlanetSky::RenderCube(Input, Resolution, Pixels);
+
 	UTextureCube* Cube = UTextureCube::CreateTransient(Resolution, Resolution, PF_FloatRGBA);
 	if (!Cube)
 	{
@@ -306,7 +345,7 @@ void UPlanetSkyLightComponent::UpdateCube(const FVector& Observer, const FUpdate
 			UE_LOG(LogTemp, Warning, TEXT("[天光] 立方图创建失败（边长 %d），跳过本次更新。"),
 				Resolution);
 		}
-		return;
+		return false;
 	}
 
 	// SRGB 必须关：存的是线性辐亮度，gamma 编码会把夜空压成 0。
@@ -329,4 +368,5 @@ void UPlanetSkyLightComponent::UpdateCube(const FVector& Observer, const FUpdate
 	const double ElapsedMs = (FPlatformTime::Seconds() - StartSeconds) * 1000.0;
 	UE_LOG(LogTemp, Log, TEXT("[天光] 重算 边长=%d 太阳=%d 用时=%.3f ms"),
 		Resolution, Input.Suns.Num(), ElapsedMs);
+	return true;
 }

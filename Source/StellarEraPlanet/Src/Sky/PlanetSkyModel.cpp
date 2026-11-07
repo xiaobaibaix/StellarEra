@@ -22,36 +22,36 @@ namespace
 		return (1.0f - G2) / (4.0f * Pi * FMath::Pow(Denom, 1.5f));
 	}
 
-	/** 近交点；起点在球内返回 0，未命中返回负值。 */
-	float RaySphereNear(const FVector& Origin, const FVector& Dir,
-		const FVector& Center, float Radius)
+	/** 近交点，钳到 ≥0；起点在球内或整个球在身后时返回 0，射线不与球相交返回 -1。 */
+	double RaySphereNear(const FVector& Origin, const FVector& Dir,
+		const FVector& Center, double Radius)
 	{
 		const FVector Offset = Origin - Center;
-		const float B = FVector::DotProduct(Offset, Dir);
-		const float C = FVector::DotProduct(Offset, Offset) - Radius * Radius;
-		const float Disc = B * B - C;
-		if (Disc < 0.0f)
+		const double B = FVector::DotProduct(Offset, Dir);
+		const double C = FVector::DotProduct(Offset, Offset) - Radius * Radius;
+		const double Disc = B * B - C;
+		if (Disc < 0.0)
 		{
-			return -1.0f;
+			return -1.0;
 		}
-		const float Near = -B - FMath::Sqrt(Disc);
-		return Near > 0.0f ? Near : 0.0f;
+		const double Near = -B - FMath::Sqrt(Disc);
+		return Near > 0.0 ? Near : 0.0;
 	}
 
 	/** 远交点；未命中或整个球在身后返回负值。 */
-	float RaySphereFar(const FVector& Origin, const FVector& Dir,
-		const FVector& Center, float Radius)
+	double RaySphereFar(const FVector& Origin, const FVector& Dir,
+		const FVector& Center, double Radius)
 	{
 		const FVector Offset = Origin - Center;
-		const float B = FVector::DotProduct(Offset, Dir);
-		const float C = FVector::DotProduct(Offset, Offset) - Radius * Radius;
-		const float Disc = B * B - C;
-		if (Disc < 0.0f)
+		const double B = FVector::DotProduct(Offset, Dir);
+		const double C = FVector::DotProduct(Offset, Offset) - Radius * Radius;
+		const double Disc = B * B - C;
+		if (Disc < 0.0)
 		{
-			return -1.0f;
+			return -1.0;
 		}
-		const float Far = -B + FMath::Sqrt(Disc);
-		return Far > 0.0f ? Far : -1.0f;
+		const double Far = -B + FMath::Sqrt(Disc);
+		return Far > 0.0 ? Far : -1.0;
 	}
 
 	/**
@@ -107,15 +107,19 @@ FLinearColor PlanetSky::SampleDirection(const FModelInput& Input, const FVector&
 	const FVector Center = Input.PlanetCenter;
 
 	// 观察点可能在壳内也可能在壳外：近交点小于 0 时从观察点起算。
-	const float ShellEnter = RaySphereNear(Input.ObserverLocation, Dir, Center, Input.ShellRadiusCm);
-	const float ShellExit = RaySphereFar(Input.ObserverLocation, Dir, Center, Input.ShellRadiusCm);
-	if (ShellExit < 0.0f)
+	// 距离用 double：观察点飞到 1 AU 时 float 的 ulp 已接近壳厚，Span 会抵消失准。
+	const double ShellEnter = RaySphereNear(Input.ObserverLocation, Dir, Center, Input.ShellRadiusCm);
+	const double ShellExit = RaySphereFar(Input.ObserverLocation, Dir, Center, Input.ShellRadiusCm);
+	if (ShellExit < 0.0)
 	{
 		// 射线压根不碰大气：往上看就是星空。BrightnessScale 只校准散射，别乘到星空上。
-		return Input.SpaceSkyRadiance;
+		// 立方图的 alpha 必须恒为 1，不能把 SpaceSkyRadiance 里配的 alpha 带出去。
+		FLinearColor Space = Input.SpaceSkyRadiance;
+		Space.A = 1.0f;
+		return Space;
 	}
 
-	float EndT = ShellExit;
+	double EndT = ShellExit;
 	bool bHitGround = false;
 	const float GroundHit = RayGroundHit(Input.ObserverLocation, Dir, Center, Input.SurfaceRadiusCm);
 	if (GroundHit >= 0.0f && GroundHit < EndT)
@@ -125,13 +129,13 @@ FLinearColor PlanetSky::SampleDirection(const FModelInput& Input, const FVector&
 	}
 
 	const int32 StepCount = FMath::Max(Input.Steps, 1);
-	const float Span = EndT - ShellEnter;
+	const double Span = EndT - ShellEnter;
 	FLinearColor Acc = FLinearColor::Black;
 	FLinearColor Transmittance = FLinearColor(1.0f, 1.0f, 1.0f, 1.0f);
 
-	if (Span > 0.0f)
+	if (Span > 0.0)
 	{
-		const float Ds = Span / static_cast<float>(StepCount);
+		const double Ds = Span / static_cast<double>(StepCount);
 		const FLinearColor RayleighBeta(Input.Scattering.RayleighBeta.X,
 			Input.Scattering.RayleighBeta.Y, Input.Scattering.RayleighBeta.Z, 0.0f);
 		const FLinearColor MieBeta(Input.Scattering.MieBeta.X,
@@ -139,9 +143,21 @@ FLinearColor PlanetSky::SampleDirection(const FModelInput& Input, const FVector&
 		const float RayleighScaleHeight = FMath::Max(Input.Scattering.RayleighScaleHeightCm, 1.0f);
 		const float MieScaleHeight = FMath::Max(Input.Scattering.MieScaleHeightCm, 1.0f);
 
+		// 相位只依赖「射线方向 · 太阳方向」，沿整条射线不变，按壳着色器的做法提到循环外。
+		TArray<float, TInlineAllocator<8>> RayleighPhases;
+		TArray<float, TInlineAllocator<8>> MiePhases;
+		RayleighPhases.SetNum(Input.Suns.Num());
+		MiePhases.SetNum(Input.Suns.Num());
+		for (int32 SunIndex = 0; SunIndex < Input.Suns.Num(); ++SunIndex)
+		{
+			const float CosTheta = FVector::DotProduct(Dir, Input.Suns[SunIndex].Direction);
+			RayleighPhases[SunIndex] = RayleighPhase(CosTheta);
+			MiePhases[SunIndex] = MiePhase(CosTheta);
+		}
+
 		for (int32 Step = 0; Step < StepCount; ++Step)
 		{
-			const float T = ShellEnter + (Step + 0.5f) * Ds;
+			const double T = ShellEnter + (Step + 0.5) * Ds;
 			const FVector SamplePosition = Input.ObserverLocation + Dir * T;
 			const FVector Offset = SamplePosition - Center;
 			const float Radius = Offset.Size();
@@ -151,8 +167,9 @@ FLinearColor PlanetSky::SampleDirection(const FModelInput& Input, const FVector&
 			const float MieDensity = FMath::Exp(-Height / MieScaleHeight);
 
 			FLinearColor Scatter = FLinearColor::Black;
-			for (const FSun& Sun : Input.Suns)
+			for (int32 SunIndex = 0; SunIndex < Input.Suns.Num(); ++SunIndex)
 			{
+				const FSun& Sun = Input.Suns[SunIndex];
 				// 阴影判据抄 .ush：采样点相对球心的方向与太阳方向的点积 / 半径。
 				const float SinSunElevation =
 					FVector::DotProduct(Offset, Sun.Direction) / FMath::Max(Radius, 1.0f);
@@ -163,10 +180,9 @@ FLinearColor PlanetSky::SampleDirection(const FModelInput& Input, const FVector&
 					continue;
 				}
 
-				const float CosTheta = FVector::DotProduct(Dir, Sun.Direction);
 				const FLinearColor Term =
-					RayleighBeta * RayleighDensity * RayleighPhase(CosTheta)
-					+ MieBeta * MieDensity * MiePhase(CosTheta);
+					RayleighBeta * RayleighDensity * RayleighPhases[SunIndex]
+					+ MieBeta * MieDensity * MiePhases[SunIndex];
 				Scatter += FLinearColor(Sun.Radiance.R, Sun.Radiance.G, Sun.Radiance.B, 0.0f)
 					* SunVisibility * Term;
 			}
