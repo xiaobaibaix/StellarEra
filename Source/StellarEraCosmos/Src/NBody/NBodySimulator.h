@@ -46,8 +46,9 @@ struct FCosmosBodyState
 	double Radius = 0.0;
 
 	/**
-	 * 接触探针（相对天体中心，求解器单位）。非空时取代 Radius 的球-球接触，取最深探针
-	 * 解算。用途是飞船 —— 整船只用一个球时机头/机尾的接触位置全错。
+	 * 接触探针（**机体系**偏移，求解器单位）。非空时取代 Radius 的球-球接触。
+	 * 求解器每个子步按 Orientation 转成世界系 —— 一帧几十个子步、机身还在转，
+	 * 存世界系会整帧用上一刻的船身找接触点，落地变成越推越摆的自激振荡。
 	 * 空数组 = 按 Radius 做球-球接触。
 	 */
 	TArray<FVector3d> ContactProbes;
@@ -64,7 +65,7 @@ struct FCosmosBodyState
 	/** 上面的半径是对着哪个天体算的。索引对不上就不用逐探针半径（接触是成对的）。 */
 	int32 ContactSurfaceSphereIndex = INDEX_NONE;
 
-	/** 写入探针并同步 ContactProbeRadius。传空数组即退回球-球接触。 */
+	/** 写入**机体系**探针并同步 ContactProbeRadius。传空数组即退回球-球接触。 */
 	void SetContactProbes(TArray<FVector3d> InProbes)
 	{
 		ContactProbes = MoveTemp(InProbes);

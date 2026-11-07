@@ -833,6 +833,146 @@ bool FStellarEraNBodyProbeContactTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraNBodyProbeOrientationTest,
+	"StellarEra.Cosmos.ProbeContactUsesOrientation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraNBodyProbeOrientationTest::RunTest(const FString& Parameters)
+{
+	// 探针存**机体系**：机身绕 +Z 转 90° 后，本地 +Y 的探针必须落到世界 −X 一侧。
+	// 存世界系的旧实现会把它当成 (0,0.08,0) 直接加到船心上（距球心 0.17，无接触），
+	// 于是同一个姿态下接触点整体错开 90°，落地时正是靠这个错位自激成每帧 ±8° 的摆动。
+	FNBodySimulator Simulator;
+	Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
+	Simulator.SetIntegrator(ECosmosIntegrator::VelocityVerlet);
+	Simulator.SetSofteningLength(1.0e-5);
+
+	FCosmosBodyState Sphere;
+	Sphere.Mass = 3.0;
+	Sphere.Radius = 0.1;
+	Simulator.AddBody(Sphere);
+
+	FCosmosBodyState ProbeBody;
+	ProbeBody.Mass = 1.0;
+	ProbeBody.Position = FVector3d(0.15, 0.0, 0.0);
+	ProbeBody.bRigidBody = true;
+	ProbeBody.Orientation = FQuat4d(FVector3d(0.0, 0.0, 1.0), HALF_PI);
+	TArray<FVector3d> Probes;
+	Probes.Add(FVector3d(0.0, 0.08, 0.0));
+	ProbeBody.SetContactProbes(MoveTemp(Probes));
+	Simulator.AddBody(ProbeBody);
+
+	Simulator.StepExact(0.0);
+
+	// 旋转后世界偏移 (−0.08,0,0) → 探针在 (0.07,0,0)，穿透 0.03，探针体让 3/4。
+	TestEqual(TEXT("按朝向旋转后接触成立：探针体被推开 3/4 穿透"),
+		Simulator.GetBody(1).Position.X, 0.1725, 1.0e-9);
+	TestEqual(TEXT("球体反向让 1/4"),
+		Simulator.GetBody(0).Position.X, -0.0075, 1.0e-9);
+	TestEqual(TEXT("旋转后的探针恰好落在球面上"),
+		(Simulator.GetBody(1).Position + FVector3d(-0.08, 0.0, 0.0)
+			- Simulator.GetBody(0).Position).Size(), 0.1, 1.0e-9);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraNBodyShipRestTest,
+	"StellarEra.Cosmos.ShipRestStability",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraNBodyShipRestTest::RunTest(const FString& Parameters)
+{
+	// 落地不该自激：探针存世界系（不随子步转向）时同一个场景末段是 2.55 rad/s ≈ 18°/帧、
+	// 机身最后横躺 87°，正是 PIE 里「落到地上一直抖」；按朝向旋转后收敛到 0.1°/帧。
+	FNBodySimulator Simulator;
+	Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
+	Simulator.SetIntegrator(ECosmosIntegrator::VelocityVerlet);
+	Simulator.SetSofteningLength(1.0e-5);
+
+	FCosmosBodyState Planet;
+	Planet.Mass = 250.0;
+	Planet.Radius = 2.0;
+	Simulator.AddBody(Planet);
+
+	FCosmosBodyState Ship;
+	Ship.Mass = 3.00349e-9;
+	Ship.bTestParticle = true;
+	Ship.bRigidBody = true;
+	Ship.AngularDamping = 1051.0;   // 3.5 1/s ÷ TimeScale 0.00333
+	Ship.ContactFriction = 0.6;
+
+	const FVector3d Half(0.00275, 0.00413, 0.001);
+	Ship.InverseInertiaLocal = FCosmosBodyState::InverseInertiaFromBox(Ship.Mass, Half);
+
+	// 船底压进地面 8% 半长、再绕 Y 倾 2°，让 8 个角点的接触深度不对称。
+	Ship.Position = FVector3d(Planet.Radius + Half.X * 0.92, 0.0, 0.0);
+	Ship.Orientation = FQuat4d(FVector3d(0.0, 1.0, 0.0), FMath::DegreesToRadians(2.0));
+
+	TArray<FVector3d> Probes;
+	for (const double SignX : {-1.0, 1.0})
+	{
+		for (const double SignY : {-1.0, 1.0})
+		{
+			for (const double SignZ : {-1.0, 1.0})
+			{
+				Probes.Add(FVector3d(SignX * Half.X, SignY * Half.Y, SignZ * Half.Z));
+			}
+		}
+	}
+	Ship.SetContactProbes(MoveTemp(Probes));
+	Simulator.AddBody(Ship);
+
+	const double Dt = 1.188142e-5;
+	const double TimeScale = 0.00333;
+	const int32 Steps = 4000;
+	const int32 Window = 800;
+
+	double MaxOmegaLate = 0.0;
+	double SumOmegaLate = 0.0;
+	double MinRadius = TNumericLimits<double>::Max();
+	double MaxRadius = 0.0;
+	for (int32 Step = 0; Step < Steps; ++Step)
+	{
+		Simulator.StepExact(Dt);
+
+		const FCosmosBodyState& Body = Simulator.GetBody(1);
+		const double OmegaRadPerSec = Body.AngularVelocity.Size() * TimeScale;
+		if (Step >= Steps - Window)
+		{
+			MaxOmegaLate = FMath::Max(MaxOmegaLate, OmegaRadPerSec);
+			SumOmegaLate += OmegaRadPerSec;
+			const double Radius = Body.Position.Size();
+			MinRadius = FMath::Min(MinRadius, Radius);
+			MaxRadius = FMath::Max(MaxRadius, Radius);
+		}
+	}
+
+	const FCosmosBodyState& ShipNow = Simulator.GetBody(1);
+	const FVector3d Up = ShipNow.Position.GetSafeNormal();
+	const FVector3d BodyX = ShipNow.Orientation.RotateVector(FVector3d(1.0, 0.0, 0.0));
+	const double TiltDeg = FMath::RadiansToDegrees(
+		FMath::Acos(FMath::Clamp(BodyX.Dot(Up), -1.0, 1.0)));
+
+	AddInfo(FString::Printf(
+		TEXT("[诊断] 末段角速度 最大 %.3f 平均 %.3f rad/s（0.125 s 帧 = %.1f 度）"),
+		MaxOmegaLate, SumOmegaLate / Window, MaxOmegaLate * 0.125 * 180.0 / PI));
+	AddInfo(FString::Printf(
+		TEXT("[诊断] 末段径向 %.6f~%.6f AU（地面 %.6f），振幅 %.3f cm"),
+		MinRadius, MaxRadius, Planet.Radius, (MaxRadius - MinRadius) * 1.0e6));
+	AddInfo(FString::Printf(
+		TEXT("[诊断] 终态倾角 %.2f 度，法向速度 %.3f m/s，切向速度 %.3f m/s"),
+		TiltDeg,
+		FMath::Abs(ShipNow.Velocity.Dot(Up)) * 4.74047e5 / 100.0,
+		(ShipNow.Velocity - Up * ShipNow.Velocity.Dot(Up)).Size() * 4.74047e5 / 100.0));
+
+	// 阈值离实测留了 4~25 倍余量：要的是「没有自激」，不是把当前数值钉死。
+	TestTrue(TEXT("落地后角速度收敛（旧实现 2.55 rad/s ≈ 18°/帧）"), MaxOmegaLate < 0.05);
+	TestTrue(TEXT("落地后机身摆平，倾角 < 5 度（旧实现横躺 87°）"), TiltDeg < 5.0);
+	TestTrue(TEXT("落地后径向振幅 < 2 cm"), (MaxRadius - MinRadius) * 1.0e6 < 2.0);
+
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraNBodyPredictionContactTest,
 	"StellarEra.Cosmos.NBodyPredictionContact",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

@@ -373,8 +373,7 @@ void ASpaceshipPawn::Tick(float DeltaSeconds)
 	// 衰减 → 求解器的 AngularDamping；翻滚 → 接触冲量的力矩。
 	//
 	// **不要再在这里 AddActorLocalRotation**：两处都写姿态就是互相抹，表现是机身抖或转不动。
-	// AutoLevelSpeed 与 GetAutoLevelUp() 保留：前者是没有消费者的开关，后者被
-	// GetLandingQueryRadiusCm() 用来定重力方向。
+	// AutoLevelSpeed 与 GetAutoLevelUp() 保留但都没有消费者。
 
 	// --- 4. 推力 ---
 	// 推力不在这里施加：本类只暴露「想施加多少」（GetThrustAcceleration / GetDampingTime），
@@ -583,37 +582,17 @@ void ASpaceshipPawn::Look(float DeltaYaw, float DeltaPitch)
 		return;
 	}
 
-	// 冲量模型：鼠标位移累加成**角速度增量**（机体系，度/秒），由读取侧把它加到当前转速上
-	// 再夹到 MaxYawRate / MaxPitchRate。夹目标而不是夹单帧增量，反打才不会先被增量上限拖一帧。
+	// 冲量模型：鼠标位移累加成**角速度增量**（机体系、FRotator 语义：+Y 抬头、+Z 右转，度/秒），
+	// 由读取侧把它加到当前转速上再夹到 MaxYawRate / MaxPitchRate。夹目标而不是夹单帧增量，
+	// 反打才不会先被增量上限拖一帧。
 	PendingAngularImpulseLocalDeg +=
 		FVector(0.f, DeltaPitch, DeltaYaw) * MouseImpulseScale;
 }
 
 float ASpaceshipPawn::GetLandingQueryRadiusCm() const
 {
-	// 球心固定在机身中心（全向，不依赖横滚），但半径不能是常数：飞船是**船底着地**，
-	// 机身中心比船底高出一整个船体深度（本资源约 1000 cm），固定 600 cm 的球够不到
-	// 地面、IsLanded() 恒为假。半径 = 船体沿重力方向最低点到中心的距离 + LandingProbeDistance；
-	// 重力方向取 GetAutoLevelUp() 反向，探针先过机身变换，横滚什么样都算得对。
-	const FVector Down = -GetAutoLevelUp();
-	const FVector ActorLocation = GetActorLocation();
-	const FTransform ActorTransform = GetActorTransform();
-
-	double HullDepthCm = 0.0;
-	for (const FVector& Probe : ContactProbesLocalCm)
-	{
-		const FVector WorldProbe = ActorTransform.TransformPosition(Probe);
-		HullDepthCm = FMath::Max(HullDepthCm,
-			double(FVector::DotProduct(WorldProbe - ActorLocation, Down)));
-	}
-
-	// 没有凸包探针时求解器退回兜底球：球心在机身中心，球面就是接触面，深度即半径。
-	if (ContactProbesLocalCm.Num() == 0)
-	{
-		HullDepthCm = GetContactRadiusCm();
-	}
-
-	return float(HullDepthCm + FMath::Max(LandingProbeDistance, 0.f));
+	// 球心固定在机身中心；半径是常量，不按姿态现算 —— 现算会让球随机身横滚胀缩。
+	return FMath::Max(LandingQueryRadiusCm, 0.f);
 }
 
 bool ASpaceshipPawn::IsLanded() const
@@ -708,11 +687,32 @@ void ASpaceshipPawn::DisembarkCrew(APlanetCharacter* Character)
 	// PlanetActor 可能还是上船时那颗，直接按球面摆正会把人按到旧星地表上。
 	Character->ReevaluatePlanet();
 	Character->SnapToPlanetSurface();
+
+	// 抬高只能放在吸附之后：吸附按球面重算半径，会把落脚点的高度整段抹掉。抬一点点是为了
+	// 让胶囊底不卡在船边缓坡的地形棱上，人随后自己落回地面。
+	Character->AddActorWorldOffset(
+		Character->GetActorUpVector() * CrewExitLiftCm, /*bSweep=*/false);
 }
 
 FVector ASpaceshipPawn::GetCrewExitLocation() const
 {
-	return GetActorLocation() + GetActorRightVector() * 400.f;
+	// 取探针 AABB 里 X/Y 的较大半宽：飞船能任意横滚，写死一个距离迟早把人塞进船体里。
+	float HalfWidthCm = 0.f;
+	for (const FVector& Probe : ContactProbesLocalCm)
+	{
+		HalfWidthCm = FMath::Max(HalfWidthCm,
+			FMath::Max(FMath::Abs(Probe.X), FMath::Abs(Probe.Y)));
+	}
+
+	// 没有凸包时退回落地检测半径，那正好也是本资源横滚到任何姿态都够用的外壳尺寸。
+	if (HalfWidthCm <= 0.f)
+	{
+		HalfWidthCm = GetLandingQueryRadiusCm();
+	}
+
+	const float Scale = GetActorScale3D().GetAbsMax();
+	return GetActorLocation()
+		+ GetActorRightVector() * (HalfWidthCm * Scale + CrewExitClearanceCm);
 }
 
 float ASpaceshipPawn::GetContactRadiusCm() const
@@ -984,6 +984,15 @@ float ASpaceshipPawn::GetDampingTime() const
 	return bPreserveVelocity ? 0.f : DampingTime;
 }
 
+namespace
+{
+	/** FRotator 本地角速度 ↔ 四元数标准轴：Pitch 绕 −Y、Roll 绕 −X，Yaw 才是 +Z，X/Y 取反即互换。 */
+	FVector FrLocalRatesToQuatAxes(const FVector& InFrLocal)
+	{
+		return FVector(-InFrLocal.X, -InFrLocal.Y, InFrLocal.Z);
+	}
+} // namespace
+
 FVector ASpaceshipPawn::ComputeAngularAccelerationWorldRadPerS2(
 	const FQuat& BodyRotation,
 	const FVector& PendingImpulseLocalDegPerSec,
@@ -999,10 +1008,10 @@ FVector ASpaceshipPawn::ComputeAngularAccelerationWorldRadPerS2(
 	// 目标被夹住后稳态转速恒为上限，与帧长无关。dt ≈ 0 时只跳过这一支，横滚不依赖 dt。
 	if (DeltaSeconds > KINDA_SMALL_NUMBER)
 	{
-		const FVector LocalDeltaRadPerSec(
+		const FVector LocalDeltaRadPerSec = FrLocalRatesToQuatAxes(FVector(
 			FMath::DegreesToRadians(PendingImpulseLocalDegPerSec.X),
 			FMath::DegreesToRadians(PendingImpulseLocalDegPerSec.Y),
-			FMath::DegreesToRadians(PendingImpulseLocalDegPerSec.Z));
+			FMath::DegreesToRadians(PendingImpulseLocalDegPerSec.Z)));
 
 		AlphaWorld = BodyRotation.RotateVector(LocalDeltaRadPerSec) / DeltaSeconds;
 	}
@@ -1014,7 +1023,8 @@ FVector ASpaceshipPawn::ComputeAngularAccelerationWorldRadPerS2(
 	{
 		const FVector LocalAngularVelocity =
 			BodyRotation.UnrotateVector(ActualAngularVelocityWorld);
-		const float RollRateDeg = FMath::RadiansToDegrees(float(LocalAngularVelocity.X));
+		const float RollRateDeg = FMath::RadiansToDegrees(
+			float(FrLocalRatesToQuatAxes(LocalAngularVelocity).X));
 
 		const bool bSameDirectionAsRate =
 			!FMath::IsNearlyZero(RollRateDeg)
@@ -1026,7 +1036,7 @@ FVector ASpaceshipPawn::ComputeAngularAccelerationWorldRadPerS2(
 
 		const float AlphaRollRad =
 			FMath::DegreesToRadians(InRollInput * InRollAngularAccelerationDegPerS2 * Taper);
-		AlphaWorld += BodyRotation.RotateVector(FVector(AlphaRollRad, 0.f, 0.f));
+		AlphaWorld += BodyRotation.RotateVector(FVector(-AlphaRollRad, 0.f, 0.f));
 	}
 
 	return AlphaWorld;
@@ -1071,8 +1081,9 @@ FVector ASpaceshipPawn::GetAngularAccelerationWorldRadPerS2(float DeltaSeconds)
 	// 速率目标模型：先把**目标转速**定下来，再把「到目标还差多少」交给纯函数除以 dt。
 	// 不能直接把冲量除以 dt：那样每帧追加同一个增量、只靠角阻尼衰减，稳态转速
 	// = 增量 / (角阻尼 × dt)，60 fps 下 3 px/帧约 370°/s、随帧率变。
-	const FVector CurrentLocalRadPerSec =
-		BodyRotation.UnrotateVector(CosmosAngularVelocity);
+	// 求解器回写的 ω 是标准四元数轴，待发冲量是 FRotator 轴，减之前先换到同一套。
+	const FVector CurrentLocalRadPerSec = FrLocalRatesToQuatAxes(
+		BodyRotation.UnrotateVector(CosmosAngularVelocity));
 	const FVector CurrentLocalDegPerSec(
 		FMath::RadiansToDegrees(CurrentLocalRadPerSec.X),
 		FMath::RadiansToDegrees(CurrentLocalRadPerSec.Y),

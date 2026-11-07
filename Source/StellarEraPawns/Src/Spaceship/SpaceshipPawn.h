@@ -218,8 +218,8 @@ public:
 	bool IsLanded() const;
 
 	/**
-	 * 落地检测球的实际半径（厘米）：球心在机身中心，球面覆盖船底最低点到球心的
-	 * 距离 + LandingProbeDistance。测试摆参照物时直接用这个值。
+	 * 落地检测球半径（厘米）：**运行期恒定**，就是 LandingQueryRadiusCm。
+	 * 测试摆参照物时直接用这个值。
 	 */
 	float GetLandingQueryRadiusCm() const;
 
@@ -252,8 +252,8 @@ public:
 	void DisembarkCrew(APlanetCharacter* Character);
 
 	/**
-	 * 离船落脚点（世界坐标）：船右侧 400 cm。不用船体正中是因为那里在碰撞体里，
-	 * 角色会被立刻挤开。
+	 * 离船落脚点（世界坐标）：船右侧、探针 AABB 半宽之外再让 CrewExitClearanceCm。
+	 * 半宽现算而不是写死距离，飞船横滚后也不会把角色摆进船体里。
 	 */
 	FVector GetCrewExitLocation() const;
 
@@ -545,7 +545,7 @@ protected:
 
 	/**
 	 * 姿态归求解器后，本类里那段运动学自动回正已删除，本属性**暂时没有消费者**（留着的开关，默认 0）。
-	 * GetAutoLevelUp() 仍被 GetLandingQueryRadiusCm() 用来定重力方向。
+	 * GetAutoLevelUp() 现在也没有消费者了，留着给将来的回正逻辑。
 	 */
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Handling")
 	float AutoLevelSpeed = 0.f;
@@ -600,18 +600,26 @@ protected:
 	float LandingSpeedThreshold = 200.f;
 
 	/**
-	 * 落地判定的**允许间距**（厘米）：船底沿重力方向到地面的距离小于它才算落地。
-	 * 检测形状是全向球（球半径 = 船体深度 + 本值）而不是沿机身下方的射线：自动回正
-	 * 关掉后机身可任意横滚，射线会指偏、永远打不到地面。球是全向的，贴悬崖慢速悬停
-	 * 也会判落地，本判定只用于「能否按 E 下船」与「落地后鼠标只转相机」，可以接受。
-	 * 名字里的 Distance 是历史遗留，改名会丢关卡实例里已设的值。
+	 * 落地检测球半径（厘米）。**恒定值，不随机身姿态变化** —— 早先按「机身中心到船底
+	 * 沿重力方向的距离」现算，机身一滚球就跟着胀缩，调试球看着像在呼吸。
+	 * 默认 4200 ≈ 本资源翼展半径（网格 ±4133 × ±2755 × ±996），机身横滚到任何姿态
+	 * 球面都够得到地面。代价是机身中心离地 42 m 内就判「落地」（自由视角 + 按 E 下船），
+	 * 对 83 m 翼展的船来说仍算贴地；换模型要跟着改。
 	 */
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Landing")
-	float LandingProbeDistance = 600.f;
+	float LandingQueryRadiusCm = 4200.f;
 
 	/** 登船触发半径（厘米）。 */
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Boarding")
 	float BoardingRadius = 600.f;
+
+	/** 离船落脚点在船体水平半宽之外再让开多少厘米。半宽取自接触探针的本地 AABB。 */
+	UPROPERTY(EditAnywhere, Category = "Spaceship|Boarding")
+	float CrewExitClearanceCm = 250.f;
+
+	/** 离船后额外抬高（厘米）。在球面吸附**之后**生效，避免人卡在船边的地形棱里。 */
+	UPROPERTY(EditAnywhere, Category = "Spaceship|Boarding")
+	float CrewExitLiftCm = 30.f;
 
 	/**
 	 * 船体模型。留空 = C++ 不介入：蓝图里覆盖的模型、或构造期塞的引擎立方体保持原样。

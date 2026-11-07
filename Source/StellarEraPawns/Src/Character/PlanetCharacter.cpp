@@ -22,6 +22,7 @@
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "PlanetCharacterInputComponent.h"
+#include "SpaceshipPawn.h"
 
 namespace
 {
@@ -328,6 +329,13 @@ void APlanetCharacter::BeginPlay()
 	// 调用器在 OnRegister 里自动启用，那时没人告诉过我们是不是视点，这里按当前状态重应用。
 	// 必须早于下面「找不到行星」的早退，否则角色会在没被 Possess 时一直开着调用器。
 	ApplyViewpointInvokerState(bBoarded);
+
+	// 关卡里就附着在飞船上的角色 = 舱里的船员，必须先认下来：否则下面的 SetRidePlanet 会把它
+	// 改挂到行星下，飞船的 GetAttachedActors 从此找不到人，落地按 E 只能静默失败。
+	if (ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(GetAttachParentActor()))
+	{
+		Ship->Board(this);
+	}
 
 	// 走 SetRidePlanet 而不是直接赋值：它同时把角色挂到行星下，平移随附着层级走，
 	// 不再依赖 CarryRiders 每帧推位移。

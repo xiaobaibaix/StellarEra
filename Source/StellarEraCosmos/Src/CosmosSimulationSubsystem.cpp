@@ -231,14 +231,14 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 			continue;
 		}
 
-		// 本地厘米 → 世界厘米（只取旋转+缩放，探针相对船心）→ AU。每帧重算是为了跟上船的转向。
-		const FTransform ShipTransform = OwnerActor->GetActorTransform();
+		// 只做缩放换算，**保持机体系**：转向交给求解器逐子步旋转。存世界系的话一帧几十个
+		// 子步都用同一份朝向，机身转过去的接触点全落在旧位置上。
+		const FVector ActorScale = OwnerActor->GetActorScale3D();
 		TArray<FVector3d> Probes;
 		Probes.Reserve(LocalProbes.Num());
 		for (const FVector& LocalProbe : LocalProbes)
 		{
-			const FVector RelativeCm = ShipTransform.TransformVector(LocalProbe);
-			Probes.Add(FVector3d(RelativeCm) / CentimetersPerAu);
+			Probes.Add(FVector3d(LocalProbe * ActorScale) / CentimetersPerAu);
 		}
 
 		State.SetContactProbes(MoveTemp(Probes));
@@ -324,8 +324,10 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 
 		for (const FVector3d& Probe : State.ContactProbes)
 		{
+			// 探针存机体系，这里按求解器当前朝向转世界系再来查地表。
+			const FVector3d WorldProbe = State.Orientation.RotateVector(Probe);
 			const FVector UnitDirection =
-				FVector(State.Position + Probe - PlanetPosition).GetSafeNormal();
+				FVector(State.Position + WorldProbe - PlanetPosition).GetSafeNormal();
 			if (UnitDirection.IsNearlyZero())
 			{
 				// 探针正好落在星心：方向无定义，交给解析半径兜底。

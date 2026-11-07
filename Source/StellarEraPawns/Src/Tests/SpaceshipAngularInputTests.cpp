@@ -36,6 +36,7 @@ bool FStellarEraShipAngularInputTest::RunTest(const FString& Parameters)
 	const float Dt = 0.02f;
 
 	// ── 1. 鼠标冲量 → α = 冲量 / dt ──
+	// 冲量是 FRotator 语义（+Y=抬头、+Z=右转），而世界系里 Pitch 绕 −Y —— α_y 因此是负的。
 	{
 		const FVector Alpha = ASpaceshipPawn::ComputeAngularAccelerationWorldRadPerS2(
 			Identity, FVector(0.f, 10.f, 20.f), NoAngularVelocity,
@@ -43,16 +44,17 @@ bool FStellarEraShipAngularInputTest::RunTest(const FString& Parameters)
 
 		// FVector 的分量在 UE5 是 double，TestEqual 的 float/double 两组重载
 		// 会因「参数 1 选 double 版、参数 2/3 选 float 版」而 C2666，故显式收窄。
-		TestEqual(TEXT("α_y = pitch/dt"),
-			float(Alpha.Y), float(FMath::DegreesToRadians(10.0)) / Dt, 1.0e-5f);
+		TestEqual(TEXT("α_y = −pitch/dt（抬头绕 −Y）"),
+			float(Alpha.Y), -float(FMath::DegreesToRadians(10.0)) / Dt, 1.0e-5f);
 		TestEqual(TEXT("α_z = yaw/dt"),
 			float(Alpha.Z), float(FMath::DegreesToRadians(20.0)) / Dt, 1.0e-5f);
 		TestEqual(TEXT("没滚就不给 α_x"), float(Alpha.X), 0.f, 1.0e-6f);
 	}
 
 	// ── 2. 横滚到顶：衰减到 0 ──
+	// 世界系 −X 才是「FRotator 正 Roll」，所以「正 Roll 转着」的转速要写成 −X。
 	{
-		const FVector AtMaxRate(FMath::DegreesToRadians(120.f), 0.f, 0.f);
+		const FVector AtMaxRate(-FMath::DegreesToRadians(120.f), 0.f, 0.f);
 		const FVector Alpha = ASpaceshipPawn::ComputeAngularAccelerationWorldRadPerS2(
 			Identity, FVector::ZeroVector, AtMaxRate,
 			/*RollInput=*/1.f, 1500.f, 120.f, Dt);
@@ -62,12 +64,12 @@ bool FStellarEraShipAngularInputTest::RunTest(const FString& Parameters)
 
 	// ── 3. 半速：衰减一半 ──
 	{
-		const FVector HalfRate(FMath::DegreesToRadians(60.f), 0.f, 0.f);
+		const FVector HalfRate(-FMath::DegreesToRadians(60.f), 0.f, 0.f);
 		const FVector Alpha = ASpaceshipPawn::ComputeAngularAccelerationWorldRadPerS2(
 			Identity, FVector::ZeroVector, HalfRate, 1.f, 1500.f, 120.f, Dt);
 
-		TestEqual(TEXT("半速时是额定角加速度的一半"),
-			float(Alpha.X), float(FMath::DegreesToRadians(750.0)), 1.0e-3f);
+		TestEqual(TEXT("半速时是额定角加速度的一半（绕 −X）"),
+			float(Alpha.X), -float(FMath::DegreesToRadians(750.0)), 1.0e-3f);
 	}
 
 	// ── 4. 反向滚同样有效（对称） ──
@@ -75,8 +77,8 @@ bool FStellarEraShipAngularInputTest::RunTest(const FString& Parameters)
 		const FVector Alpha = ASpaceshipPawn::ComputeAngularAccelerationWorldRadPerS2(
 			Identity, FVector::ZeroVector, NoAngularVelocity, -1.f, 1500.f, 120.f, Dt);
 
-		TestEqual(TEXT("A 键给出负角加速度"),
-			float(Alpha.X), -float(FMath::DegreesToRadians(1500.0)), 1.0e-3f);
+		TestEqual(TEXT("反打给出绕 +X 的角加速度"),
+			float(Alpha.X), float(FMath::DegreesToRadians(1500.0)), 1.0e-3f);
 	}
 
 	// ── 5. dt = 0：零，不产生 inf ──
@@ -87,21 +89,21 @@ bool FStellarEraShipAngularInputTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("dt=0 返回零"), Alpha.IsNearlyZero());
 	}
 
-	// ── 6. 机身绕世界 Z 转 90°：本地 pitch 变成世界 −X ──
+	// ── 6. 机身绕世界 Z 转 90°：本地 pitch 变成世界 +X ──
 	{
 		const FQuat Yaw90(FVector::UpVector, FMath::DegreesToRadians(90.f));
 		const FVector Alpha = ASpaceshipPawn::ComputeAngularAccelerationWorldRadPerS2(
 			Yaw90, FVector(0.f, 10.f, 0.f), NoAngularVelocity, 0.f, 1500.f, 120.f, Dt);
 
-		// 本地 +Y 在 90° 偏航后指向世界 −X。
-		TestTrue(TEXT("本地 Y 已转到世界 −X"), Alpha.X < -0.1f);
+		// 本地 +Y 在 90° 偏航后指向世界 −X；但抬头的旋转轴是本地 −Y，于是落到世界 +X。
+		TestTrue(TEXT("抬头的旋转轴落到世界 +X"), Alpha.X > 0.1f);
 		TestEqual(TEXT("世界 Y 分量为零"), float(Alpha.Y), 0.f, 1.0e-5f);
 	}
 
 	// ── 7. 反打不被 taper 衰减（给全额角加速度） ──
 	{
-		// 实际转速 +120°/s（= MaxRollRate），继续压同向：taper = 0。
-		const FVector AtMaxRate(FMath::DegreesToRadians(120.f), 0.f, 0.f);
+		// 实际按正 Roll 转到 120°/s（= MaxRollRate，世界系 −X），继续压同向：taper = 0。
+		const FVector AtMaxRate(-FMath::DegreesToRadians(120.f), 0.f, 0.f);
 		const FVector SameDirection = ASpaceshipPawn::ComputeAngularAccelerationWorldRadPerS2(
 			Identity, FVector::ZeroVector, AtMaxRate, /*RollInput=*/1.f, 1500.f, 120.f, Dt);
 		TestEqual(TEXT("同向到顶后不再加速"), float(SameDirection.X), 0.f, 1.0e-6f);
@@ -110,14 +112,14 @@ bool FStellarEraShipAngularInputTest::RunTest(const FString& Parameters)
 		const FVector Counter = ASpaceshipPawn::ComputeAngularAccelerationWorldRadPerS2(
 			Identity, FVector::ZeroVector, AtMaxRate, /*RollInput=*/-1.f, 1500.f, 120.f, Dt);
 		TestEqual(TEXT("反打给全额角加速度"),
-			float(Counter.X), -float(FMath::DegreesToRadians(1500.0)), 1.0e-3f);
+			float(Counter.X), float(FMath::DegreesToRadians(1500.0)), 1.0e-3f);
 
 		// 半速反打同样给全额（同向时这里只会剩一半，见用例 3）。
-		const FVector HalfRate(FMath::DegreesToRadians(60.f), 0.f, 0.f);
+		const FVector HalfRate(-FMath::DegreesToRadians(60.f), 0.f, 0.f);
 		const FVector HalfCounter = ASpaceshipPawn::ComputeAngularAccelerationWorldRadPerS2(
 			Identity, FVector::ZeroVector, HalfRate, /*RollInput=*/-1.f, 1500.f, 120.f, Dt);
 		TestEqual(TEXT("半速反打也是全额"),
-			float(HalfCounter.X), -float(FMath::DegreesToRadians(1500.0)), 1.0e-3f);
+			float(HalfCounter.X), float(FMath::DegreesToRadians(1500.0)), 1.0e-3f);
 	}
 
 	return true;

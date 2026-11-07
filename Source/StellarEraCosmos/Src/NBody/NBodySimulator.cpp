@@ -439,7 +439,10 @@ void FNBodySimulator::ResolveProbeContact(int32 ProbeIndex, int32 SphereIndex)
 
 	for (int32 Index = 0; Index < ProbeBody.ContactProbes.Num(); ++Index)
 	{
-		const FVector3d& Probe = ProbeBody.ContactProbes[Index];
+		// 机体系 → 世界系，每子步重算：一帧几十个子步、机身还在转，沿用帧首朝向会让接触点
+		// 停在上一步的船身上，位置修正按错位置推、冲量打在错力臂上，落地抖成自激振荡。
+		const FVector3d Probe =
+			ProbeBody.Orientation.RotateVector(ProbeBody.ContactProbes[Index]);
 		const double ProbeSurfaceRadius =
 			bUsePerProbe ? ProbeBody.ContactProbeSurfaceRadii[Index] : SphereRadius;
 
