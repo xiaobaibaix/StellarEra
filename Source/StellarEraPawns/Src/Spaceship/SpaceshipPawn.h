@@ -457,11 +457,12 @@ protected:
 	float ZoomInterpSpeed = 8.f;
 
 	/**
-	 * 相机横滚的跟随速率（FInterpTo 速率）。稳态滞后角 = MaxRollRate / 本值（默认 15°），
-	 * 松手后按 1/本值 秒补齐且最终完全一致；设 0 = 与机身刚性绑定。
+	 * 相机横滚的跟随速率（FInterpTo 速率），稳态滞后 ≈ MaxRollRate / 本值（24 → 约 4°）。
+	 * 别调回 8 那档：满杆时欠 13°、松手要 0.38 s 才还完，看上去是星球先卡住再反甩一下。
+	 * 设 0 = 与机身刚性绑定。
 	 */
 	UPROPERTY(EditAnywhere, Category = "Camera")
-	float CameraRollFollowSpeed = 8.f;
+	float CameraRollFollowSpeed = 24.f;
 
 	/**
 	 * 落地自由视角的俯仰下限 / 上限（度），默认 ±75，与 PlanetCharacter 的环绕相机一致。
