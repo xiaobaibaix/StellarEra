@@ -75,11 +75,12 @@ SkyLight 一颗行星一盏，由行星自己持有：把 SkyLight Actor 挂到�
 加一个 SkyLight 组件）即可，组件只驱动**自己那颗**。多行星就是多盏，互不相干。
 
 ```
-绑定优先级：组件上的 EditInstanceOnly SkyLight 指针
-          → 本 Actor 上的 USkyLightComponent
-          → 挂在本 Actor 下的 SkyLight Actor（关卡里"拖到行星上"就是这种）
-          → 都没有：日志一次，组件不工作
+绑定规则：本 Actor 上的 USkyLightComponent
+        → 挂在本 Actor 下的 SkyLight Actor（关卡里"拖到行星上"就是这种）
+        → 都没有：日志一次，组件不工作
 ```
+
+不设手填指针：行星自己的天光就应该在行星自己身上，填错指针只会让两颗行星指向同一盏。
 
 不按 Actor 标签在关卡里搜：两颗行星会抢同一盏，后 Tick 的那颗每帧覆盖前一颗的立方图。
 （2026-11-08 之前就是这么搜的，随"一行星一天光"改动去掉。）
@@ -307,13 +308,14 @@ OutsideShellIsStar、PlanetHasComponent、SunElevationMonotonic），日志 `D:/
 `PlanetSky` 全关卡搜，两颗行星会抢同一盏、后 Tick 的那颗每帧覆盖前一颗的立方图 —— 与该口径直接冲突，
 标签查找整段删除，`SkyLightActorTag` 属性一并去掉（关卡里残留的序列化值读包时按未知属性跳过）。
 
-绑定改为 `TargetSkyLight` → 本 Actor 上的 `USkyLightComponent` → 挂在本 Actor 下的 SkyLight Actor。
-关卡里的做法：把 SkyLight Actor 拖到行星上（`AttachToActor`），`TargetSkyLight` 留空。
+绑定改为本 Actor 上的 `USkyLightComponent` → 挂在本 Actor 下的 SkyLight Actor；组件详情面板里的
+`Target Sky Light` 手填指针也一并去掉（需求方要求：往行星自己内部找即可）。
+关卡里的做法：把 SkyLight Actor 拖到行星上（`AttachToActor`）。
 
 PIE 实测（`UniverseMap`，SkyLight 强度由需求方调成 0.1）：SkyLight 的 attach 父级是 `BP_VoxelPlanet3`，
-`TargetSkyLight` 为空，运行期 `SourceType = SLS_SPECIFIED_CUBEMAP`、`RealTimeCapture = false`、
+组件详情里已没有 `Target Sky Light`，运行期 `SourceType = SLS_SPECIFIED_CUBEMAP`、`RealTimeCapture = false`、
 `Mobility = Movable`、`Cubemap = /Engine/Transient.TextureCube_8`（每次重算新建的那张），
 日志 `[天光] 重算 边长=16 太阳=3 用时=5.6–7.8 ms` 共 8 条，没有「没有 SkyLight」告警。
 
 自动化测试新增 `StellarEra.Planet.SkyLight.OwnedSkyLight`：两颗行星各挂一盏时各自拿到自己的、
-显式 `TargetSkyLight` 优先于附着、没挂天光的行星返回空。SkyLight 全组 11/11、全量 `StellarEra` 253/253 通过。
+没挂天光的行星返回空。SkyLight 全组 11/11、全量 `StellarEra` 253/253 通过。

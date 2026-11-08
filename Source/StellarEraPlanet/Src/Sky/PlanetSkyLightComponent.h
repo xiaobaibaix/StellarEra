@@ -24,10 +24,6 @@ class STELLARERAPLANET_API UPlanetSkyLightComponent : public UActorComponent
 public:
 	UPlanetSkyLightComponent();
 
-	/** 要驱动的 SkyLight。留空则取本 Actor 上、或挂在它下面的 SkyLight。 */
-	UPROPERTY(EditInstanceOnly, Category = "StellarEra|SkyLight")
-	TObjectPtr<USkyLightComponent> TargetSkyLight;
-
 	/** 立方图边长。漫反射只吃低阶 SH，16 足够；8 更省，32 肉眼看不出差别。 */
 	UPROPERTY(EditAnywhere, Category = "StellarEra|SkyLight", meta = (ClampMin = "4", ClampMax = "64"))
 	int32 CubeResolution = 16;
@@ -49,10 +45,10 @@ public:
 	void RefreshNow();
 
 	/**
-	 * 找本行星自己那盏 SkyLight：Override → 本 Actor 上的组件 → 挂在本 Actor 下的 SkyLight Actor。
+	 * 找行星自己那盏 SkyLight：本 Actor 上的组件 → 挂在它下面的 SkyLight Actor。
 	 * 不能按标签在关卡里搜 —— 两颗行星会抢同一盏，后 Tick 的每帧覆盖前一颗的立方图。
 	 */
-	static USkyLightComponent* FindOwnedSkyLight(const AActor* Owner, USkyLightComponent* Override);
+	static USkyLightComponent* FindOwnedSkyLight(const AActor* Owner);
 
 protected:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType,

@@ -407,22 +407,16 @@ bool FStellarEraSkyOwnedSkyLightTest::RunTest(const FString& Parameters)
 		LightB->AttachToActor(PlanetB, FAttachmentTransformRules::KeepWorldTransform));
 
 	TestSamePtr(TEXT("行星 A 拿到自己的天光"),
-		UPlanetSkyLightComponent::FindOwnedSkyLight(PlanetA, nullptr),
+		UPlanetSkyLightComponent::FindOwnedSkyLight(PlanetA),
 		static_cast<USkyLightComponent*>(LightA->GetLightComponent()));
 	TestSamePtr(TEXT("行星 B 拿到自己的天光"),
-		UPlanetSkyLightComponent::FindOwnedSkyLight(PlanetB, nullptr),
-		static_cast<USkyLightComponent*>(LightB->GetLightComponent()));
-
-	// 显式 TargetSkyLight 优先：允许把天光放在别处再手动指过来。
-	TestSamePtr(TEXT("显式指定优先于附着"),
-		UPlanetSkyLightComponent::FindOwnedSkyLight(PlanetA,
-			static_cast<USkyLightComponent*>(LightB->GetLightComponent())),
+		UPlanetSkyLightComponent::FindOwnedSkyLight(PlanetB),
 		static_cast<USkyLightComponent*>(LightB->GetLightComponent()));
 
 	// 没有天光的行星必须返回空，而不是拿到关卡里任意一盏。
 	AActor* BarePlanet = SpawnWithRoot(TEXT("RootC"));
 	TestNull(TEXT("没挂天光的行星返回空"),
-		UPlanetSkyLightComponent::FindOwnedSkyLight(BarePlanet, nullptr));
+		UPlanetSkyLightComponent::FindOwnedSkyLight(BarePlanet));
 	return true;
 }
 

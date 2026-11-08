@@ -120,12 +120,11 @@ bool UPlanetSkyLightComponent::ResolveAtmosphere()
 	return true;
 }
 
-USkyLightComponent* UPlanetSkyLightComponent::FindOwnedSkyLight(const AActor* Owner,
-	USkyLightComponent* Override)
+USkyLightComponent* UPlanetSkyLightComponent::FindOwnedSkyLight(const AActor* Owner)
 {
-	if (Override || !Owner)
+	if (!Owner)
 	{
-		return Override;
+		return nullptr;
 	}
 
 	// 先看本 Actor 自己：蓝图子类把 SkyLight 组件塞进行星身上时走这条。
@@ -155,7 +154,7 @@ bool UPlanetSkyLightComponent::ResolveSkyLight()
 		return true;
 	}
 
-	USkyLightComponent* Found = FindOwnedSkyLight(GetOwner(), TargetSkyLight);
+	USkyLightComponent* Found = FindOwnedSkyLight(GetOwner());
 	if (!Found)
 	{
 		if (!bLoggedMissingSkyLight)
