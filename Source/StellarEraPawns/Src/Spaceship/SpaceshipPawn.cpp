@@ -134,9 +134,9 @@ ASpaceshipPawn::ASpaceshipPawn()
 	SpringArm->bUsePawnControlRotation = false;
 	SpringArm->bInheritPitch = true;
 	SpringArm->bInheritYaw = true;
-	// 继承横滚：相机与机身刚性绑定，按 A/D 压弯时画面跟着侧倾。剥掉它时画面纹丝不动，
-	// 且 bInheritRoll=false 只剥世界坐标的 roll 分量，而机身的"水平"对齐到球面法线，
-	// 赤道以外平飞时地平线会是歪的。
+	// 继承横滚：SocketOffset 往上抬了 400，只有跟着机身滚，相机才始终在船尾轴线后方；
+	// 抹掉时滚得越多相机越偏到侧上方，船尾就不对着相机了。视线由 CalcCamera 按机身重算，
+	// 摇臂带 roll 不会让视线扫锥面。
 	SpringArm->bInheritRoll = true;
 	SpringArm->TargetArmLength = 1800.f;
 	SpringArm->SocketOffset = FVector(0.f, 0.f, 400.f);
@@ -200,11 +200,10 @@ void ASpaceshipPawn::BeginPlay()
 	// 抄下基准臂长：蓝图或关卡实例可能改过 TargetArmLength，抄一次才不会被覆盖。
 	BaseArmLength = SpringArm ? SpringArm->TargetArmLength : 0.f;
 
-	// CameraBaseRotation：蓝图可能给相机设过相对朝向，横滚偏移叠加在它上面。
-	// PreviousRotation 必须在**这里**初始化：留到第一次 Tick 的话差分从单位四元数
-	// 起算，开局摆位那一次旋转会被算成一次巨大的横滚。
+	// 蓝图的俯角要留着：视线轴与机身滚转轴差 24.4°，正好把落在这个锥面上的飞船摆到画面中央；
+	// 抹掉俯角飞船会掉到画面正下方。横滚在这里先对齐机身，否则开局摆位那次朝向会被当成一次大横滚。
 	CameraBaseRotation = Camera ? Camera->GetRelativeRotation().Quaternion() : FQuat::Identity;
-	PreviousRotation = GetActorQuat();
+	CameraRollDegrees = GetActorRotation().Roll;
 
 	// 摇臂基准朝向同样抄一份：蓝图可能调过，每帧叠加偏移而不是覆盖，才不会冲掉那个值。
 	SpringArmBaseRotation = SpringArm ? SpringArm->GetRelativeRotation().Quaternion() : FQuat::Identity;
@@ -453,35 +452,23 @@ void ASpaceshipPawn::Tick(float DeltaSeconds)
 			BaseArmLength + ZoomOffset + CameraPullback, MinArmLength, MaxArmLength);
 	}
 
-	// --- 6. 相机横滚滞后 ---
-	// 机身每帧滚出来的角度先累进 CameraRollLag，再指数衰减回 0，相机反向转这么多：
-	// 点一下 A/D 画面几乎不动，持续压杆稳定滞后 MaxRollRate / 本值，松手补齐且无残留。
-	// 用**实际旋转差**而不是 RollInput * MaxRollRate，因为接触力矩与求解器积分的角速度也会滚机身。
-	const FQuat CurrentRotation = GetActorQuat();
-	{
-		// 机身本帧相对上一帧多转了多少，表达在上一帧的机身坐标系里。
-		const FQuat RotationDelta = PreviousRotation.Inverse() * CurrentRotation;
-
-		// 只取绕机身前方的分量：小角度下 2 × 四元数 X 分量即转角（弧度），比走 acos 的
-		// GetAngle() 稳 —— 后者在 θ→0 时精度塌陷。
-		float RollDelta = FMath::RadiansToDegrees(2.f * RotationDelta.X);
-
-		// 单帧滚过 45° 只可能是开局摆位或传送（120°/s 在 5fps 下也才 24°/帧），夹一下。
-		RollDelta = FMath::Clamp(RollDelta, -45.f, 45.f);
-
-		CameraRollLag += RollDelta;
-	}
-	PreviousRotation = CurrentRotation;
-
-	// CameraRollFollowSpeed <= 0 时 FInterpTo 直接返回目标值 0，等价于关掉滞后。
-	CameraRollLag = FMath::FInterpTo(CameraRollLag, 0.f, DeltaSeconds, CameraRollFollowSpeed);
+	// --- 6. 相机横滚 ---
+	// 一阶追机身的 Roll，而不是直接抄：求解器按定步长积分朝向，一帧跑 4~11 个子步、每步
+	// 0.33°，原样显示就是逐格转。追的稳态滞后 = MaxRollRate / 本值（24 → 约 4°）。
+	// 用最短弧，因为 Roll 在 ±180 处折返，直接插值会绕远路。
+	const float FollowAlpha = CameraRollFollowSpeed > 0.f
+		? 1.f - FMath::Exp(-CameraRollFollowSpeed * DeltaSeconds)
+		: 1.f;
+	CameraRollDegrees += FMath::FindDeltaAngleDegrees(
+		CameraRollDegrees, GetActorRotation().Roll) * FollowAlpha;
+	CameraRollDegrees = FRotator::NormalizeAxis(CameraRollDegrees);
 
 	if (Camera)
 	{
-		// 绕相机自身 X 轴反向转 lag，抵消从机身多继承的那部分横滚。左乘基准朝向 =
-		// 先在相机局部空间转，再套蓝图设的朝向；位置不动。
+		// 组件姿态只补「平滑值 − 机身 roll」这一段差：摇臂已经继承了机身 roll，整段写进来会滚两次。
+		// 真正的视线由 CalcCamera 用当帧摇臂朝向重算，这里只是让组件姿态与它一致。
 		Camera->SetRelativeRotation(
-			CameraBaseRotation * FQuat(FVector::ForwardVector, FMath::DegreesToRadians(-CameraRollLag)));
+			FRotator(0.f, 0.f, CameraRollDegrees - GetActorRotation().Roll).Quaternion() * CameraBaseRotation);
 	}
 
 	// --- 7. 落地自由视角：相机绕停住的飞船环绕 ---
@@ -512,6 +499,24 @@ void ASpaceshipPawn::Tick(float DeltaSeconds)
 	// --- 8. 调试视角（B）：落地检测球 ---
 	// 不在这里画：本 Tick 跑在 TG_PrePhysics，求解器还没写回位置，球会落后一帧。
 	// 绘制由 ULandingDebugSphereComponent 在 TG_PostUpdateWork 完成。
+}
+
+void ASpaceshipPawn::CalcCamera(float DeltaSeconds, FMinimalViewInfo& OutResult)
+{
+	// 位置、FOV、后期都取自相机组件；只有朝向在这里重算 —— 组件那份相对变换是摇臂 Tick
+	// 按上一帧机身算的，横滚会一帧漏一点。相机更新（LevelTick 的 Update cameras）排在
+	// TickObjects 之后，此刻摇臂世界朝向已经是本帧最终的。
+	Super::CalcCamera(DeltaSeconds, OutResult);
+
+	const FRotator ArmWorldRotation = SpringArm ? SpringArm->GetComponentRotation() : GetActorRotation();
+	OutResult.Rotation = BuildCameraViewRotation(ArmWorldRotation, CameraBaseRotation, CameraRollDegrees).Rotator();
+}
+
+FQuat ASpaceshipPawn::BuildCameraViewRotation(const FRotator& ArmWorldRotation, const FQuat& InBaseRotation, float RollDegrees)
+{
+	// roll 在 rotator 里是最内层的旋转轴（绕朝向轴），所以换掉它等于把整条机位一起拧：
+	// 朝向轴不变，蓝图俯角也跟着转。注意 `Roll` 与四元数角反号，见 CameraRollDegrees 的取值。
+	return FRotator(ArmWorldRotation.Pitch, ArmWorldRotation.Yaw, RollDegrees).Quaternion() * InBaseRotation;
 }
 
 void ASpaceshipPawn::SetThrust(float Value)

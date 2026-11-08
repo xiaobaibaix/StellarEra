@@ -101,6 +101,18 @@ public:
 	virtual void Tick(float DeltaSeconds) override;
 
 	/**
+	 * 视线朝向在这里用**当帧**摇臂世界朝向重算：相机组件的相对旋转是本类 Tick 写的，那时机身
+	 * 还是上一帧的；相机更新排在求解器写回之后，用组件那份会慢一帧。
+	 */
+	virtual void CalcCamera(float DeltaSeconds, struct FMinimalViewInfo& OutResult) override;
+
+	/**
+	 * 相机视线朝向：把摇臂世界朝向的 roll 换成给定值，再左乘蓝图朝向 —— 即**整个机位**
+	 * 绕机身 X 轴刚性转。只绕视线轴补 roll（右乘）会让相机公转而画面不跟，飞船在屏幕上甩开。
+	 */
+	static FQuat BuildCameraViewRotation(const FRotator& ArmWorldRotation, const FQuat& InBaseRotation, float RollDegrees);
+
+	/**
 	 * 绑飞船自己的输入。引擎只在**本地 Possess 这个 Pawn** 时调用，动作表从控制器
 	 * （`IStellarEraInputSource`）取。
 	 */
@@ -457,9 +469,9 @@ protected:
 	float ZoomInterpSpeed = 8.f;
 
 	/**
-	 * 相机横滚的跟随速率（FInterpTo 速率），稳态滞后 ≈ MaxRollRate / 本值（24 → 约 4°）。
-	 * 别调回 8 那档：满杆时欠 13°、松手要 0.38 s 才还完，看上去是星球先卡住再反甩一下。
-	 * 设 0 = 与机身刚性绑定。
+	 * 相机横滚追机身的速率（FInterpTo 速率）：稳态滞后 ≈ MaxRollRate / 本值（24 → 约 4°），
+	 * 同时把求解器定步长造成的逐格转动抹平（一帧 4~11 个子步，每步 0.33°）。
+	 * 设 0 = 与机身刚性绑定，代价是逐格抖。
 	 */
 	UPROPERTY(EditAnywhere, Category = "Camera")
 	float CameraRollFollowSpeed = 24.f;
@@ -749,18 +761,15 @@ private:
 	/** 平滑后的缩放偏移（厘米）。与 CameraPullback 一起加在基准臂长之上。 */
 	float ZoomOffset = 0.f;
 
-	/** 相机横滚当前落后机身的角度（度）。正 = 相机比机身少滚了这么多。 */
-	float CameraRollLag = 0.f;
-
 	/**
-	 * 上一帧的机身朝向，用来差分本帧滚了多少。必须在 BeginPlay 初始化 —— 留到第一次
-	 * Tick 才赋值的话，开局摆位那次旋转会被当成一次巨大的横滚。
+	 * 机位当前的横滚角（度，绕机身滚转轴），一阶平滑地追机身的 Roll。BeginPlay 要初始化成
+	 * 机身当时的 Roll，否则开局摆位那次朝向会被当成一次巨大的横滚。
 	 */
-	FQuat PreviousRotation = FQuat::Identity;
+	float CameraRollDegrees = 0.f;
 
 	/**
-	 * 相机的基准相对朝向（蓝图可能设过），横滚偏移叠加在它上面而不是覆盖 ——
-	 * 否则会把蓝图里调好的朝向冲掉。BeginPlay 时从组件上抄下来。
+	 * 相机的基准相对朝向（蓝图设的）。横滚是把它一起拧，不是覆盖 —— 否则会把蓝图里
+	 * 调好的朝向冲掉。BeginPlay 时从组件上抄下来。
 	 */
 	FQuat CameraBaseRotation = FQuat::Identity;
 
