@@ -274,6 +274,17 @@ void ASpaceshipPawn::SetVoxelInvokerCollisionEnabled(const bool bEnabled)
 	VoxelInvoker->bUseForCollisions = bEnabled;
 }
 
+void ASpaceshipPawn::SetVoxelInvokerFineLODEnabled(const bool bEnabled)
+{
+	if (!VoxelInvoker)
+	{
+		return;
+	}
+
+	// 其余三档不动，所以关掉后身边是 LOD3（128 m 叶块），不会塌到行星轨道 LOD。
+	VoxelInvoker->bUseForLOD = bEnabled;
+}
+
 void ASpaceshipPawn::SetViewpointInvokersActive(const bool bActive)
 {
 	bIsViewpoint = bActive;
@@ -304,10 +315,10 @@ void ASpaceshipPawn::Tick(float DeltaSeconds)
 		}
 	}
 
-	// --- 0. 细气泡的碰撞通道按（行星系）速度启停 ---
+	// --- 0. 体素调用器按「每帧扫过的距离」启停 ---
 	// 远离行星仍卡的原因不是距离：调用器的盒子随飞船平移，每个 LOD 更新周期都要把
-	// 扫过的块网格化，块数 × 速度就是游戏线程上的无界开销。只关碰撞不关 LOD ——
-	// 碰撞强制 Height 0，是更贵的一路。阈值按**相对行星**的速度算，逐帧位移相减即可。
+	// 扫过的块网格化 —— 开销 ∝ 每帧位移，而不是 ∝ 速度本身。同样 0.37 km/s，60 FPS 下
+	// 每帧 6 m 很便宜，3 FPS 下 123 m 就是每帧把整个细档重做一遍。所以两层都按位移判。
 	const AVoxelPlanetActor* const SamplePlanet = PlanetActor;
 	const FVector PlanetLocation = SamplePlanet ? SamplePlanet->GetActorLocation() : FVector::ZeroVector;
 	const FVector ShipLocation = GetActorLocation();
@@ -316,35 +327,77 @@ void ASpaceshipPawn::Tick(float DeltaSeconds)
 	{
 		VoxelInvokerToggleTimer = FMath::Max(0.f, VoxelInvokerToggleTimer - DeltaSeconds);
 	}
-	else if (VoxelInvokerSuspendSpeedKmPerSecond > 0.f
-		&& bHasVoxelInvokerSpeedSample
+	else if (bHasVoxelInvokerSpeedSample
 		&& LastVoxelInvokerPlanet == SamplePlanet
 		&& DeltaSeconds > SMALL_NUMBER)
 	{
 		const FVector RelativeDisplacement =
 			(ShipLocation - LastVoxelInvokerShipLocation) - (PlanetLocation - LastVoxelInvokerPlanetLocation);
-		const float RelativeSpeedKmPerSecond =
-			RelativeDisplacement.Size() / DeltaSeconds / CentimetersPerKilometer;
+		const float SweptCm = RelativeDisplacement.Size();
+		const float RelativeSpeedKmPerSecond = SweptCm / DeltaSeconds / CentimetersPerKilometer;
 		const float ResumeSpeed =
 			FMath::Min(VoxelInvokerResumeSpeedKmPerSecond, VoxelInvokerSuspendSpeedKmPerSecond);
 
-		if (!bVoxelInvokerCollisionSuspended && RelativeSpeedKmPerSecond > VoxelInvokerSuspendSpeedKmPerSecond)
+		// 碰撞那一路强制 Height 0（全分辨率细分），是最贵的一档；它的范围只有 30 m，
+		// 一帧走 30 m 以上时整圈每帧重建，也来不及挡住任何东西。
+		const bool bCollisionOverLimit =
+			(VoxelInvokerSuspendSpeedKmPerSecond > 0.f && RelativeSpeedKmPerSecond > VoxelInvokerSuspendSpeedKmPerSecond) ||
+			(VoxelInvokerCollisionSweepCm > 0.f && SweptCm > VoxelInvokerCollisionSweepCm);
+		const bool bCollisionUnderLimit =
+			(VoxelInvokerSuspendSpeedKmPerSecond <= 0.f || RelativeSpeedKmPerSecond < ResumeSpeed) &&
+			(VoxelInvokerCollisionSweepCm <= 0.f || SweptCm < VoxelInvokerCollisionSweepCm * 0.5f);
+
+		// 最细一档的叶块边长按行星 VoxelSize 现算（星球被缩放时阈值跟着走）。
+		const float FineLeafCm = SamplePlanet
+			? SamplePlanet->VoxelSize * 32.f * float(1 << FMath::Clamp(VoxelInvoker ? VoxelInvoker->LODToSet : 0, 0, 26))
+			: 3200.f;
+		const bool bFineLODOverLimit =
+			VoxelInvokerFineLODSweepLeafWidths > 0.f && SweptCm > FineLeafCm * VoxelInvokerFineLODSweepLeafWidths;
+		const bool bFineLODUnderLimit = SweptCm < FineLeafCm;
+
+		bool bToggled = false;
+
+		if (!bVoxelInvokerCollisionSuspended && bCollisionOverLimit)
 		{
 			bVoxelInvokerCollisionSuspended = true;
-			VoxelInvokerToggleTimer = VoxelInvokerToggleCooldownSeconds;
+			bToggled = true;
 			SetVoxelInvokerCollisionEnabled(false);
 			UE_LOG(LogTemp, Display,
-				TEXT("[Ship] 细气泡碰撞关闭（LOD 保留）：相对行星 %.2f km/s > %.2f"),
-				RelativeSpeedKmPerSecond, VoxelInvokerSuspendSpeedKmPerSecond);
+				TEXT("[Ship] 细气泡碰撞关闭：相对行星 %.2f km/s，每帧扫过 %.0f cm"),
+				RelativeSpeedKmPerSecond, SweptCm);
 		}
-		else if (bVoxelInvokerCollisionSuspended && RelativeSpeedKmPerSecond < ResumeSpeed)
+		else if (bVoxelInvokerCollisionSuspended && bCollisionUnderLimit)
 		{
 			bVoxelInvokerCollisionSuspended = false;
-			VoxelInvokerToggleTimer = VoxelInvokerToggleCooldownSeconds;
+			bToggled = true;
 			SetVoxelInvokerCollisionEnabled(true);
 			UE_LOG(LogTemp, Display,
-				TEXT("[Ship] 细气泡碰撞开启：相对行星 %.2f km/s < %.2f"),
-				RelativeSpeedKmPerSecond, ResumeSpeed);
+				TEXT("[Ship] 细气泡碰撞开启：相对行星 %.2f km/s，每帧扫过 %.0f cm"),
+				RelativeSpeedKmPerSecond, SweptCm);
+		}
+
+		if (VoxelInvoker && !bVoxelInvokerFineLODSuspended && bFineLODOverLimit)
+		{
+			bVoxelInvokerFineLODSuspended = true;
+			bToggled = true;
+			SetVoxelInvokerFineLODEnabled(false);
+			UE_LOG(LogTemp, Display,
+				TEXT("[Ship] 最细一档 LOD 关闭（剩 LOD3/5/6）：每帧扫过 %.0f cm > %.0f"),
+				SweptCm, FineLeafCm * VoxelInvokerFineLODSweepLeafWidths);
+		}
+		else if (VoxelInvoker && bVoxelInvokerFineLODSuspended && bFineLODUnderLimit)
+		{
+			bVoxelInvokerFineLODSuspended = false;
+			bToggled = true;
+			SetVoxelInvokerFineLODEnabled(true);
+			UE_LOG(LogTemp, Display,
+				TEXT("[Ship] 最细一档 LOD 恢复：每帧扫过 %.0f cm < %.0f"),
+				SweptCm, FineLeafCm);
+		}
+
+		if (bToggled)
+		{
+			VoxelInvokerToggleTimer = VoxelInvokerToggleCooldownSeconds;
 		}
 	}
 
@@ -942,11 +995,13 @@ FVector ASpaceshipPawn::GetThrustAccelerationWorldCmPerS2(float DeltaSeconds) co
 
 	if (ThrustInput < 0.f)
 	{
-		// 制动：沿速度反方向，|a| = A · min(1, |v| / (A·Δt))，一帧内恰好停住、绝不反向。
+		// 制动：沿**相对参考行星**速度的反方向（无参考行星时退化为绝对速度）。取绝对速度
+		// 的话，贴着公转中的行星按 S 会把制动力加在公转方向的反向上，人从轨道上被扒下来。
+		// |a| = A · min(1, |v| / (A·Δt))，一帧内恰好停住、绝不反向。
 		// 刻度必须是 A·Δt（而非固定速度）：求解器只在帧首读一次外力、整帧恒定，帧率越低
 		// A·Δt 越大，固定刻度会先过冲再翻符号抖动，3 fps 下直接发散。Δt 用调用方那一帧
 		// 的：自己 Tick 抄一份的话两个 Tick 先后不保证，制动量会按旧帧长估成几十 km/s。
-		const FVector Velocity = GetVelocity();
+		const FVector Velocity = GetRelativeVelocity();
 		const double Speed = Velocity.Size();
 		const double DeltaVPerFrame = double(Magnitude) * double(DeltaSeconds);
 		if (Speed > 0.0 && DeltaVPerFrame > 0.0)

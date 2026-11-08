@@ -227,6 +227,32 @@ bool FStellarEraSpeedLimitThrustTest::RunTest(const FString& Parameters)
 			Ship->GetThrustAccelerationWorldCmPerS2(DeltaSeconds).Size()
 				< FullThrust * 1.0e-3);
 
+		// S 制动同样按**相对参考行星**的速度。旧实现取绝对速度：贴着 7.3 km/s 公转的
+		// 行星按 S，制动方向是「反着公转」，人会被从轨道上扒下来。
+		{
+			Ship->SetThrust(-1.f);
+			Ship->SetVertical(0.f);
+
+			// 随行星平移（相对静止）：不产生制动，而不是反公转方向的满推力。
+			Ship->SetCosmosVelocity(Forward * PlanetSpeedCmPerSecond);
+			TestTrue(TEXT("相对行星静止时按 S 不产生制动"),
+				Ship->GetThrustAccelerationWorldCmPerS2(DeltaSeconds).Size()
+					< FullThrust * 1.0e-3);
+
+			// 相对速度垂直于行星速度：制动必须严格反相对速度，不能混进公转方向。
+			Ship->SetCosmosVelocity(
+				Forward * PlanetSpeedCmPerSecond + Up * (0.5 * TestCapCmPerSecond));
+			const FVector Brake = Ship->GetThrustAccelerationWorldCmPerS2(DeltaSeconds);
+			TestTrue(TEXT("制动不含公转方向分量"),
+				FMath::IsNearlyEqual(
+					FVector::DotProduct(Brake, Forward), 0.0, FullThrust * 1.0e-3));
+			TestTrue(TEXT("制动沿相对速度反向且是满推力"),
+				FMath::IsNearlyEqual(
+					FVector::DotProduct(Brake, Up), -FullThrust, FullThrust * 1.0e-3));
+
+			Ship->SetThrust(1.f);
+		}
+
 		// 复位：后面的断言按「没有参考行星」的口径跑（相对 = 绝对）。
 		Ship->SetReferencePlanetVelocity(FVector::ZeroVector);
 		Ship->SetCosmosVelocity(FVector::ZeroVector);

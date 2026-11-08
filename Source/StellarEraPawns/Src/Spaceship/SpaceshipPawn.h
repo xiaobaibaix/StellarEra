@@ -290,8 +290,9 @@ public:
 	/**
 	 * 本帧的推力加速度（**厘米/秒²**，世界坐标），已叠加制动与大气阻力。
 	 * 推力方向 = 机头 × max(ThrustInput, 0) + 升降 up × VerticalInput，合成向量夹到
-	 * 长度 1；S 键是沿速度反向的**制动**，刻度 A·Δt 而非固定速度，保证一帧内恰好停住、
-	 * 绝不反向。速度上限只衰减沿速度方向的正向推力。DeltaSeconds 必须用调用方那帧的帧时长。
+	 * 长度 1；S 键是沿**相对参考行星**速度反向的**制动**（无参考行星时即绝对速度），
+	 * 刻度 A·Δt 而非固定速度，保证一帧内恰好停住、绝不反向。速度上限只衰减沿速度方向
+	 * 的正向推力。DeltaSeconds 必须用调用方那帧的帧时长。
 	 */
 	FVector GetThrustAccelerationWorldCmPerS2(float DeltaSeconds) const override;
 
@@ -610,6 +611,24 @@ protected:
 	float VoxelInvokerToggleCooldownSeconds = 0.5f;
 
 	/**
+	 * 每帧扫过的距离（相对行星）超过此值就关掉细气泡**碰撞**。碰撞走 Height 0 全分辨
+	 * 率细分，范围只有 30 m；一帧走 30 m 以上时整圈每帧重建，且根本来不及挡住任何东西。
+	 * 按距离而不是按速度判断：同样 0.37 km/s，60 FPS 下每帧 6 m 并不贵。0 = 关闭。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spaceship|Voxel",
+		meta = (DisplayName = "关碰撞 invoker 每帧位移阈值（cm）", ClampMin = "0"))
+	float VoxelInvokerCollisionSweepCm = 3000.f;
+
+	/**
+	 * 最细那一档 LOD（LOD1，叶块 32 m）的每帧位移上限，单位「叶块边长」。LOD 重建量
+	 * ∝ 每帧位移 ÷ 叶块面积：一帧走过好几个叶块时，细档每帧被整体重做一遍，只贡献卡顿
+	 * 不贡献细节。超了就关掉它回落 LOD3，位移降到 1/3 以下再开回来。0 = 关闭。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spaceship|Voxel",
+		meta = (DisplayName = "细档每帧位移上限（叶块边长倍数）", ClampMin = "0"))
+	float VoxelInvokerFineLODSweepLeafWidths = 3.f;
+
+	/**
 	 * 「已落地」的速度阈值（厘米/秒），比的是**相对参考行星**的速度 —— 绝对速度
 	 * 就是行星的轨道速度（本关卡约 7.3 km/s），任何合理阈值都会让它恒为假。
 	 */
@@ -656,6 +675,12 @@ private:
 	 */
 	void SetVoxelInvokerCollisionEnabled(bool bEnabled);
 
+	/**
+	 * 只开关最细那一档的 LOD（bUseForLOD），碰撞与其余三档保持原样。关掉后身边从
+	 * LOD3 起，行星不会塌到轨道 LOD。
+	 */
+	void SetVoxelInvokerFineLODEnabled(bool bEnabled);
+
 	/** 三档调用器一起开关 —— 只留高档近处会糊，只留低档就没有碰撞气泡。 */
 	void ApplyViewpointInvokerState();
 
@@ -692,6 +717,9 @@ private:
 
 	/** 细气泡的碰撞通道是否因高速被主动关掉（LOD 三档始终开着）。 */
 	bool bVoxelInvokerCollisionSuspended = false;
+
+	/** 最细那一档 LOD 是否因每帧位移过大被关掉（只剩 LOD3/5/6）。 */
+	bool bVoxelInvokerFineLODSuspended = false;
 
 	/** 距下次允许切换调用器还剩多少秒（回差之外的时间闸）。 */
 	float VoxelInvokerToggleTimer = 0.f;

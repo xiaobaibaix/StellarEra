@@ -97,8 +97,8 @@ bool FStellarEraSpaceshipLODInvokerTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("LOD6 环 PredictionTime（秒）"), Ring6->PredictionTime, 0.2f, 1e-4f);
 
 	// 高速门控：默认 0.6 / 0.2 km/s + 0.5 秒冷却。门控只关细气泡的碰撞
-	// （bUseForCollisions），LOD 三档始终开着 —— 关掉 LOD 会让星球变糊。
-	// 这三个属性在 protected 区（只给蓝图调），测试用反射读 CDO。
+	// （bUseForCollisions）与最细那一档 LOD，LOD3/5/6 始终开着 —— 全关会让星球变糊。
+	// 这几个属性在 protected 区（只给蓝图调），测试用反射读 CDO。
 	const auto GetFloatProperty = [CDO](const TCHAR* Name) -> float
 	{
 		const FFloatProperty* Prop = FindFProperty<FFloatProperty>(CDO->GetClass(), Name);
@@ -108,11 +108,21 @@ bool FStellarEraSpaceshipLODInvokerTest::RunTest(const FString& Parameters)
 	const float SuspendSpeed = GetFloatProperty(TEXT("VoxelInvokerSuspendSpeedKmPerSecond"));
 	const float ResumeSpeed = GetFloatProperty(TEXT("VoxelInvokerResumeSpeedKmPerSecond"));
 	const float ToggleCooldown = GetFloatProperty(TEXT("VoxelInvokerToggleCooldownSeconds"));
+	const float CollisionSweep = GetFloatProperty(TEXT("VoxelInvokerCollisionSweepCm"));
+	const float FineLODSweep = GetFloatProperty(TEXT("VoxelInvokerFineLODSweepLeafWidths"));
 
 	TestEqual(TEXT("关 invoker 速度阈值（km/s）"), SuspendSpeed, 0.6f);
 	TestEqual(TEXT("开 invoker 速度阈值（km/s）"), ResumeSpeed, 0.2f);
 	TestEqual(TEXT("启停冷却（秒）"), ToggleCooldown, 0.5f);
 	TestTrue(TEXT("回差为正"), SuspendSpeed > ResumeSpeed);
+
+	// 按位移的门控：碰撞球被整圈扫过之后才关，否则会白白丢掉仍然有用的覆盖范围。
+	TestEqual(TEXT("关碰撞的每帧位移阈值（cm）"), CollisionSweep, 3000.f);
+	TestTrue(TEXT("位移阈值不小于碰撞球半径"), CollisionSweep >= Fine->CollisionsRange);
+
+	// 细档门控必须是「几个叶块」的量级：设成 1 以下等于每帧都在开关，比不开更糟。
+	TestEqual(TEXT("细档每帧位移上限（叶块倍数）"), FineLODSweep, 3.f);
+	TestTrue(TEXT("细档门控大于一个叶块"), FineLODSweep > 1.f);
 
 	// 门控上限处的预测偏移必须仍在各自范围内，否则飞船会在上限速度下
 	// 把采样点推出自己的盒子（细气泡以较小的碰撞范围为准）。
