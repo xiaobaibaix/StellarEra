@@ -620,9 +620,19 @@ bool ASpaceshipPawn::IsLanded() const
 		FCollisionShape::MakeSphere(GetLandingQueryRadiusCm()), Params);
 }
 
+float ASpaceshipPawn::GetBoardingRadiusCm() const
+{
+	// 下船把人摆在「探针半宽 + 余量」处，实测 4287 cm，比落地检测球 4200 还远 87 cm。
+	// 只取落地球会留一圈站进去却没有 E 提示的死区 —— 两个数必须同源。
+	const float ExitDistanceCm = FVector::Dist(GetCrewExitLocation(), GetActorLocation());
+	return FMath::Max(GetLandingQueryRadiusCm(), ExitDistanceCm);
+}
+
 bool ASpaceshipPawn::CanBoardFrom(const FVector& CharacterLocation) const
 {
-	return FVector::DistSquared(CharacterLocation, GetActorLocation()) <= FMath::Square(BoardingRadius);
+	// 半径必须够到船壳之外：球心就在船体几何中心，早先的 600 整颗埋在船里，永远够不着。
+	return FVector::DistSquared(CharacterLocation, GetActorLocation())
+		<= FMath::Square(GetBoardingRadiusCm());
 }
 
 ASpaceshipPawn* ASpaceshipPawn::FindNearestTo(const UWorld* World, const FVector& FromLocation)

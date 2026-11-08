@@ -228,6 +228,12 @@ public:
 	 */
 	float GetLandingQueryRadiusCm() const;
 
+	/**
+	 * 登船射程（厘米）：与下船用同一套距离 —— 落地检测球半径与下船落脚点取较大者。
+	 * 两者不能各写一个数，见 CanBoardFrom。
+	 */
+	float GetBoardingRadiusCm() const;
+
 	/** 角色是否近到可以登船。 */
 	UFUNCTION(BlueprintPure, Category = "Spaceship")
 	bool CanBoardFrom(const FVector& CharacterLocation) const;
@@ -619,10 +625,6 @@ protected:
 	 */
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Landing")
 	float LandingQueryRadiusCm = 4200.f;
-
-	/** 登船触发半径（厘米）。 */
-	UPROPERTY(EditAnywhere, Category = "Spaceship|Boarding")
-	float BoardingRadius = 600.f;
 
 	/** 离船落脚点在船体水平半宽之外再让开多少厘米。半宽取自接触探针的本地 AABB。 */
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Boarding")
