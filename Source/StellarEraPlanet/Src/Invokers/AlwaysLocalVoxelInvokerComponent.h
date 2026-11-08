@@ -38,4 +38,11 @@ public:
 	virtual bool IsLocalInvoker_Implementation() const override;
 	virtual void OnRegister() override;
 	//~ End UVoxelInvokerComponentBase Interface
+
+protected:
+	/**
+	 * 预测点改用相对参考系的速度（见 IVoxelInvokerPredictionReference），不再直接吃
+	 * GetOwner()->GetVelocity() 的绝对速度 —— 那里面含着行星公转的几 km/s。
+	 */
+	virtual FVector GetInvokerGlobalPosition_Implementation() const override;
 };

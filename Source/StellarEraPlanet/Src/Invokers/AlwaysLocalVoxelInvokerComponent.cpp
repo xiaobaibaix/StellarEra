@@ -1,7 +1,9 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 
 #include "AlwaysLocalVoxelInvokerComponent.h"
+#include "VoxelInvokerPredictionReference.h"
 #include "Engine/World.h"
+#include "GameFramework/Actor.h"
 
 namespace
 {
@@ -49,4 +51,24 @@ void UAlwaysLocalVoxelInvokerWithPredictionComponent::OnRegister()
 {
 	Super::OnRegister();
 	DisableInvokerInEditorWorld(this);
+}
+
+FVector UAlwaysLocalVoxelInvokerWithPredictionComponent::GetInvokerGlobalPosition_Implementation() const
+{
+	// 与插件基类同式，只换速度来源：绝对速度含行星公转，落地静止时气泡也会被甩出去。
+	const FVector Position = GetComponentLocation();
+	if (!bEnablePrediction)
+	{
+		return Position;
+	}
+
+	const AActor* const Owner = GetOwner();
+	if (!Owner)
+	{
+		return Position;
+	}
+
+	const IVoxelInvokerPredictionReference* const Reference = Cast<IVoxelInvokerPredictionReference>(Owner);
+	const FVector Velocity = Reference ? Reference->GetPredictionReferenceVelocity() : Owner->GetVelocity();
+	return Position + Velocity * PredictionTime;
 }

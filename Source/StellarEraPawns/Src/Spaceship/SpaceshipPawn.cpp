@@ -68,8 +68,9 @@ ASpaceshipPawn::ASpaceshipPawn()
 
 	// --- 体素调用器 ---
 	// 挂根节点而不是机头：调用器位置同时决定 LOD 与碰撞范围，碰撞范围必须罩住飞船
-	// 自身的物理体。它的位置是搬到**预测点**的，所以每个范围都要满足「范围 ≥ 最大速度 ×
-	// PredictionTime」，高速门控保证只在低速时开着。真正卡上限的是显存而非插件块数阀：
+	// 自身的物理体。它的位置是搬到**预测点**的（相对行星速度 × PredictionTime，见
+	// GetPredictionReferenceVelocity），所以每个范围都要满足「范围 ≥ 相对速度 ×
+	// PredictionTime」——只在低速门控开着时才有保证。真正卡上限的是显存而非插件块数阀：
 	// LODToSet 每加一档块数少 8 倍；碰撞那份锁死 Height 0，不能跟着 LODRange 放大。
 	VoxelInvoker = CreateDefaultSubobject<UAlwaysLocalVoxelInvokerWithPredictionComponent>(TEXT("VoxelInvoker"));
 	VoxelInvoker->SetupAttachment(Hull);
@@ -85,8 +86,8 @@ ASpaceshipPawn::ASpaceshipPawn()
 	VoxelInvoker->PredictionTime = 0.03f;
 
 	// ---- 中间 LOD 环：见头文件声明处的说明 ----
-	// 预测偏移的硬约束：范围 ≥ 速度 × PredictionTime。低速门控下细气泡 18 米、
-	// LOD3 60 米、LOD5 120 米，分别小于各自范围。
+	// 预测偏移的硬约束：范围 ≥ 相对速度 × PredictionTime。门控上限 600 m/s 时
+	// 细气泡 18 米、LOD3 60 米、LOD5 120 米；落地相对 0 时偏移也是 0。
 	VoxelInvokerLOD3 = CreateDefaultSubobject<UAlwaysLocalVoxelInvokerWithPredictionComponent>(TEXT("VoxelInvokerLOD3"));
 	VoxelInvokerLOD3->SetupAttachment(Hull);
 	VoxelInvokerLOD3->bUseForLOD = true;
@@ -112,7 +113,7 @@ ASpaceshipPawn::ASpaceshipPawn()
 	VoxelInvokerLOD5->PredictionTime = 0.2f;
 
 	// 过渡环：叶块 1.02 公里，补 LOD5 到行星 MaxLOD 之间的那一档；范围推到地平线之外
-	// （20 公里半径星约 6.4 公里），台阶不会横在画面中间。预测偏移 72000 ≤ 范围。
+	// （20 公里半径星约 6.4 公里），台阶不会横在画面中间。预测偏移 120 米 ≤ 范围。
 	VoxelInvokerLOD6 = CreateDefaultSubobject<UAlwaysLocalVoxelInvokerWithPredictionComponent>(TEXT("VoxelInvokerLOD6"));
 	VoxelInvokerLOD6->SetupAttachment(Hull);
 	VoxelInvokerLOD6->bUseForLOD = true;

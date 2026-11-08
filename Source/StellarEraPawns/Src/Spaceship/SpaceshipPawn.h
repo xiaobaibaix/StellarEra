@@ -6,6 +6,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Pawn.h"
 #include "VoxelViewpointInvokers.h"
+#include "VoxelInvokerPredictionReference.h"
 #include "CosmosBody.h"
 #include "SpaceshipPawn.generated.h"
 
@@ -84,7 +85,11 @@ struct FSpaceshipStatus
  * 机身抖或转不动。
  */
 UCLASS()
-class STELLARERAPAWNS_API ASpaceshipPawn : public APawn, public IVoxelViewpointInvokers, public ICosmosBody
+class STELLARERAPAWNS_API ASpaceshipPawn
+	: public APawn
+	, public IVoxelViewpointInvokers
+	, public ICosmosBody
+	, public IVoxelInvokerPredictionReference
 {
 	GENERATED_BODY()
 
@@ -339,10 +344,16 @@ public:
 	AVoxelPlanetActor* GetPlanetActor() const override { return PlanetActor; }
 
 	/**
-	 * 覆写：让引擎侧所有问「这艘船多快」的地方拿到求解器给的真值。体素调用器的预测
-	 * 读的就是 GetVelocity()，不覆写会静默失效 —— 高速飞行时地形追不上。
+	 * 覆写：让引擎侧所有问「这艘船多快」的地方拿到求解器给的真值。
+	 * 体素调用器的预测**不**走这里（绝对速度会带出公转），见下一行。
 	 */
 	virtual FVector GetVelocity() const override { return CosmosVelocity; }
+
+	/**
+	 * 体素调用器预测速度：相对参考行星。用绝对速度的话，落地静止（相对 0）时预测点
+	 * 仍会顺着公转方向漂出 PredictionTime × 6 km/s ≈ 181 米，气泡看着不在船心。
+	 */
+	FVector GetPredictionReferenceVelocity() const override { return GetRelativeVelocity(); }
 
 protected:
 	/**
