@@ -272,6 +272,15 @@ public:
 	//////////////////////////////////////////////////////////////////////
 	// 坐标转换
 
+	/**
+	 * 渲染原点：世界坐标不再等于「求解器绝对位置 × 厘米」。行星 15 km/s，相机绑在行星上
+	 * 每帧平移 1.8 km，Lumen 表面缓存与 VSM page table 这类按世界坐标取键的缓存帧帧换
+	 * key，阴影边于是逐帧在两种量化态之间翻。设了原点后世界静止，物理仍是绝对量。
+	 * InOriginGameUnits 是求解器单位的当前锚点位置，InOriginWorld 是它对应的世界位置。
+	 * 默认两者皆零 = 旧行为（绝对坐标）。
+	 */
+	void SetRenderOrigin(const FVector3d& InOriginGameUnits, const FVector& InOriginWorld);
+
 	/** 游戏单位位置（AU）转 UE 世界坐标（厘米）。 */
 	FVector ToWorldLocation(const FVector3d& GameUnitPosition) const;
 
@@ -376,6 +385,10 @@ private:
 
 	double SofteningLength = 0.0001;
 	double GravityCutoff = 0.0;   ///< 0 表示不截断
+
+	FVector3d RenderOriginGameUnits = FVector3d::ZeroVector;
+	FVector RenderOriginWorld = FVector::ZeroVector;
+
 	double Accumulator = 0.0;
 	double SimulatedTime = 0.0;
 	double EnergyBaseline = 0.0;

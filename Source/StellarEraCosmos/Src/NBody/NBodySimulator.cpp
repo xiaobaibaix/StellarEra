@@ -18,6 +18,12 @@ void FNBodySimulator::SetUnitSystem(ECosmosUnitSystem Unit)
 	UnitSystem = Unit;
 }
 
+void FNBodySimulator::SetRenderOrigin(const FVector3d& InOriginGameUnits, const FVector& InOriginWorld)
+{
+	RenderOriginGameUnits = InOriginGameUnits;
+	RenderOriginWorld = InOriginWorld;
+}
+
 void FNBodySimulator::SetSofteningLength(double InSoftening)
 {
 	SofteningLength = FMath::Max(InSoftening, 1e-12);
@@ -744,20 +750,24 @@ double FNBodySimulator::GetEnergyDriftRatio() const
 
 FVector FNBodySimulator::ToWorldLocation(const FVector3d& GameUnitPosition) const
 {
+	// 先减原点再乘：在 AU 量级上做减法，double 还有 15 位有效数字，不会把厘米级细节吃成噪声。
+	// 没设原点时两个 Origin 字段都是零，减零对浮点是精确的，行为与旧版逐位相同。
+	const FVector3d Relative = GameUnitPosition - RenderOriginGameUnits;
 	if (UnitSystem == ECosmosUnitSystem::Game)
 	{
-		return FVector(GameUnitPosition) * CentimetersPerAu;
+		return FVector(Relative) * CentimetersPerAu + RenderOriginWorld;
 	}
-	return FVector(GameUnitPosition);
+	return FVector(Relative) + RenderOriginWorld;
 }
 
 FVector3d FNBodySimulator::ToGameUnitPosition(const FVector& WorldLocation) const
 {
+	const FVector Relative = WorldLocation - RenderOriginWorld;
 	if (UnitSystem == ECosmosUnitSystem::Game)
 	{
-		return FVector3d(WorldLocation) / CentimetersPerAu;
+		return FVector3d(Relative) / CentimetersPerAu + RenderOriginGameUnits;
 	}
-	return FVector3d(WorldLocation);
+	return FVector3d(Relative) + RenderOriginGameUnits;
 }
 
 // ── 以下三个换算目前无人调用，改动时别以为有调用方在依赖 ──

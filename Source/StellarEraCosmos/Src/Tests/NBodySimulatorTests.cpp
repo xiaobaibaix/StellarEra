@@ -1367,4 +1367,52 @@ bool FStellarEraNBodyProbeSurfaceRadiiTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraRenderOriginTest,
+	"StellarEra.Cosmos.RenderOrigin",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+/**
+ * 渲染原点只改「求解器坐标 → 世界坐标」这一层：锚点钉在关卡摆放处不动，其它天体按相对位置展开。
+ * 这条是阴影逐帧闪烁的回归门 —— 原点一旦失效，世界又会以每帧公里级平移。
+ */
+bool FStellarEraRenderOriginTest::RunTest(const FString& Parameters)
+{
+	constexpr double Cm = 1.0e6;
+	FNBodySimulator Simulator;
+	Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
+	Simulator.SetCentimetersPerAu(Cm);
+
+	const FVector3d Anchor = FVector3d(1.2e-4, -3.4e-5, 5.6e-6);
+	const FVector AnchorWorld(120.0, -34.0, 5.6);
+
+	// 没设原点：仍是绝对坐标，旧行为不动。
+	TestEqual(TEXT("未设原点 = 绝对坐标（X）"),
+		Simulator.ToWorldLocation(Anchor).X, Anchor.X * Cm, 1.0e-3);
+
+	Simulator.SetRenderOrigin(Anchor, AnchorWorld);
+
+	TestEqual(TEXT("锚点世界位置 = 关卡摆放（X）"),
+		Simulator.ToWorldLocation(Anchor).X, AnchorWorld.X, 1.0e-3);
+
+	// 锚点前进 1e-5 AU，世界坐标应保持在摆放处（这正是「世界静止」的定义）。
+	const FVector3d Advanced = Anchor + FVector3d(1.0e-5, 0.0, 0.0);
+	Simulator.SetRenderOrigin(Advanced, AnchorWorld);
+	TestEqual(TEXT("锚点前进后世界位置不变（X）"),
+		Simulator.ToWorldLocation(Advanced).X, AnchorWorld.X, 1.0e-3);
+
+	// 其它天体只跟相对位置走：偏移 2e-5 AU → 20 厘米。
+	TestEqual(TEXT("其它天体随相对位置平移"),
+		Simulator.ToWorldLocation(Advanced + FVector3d(2.0e-5, 0.0, 0.0)).X,
+		AnchorWorld.X + 20.0, 1.0e-2);
+
+	// 注册路径要靠往返换算：写完再读回来必须是同一个求解器坐标。
+	const FVector3d Probe = Advanced + FVector3d(-7.0e-5, 4.0e-5, 1.0e-5);
+	const FVector3d RoundTrip = Simulator.ToGameUnitPosition(Simulator.ToWorldLocation(Probe));
+	TestEqual(TEXT("往返换算（X）"), RoundTrip.X, Probe.X, 1.0e-9);
+	TestEqual(TEXT("往返换算（Y）"), RoundTrip.Y, Probe.Y, 1.0e-9);
+	TestEqual(TEXT("往返换算（Z）"), RoundTrip.Z, Probe.Z, 1.0e-9);
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

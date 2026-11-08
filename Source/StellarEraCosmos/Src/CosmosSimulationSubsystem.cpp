@@ -484,6 +484,9 @@ void UCosmosSimulationSubsystem::FinalizeRegistration()
 		AddBodyToSimulator(Component);
 	}
 
+	// 必须在全部注册完之后：注册用的是绝对坐标（原点还是零），开局位置才与关卡摆放逐位一致。
+	SelectRenderAnchor();
+
 	// ── 自动步长：由实际几何反推，最短配对周期 / StepsPerOrbit，数值看开局日志 ──
 	double ShortestPeriod = TNumericLimits<double>::Max();
 
@@ -554,6 +557,52 @@ void UCosmosSimulationSubsystem::FinalizeRegistration()
 	}
 }
 
+void UCosmosSimulationSubsystem::SelectRenderAnchor()
+{
+	RenderAnchorIndex = INDEX_NONE;
+
+	for (int32 Index = 0; Index < Simulator.GetNumBodies(); ++Index)
+	{
+		const FCosmosBodyState& Body = Simulator.GetBody(Index);
+		if (Body.Radius <= 0.0 || !Body.OwnerActor.IsValid())
+		{
+			continue;
+		}
+
+		if (RenderAnchorIndex == INDEX_NONE ||
+			Body.Mass > Simulator.GetBody(RenderAnchorIndex).Mass)
+		{
+			RenderAnchorIndex = Index;
+		}
+	}
+
+	if (RenderAnchorIndex == INDEX_NONE)
+	{
+		// 没有地表天体（纯质点系统）：不重定位，保持旧行为。
+		return;
+	}
+
+	// 锚点钉在关卡摆放处，开局不跳；之后原点跟着它走，它才看起来一动不动。
+	RenderAnchorWorld = Simulator.GetBody(RenderAnchorIndex).OwnerActor->GetActorLocation();
+	UpdateRenderOrigin();
+
+	UE_LOG(LogTemp, Log,
+		TEXT("[Cosmos] 渲染原点 = 天体 %d（%s），世界位置 (%.1f, %.1f, %.1f) 厘米；此后世界坐标不再随轨道平移"),
+		RenderAnchorIndex, *GetNameSafe(Simulator.GetBody(RenderAnchorIndex).OwnerActor.Get()),
+		RenderAnchorWorld.X, RenderAnchorWorld.Y, RenderAnchorWorld.Z);
+}
+
+void UCosmosSimulationSubsystem::UpdateRenderOrigin()
+{
+	if (RenderAnchorIndex == INDEX_NONE)
+	{
+		return;
+	}
+
+	Simulator.SetRenderOrigin(
+		Simulator.GetBody(RenderAnchorIndex).Position, RenderAnchorWorld);
+}
+
 void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
@@ -610,6 +659,9 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 				NumSteps, MaxStepsPerFrame, TimeScale);
 		}
 	}
+
+	// 原点要先于写回更新：这一帧的位移被原点的同量平移抵消掉，写回出来的世界位置就不变。
+	UpdateRenderOrigin();
 
 	// ── 2. 写回各个天体 ──
 	for (UCosmosOrbitComponent* Component : Bodies)

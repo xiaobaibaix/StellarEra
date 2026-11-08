@@ -154,6 +154,15 @@ private:
 	void AddBodyToSimulator(UCosmosOrbitComponent* Component);
 
 	/**
+	 * 挑一颗天体当渲染原点（注册完调一次）。挑「有地表的最重天体」：玩家脚下的星球。
+	 * 不挑最重的天体，是因为恒星在 1 AU 外，把原点放那儿世界坐标反而更大。
+	 */
+	void SelectRenderAnchor();
+
+	/** 每帧把原点贴到锚点当前位置，世界坐标因此不随轨道平移。 */
+	void UpdateRenderOrigin();
+
+	/**
 	 * 把每颗体素星球的接触半径刷成当前朝向的地表半径。每帧刷是因为地形起伏 ±80 米，
 	 * 用平均球半径会让隆起处埋进去、洼地处浮空。
 	 */
@@ -196,6 +205,12 @@ private:
 	bool bHasForcedBodies = false;
 
 	FNBodySimulator Simulator;
+
+	/** 渲染原点锚点（求解器下标）。INDEX_NONE = 不重定位，世界坐标按绝对位置走。 */
+	int32 RenderAnchorIndex = INDEX_NONE;
+
+	/** 锚点的世界位置，注册时记下关卡摆放，之后不再改 —— 行星因此停在原地不动。 */
+	FVector RenderAnchorWorld = FVector::ZeroVector;
 
 	/** 自动推导出的积分步长，单位模拟年。 */
 	double BaseTimeStep = 5.0e-5;
