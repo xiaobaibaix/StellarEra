@@ -46,6 +46,7 @@ public:
 	TObjectPtr<UPlanetCharacterInputComponent> PlayerInput;
 
 	//~ Begin IVoxelViewpointInvokers Interface
+	/** 照接口实现，但**不理会** bActive：角色开合只看登船，理由见 cpp。 */
 	virtual void SetViewpointInvokersActive(bool bActive) override;
 	//~ End IVoxelViewpointInvokers Interface
 
@@ -201,13 +202,10 @@ public:
 
 private:
 	/**
-	 * 按「是当前视点 ∧ 没在船上」开关脚下调用器。两条规则必须合成一个谓词：分开写会互相
-	 * 拆台 —— SetBoarded(false) 会把非视点角色重新打开。
+	 * 按「是否登船」开关自己身上全部调用器。视点不是条件：进星图时视点归相机，但人还
+	 * 站在地表上，回收脚下碰撞块等于让重力把人拽进行星内部。
 	 */
-	void ApplyViewpointInvokerState(bool bBoardedIn);
-
-	/** 本 Pawn 是否当前视点。初值 false —— OnRegister 会自动启用，BeginPlay 要按它关掉。 */
-	bool bIsViewpoint = false;
+	void RefreshInvokerEnabledState();
 
 	/**
 	 * 登船状态，**SetBoarded 是唯一写入口**。不能从附着关系现推：角色平时就挂在

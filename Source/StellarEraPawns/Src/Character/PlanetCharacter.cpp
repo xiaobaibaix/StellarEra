@@ -326,9 +326,9 @@ void APlanetCharacter::BeginPlay()
 			});
 	}
 
-	// 调用器在 OnRegister 里自动启用，那时没人告诉过我们是不是视点，这里按当前状态重应用。
-	// 必须早于下面「找不到行星」的早退，否则角色会在没被 Possess 时一直开着调用器。
-	ApplyViewpointInvokerState(bBoarded);
+	// 调用器在 OnRegister 里自动启用，那时还没认过登船状态；这里按 bBoarded 重应用一次
+	// （关卡里就摆成船员的角色要关掉）。必须早于下面「找不到行星」的早退。
+	RefreshInvokerEnabledState();
 
 	// 关卡里就附着在飞船上的角色 = 舱里的船员，必须先认下来：否则下面的 SetRidePlanet 会把它
 	// 改挂到行星下，飞船的 GetAttachedActors 从此找不到人，落地按 E 只能静默失败。
@@ -648,8 +648,8 @@ void APlanetCharacter::SetBoarded(bool bInBoarded)
 	GetCharacterMovement()->SetMovementMode(bBoarded ? MOVE_None : MOVE_Walking);
 
 	// 登船后角色仍挂在飞船上跟着高速平移，LODToSet = 0 + 200 米盒子每帧重网格化
-	// 是飞船三档之外的一块大头；和「是不是当前视点」交给同一个谓词。
-	ApplyViewpointInvokerState(bBoarded);
+	// 是飞船三档之外的一块大头；这是角色唯一该关调用器的时刻。
+	RefreshInvokerEnabledState();
 
 	if (!bBoarded)
 	{
@@ -667,17 +667,19 @@ void APlanetCharacter::SetBoarded(bool bInBoarded)
 
 void APlanetCharacter::SetViewpointInvokersActive(const bool bActive)
 {
-	bIsViewpoint = bActive;
-	ApplyViewpointInvokerState(bBoarded);
+	// 刻意不看 bActive：进星图时视点归相机，但人还站在地表上。跟着关掉，脚下一圈碰撞块
+	// 会被回收，CMC 的重力当场把人拽进行星内部。开合只由登船决定。
+	RefreshInvokerEnabledState();
 }
 
-void APlanetCharacter::ApplyViewpointInvokerState(const bool bBoardedIn)
+void APlanetCharacter::RefreshInvokerEnabledState()
 {
-	// 「参与」= 是当前视点 ∧ 没在船上。
-	const bool bActive = bIsViewpoint && !bBoardedIn;
+	// 「参与」= 没在船上。登船才停：那时 LODToSet = 0 + 200 米盒子跟着飞船高速平移，
+	// 每帧重网格化是飞船三档之外的一块大头。
+	const bool bActive = !bBoarded;
 	VoxelViewpointInvokers::SetEnabled(VoxelInvoker, bActive);
 
-	// 过渡环与主 Invoker 同进同退：留下一个就会让「只有被 Possess 的 Pawn 起作用」失效。
+	// 过渡环与主 Invoker 同进同退：只留一个会在脚下留出只有 LOD、没有碰撞的缝。
 	for (const TObjectPtr<UVoxelSimpleInvokerComponent>& Invoker : FarVoxelInvokers)
 	{
 		VoxelViewpointInvokers::SetEnabled(Invoker, bActive);

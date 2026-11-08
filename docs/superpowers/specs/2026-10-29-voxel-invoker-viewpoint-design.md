@@ -92,7 +92,7 @@ public:
 
 | Pawn | 目标状态 | 备注 |
 |---|---|---|
-| `APlanetCharacter` | `GetAttachParentActor() == nullptr && bIsViewpoint` | 与现有 `SetBoarded` 的开关合并成**一个**谓词。登船状态没有成员变量，唯一口径是挂接关系（`PlanetCharacter.cpp:375`），不要新增 `bBoarded` 成员 |
+| `APlanetCharacter` | `!bBoarded`（**不看视点**，2026-11-08 修订，见文末） | 进星图只是视点交给相机，人还站在地表上；关掉调用器会让脚下碰撞块被回收 |
 | `ASpaceshipPawn` | `bIsViewpoint` | 高速门控只改 `bUseForCollisions`，与整体启停正交，不参与合并 |
 | `AStarMapCameraPawn` | `bIsViewpoint` | 三个 invoker 同进同出 |
 
@@ -186,3 +186,31 @@ invoker 集合变化后，`FVoxelDefaultLODManager` 会置 `bLODUpdateQueued`，
 - 不动行星 invoker 的配置。
 - 不合并 `AlwaysLocal` 与手动开关（保留两层，注释写明「参与 = 被启用 ∧ AlwaysLocal」）。
 - 不在本次改动里处理星图相机的 LOD3/LOD5 档取值。
+
+## 2026-11-08 修订：角色不看视点
+
+上面「风险与回滚」里那条退路（「只停飞船与星图，角色常开」）变成正解，原因不是卡顿
+而是功能性缺陷：
+
+**现象** 角色站在地上进星图 → 视点归相机 → `ApplyViewpointInvokerState` 把角色
+`VoxelInvoker` 关掉 → 它那 200 米碰撞盒消失，一圈 chunk 被重建成无碰撞的粗块 →
+`UPlanetCharacterMovementComponent` 的重力照常生效，人直接沉进行星内部。退出星图
+时人已经在壳里，只能靠再生成一波碰撞块顶出来。
+
+**改法** 角色的谓词从「是视点 ∧ 没登船」改成「没登船」：
+
+- `APlanetCharacter::SetViewpointInvokersActive(bool)` 保留接口签名但**忽略**参数，
+  只重算一次开合；`bIsViewpoint` 成员删除。
+- 私有 `ApplyViewpointInvokerState(bool)` 改名 `RefreshInvokerEnabledState()`（无参，
+  读 `bBoarded`）。
+- 登船仍是唯一关闭条件：那时 `LODToSet = 0` + 200 米盒子跟着飞船高速平移，每帧
+  重网格化是飞船三档之外的一块大头。
+- 星图里代价 = 角色脚下那圈块继续存在（静止 → 不重网格化），方位上相机看不见它。
+
+**飞船为什么不掉**：`ASpaceshipPawn` 只有在 `ICosmosBody` 里，位置与速度每帧由
+`UCosmosSimulationSubsystem` 从 `FNBodySimulator` 写回（`SetActorLocation`），既没有
+`UCharacterMovementComponent` 也没有 `bSimulatePhysics`。碰撞体消不消失都不影响它的
+位置来源，`IsLanded()` 只是落地判定的一次 overlap 查询。
+
+**验证** `StellarEra.Planet.InvokerViewpoint.Character` / `.Gate` 改成断言「地面且非
+视点 → 仍打开」；`.StarMap` 不变。

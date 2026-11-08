@@ -1,4 +1,4 @@
-﻿// 视点门控：只有当前视点 Pawn 的体素调用器参与 LOD。
+﻿// 视点门控：换视点时关掉非视点 Pawn 的体素调用器；角色是例外，只看登船。
 // 这里验「开关本身」与「谓词合成」。BeginPlay 那一条验不了 —— 编辑器世界的
 // SpawnActor 只走 OnRegister，只能在 PIE 里看日志。
 
@@ -154,8 +154,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraInvokerViewpointCharacterTest,
 
 bool FStellarEraInvokerViewpointCharacterTest::RunTest(const FString& Parameters)
 {
-	// 角色同时受「登船」与「视点」两条规则约束，谓词是「与」：登船中即使拿到
-	// 视点也必须保持关闭，否则脚下 200 米的精细块会跟着飞船高速平移、每帧重网格化。
+	// 角色只看登船：登船后脚下 200 米的精细块会跟着飞船高速平移、每帧重网格化，
+	// 必须关掉；进星图只是把视点交给相机，人还站在地表上，绝不能跟着关。
 	FScopedInvokerTestWorld Scoped;
 	if (!TestTrue(TEXT("测试世界"), Scoped.Create()))
 	{
@@ -191,9 +191,10 @@ bool FStellarEraInvokerViewpointCharacterTest::RunTest(const FString& Parameters
 		}
 	}
 
-	// 不挂接 + 非视点 → 关
+	// 地面 + 非视点（进星图）→ 仍开。回归断言：关掉会让脚下碰撞块被回收，
+	// CMC 的重力当场把人拽进行星内部。
 	Character->SetViewpointInvokersActive(false);
-	TestTrue(TEXT("地面且非视点 → 关闭"), AllDisabled(Invokers));
+	TestTrue(TEXT("地面且非视点 → 仍打开"), AllEnabled(Invokers));
 
 	// 登船（与 ASpaceshipPawn::Board 同序：先挂后设）+ 拿到视点 → 仍关。
 	// 判据是 bBoarded，不是附着关系 —— 角色平时就挂在行星下。
@@ -217,9 +218,9 @@ bool FStellarEraInvokerViewpointCharacterTest::RunTest(const FString& Parameters
 	Character->SetBoarded(false);
 	TestTrue(TEXT("离船且是视点 → 重新打开"), AllEnabled(Invokers));
 
-	// 视点被拿走（进星图），人还在地上 → 关
+	// 视点被拿走（进星图），人还在地上 → 仍开
 	Character->SetViewpointInvokersActive(false);
-	TestTrue(TEXT("非视点 → 关闭"), AllDisabled(Invokers));
+	TestTrue(TEXT("进星图 → 仍打开"), AllEnabled(Invokers));
 
 	return true;
 }
@@ -294,7 +295,7 @@ bool FStellarEraInvokerViewpointGateTest::RunTest(const FString& Parameters)
 	// 视点 = 飞船
 	AStellarEraPlayerController::ApplyViewpointInvokerGate(Scoped.World, Ship);
 	TestTrue(TEXT("视点飞船 → 打开"), AllEnabled(ShipInvokers));
-	TestTrue(TEXT("角色 → 关闭"), AllDisabled(CharacterInvokers));
+	TestTrue(TEXT("角色 → 仍打开（人站在地上）"), AllEnabled(CharacterInvokers));
 	TestTrue(TEXT("星图相机 → 关闭"), AllDisabled(CameraInvokers));
 
 	// 视点 = 角色（下船）
@@ -305,7 +306,7 @@ bool FStellarEraInvokerViewpointGateTest::RunTest(const FString& Parameters)
 	// 视点 = 星图相机（进星图）
 	AStellarEraPlayerController::ApplyViewpointInvokerGate(Scoped.World, Camera);
 	TestTrue(TEXT("视点星图 → 打开"), AllEnabled(CameraInvokers));
-	TestTrue(TEXT("角色 → 关闭"), AllDisabled(CharacterInvokers));
+	TestTrue(TEXT("角色 → 仍打开（脚下碰撞不能回收）"), AllEnabled(CharacterInvokers));
 	TestTrue(TEXT("飞船 → 关闭"), AllDisabled(ShipInvokers));
 
 	// 没有视点（OnUnPossess 路径）
