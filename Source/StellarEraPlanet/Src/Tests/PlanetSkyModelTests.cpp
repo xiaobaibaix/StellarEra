@@ -1,5 +1,11 @@
 ﻿#include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/ScopeExit.h"
+#include "Engine/Engine.h"
+#include "Engine/World.h"
+#include "Engine/SkyLight.h"
+#include "Components/SkyLightComponent.h"
+#include "Components/SceneComponent.h"
 #include "PlanetSkyModel.h"
 #include "PlanetAtmosphereParams.h"
 #include "VoxelPlanetActor.h"
@@ -347,6 +353,76 @@ bool FStellarEraSkyFaceDirectionEndToEndTest::RunTest(const FString& Parameters)
 		HorizonLuma[0], HorizonLuma[1]), HorizonLuma[0] > HorizonLuma[1]);
 	TestTrue(FString::Printf(TEXT("+Y 面亮过 -Y 面: %.6f vs %.6f"),
 		PlusYLuma[2], PlusYLuma[3]), PlusYLuma[2] > PlusYLuma[3]);
+	return true;
+}
+
+// 每颗行星只能驱动自己那盏天光。按 Actor 标签全关卡搜时，两颗行星会抢同一盏：
+// 后 Tick 的那颗每帧覆盖前一颗的立方图，前一颗的环境光恒等于后一颗的天空。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSkyOwnedSkyLightTest,
+	"StellarEra.Planet.SkyLight.OwnedSkyLight",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FStellarEraSkyOwnedSkyLightTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = UWorld::CreateWorld(EWorldType::Editor, false);
+	if (!TestNotNull(TEXT("测试世界"), World))
+	{
+		return false;
+	}
+	FWorldContext& WorldContext = GEngine->CreateNewWorldContext(EWorldType::Editor);
+	WorldContext.SetCurrentWorld(World);
+	World->InitializeActorsForPlay(FURL());
+
+	ON_SCOPE_EXIT
+	{
+		GEngine->DestroyWorldContext(World);
+		World->DestroyWorld(false);
+	};
+
+	// 裸 Actor 没有根组件，AttachToActor 会静默失败。
+	const auto SpawnWithRoot = [World](const TCHAR* RootName)
+	{
+		AActor* Actor = World->SpawnActor<AActor>(AActor::StaticClass(), FTransform::Identity);
+		if (Actor)
+		{
+			USceneComponent* Root = NewObject<USceneComponent>(Actor, RootName);
+			Actor->SetRootComponent(Root);
+			Root->RegisterComponent();
+		}
+		return Actor;
+	};
+
+	AActor* PlanetA = SpawnWithRoot(TEXT("RootA"));
+	AActor* PlanetB = SpawnWithRoot(TEXT("RootB"));
+	ASkyLight* LightA = World->SpawnActor<ASkyLight>(ASkyLight::StaticClass(), FTransform::Identity);
+	ASkyLight* LightB = World->SpawnActor<ASkyLight>(ASkyLight::StaticClass(), FTransform::Identity);
+	if (!TestNotNull(TEXT("行星 A"), PlanetA) || !TestNotNull(TEXT("行星 B"), PlanetB)
+		|| !TestNotNull(TEXT("天光 A"), LightA) || !TestNotNull(TEXT("天光 B"), LightB))
+	{
+		return false;
+	}
+
+	TestTrue(TEXT("天光 A 挂到行星 A"),
+		LightA->AttachToActor(PlanetA, FAttachmentTransformRules::KeepWorldTransform));
+	TestTrue(TEXT("天光 B 挂到行星 B"),
+		LightB->AttachToActor(PlanetB, FAttachmentTransformRules::KeepWorldTransform));
+
+	TestSamePtr(TEXT("行星 A 拿到自己的天光"),
+		UPlanetSkyLightComponent::FindOwnedSkyLight(PlanetA, nullptr),
+		static_cast<USkyLightComponent*>(LightA->GetLightComponent()));
+	TestSamePtr(TEXT("行星 B 拿到自己的天光"),
+		UPlanetSkyLightComponent::FindOwnedSkyLight(PlanetB, nullptr),
+		static_cast<USkyLightComponent*>(LightB->GetLightComponent()));
+
+	// 显式 TargetSkyLight 优先：允许把天光放在别处再手动指过来。
+	TestSamePtr(TEXT("显式指定优先于附着"),
+		UPlanetSkyLightComponent::FindOwnedSkyLight(PlanetA,
+			static_cast<USkyLightComponent*>(LightB->GetLightComponent())),
+		static_cast<USkyLightComponent*>(LightB->GetLightComponent()));
+
+	// 没有天光的行星必须返回空，而不是拿到关卡里任意一盏。
+	AActor* BarePlanet = SpawnWithRoot(TEXT("RootC"));
+	TestNull(TEXT("没挂天光的行星返回空"),
+		UPlanetSkyLightComponent::FindOwnedSkyLight(BarePlanet, nullptr));
 	return true;
 }
 

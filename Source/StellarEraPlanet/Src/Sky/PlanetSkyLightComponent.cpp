@@ -2,7 +2,6 @@
 
 #include "Components/SkyLightComponent.h"
 #include "Engine/TextureCube.h"
-#include "EngineUtils.h"
 #include "Camera/PlayerCameraManager.h"
 #include "GameFramework/PlayerController.h"
 #include "Math/Float16Color.h"
@@ -121,6 +120,34 @@ bool UPlanetSkyLightComponent::ResolveAtmosphere()
 	return true;
 }
 
+USkyLightComponent* UPlanetSkyLightComponent::FindOwnedSkyLight(const AActor* Owner,
+	USkyLightComponent* Override)
+{
+	if (Override || !Owner)
+	{
+		return Override;
+	}
+
+	// 先看本 Actor 自己：蓝图子类把 SkyLight 组件塞进行星身上时走这条。
+	if (USkyLightComponent* OnOwner = Owner->FindComponentByClass<USkyLightComponent>())
+	{
+		return OnOwner;
+	}
+
+	// 再看挂在本 Actor 下的 SkyLight Actor —— 关卡里「把天光拖到行星上」就是这种挂法。
+	TArray<AActor*> AttachedActors;
+	Owner->GetAttachedActors(AttachedActors);
+	for (AActor* Attached : AttachedActors)
+	{
+		if (USkyLightComponent* Found = Attached
+			? Attached->FindComponentByClass<USkyLightComponent>() : nullptr)
+		{
+			return Found;
+		}
+	}
+	return nullptr;
+}
+
 bool UPlanetSkyLightComponent::ResolveSkyLight()
 {
 	if (SkyLight.IsValid())
@@ -128,31 +155,15 @@ bool UPlanetSkyLightComponent::ResolveSkyLight()
 		return true;
 	}
 
-	USkyLightComponent* Found = TargetSkyLight;
-	if (!Found && GetWorld())
-	{
-		for (TActorIterator<AActor> It(GetWorld()); It; ++It)
-		{
-			if (!It->ActorHasTag(SkyLightActorTag))
-			{
-				continue;
-			}
-			Found = It->FindComponentByClass<USkyLightComponent>();
-			if (Found)
-			{
-				break;
-			}
-		}
-	}
-
+	USkyLightComponent* Found = FindOwnedSkyLight(GetOwner(), TargetSkyLight);
 	if (!Found)
 	{
 		if (!bLoggedMissingSkyLight)
 		{
 			bLoggedMissingSkyLight = true;
 			UE_LOG(LogTemp, Warning,
-				TEXT("[天光] 关卡里没有打了 %s 标签的 SkyLight，天光不工作。"),
-				*SkyLightActorTag.ToString());
+				TEXT("[天光] %s 自身与它挂的子 Actor 里都没有 SkyLight，天光不工作。"),
+				*GetNameSafe(GetOwner()));
 		}
 		return false;
 	}

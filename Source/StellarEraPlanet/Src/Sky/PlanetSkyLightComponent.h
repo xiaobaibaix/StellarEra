@@ -11,7 +11,7 @@ class USkyLightComponent;
 class UTextureCube;
 
 /**
- * 自建大气壳的天光：按玩家视角在 CPU 上积分出低分辨率天空立方图，喂给关卡里的
+ * 自建大气壳的天光：按玩家视角在 CPU 上积分出低分辨率天空立方图，喂给**本行星自己那盏**
  * USkyLightComponent 当指定立方图，由引擎卷积成漫反射环境光。
  * 引擎的 RealTimeCapture 只认 SkyAtmosphere / 体积云 / IsSky 网格体，本项目三者都不是，
  * 抓出来是黑图 —— 这条数据链只能自己搭。编辑器世界不驱动（每帧改立方图会把关卡一直标脏）。
@@ -24,13 +24,9 @@ class STELLARERAPLANET_API UPlanetSkyLightComponent : public UActorComponent
 public:
 	UPlanetSkyLightComponent();
 
-	/** 要驱动的 SkyLight。留空则按 Actor 标签在关卡里找。 */
+	/** 要驱动的 SkyLight。留空则取本 Actor 上、或挂在它下面的 SkyLight。 */
 	UPROPERTY(EditInstanceOnly, Category = "StellarEra|SkyLight")
 	TObjectPtr<USkyLightComponent> TargetSkyLight;
-
-	/** TargetSkyLight 为空时，用它找 SkyLight 所在的 Actor。 */
-	UPROPERTY(EditAnywhere, Category = "StellarEra|SkyLight")
-	FName SkyLightActorTag = TEXT("PlanetSky");
 
 	/** 立方图边长。漫反射只吃低阶 SH，16 足够；8 更省，32 肉眼看不出差别。 */
 	UPROPERTY(EditAnywhere, Category = "StellarEra|SkyLight", meta = (ClampMin = "4", ClampMax = "64"))
@@ -51,6 +47,12 @@ public:
 	/** 立即重算并推送一次，忽略节流。调试与手动触发用。 */
 	UFUNCTION(BlueprintCallable, Category = "StellarEra|SkyLight")
 	void RefreshNow();
+
+	/**
+	 * 找本行星自己那盏 SkyLight：Override → 本 Actor 上的组件 → 挂在本 Actor 下的 SkyLight Actor。
+	 * 不能按标签在关卡里搜 —— 两颗行星会抢同一盏，后 Tick 的每帧覆盖前一颗的立方图。
+	 */
+	static USkyLightComponent* FindOwnedSkyLight(const AActor* Owner, USkyLightComponent* Override);
 
 protected:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType,

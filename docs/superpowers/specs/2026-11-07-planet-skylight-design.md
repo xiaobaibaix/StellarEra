@@ -71,13 +71,18 @@ SkyLight 的默认捕获（只认 `SkyAtmosphere` / 体积云 / Sky 材质）抓
 它靠 `GetComponents<UPlanetAtmosphereComponent>()` 找同 Actor 的大气壳，拿不到就整个
 组件不工作并日志一次。大气壳本身仍由蓝图承载（SCS 组件），本组件不要求它是 CDO 子对象。
 
-SkyLight 不新建 Actor：关卡里已经有一盏，组件去驱动它。
+SkyLight 一颗行星一盏，由行星自己持有：把 SkyLight Actor 挂到行星下（或在蓝图里给行星
+加一个 SkyLight 组件）即可，组件只驱动**自己那颗**。多行星就是多盏，互不相干。
 
 ```
 绑定优先级：组件上的 EditInstanceOnly SkyLight 指针
-          → 找不到则按 Actor 标签 PlanetSky 找
+          → 本 Actor 上的 USkyLightComponent
+          → 挂在本 Actor 下的 SkyLight Actor（关卡里"拖到行星上"就是这种）
           → 都没有：日志一次，组件不工作
 ```
+
+不按 Actor 标签在关卡里搜：两颗行星会抢同一盏，后 Tick 的那颗每帧覆盖前一颗的立方图。
+（2026-11-08 之前就是这么搜的，随"一行星一天光"改动去掉。）
 
 ### 4.2 数据流
 
@@ -167,9 +172,9 @@ CollectSunsFor ─┼→ 世界空间变化超过阈值？──否──→ 直
 
 ## 6. 编辑器与关卡接线
 
-1. 关卡 `UniverseMap` 现有 SkyLight：`Mobility = Movable`、`SourceType = SpecifiedCubemap`、
-   `Intensity = 1`、`LightColor = 白`、Actor 打标签 `PlanetSky`；
-2. 组件在行星上自动存在，无需放置；
+1. 关卡 `UniverseMap` 的 SkyLight **挂在行星 Actor 下**（`AttachToActor`），组件据此认领；
+   Mobility 由组件在运行期改成 Movable，SourceType 改成 SpecifiedCubemap，强度由关卡自己定；
+2. 组件在行星上自动存在，无需放置；`BP_VoxelPlanet` 不用动；
 3. `SkyFill` 定向光**本次不删**：先把 `SkyFillIntensity` 留在组件上，PIE 对比过再决定
    是删掉还是保留成可关的兜底。
 
@@ -295,3 +300,20 @@ OutsideShellIsStar、PlanetHasComponent、SunElevationMonotonic），日志 `D:/
 不成立：实测侧脸 0.04873 > +Z 脸 0.03760，因为地平线方向的积分路径远长于天顶。改成同一张脸在
 「太阳天顶」与「太阳在 +X 地平线」两种配置下的对比（+Z 脸：0.03760 → 0.02821；+X 脸：
 0.04873 → 0.09365），路径长度相同，只留方向性差异；面序或索引写错时至少一条断言会红。
+
+### 10.4 一行星一天光（2026-11-08）
+
+需求方改口径：天光属于**某一颗**行星，后续多行星就是多盏，不再共享一盏。原实现按 Actor 标签
+`PlanetSky` 全关卡搜，两颗行星会抢同一盏、后 Tick 的那颗每帧覆盖前一颗的立方图 —— 与该口径直接冲突，
+标签查找整段删除，`SkyLightActorTag` 属性一并去掉（关卡里残留的序列化值读包时按未知属性跳过）。
+
+绑定改为 `TargetSkyLight` → 本 Actor 上的 `USkyLightComponent` → 挂在本 Actor 下的 SkyLight Actor。
+关卡里的做法：把 SkyLight Actor 拖到行星上（`AttachToActor`），`TargetSkyLight` 留空。
+
+PIE 实测（`UniverseMap`，SkyLight 强度由需求方调成 0.1）：SkyLight 的 attach 父级是 `BP_VoxelPlanet3`，
+`TargetSkyLight` 为空，运行期 `SourceType = SLS_SPECIFIED_CUBEMAP`、`RealTimeCapture = false`、
+`Mobility = Movable`、`Cubemap = /Engine/Transient.TextureCube_8`（每次重算新建的那张），
+日志 `[天光] 重算 边长=16 太阳=3 用时=5.6–7.8 ms` 共 8 条，没有「没有 SkyLight」告警。
+
+自动化测试新增 `StellarEra.Planet.SkyLight.OwnedSkyLight`：两颗行星各挂一盏时各自拿到自己的、
+显式 `TargetSkyLight` 优先于附着、没挂天光的行星返回空。SkyLight 全组 11/11、全量 `StellarEra` 253/253 通过。
