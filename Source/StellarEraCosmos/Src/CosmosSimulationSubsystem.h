@@ -71,6 +71,18 @@ public:
 	/** 纯引力加速度（AU/年²），不含推力与阻尼；下标无效返回零向量。星图「引力合力箭头」读它。 */
 	FVector3d GetBodyGravityGameUnits(int32 SimulatorIndex) const;
 
+	/**
+	 * 自动步长 = min(最短周期 / 步数, 1 / MinStepsPerSecond)，再夹进合法区间。
+	 * 前半保精度，后半保「每帧至少两步」；周期/步数非法时退回默认步长（仍受下限约束）。
+	 */
+	static double ComputeBaseTimeStep(double InShortestPeriod, int32 InStepsPerOrbit,
+	                                  double InTimeScale, int32 InMinStepsPerSecond);
+
+	/** 渲染位姿插值：位置 lerp、朝向 slerp（走短弧）。Alpha ∈ [0,1]。 */
+	static void InterpolateRenderPose(const FVector3d& PrevPosition, const FQuat4d& PrevOrientation,
+	                                  const FVector3d& CurPosition, const FQuat4d& CurOrientation,
+	                                  double Alpha, FVector3d& OutPosition, FQuat4d& OutOrientation);
+
 	//////////////////////////////////////////////////////////////////////////
 	// 星图模式
 	//
@@ -121,6 +133,13 @@ public:
 	int32 StepsPerOrbit = 20000;
 
 	/**
+	 * 步长下限（步/秒）。自动步长由最短配对周期推，远处没有近距配对时会大到每帧凑不满
+	 * 一步 —— 模拟整帧不动、再整步跳，帧率却是满的。120 步/秒保证 60 FPS 每帧 2 步。
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Cosmos|Time", meta = (ClampMin = "0"))
+	int32 MinStepsPerSecond = 120;
+
+	/**
 	 * 单帧积分步数上限：单帧最多推进 max(该值 − 1, 1) × 步长。
 	 * 必须 ≥ 1：填 0 会让 TimeScale 每帧乘 0.9 掉下去，几帧内冻住。
 	 */
@@ -159,8 +178,11 @@ private:
 	 */
 	void SelectRenderAnchor();
 
-	/** 每帧把原点贴到锚点当前位置，世界坐标因此不随轨道平移。 */
-	void UpdateRenderOrigin();
+	/** 每帧把原点贴到锚点当前位置（可传插值后的锚点），世界坐标因此不随轨道平移。 */
+	void UpdateRenderOrigin(const FVector3d* AnchorPositionOverride = nullptr);
+
+	/** 记下本帧**最后一步之前**的位姿，写回时按余量插值。取帧首会多落后一整个步长。 */
+	void CaptureRenderPrevPose();
 
 	/**
 	 * 把每颗体素星球的接触半径刷成当前朝向的地表半径。每帧刷是因为地形起伏 ±80 米，
@@ -220,6 +242,11 @@ private:
 
 	/** 跨帧累积的待推进时间（模拟年）。固定步长是辛积分器的前提，而每帧年数不是步长的整数倍，余量必须存下来。 */
 	double AdvanceAccumulator = 0.0;
+
+	/** 本帧最后一步之前的位姿，与求解器体下标对齐。没有快照（首帧/刚重注册）时写回当前解。 */
+	TArray<FVector3d> RenderPrevPositions;
+	TArray<FQuat4d> RenderPrevOrientations;
+	bool bHasRenderPrevPose = false;
 
 	float DiagnosticTimer = 0.f;
 	bool bInitialized = false;

@@ -461,6 +461,49 @@ void UCosmosSimulationSubsystem::ApplyControlledBodyForces(float DeltaSeconds)
 	}
 }
 
+double UCosmosSimulationSubsystem::ComputeBaseTimeStep(double InShortestPeriod, int32 InStepsPerOrbit,
+                                                       double InTimeScale, int32 InMinStepsPerSecond)
+{
+	// 推不出精度要求时（单天体 / 退化配对）仍要守住下限，否则同一种「整帧不动」会换个关卡复现。
+	constexpr double DefaultStepYears = 5.0e-5;
+	const double SmoothStep = (InMinStepsPerSecond > 0 && InTimeScale > 0.0)
+		? InTimeScale / double(InMinStepsPerSecond)
+		: TNumericLimits<double>::Max();
+
+	if (!FMath::IsFinite(InShortestPeriod) || InShortestPeriod <= 0.0 || InStepsPerOrbit <= 0)
+	{
+		return FMath::Clamp(FMath::Min(DefaultStepYears, SmoothStep), 1e-12, 1e-2);
+	}
+
+	return FMath::Clamp(
+		FMath::Min(InShortestPeriod / double(InStepsPerOrbit), SmoothStep), 1e-12, 1e-2);
+}
+
+void UCosmosSimulationSubsystem::InterpolateRenderPose(const FVector3d& PrevPosition, const FQuat4d& PrevOrientation,
+                                                       const FVector3d& CurPosition, const FQuat4d& CurOrientation,
+                                                       double Alpha, FVector3d& OutPosition, FQuat4d& OutOrientation)
+{
+	const double T = FMath::Clamp(Alpha, 0.0, 1.0);
+	OutPosition = FMath::Lerp(PrevPosition, CurPosition, T);
+	OutOrientation = FQuat4d::Slerp(PrevOrientation, CurOrientation, T);
+}
+
+void UCosmosSimulationSubsystem::CaptureRenderPrevPose()
+{
+	const int32 NumBodies = Simulator.GetNumBodies();
+	RenderPrevPositions.SetNum(NumBodies);
+	RenderPrevOrientations.SetNum(NumBodies);
+
+	for (int32 Index = 0; Index < NumBodies; ++Index)
+	{
+		const FCosmosBodyState& Body = Simulator.GetBody(Index);
+		RenderPrevPositions[Index] = Body.Position;
+		RenderPrevOrientations[Index] = Body.Orientation;
+	}
+
+	bHasRenderPrevPose = true;
+}
+
 void UCosmosSimulationSubsystem::FinalizeRegistration()
 {
 	bInitialized = true;
@@ -512,10 +555,11 @@ void UCosmosSimulationSubsystem::FinalizeRegistration()
 		ShortestPeriodYears = ShortestPeriod;
 	}
 
-	if (FMath::IsFinite(ShortestPeriod) && ShortestPeriod > 0.0 && StepsPerOrbit > 0)
-	{
-		BaseTimeStep = FMath::Clamp(ShortestPeriod / double(StepsPerOrbit), 1e-12, 1e-2);
-	}
+	// 推不出周期时也要走这一步：单天体系统同样要守住步长下限，否则整帧零步会在别处复现。
+	BaseTimeStep = ComputeBaseTimeStep(ShortestPeriod, StepsPerOrbit, TimeScale, MinStepsPerSecond);
+
+	// 注册改了天体顺序，上一份快照的下标已经对不上。
+	bHasRenderPrevPose = false;
 
 	Simulator.MarkEnergyBaseline();
 
@@ -592,7 +636,7 @@ void UCosmosSimulationSubsystem::SelectRenderAnchor()
 		RenderAnchorWorld.X, RenderAnchorWorld.Y, RenderAnchorWorld.Z);
 }
 
-void UCosmosSimulationSubsystem::UpdateRenderOrigin()
+void UCosmosSimulationSubsystem::UpdateRenderOrigin(const FVector3d* AnchorPositionOverride)
 {
 	if (RenderAnchorIndex == INDEX_NONE)
 	{
@@ -600,7 +644,9 @@ void UCosmosSimulationSubsystem::UpdateRenderOrigin()
 	}
 
 	Simulator.SetRenderOrigin(
-		Simulator.GetBody(RenderAnchorIndex).Position, RenderAnchorWorld);
+		AnchorPositionOverride ? *AnchorPositionOverride
+		                       : Simulator.GetBody(RenderAnchorIndex).Position,
+		RenderAnchorWorld);
 }
 
 void UCosmosSimulationSubsystem::Tick(float DeltaTime)
@@ -647,6 +693,12 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 
 		for (int32 StepIndex = 0; StepIndex < StepsToRun; ++StepIndex)
 		{
+			// 快照取「本帧最后一步之前」：取帧首会多落后整整一个步长，插值反而更钝。
+			if (StepIndex + 1 == StepsToRun)
+			{
+				CaptureRenderPrevPose();
+			}
+
 			Simulator.StepExact(BaseTimeStep);
 		}
 
@@ -660,8 +712,25 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 		}
 	}
 
+	// 整数步数会把时间的零头丢掉：不插值就是整帧不动、再整步跳（帧率却满）。
+	// 按累积余量摊平，代价是画面最多落后一个步长。
+	const double RenderAlpha = (bHasRenderPrevPose && BaseTimeStep > 0.0)
+		? FMath::Clamp(AdvanceAccumulator / BaseTimeStep, 0.0, 1.0)
+		: 1.0;
+
+	// 锚点必须用同一份插值位置：拿插值后的天体配未插值原点，锚点自己会在世界里漂。
+	FVector3d RenderAnchorPosition;
+	const FVector3d* RenderAnchorOverride = nullptr;
+	if (bHasRenderPrevPose && RenderPrevPositions.IsValidIndex(RenderAnchorIndex))
+	{
+		RenderAnchorPosition = FMath::Lerp(
+			RenderPrevPositions[RenderAnchorIndex],
+			Simulator.GetBody(RenderAnchorIndex).Position, RenderAlpha);
+		RenderAnchorOverride = &RenderAnchorPosition;
+	}
+
 	// 原点要先于写回更新：这一帧的位移被原点的同量平移抵消掉，写回出来的世界位置就不变。
-	UpdateRenderOrigin();
+	UpdateRenderOrigin(RenderAnchorOverride);
 
 	// ── 2. 写回各个天体 ──
 	for (UCosmosOrbitComponent* Component : Bodies)
@@ -678,6 +747,20 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 		{
 			const FCosmosBodyState& State = Simulator.GetBody(Component->SimulatorIndex);
 
+			// 写回插值后的位姿，不写求解器当前解 —— 后者是「整步跳」的源头。
+			FVector3d RenderPosition = State.Position;
+			FQuat4d RenderOrientation = State.Orientation;
+			if (RenderAlpha < 1.0
+				&& RenderPrevPositions.IsValidIndex(Component->SimulatorIndex)
+				&& RenderPrevOrientations.IsValidIndex(Component->SimulatorIndex))
+			{
+				InterpolateRenderPose(
+					RenderPrevPositions[Component->SimulatorIndex],
+					RenderPrevOrientations[Component->SimulatorIndex],
+					State.Position, State.Orientation, RenderAlpha,
+					RenderPosition, RenderOrientation);
+			}
+
 			// 刚体（飞船）位置 + 朝向一起写回。非刚体只写位置：它们的 Orientation 恒为单位四元数，
 			// 走 SetActorTransform 会把关卡里摆好的行星朝向瞬间抹成零。
 			if (State.bRigidBody)
@@ -685,16 +768,16 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 				BodyActor->SetActorTransform(
 					FTransform(
 						FQuat(
-							State.Orientation.X, State.Orientation.Y,
-							State.Orientation.Z, State.Orientation.W),
-						Simulator.ToWorldLocation(State.Position),
+							RenderOrientation.X, RenderOrientation.Y,
+							RenderOrientation.Z, RenderOrientation.W),
+						Simulator.ToWorldLocation(RenderPosition),
 						BodyActor->GetActorScale3D()),
 					/*bSweep=*/false, nullptr, ETeleportType::None);
 			}
 			else
 			{
 				BodyActor->SetActorLocation(
-					Simulator.ToWorldLocation(State.Position), /*bSweep=*/false);
+					Simulator.ToWorldLocation(RenderPosition), /*bSweep=*/false);
 			}
 
 			// 受控天体（飞船）：速度经 ICosmosBody::SetCosmosVelocity 写回 Actor，体素调用器、IsLanded() 与 HUD 都读那一处。
