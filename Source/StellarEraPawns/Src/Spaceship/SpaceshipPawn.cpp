@@ -201,9 +201,8 @@ void ASpaceshipPawn::BeginPlay()
 	BaseArmLength = SpringArm ? SpringArm->TargetArmLength : 0.f;
 
 	// 蓝图的俯角要留着：视线轴与机身滚转轴差 24.4°，正好把落在这个锥面上的飞船摆到画面中央；
-	// 抹掉俯角飞船会掉到画面正下方。横滚在这里先对齐机身，否则开局摆位那次朝向会被当成一次大横滚。
+	// 抹掉俯角飞船会掉到画面正下方。横滚不用初始化，首次 CalcCamera 采样时滞后直接归零。
 	CameraBaseRotation = Camera ? Camera->GetRelativeRotation().Quaternion() : FQuat::Identity;
-	CameraRollDegrees = GetActorRotation().Roll;
 
 	// 摇臂基准朝向同样抄一份：蓝图可能调过，每帧叠加偏移而不是覆盖，才不会冲掉那个值。
 	SpringArmBaseRotation = SpringArm ? SpringArm->GetRelativeRotation().Quaternion() : FQuat::Identity;
@@ -453,22 +452,12 @@ void ASpaceshipPawn::Tick(float DeltaSeconds)
 	}
 
 	// --- 6. 相机横滚 ---
-	// 一阶追机身的 Roll，而不是直接抄：求解器按定步长积分朝向，一帧跑 4~11 个子步、每步
-	// 0.33°，原样显示就是逐格转。追的稳态滞后 = MaxRollRate / 本值（24 → 约 4°）。
-	// 用最短弧，因为 Roll 在 ±180 处折返，直接插值会绕远路。
-	const float FollowAlpha = CameraRollFollowSpeed > 0.f
-		? 1.f - FMath::Exp(-CameraRollFollowSpeed * DeltaSeconds)
-		: 1.f;
-	CameraRollDegrees += FMath::FindDeltaAngleDegrees(
-		CameraRollDegrees, GetActorRotation().Roll) * FollowAlpha;
-	CameraRollDegrees = FRotator::NormalizeAxis(CameraRollDegrees);
-
+	// 滞后量在 CalcCamera 里推进：那里读到的是求解器写回后的当帧机身，Tick 里读到的还是上一帧的。
+	// 这里只把组件姿态同步成同一份滞后（组件朝向不参与渲染，CalcCamera 会覆盖视线）。
 	if (Camera)
 	{
-		// 组件姿态只补「平滑值 − 机身 roll」这一段差：摇臂已经继承了机身 roll，整段写进来会滚两次。
-		// 真正的视线由 CalcCamera 用当帧摇臂朝向重算，这里只是让组件姿态与它一致。
 		Camera->SetRelativeRotation(
-			FRotator(0.f, 0.f, CameraRollDegrees - GetActorRotation().Roll).Quaternion() * CameraBaseRotation);
+			FQuat(FVector::ForwardVector, FMath::DegreesToRadians(-CameraRollLagDegrees)) * CameraBaseRotation);
 	}
 
 	// --- 7. 落地自由视角：相机绕停住的飞船环绕 ---
@@ -503,20 +492,82 @@ void ASpaceshipPawn::Tick(float DeltaSeconds)
 
 void ASpaceshipPawn::CalcCamera(float DeltaSeconds, FMinimalViewInfo& OutResult)
 {
-	// 位置、FOV、后期都取自相机组件；只有朝向在这里重算 —— 组件那份相对变换是摇臂 Tick
-	// 按上一帧机身算的，横滚会一帧漏一点。相机更新（LevelTick 的 Update cameras）排在
-	// TickObjects 之后，此刻摇臂世界朝向已经是本帧最终的。
+	// 位置、FOV、后期都取自相机组件；只有朝向在这里重算。相机更新（LevelTick 的 Update cameras）
+	// 排在 TickObjects 之后，此刻摇臂与机身都已是本帧最终的姿态 —— Tick 里读到的还是上一帧的。
 	Super::CalcCamera(DeltaSeconds, OutResult);
 
-	const FRotator ArmWorldRotation = SpringArm ? SpringArm->GetComponentRotation() : GetActorRotation();
-	OutResult.Rotation = BuildCameraViewRotation(ArmWorldRotation, CameraBaseRotation, CameraRollDegrees).Rotator();
+	const FQuat HullRotation = GetActorQuat();
+	UpdateCameraRollLag(HullRotation, DeltaSeconds);
+
+	const FQuat ArmWorldRotation = SpringArm ? SpringArm->GetComponentQuat() : HullRotation;
+	OutResult.Rotation = BuildCameraViewRotation(ArmWorldRotation, CameraBaseRotation, CameraRollLagDegrees).Rotator();
 }
 
-FQuat ASpaceshipPawn::BuildCameraViewRotation(const FRotator& ArmWorldRotation, const FQuat& InBaseRotation, float RollDegrees)
+void ASpaceshipPawn::UpdateCameraRollLag(const FQuat& HullRotation, float DeltaSeconds)
 {
-	// roll 在 rotator 里是最内层的旋转轴（绕朝向轴），所以换掉它等于把整条机位一起拧：
-	// 朝向轴不变，蓝图俯角也跟着转。注意 `Roll` 与四元数角反号，见 CameraRollDegrees 的取值。
-	return FRotator(ArmWorldRotation.Pitch, ArmWorldRotation.Yaw, RollDegrees).Quaternion() * InBaseRotation;
+	const uint64 Frame = GFrameCounter;
+	if (bHasCameraRollSample && Frame == LastCameraRollSampleFrame)
+	{
+		return;   // 同帧多次 CalcCamera 只推进一次
+	}
+	LastCameraRollSampleFrame = Frame;
+
+	const UWorld* World = GetWorld();
+	const double Now = World ? World->GetTimeSeconds() : 0.0;
+
+	// 首次采样、或隔了很久没采样（切星图、卡顿）：机身已经转过一大截，对齐而不是补出巨大滞后。
+	if (!bHasCameraRollSample || Now - LastCameraRollSampleTime > 0.5)
+	{
+		LastCameraRollHullRotation = HullRotation;
+		LastCameraRollSampleTime = Now;
+		bHasCameraRollSample = true;
+		CameraRollLagDegrees = 0.f;
+		return;
+	}
+
+	const float RollDeltaDegrees = ExtractRollDeltaDegrees(LastCameraRollHullRotation, HullRotation);
+	LastCameraRollHullRotation = HullRotation;
+	LastCameraRollSampleTime = Now;
+
+	CameraRollLagDegrees = StepCameraRollLagDegrees(
+		CameraRollLagDegrees, RollDeltaDegrees, CameraRollFollowSpeed, DeltaSeconds);
+}
+
+float ASpaceshipPawn::ExtractRollDeltaDegrees(const FQuat& PreviousHullRotation, const FQuat& CurrentHullRotation)
+{
+	// 增量表达在上一次机身的局部系里，机身前方是局部 X，绕它的 twist 分量就是横滚增量。
+	// 用 twist 而不是欧拉差值：俯仰越过 ±90°（筋斗/过顶）时欧拉 Roll 会翻转 180°。
+	const FQuat Delta = PreviousHullRotation.Inverse() * CurrentHullRotation;
+	const double TwistRadians = 2.0 * FMath::Atan2(
+		static_cast<double>(Delta.X), static_cast<double>(Delta.W));
+
+	// FRotator 的 Roll 与四元数绕 +X 的角反号。
+	return FRotator::NormalizeAxis(-FMath::RadiansToDegrees(static_cast<float>(TwistRadians)));
+}
+
+float ASpaceshipPawn::StepCameraRollLagDegrees(
+	float LagDegrees, float RollDeltaDegrees, float FollowSpeed, float DeltaSeconds)
+{
+	if (FollowSpeed <= 0.f)
+	{
+		return 0.f;   // 刚性
+	}
+
+	// 单帧滚过 45° 只可能是传送/开局摆位（120°/s 在 3 fps 下也才 40°/帧），夹住别让它甩一圈。
+	RollDeltaDegrees = FMath::Clamp(RollDeltaDegrees, -45.f, 45.f);
+
+	// 离散一阶滤波：Lag ← (Lag − Δroll) · exp(−k·dt)。稳态滞后 = 角速度 / k。
+	const float Decay = FMath::Exp(-FollowSpeed * FMath::Max(DeltaSeconds, 0.f));
+	return (LagDegrees - RollDeltaDegrees) * Decay;
+}
+
+FQuat ASpaceshipPawn::BuildCameraViewRotation(const FQuat& ArmWorldRotation, const FQuat& InBaseRotation, float RollLagDegrees)
+{
+	// 绕摇臂 X 轴补滞后等于把整条机位一起拧：视线轴不动，蓝图俯角也跟着转。右乘蓝图朝向之前
+	// 施加，滞后才作用在整条机位上而不是只拧视线。FRotator 的 Roll 与四元数角反号。
+	return ArmWorldRotation
+		* FQuat(FVector::ForwardVector, FMath::DegreesToRadians(-RollLagDegrees))
+		* InBaseRotation;
 }
 
 void ASpaceshipPawn::SetThrust(float Value)

@@ -1,8 +1,9 @@
-﻿// 相机横滚的两条契约。
+﻿// 相机横滚的三条契约。
 // 一是追的速率：追得太慢就是「滚转开头画面跟不上、松手反甩」，上界由 MaxRollRate /
 // CameraRollFollowSpeed 决定，这里按实际 CDO 参数数值积分。
 // 二是施加方式：横滚要把**整条机位**（视线 + 相机位置）一起绕机身 X 轴拧，只拧视线会让
 // 飞船在屏幕上绕圈 —— 相机位置仍由摇臂带着公转，视线却不跟。
+// 三是口径：横滚增量必须走四元数 twist，欧拉 Roll 在俯仰越过 ±90° 时会跳 180°。
 
 #include "CoreMinimal.h"
 #include "Camera/CameraComponent.h"
@@ -19,13 +20,6 @@ namespace
 	{
 		return LoadClass<ASpaceshipPawn>(
 			nullptr, TEXT("/Game/Code/Pawns/BP_SpaceshipPawn.BP_SpaceshipPawn_C"));
-	}
-
-	// 与 Tick 同一套积分：最短弧指数逼近机身的 Roll。
-	float StepRoll(float Applied, float Target, float DeltaSeconds, float Speed)
-	{
-		const float Alpha = Speed > 0.f ? 1.f - FMath::Exp(-Speed * DeltaSeconds) : 1.f;
-		return Applied + FMath::FindDeltaAngleDegrees(Applied, Target) * Alpha;
 	}
 
 	float ViewAngleDeg(const FVector& A, const FVector& B)
@@ -66,26 +60,37 @@ bool FStellarEraSpaceshipCameraRollLagTest::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	// 持续压杆 1 秒后的稳态滞后：机身滚得最狠时画面欠了多少度。
+	// 持续压杆 1 秒后的稳态滞后：机身滚得最狠时画面欠了多少度。滞后为负 = 视线落后机身。
 	const float Dt = 1.f / 60.f;
-	float Applied = 0.f;
-	float Target = 0.f;
+	const float FullRateStep = MaxRollRate * Dt;
+	float Lag = 0.f;
 	for (int32 i = 0; i < 60; ++i)
 	{
-		Target += MaxRollRate * Dt;
-		Applied = StepRoll(Applied, Target, Dt, FollowSpeed);
+		Lag = ASpaceshipPawn::StepCameraRollLagDegrees(Lag, FullRateStep, FollowSpeed, Dt);
 	}
-	TestTrue(FString::Printf(TEXT("满滚转稳态滞后 %.2f° 不超过 5°"), Target - Applied),
-		FMath::Abs(Target - Applied) <= 5.f);
+	TestTrue(FString::Printf(TEXT("满滚转稳态滞后 %.2f° 不超过 5°"), FMath::Abs(Lag)),
+		FMath::Abs(Lag) <= 5.f);
+	TestTrue(TEXT("滞后方向为负（视线落后机身）"), Lag < 0.f);
 
 	// 松手后滞后归零：超过 ~0.25 秒就是能看见的「反甩」。
 	int32 FramesToSettle = 0;
-	for (; FramesToSettle < 120 && FMath::Abs(Target - Applied) > 0.5f; ++FramesToSettle)
+	for (; FramesToSettle < 120 && FMath::Abs(Lag) > 0.5f; ++FramesToSettle)
 	{
-		Applied = StepRoll(Applied, Target, Dt, FollowSpeed);
+		Lag = ASpaceshipPawn::StepCameraRollLagDegrees(Lag, 0.f, FollowSpeed, Dt);
 	}
 	TestTrue(FString::Printf(TEXT("松手后 %.3f s 归零，不超过 0.25 s"), FramesToSettle * Dt),
 		FramesToSettle * Dt <= 0.25f);
+
+	// 符号契约：滞后必须让视线**欠**一截，而不是冲过头。机身滚 10°、滞后取该帧值 → 机位只转了 10°+滞后。
+	Lag = ASpaceshipPawn::StepCameraRollLagDegrees(0.f, 10.f, FollowSpeed, Dt);
+	TestTrue(TEXT("滞后在 0..-10 之间"), Lag > -10.f && Lag < 0.f);
+	const FQuat BaseRotation = FQuat::Identity;
+	const FQuat ViewAtZero = ASpaceshipPawn::BuildCameraViewRotation(FQuat::Identity, BaseRotation, 0.f);
+	const FQuat ViewAtTen = ASpaceshipPawn::BuildCameraViewRotation(
+		FRotator(0.f, 0.f, 10.f).Quaternion(), BaseRotation, Lag);
+	const float LaggedRelativeRoll = FMath::RadiansToDegrees(float((ViewAtZero.Inverse() * ViewAtTen).GetAngle()));
+	TestTrue(FString::Printf(TEXT("机身滚 10° → 机位转 %.2f°（应为 10 + %.2f）"), LaggedRelativeRoll, Lag),
+		FMath::IsNearlyEqual(LaggedRelativeRoll, 10.f + Lag, 0.5f));
 
 	return true;
 }
@@ -136,8 +141,7 @@ bool FStellarEraSpaceshipRollKeepsViewTest::RunTest(const FString& Parameters)
 	{
 		const FQuat Hull = FRotator(HullPose.Pitch, HullPose.Yaw, RollDeg).Quaternion();
 		const FVector Eye = Hull.RotateVector(EyeLocal);
-		const FVector View = ASpaceshipPawn::BuildCameraViewRotation(
-			FRotator(HullPose.Pitch, HullPose.Yaw, RollDeg), BaseRotation, RollDeg).RotateVector(Forward);
+		const FVector View = ASpaceshipPawn::BuildCameraViewRotation(Hull, BaseRotation, 0.f).RotateVector(Forward);
 		return ViewAngleDeg(View, (FVector::ZeroVector - Eye).GetSafeNormal());
 	};
 
@@ -169,13 +173,60 @@ bool FStellarEraSpaceshipRollKeepsViewTest::RunTest(const FString& Parameters)
 	const auto ViewAt = [&](float BodyRoll)
 	{
 		return ASpaceshipPawn::BuildCameraViewRotation(
-			FRotator(HullPose.Pitch, HullPose.Yaw, BodyRoll), BaseRotation, BodyRoll);
+			FRotator(HullPose.Pitch, HullPose.Yaw, BodyRoll).Quaternion(), BaseRotation, 0.f);
 	};
 	const FQuat ViewAtZero = ViewAt(0.f);
 	const FQuat ViewAtForty = ViewAt(40.f);
 	const float RelativeRoll = FMath::RadiansToDegrees(float((ViewAtZero.Inverse() * ViewAtForty).GetAngle()));
 	TestTrue(FString::Printf(TEXT("机身滚 40° → 机位相对旋转 %.2f°"), RelativeRoll),
 		FMath::IsNearlyEqual(RelativeRoll, 40.f, 0.5f));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSpaceshipRollAcrossVerticalTest,
+	"StellarEra.Spaceship.RollAcrossVertical",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraSpaceshipRollAcrossVerticalTest::RunTest(const FString& Parameters)
+{
+	// 符号契约：机身滚 +40°（FRotator 语义）→ 增量 +40°。
+	TestTrue(TEXT("纯横滚 +40° 的增量是 +40°"),
+		FMath::IsNearlyEqual(
+			ASpaceshipPawn::ExtractRollDeltaDegrees(
+				FRotator::ZeroRotator.Quaternion(), FRotator(0.f, 0.f, 40.f).Quaternion()),
+			40.f, 0.01f));
+
+	// 机身横滚恒为 30°，俯仰连续翻越垂直（筋斗/过顶）。每 0.5° 采样一次。
+	// 四元数 twist 必须连续；旧的欧拉口径在同一次翻越里会跳 180°。
+	const float BodyRoll = 30.f;
+	const auto PoseAt = [BodyRoll](float Pitch)
+	{
+		return FRotator(Pitch, 0.f, BodyRoll).Quaternion();
+	};
+
+	FQuat Previous = PoseAt(85.f);
+	float MaximumRollStep = 0.f;
+	float MaximumEulerStep = 0.f;
+	float PreviousEulerRoll = Previous.Rotator().Roll;
+	for (float Pitch = 85.5f; Pitch <= 95.01f; Pitch += 0.5f)
+	{
+		const FQuat Current = PoseAt(Pitch);
+		MaximumRollStep = FMath::Max(MaximumRollStep,
+			FMath::Abs(ASpaceshipPawn::ExtractRollDeltaDegrees(Previous, Current)));
+
+		const float EulerRoll = Current.Rotator().Roll;
+		MaximumEulerStep = FMath::Max(MaximumEulerStep,
+			FMath::Abs(FRotator::NormalizeAxis(EulerRoll - PreviousEulerRoll)));
+		PreviousEulerRoll = EulerRoll;
+		Previous = Current;
+	}
+
+	TestTrue(FString::Printf(TEXT("过顶时单步横滚增量 %.3f° 保持连续（≤1°）"), MaximumRollStep),
+		MaximumRollStep <= 1.f);
+	// 反例必须成立，否则上面那条是空转。
+	TestTrue(FString::Printf(TEXT("欧拉 Roll 在同一次过顶里跳 %.1f°（应 ≥140°）"), MaximumEulerStep),
+		MaximumEulerStep >= 140.f);
 
 	return true;
 }

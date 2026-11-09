@@ -107,10 +107,24 @@ public:
 	virtual void CalcCamera(float DeltaSeconds, struct FMinimalViewInfo& OutResult) override;
 
 	/**
-	 * 相机视线朝向：把摇臂世界朝向的 roll 换成给定值，再左乘蓝图朝向 —— 即**整个机位**
-	 * 绕机身 X 轴刚性转。只绕视线轴补 roll（右乘）会让相机公转而画面不跟，飞船在屏幕上甩开。
+	 * 相机视线朝向：摇臂世界朝向 × 绕其 X 轴的滞后角 × 蓝图朝向。即**整个机位**随机身刚性转，
+	 * 只让横滚慢半拍（滞后 0 = 完全刚性）。滞后是相对量，不用绝对欧拉 Roll —— 俯仰过 ±90°
+	 * 时 `GetActorRotation().Roll` 会跳 180°，拿它当目标画面会整圈翻转。
 	 */
-	static FQuat BuildCameraViewRotation(const FRotator& ArmWorldRotation, const FQuat& InBaseRotation, float RollDegrees);
+	static FQuat BuildCameraViewRotation(const FQuat& ArmWorldRotation, const FQuat& InBaseRotation, float RollLagDegrees);
+
+	/**
+	 * 两次机身朝向之间绕机身 X 轴的转角，度，FRotator 的 Roll 语义。用四元数 twist 而不是
+	 * 欧拉角：欧拉分解在俯仰 ±90° 处不连续。纯函数。
+	 */
+	static float ExtractRollDeltaDegrees(const FQuat& PreviousHullRotation, const FQuat& CurrentHullRotation);
+
+	/**
+	 * 推进一帧的横滚滞后：`Lag ← (Lag − RollDelta) · exp(−FollowSpeed·dt)`，返回新滞后角
+	 * （度，负 = 视线落后于机身）。FollowSpeed ≤ 0 为刚性；单帧增量夹在 ±45° 防甩飞。纯函数。
+	 */
+	static float StepCameraRollLagDegrees(float LagDegrees, float RollDeltaDegrees,
+		float FollowSpeed, float DeltaSeconds);
 
 	/**
 	 * 绑飞船自己的输入。引擎只在**本地 Possess 这个 Pawn** 时调用，动作表从控制器
@@ -469,9 +483,8 @@ protected:
 	float ZoomInterpSpeed = 8.f;
 
 	/**
-	 * 相机横滚追机身的速率（FInterpTo 速率）：稳态滞后 ≈ MaxRollRate / 本值（24 → 约 4°），
-	 * 同时把求解器定步长造成的逐格转动抹平（一帧 4~11 个子步，每步 0.33°）。
-	 * 设 0 = 与机身刚性绑定，代价是逐格抖。
+	 * 横滚滞后的一阶滤波速率：稳态滞后 ≈ MaxRollRate / 本值（24 → 约 4°），同时把求解器
+	 * 定步长造成的逐格转动抹平（一帧 4~11 个子步，每步 0.33°）。设 0 = 与机身刚性绑定，代价是逐格抖。
 	 */
 	UPROPERTY(EditAnywhere, Category = "Camera")
 	float CameraRollFollowSpeed = 24.f;
@@ -762,10 +775,19 @@ private:
 	float ZoomOffset = 0.f;
 
 	/**
-	 * 机位当前的横滚角（度，绕机身滚转轴），一阶平滑地追机身的 Roll。BeginPlay 要初始化成
-	 * 机身当时的 Roll，否则开局摆位那次朝向会被当成一次巨大的横滚。
+	 * 当前横滚滞后（度，负 = 视线落后机身），由 CalcCamera 按帧间四元数增量积分。是**相对量**，
+	 * 不存绝对角：绝对欧拉 Roll 在俯仰 ±90° 处跳 180°，会让画面整圈翻转。
 	 */
-	float CameraRollDegrees = 0.f;
+	float CameraRollLagDegrees = 0.f;
+
+	/**
+	 * 上一次横滚采样（CalcCamera 里，TickObjects 写回之后）的机身朝向与时间。间隔超过
+	 * 0.5 s（切星图、卡顿）直接对齐而不是补一个巨大滞后；同一帧多次 CalcCamera 只采样一次。
+	 */
+	FQuat LastCameraRollHullRotation = FQuat::Identity;
+	double LastCameraRollSampleTime = 0.0;
+	uint64 LastCameraRollSampleFrame = 0;
+	bool bHasCameraRollSample = false;
 
 	/**
 	 * 相机的基准相对朝向（蓝图设的）。横滚是把它一起拧，不是覆盖 —— 否则会把蓝图里
@@ -796,6 +818,9 @@ private:
 
 	/** 自动回正的目标"上"：有行星时取径向外侧，太空中退回世界 Z。 */
 	FVector GetAutoLevelUp() const;
+
+	/** CalcCamera 每帧一次：按机身朝向增量推进 CameraRollLagDegrees。 */
+	void UpdateCameraRollLag(const FQuat& HullRotation, float DeltaSeconds);
 
 	/** 当前在船上的角色。 */
 	UPROPERTY(Transient)
