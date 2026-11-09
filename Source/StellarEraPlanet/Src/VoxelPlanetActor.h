@@ -195,9 +195,10 @@ public:
 	// 性能
 
 	/**
-	 * 行星全局 LOD 基准：整颗星都细分到该 LOD。-1 = 按半径自动推导（三角边长约
-	 * 半径 1/16）。没有它，轨道视角下唯一的 LOD 来源是摄像机短距 Invoker，区块会
-	 * 塌到八叉树底部，表面坑洼不平。
+	 * 行星全局 LOD 基准：整颗星都细分到该 LOD，值越大越粗。-1 = 按半径自动推导
+	 * （三角边长约半径 1/16）。没有它，轨道视角下唯一的 LOD 来源是摄像机短距
+	 * Invoker，区块会塌到八叉树底部。只在改动时同步一次到 invoker（含抬高 MaxLOD），
+	 * 之后面板里手改的 invoker 值归用户，重建不再覆盖。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Performance", meta = (ClampMin = "-1", ClampMax = "26"))
 	int32 OrbitLOD = -1;
@@ -292,9 +293,9 @@ private:
 	int32 ComputeOrbitLOD() const;
 
 	/**
-	 * 把 OrbitLOD / 半径 / VoxelSize 推给 LOD Invoker，值没变就早退。只影响 LOD
-	 * 提示、不影响世界几何，故与 RebuildPlanet 分开；在哈希守卫之前调用，拖动星球
-	 * 时每帧都跑。
+	 * LOD to Set 只在 OrbitLOD 改动（含首次）时写，面板手改后归用户、重建不再覆盖；
+	 * LOD Range 是几何量，始终跟半径走。不影响世界几何，故在哈希守卫之前调用，
+	 * 拖动星球时每帧都跑。
 	 */
 	void RefreshLODInvoker();
 
@@ -322,6 +323,15 @@ private:
 
 	/** 上次 RebuildPlanet 构建世界所用的哈希。哈希不变则跳过重建。 */
 	uint64 LastParamsHash = 0;
+
+	/**
+	 * invoker 同步状态：用来区分「值没变」和「用户在面板里手改了」。
+	 * 手改过的 LOD to Set 归用户，重建不再覆盖；改 OrbitLOD 才重新接管。
+	 */
+	bool bLODInvokerSynced = false;
+	int32 LastAppliedOrbitLOD = INDEX_NONE;
+	float LastAppliedRangeSource = -1.f;
+	int32 LastWrittenLODToSet = INDEX_NONE;
 
 	/**
 	 * 上次重建水面用的 VoxelSize（cm）；-1 = 从没建过。VoxelSize 刻意不进

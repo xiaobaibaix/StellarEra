@@ -203,7 +203,7 @@ int32 AVoxelPlanetActor::ComputeOrbitLOD() const
 		return FMath::Clamp(OrbitLOD, 0, 26);
 	}
 	// 自动档：最粗三角边长（2^LOD 体素）约半径 1/16，弦高误差 ~R/2048。
-	// 1km 星得 LOD 6（64m 边长），100m 星得 LOD 3。
+	// 1km 星得 LOD 6（64m 边长），100m 星得 LOD 3。想要更粗就填显式值。
 	const float ScaledRadius = FMath::Max(GetScaledRadiusVoxels(), 1.f);
 	return FMath::Clamp(FMath::RoundToInt(FMath::Log2(ScaledRadius / 16.f)), 0, 8);
 }
@@ -215,19 +215,61 @@ void AVoxelPlanetActor::RefreshLODInvoker()
 		return;
 	}
 
-	const int32 NewLOD = ComputeOrbitLOD();
-	// 范围以球心为原点向六方延伸，略超出半径即可覆盖整颗星。
-	const float NewRange =
-		GetScaledRadiusVoxels() * FMath::Max(VoxelSize, 0.0001f) * 1.25f + 1000.f;
+	// 拖动星球时每帧都调：没有任何输入变化、invoker 也没被手改，就别去刷全局 invoker。
+	const float RangeSource = GetScaledRadiusVoxels() * FMath::Max(VoxelSize, 0.0001f);
+	const int32 DesiredLOD = ComputeOrbitLOD();
+	const bool bFirstSync = !bLODInvokerSynced;
+	const bool bOrbitLODChanged = !bFirstSync && LastAppliedOrbitLOD != OrbitLOD;
+	const bool bRangeSourceChanged = bFirstSync || !FMath::IsNearlyEqual(LastAppliedRangeSource, RangeSource);
+	// 值还等于上次写入的 → 归系统；被人改过 → 归用户，之后不再覆盖。首次同步没有历史可比，
+	// 拿系统值当基准 —— 否则第一次手改会被「首次同步」吞掉。
+	const bool bHandEdited = LODInvoker->LODToSet != (bFirstSync ? DesiredLOD : LastWrittenLODToSet);
 
-	// 拖动星球时每帧都调，先比较再赋值：全局刷新每帧无条件跑会拖慢编辑器。
-	if (LODInvoker->LODToSet == NewLOD && FMath::IsNearlyEqual(LODInvoker->LODRange, NewRange))
+	if (!bOrbitLODChanged && !bRangeSourceChanged && !bHandEdited)
 	{
 		return;
 	}
 
-	LODInvoker->LODToSet = NewLOD;
-	LODInvoker->LODRange = NewRange;
+	bLODInvokerSynced = true;
+	LastAppliedOrbitLOD = OrbitLOD;
+	LastAppliedRangeSource = RangeSource;
+
+	if (bRangeSourceChanged)
+	{
+		// LOD Range 是纯几何量，只能跟半径 / VoxelSize 走，否则 LOD 覆盖不到整颗星。
+		LODInvoker->LODRange = RangeSource * 1.25f + 1000.f;
+	}
+
+	// LOD to Set 只在 OrbitLOD 改动（含首次）时由系统写；命中手改就采纳用户的值。
+	if (bHandEdited)
+	{
+		// Invoker 自身没有 PostEditChangeProperty 刷新，这里顺手让它立刻生效。
+		LastWrittenLODToSet = LODInvoker->LODToSet;
+	}
+	else if (bFirstSync || bOrbitLODChanged)
+	{
+		LODInvoker->LODToSet = DesiredLOD;
+		LastWrittenLODToSet = DesiredLOD;
+		// 实际层级 = min(LODToSet, MaxLOD)：MaxLOD 更低会把值压回去。只在系统写入时抬一次，
+		// 之后用户把 MaxLOD 调低是故意的（更细），不再顶回去。
+		if (MaxLOD < DesiredLOD)
+		{
+			MaxLOD = FMath::Clamp(DesiredLOD, 0, 25);
+			if (IsCreated())
+			{
+				UVoxelBlueprintLibrary::ApplyLODSettings(this);
+			}
+		}
+	}
+
+	// 面板上两个字段分开填很容易撞上「取了小值」：不改你的数，只把实际生效值说清楚。
+	if (MaxLOD < LODInvoker->LODToSet)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("AVoxelPlanetActor: %s 的 MaxLOD %d 低于 invoker LOD %d，实际层级按较小值 %d 生效"),
+			*GetName(), MaxLOD, LODInvoker->LODToSet, MaxLOD);
+	}
+
 	UVoxelInvokerComponentBase::RefreshAllVoxelInvokers();
 }
 
