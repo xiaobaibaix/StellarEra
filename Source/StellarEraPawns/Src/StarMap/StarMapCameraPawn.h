@@ -87,6 +87,12 @@ public:
 	/** 焦点是行星时相机拉远的倍率（地表半径 × 本值）。控制器按 M 进场聚焦时用。 */
 	double GetPlanetFocusRadiusScale() const { return PlanetFocusRadiusScale; }
 
+	/** 拉远上限（到焦点球心，厘米）。 */
+	double GetMaxOrbitDistanceCm() const { return MaxOrbitDistanceCm; }
+
+	/** 绕行灵敏度倍率上限，见 OrbitLookScale。 */
+	double GetMaxOrbitLookScale() const { return MaxOrbitLookScale; }
+
 	/** 左键拾取天体的像素容差。相机输入组件与 HUD 悬停查询共用。 */
 	float GetSelectionPixelRadius() const { return SelectionPixelRadius; }
 
@@ -362,11 +368,11 @@ protected:
 	double MinOrbitLookScale = 0.05;
 
 	/**
-	 * 绕行灵敏度上限（倍率），见 OrbitLookScale。8 = 远距离一拖横扫过去；2R–3R
-	 * 那一段是 1–2，不受本值影响。
+	 * 绕行灵敏度上限（倍率），见 OrbitLookScale。2 = 在「整颗行星入画」（3R）处封顶，
+	 * 再拉远也不加速；旧值 8 配 1.2°/px 在星系尺度上一拖就整圈飞过去。
 	 */
 	UPROPERTY(EditAnywhere, Category = "StarMap", meta = (ClampMin = "1.0"))
-	double MaxOrbitLookScale = 8.0;
+	double MaxOrbitLookScale = 2.0;
 
 	/**
 	 * 右键转头离开「正对焦点」的最大角度（度）。90 = 半球：转不到背后，否则绕行位置
@@ -398,10 +404,11 @@ protected:
 	double MinFocusDistanceCm = 5.0e2;
 
 	/**
-	 * 最远距离（到焦点球心），5e7 = 50 AU。这是**全局**上限；视线上有行星时实际上限更小。
+	 * 最远距离（到焦点球心），1e9 = 1000 AU。这是**全局**上限；视线上有行星时实际上限更小。
+	 * 当前关卡三恒星在 ±200 AU、行星在 +400 AU，系统跨 600 AU —— 50 AU 根本拉不出全貌。
 	 */
 	UPROPERTY(EditAnywhere, Category = "StarMap")
-	double MaxOrbitDistanceCm = 5.0e7;
+	double MaxOrbitDistanceCm = 1.0e9;
 
 	/**
 	 * FocusOn 的平滑时长（秒）。距离按**对数**插值而不是线性：LOD 需求按数量级变化，

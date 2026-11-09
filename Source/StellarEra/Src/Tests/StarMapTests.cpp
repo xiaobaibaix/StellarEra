@@ -370,6 +370,28 @@ bool FStellarEraStarMapOrbitLookScaleTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// 相机默认值：当前关卡三恒星在 ±200 AU、行星在 +400 AU（系统跨 600 AU），拉远上限必须
+// 覆盖它；远距离拖拽倍率必须有硬上限，否则 1.2°/px × 8 在星系尺度上一拖整圈。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapCameraDefaultsTest,
+	"StellarEra.StarMap.CameraDefaults",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraStarMapCameraDefaultsTest::RunTest(const FString& Parameters)
+{
+	const AStarMapCameraPawn* Defaults = GetDefault<AStarMapCameraPawn>();
+	if (!TestNotNull(TEXT("相机 CDO"), Defaults))
+	{
+		return false;
+	}
+
+	TestTrue(TEXT("拉远上限覆盖 600 AU 的关卡跨度"),
+		Defaults->GetMaxOrbitDistanceCm() >= 6.0e8);
+	TestTrue(TEXT("远距离绕行倍率被压住（≤ 2 倍基础灵敏度）"),
+		Defaults->GetMaxOrbitLookScale() <= 2.0);
+
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapVelocityQueryTest,
 	"StellarEra.StarMap.VelocityQuery",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
