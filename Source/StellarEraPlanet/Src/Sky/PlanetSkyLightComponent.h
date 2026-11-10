@@ -9,12 +9,13 @@
 
 class USkyLightComponent;
 class UTextureCube;
+class FObjectPreSaveContext;
 
 /**
  * 自建大气壳的天光：按玩家视角在 CPU 上积分出低分辨率天空立方图，喂给**本行星自己那盏**
- * USkyLightComponent 当指定立方图，由引擎卷积成漫反射环境光。
- * 引擎的 RealTimeCapture 只认 SkyAtmosphere / 体积云 / IsSky 网格体，本项目三者都不是，
- * 抓出来是黑图 —— 这条数据链只能自己搭。编辑器世界不驱动（每帧改立方图会把关卡一直标脏）。
+ * USkyLightComponent 当指定立方图，由引擎卷积成漫反射环境光。引擎 RealTimeCapture 只认
+ * SkyAtmosphere / 体积云 / IsSky 网格，这里三者都不是，抓出来是黑图 —— 数据链只能自己搭。
+ * 编辑器世界也驱动（观察点取活动透视视口相机），否则编辑预览与运行时亮度对不上。
  */
 UCLASS(ClassGroup = (StellarEra), meta = (BlueprintSpawnableComponent))
 class STELLARERAPLANET_API UPlanetSkyLightComponent : public UActorComponent
@@ -40,6 +41,13 @@ public:
 	UPROPERTY(EditAnywhere, Category = "StellarEra|SkyLight", meta = (ClampMin = "0.0"))
 	float BrightnessScale = 1.0f;
 
+	/**
+	 * 编辑器世界里也按视口相机重算，让编辑预览的亮度与 PIE 一致。关掉就退回关卡里
+	 * 那张静态立方图 —— 只在排查「编辑器为什么变慢/变亮」时用。
+	 */
+	UPROPERTY(EditAnywhere, Category = "StellarEra|SkyLight")
+	bool bUpdateInEditorWorld = true;
+
 	/** 立即重算并推送一次，忽略节流。调试与手动触发用。 */
 	UFUNCTION(BlueprintCallable, Category = "StellarEra|SkyLight")
 	void RefreshNow();
@@ -53,6 +61,14 @@ public:
 protected:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType,
 		FActorComponentTickFunction* ThisTickFunction) override;
+
+#if WITH_EDITOR
+	// 编辑器世界替换的是关卡里那盏真天光：注册时挂钩子在存盘前把作者立方图换回来，
+	// 卸载时再换一次。不这么做，瞬态纹理会被序列化成空引用。
+	virtual void OnRegister() override;
+	virtual void OnUnregister() override;
+#endif
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
 	// 必须先声明再被下面的函数签名用到（类内成员函数声明的参数类型不享受「完整类上下文」）。
@@ -84,6 +100,18 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UTextureCube> CurrentCubemap;
+
+	/** 编辑器世界覆盖前记住作者那张立方图，存盘 / 卸载时换回去。游戏世界不用。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UTextureCube> AuthoredCubemap;
+
+	/** 已经把关卡天光的 Cubemap 换成瞬态的当前图。 */
+	bool bReplacedAuthoredCubemap = false;
+
+#if WITH_EDITOR
+	void HandleObjectPreSave(UObject* Object, FObjectPreSaveContext SaveContext);
+	FDelegateHandle ObjectPreSaveHandle;
+#endif
 
 	TWeakObjectPtr<UPlanetAtmosphereComponent> Atmosphere;
 	TWeakObjectPtr<USkyLightComponent> SkyLight;

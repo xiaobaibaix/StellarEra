@@ -73,5 +73,12 @@ public class StellarEraPlanet : ModuleRules
 			// 只在 .cpp 里用，不需要向下游传递。
 			"GeometryFramework",
 		});
+
+		if (Target.bBuildEditor)
+		{
+			// 编辑器世界的天光预览要取视口相机（GEditor / FLevelEditorViewportClient）。
+			// 只在编辑器目标里编，打包时不会有这条依赖。
+			PrivateDependencyModuleNames.Add("UnrealEd");
+		}
 	}
 }

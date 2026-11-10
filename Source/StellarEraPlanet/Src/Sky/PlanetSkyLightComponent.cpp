@@ -10,6 +10,14 @@
 // FTexture2DMipMap 的完整定义在 TextureResource.h；TextureCube.h 只前向声明它。
 #include "TextureResource.h"
 #include "VoxelPlanetActor.h"
+// OnObjectPreSave 的声明在 UObjectGlobals.h，FObjectPreSaveContext 在 ObjectSaveContext.h。
+#include "UObject/ObjectSaveContext.h"
+
+#if WITH_EDITOR
+#include "Editor.h"
+#include "EditorViewportClient.h"
+#include "LevelEditorViewport.h"
+#endif
 
 namespace
 {
@@ -22,6 +30,54 @@ UPlanetSkyLightComponent::UPlanetSkyLightComponent()
 	PrimaryComponentTick.bCanEverTick = true;
 	// 放在帧末：相机位置这一帧已经定下来了，算出来的 L1 方向才是玩家真正看到的方向。
 	PrimaryComponentTick.TickGroup = TG_PostUpdateWork;
+	// 编辑器世界也要 Tick：不标的话编辑预览永远停在关卡里那张静态立方图，与 PIE 亮度对不上。
+	bTickInEditor = true;
+}
+
+#if WITH_EDITOR
+void UPlanetSkyLightComponent::OnRegister()
+{
+	Super::OnRegister();
+
+	const UWorld* World = GetWorld();
+	if (bUpdateInEditorWorld && World && !World->IsGameWorld())
+	{
+		// 编辑器世界不跑 BeginPlay，钩子只能挂在这里。
+		ObjectPreSaveHandle = FCoreUObjectDelegates::OnObjectPreSave.AddUObject(
+			this, &UPlanetSkyLightComponent::HandleObjectPreSave);
+	}
+}
+
+void UPlanetSkyLightComponent::OnUnregister()
+{
+	FCoreUObjectDelegates::OnObjectPreSave.Remove(ObjectPreSaveHandle);
+	Super::OnUnregister();
+}
+
+void UPlanetSkyLightComponent::HandleObjectPreSave(UObject* Object, FObjectPreSaveContext)
+{
+	// 正在存这盏天光所在的包：先把作者立方图换回去。瞬态纹理存不进包，会写成空引用。
+	if (bReplacedAuthoredCubemap && SkyLight.IsValid()
+		&& Object && Object->GetPackage() == SkyLight->GetPackage())
+	{
+		SkyLight->SetCubemap(AuthoredCubemap);
+		bReplacedAuthoredCubemap = false;
+		// 存完下一 Tick 重新推一次计算图。
+		bHasUpdated = false;
+	}
+}
+#endif
+
+void UPlanetSkyLightComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	// 编辑器世界里本组件改的是关卡那盏天光，退出时把作者立方图还回去，别让瞬态纹理留到下次存盘。
+	if (bReplacedAuthoredCubemap && SkyLight.IsValid())
+	{
+		SkyLight->SetCubemap(AuthoredCubemap);
+		bReplacedAuthoredCubemap = false;
+	}
+
+	Super::EndPlay(EndPlayReason);
 }
 
 void UPlanetSkyLightComponent::TickComponent(float DeltaTime, ELevelTick TickType,
@@ -30,8 +86,13 @@ void UPlanetSkyLightComponent::TickComponent(float DeltaTime, ELevelTick TickTyp
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
 	UWorld* World = GetWorld();
-	// 编辑器世界也会 Tick 本组件，驱动它等于每帧把关卡标脏。
-	if (!World || !World->IsGameWorld())
+	if (!World)
+	{
+		return;
+	}
+
+	// 编辑器世界也驱动，观察点在 GetObserverLocation 里换成视口相机。
+	if (!World->IsGameWorld() && !bUpdateInEditorWorld)
 	{
 		return;
 	}
@@ -70,7 +131,11 @@ void UPlanetSkyLightComponent::TickComponent(float DeltaTime, ELevelTick TickTyp
 void UPlanetSkyLightComponent::RefreshNow()
 {
 	UWorld* World = GetWorld();
-	if (!World || !World->IsGameWorld() || !ResolveAtmosphere() || !ResolveSkyLight())
+	if (!World || (!World->IsGameWorld() && !bUpdateInEditorWorld))
+	{
+		return;
+	}
+	if (!ResolveAtmosphere() || !ResolveSkyLight())
 	{
 		return;
 	}
@@ -183,19 +248,34 @@ bool UPlanetSkyLightComponent::GetObserverLocation(FVector& OutLocation)
 	UWorld* World = GetWorld();
 	APlayerController* Controller = World ? World->GetFirstPlayerController() : nullptr;
 	APlayerCameraManager* CameraManager = Controller ? Controller->PlayerCameraManager : nullptr;
-	if (!CameraManager)
+	if (CameraManager)
 	{
-		// 没有相机时拿行星中心当观察点算出来的方向是错的，宁可不工作。
-		if (!bLoggedMissingCamera)
-		{
-			bLoggedMissingCamera = true;
-			UE_LOG(LogTemp, Warning, TEXT("[天光] 没有玩家相机，天光不工作。"));
-		}
-		return false;
+		OutLocation = CameraManager->GetCameraLocation();
+		return true;
 	}
 
-	OutLocation = CameraManager->GetCameraLocation();
-	return true;
+#if WITH_EDITOR
+	// 编辑器世界没有玩家控制器，取第一台透视视口：预览要的就是作者在视口里看到的那个方向。
+	if (World && !World->IsGameWorld() && GEditor)
+	{
+		for (FLevelEditorViewportClient* LevelClient : GEditor->GetLevelViewportClients())
+		{
+			if (LevelClient && LevelClient->IsPerspective())
+			{
+				OutLocation = LevelClient->GetViewLocation();
+				return true;
+			}
+		}
+	}
+#endif
+
+	// 没有相机时拿行星中心当观察点算出来的方向是错的，宁可不工作。
+	if (!bLoggedMissingCamera)
+	{
+		bLoggedMissingCamera = true;
+		UE_LOG(LogTemp, Warning, TEXT("[天光] 没有玩家相机，天光不工作。"));
+	}
+	return false;
 }
 
 bool UPlanetSkyLightComponent::BuildKey(const FVector& Observer, FUpdateKey& OutKey)
@@ -372,12 +452,32 @@ bool UPlanetSkyLightComponent::UpdateCube(const FVector& Observer, const FUpdate
 	Mip.BulkData.Unlock();
 	Cube->UpdateResource();
 
+#if WITH_EDITOR
+	// 编辑器世界里改的是关卡里那盏真天光：首次覆盖前记住作者那张立方图，存盘 / 卸载时要换回去。
+	if (const UWorld* World = GetWorld();
+		World && !World->IsGameWorld() && !bReplacedAuthoredCubemap)
+	{
+		AuthoredCubemap = Target->Cubemap;
+		bReplacedAuthoredCubemap = true;
+	}
+#endif
+
 	// 每次新建纹理：SetCubemap 只在指针变化时才重新卷积，复用同一张会让环境光停在第一次。
 	CurrentCubemap = Cube;
 	Target->SetCubemap(Cube);
 
 	const double ElapsedMs = (FPlatformTime::Seconds() - StartSeconds) * 1000.0;
-	UE_LOG(LogTemp, Log, TEXT("[天光] 重算 边长=%d 太阳=%d 用时=%.3f ms"),
-		Resolution, Input.Suns.Num(), ElapsedMs);
+	// 编辑器里视口一动就是 5 Hz 重算，别刷屏；游戏世界保持 Log 便于核对节流。
+	const UWorld* World = GetWorld();
+	if (World && World->IsGameWorld())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[天光] 重算 边长=%d 太阳=%d 用时=%.3f ms"),
+			Resolution, Input.Suns.Num(), ElapsedMs);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Verbose, TEXT("[天光] 重算 边长=%d 太阳=%d 用时=%.3f ms"),
+			Resolution, Input.Suns.Num(), ElapsedMs);
+	}
 	return true;
 }
