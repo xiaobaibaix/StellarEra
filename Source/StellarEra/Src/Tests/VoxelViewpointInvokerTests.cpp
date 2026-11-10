@@ -80,6 +80,32 @@ namespace
 		}
 		return true;
 	}
+
+	/** 角色的星图精简态：只有带碰撞的主调用器开着，且范围不超过 MaxRangeCm。 */
+	bool IsCharacterReduced(const TArray<UVoxelInvokerComponentBase*>& Invokers, const float MaxRangeCm)
+	{
+		for (const UVoxelInvokerComponentBase* Invoker : Invokers)
+		{
+			const UVoxelSimpleInvokerComponent* Simple = Cast<UVoxelSimpleInvokerComponent>(Invoker);
+			if (!Simple)
+			{
+				return false;
+			}
+			if (Simple->bUseForCollisions)
+			{
+				if (!Simple->IsInvokerEnabled()
+					|| Simple->LODRange > MaxRangeCm || Simple->CollisionsRange > MaxRangeCm)
+				{
+					return false;
+				}
+			}
+			else if (Simple->IsInvokerEnabled())
+			{
+				return false;
+			}
+		}
+		return true;
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraInvokerViewpointShipTest,
@@ -193,8 +219,32 @@ bool FStellarEraInvokerViewpointCharacterTest::RunTest(const FString& Parameters
 
 	// 地面 + 非视点（进星图）→ 仍开。回归断言：关掉会让脚下碰撞块被回收，
 	// CMC 的重力当场把人拽进行星内部。
+	const UVoxelSimpleInvokerComponent* Main = nullptr;
+	for (const UVoxelInvokerComponentBase* Invoker : Invokers)
+	{
+		const UVoxelSimpleInvokerComponent* Simple = Cast<UVoxelSimpleInvokerComponent>(Invoker);
+		if (Simple && Simple->bUseForCollisions)
+		{
+			Main = Simple;
+		}
+	}
+	if (!TestNotNull(TEXT("带碰撞的主调用器"), Main))
+	{
+		return false;
+	}
+	const float FullLODRange = Main->LODRange;
+	const float FullCollisionsRange = Main->CollisionsRange;
+	const float ReducedRange = Character->GetStarMapInvokerRange();
+
+	// 地面 + 非视点（进星图）→ 主调用器仍开（脚下碰撞不能回收），但缩小；过渡环关。
 	Character->SetViewpointInvokersActive(false);
-	TestTrue(TEXT("地面且非视点 → 仍打开"), AllEnabled(Invokers));
+	TestTrue(TEXT("地面且非视点 → 只留缩小的碰撞调用器"), IsCharacterReduced(Invokers, ReducedRange));
+
+	// 回到视点 → 全开且范围恢复原值。
+	Character->SetViewpointInvokersActive(true);
+	TestTrue(TEXT("回到视点 → 全部打开"), AllEnabled(Invokers));
+	TestEqual(TEXT("回到视点 → LOD 范围恢复"), Main->LODRange, FullLODRange);
+	TestEqual(TEXT("回到视点 → 碰撞范围恢复"), Main->CollisionsRange, FullCollisionsRange);
 
 	// 登船（与 ASpaceshipPawn::Board 同序：先挂后设）+ 拿到视点 → 仍关。
 	// 判据是 bBoarded，不是附着关系 —— 角色平时就挂在行星下。
@@ -220,7 +270,15 @@ bool FStellarEraInvokerViewpointCharacterTest::RunTest(const FString& Parameters
 
 	// 视点被拿走（进星图），人还在地上 → 仍开
 	Character->SetViewpointInvokersActive(false);
-	TestTrue(TEXT("进星图 → 仍打开"), AllEnabled(Invokers));
+	TestTrue(TEXT("进星图 → 只留缩小的碰撞调用器"), IsCharacterReduced(Invokers, ReducedRange));
+
+	// 星图里登船再离船：登船全关，离船后仍不是视点 → 回到精简态而非全开。
+	Character->AttachToActor(Ship, FAttachmentTransformRules::KeepWorldTransform);
+	Character->SetBoarded(true);
+	TestTrue(TEXT("星图中登船 → 全关"), AllDisabled(Invokers));
+	Character->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	Character->SetBoarded(false);
+	TestTrue(TEXT("星图中离船 → 精简态"), IsCharacterReduced(Invokers, ReducedRange));
 
 	return true;
 }
@@ -295,7 +353,8 @@ bool FStellarEraInvokerViewpointGateTest::RunTest(const FString& Parameters)
 	// 视点 = 飞船
 	AStellarEraPlayerController::ApplyViewpointInvokerGate(Scoped.World, Ship);
 	TestTrue(TEXT("视点飞船 → 打开"), AllEnabled(ShipInvokers));
-	TestTrue(TEXT("角色 → 仍打开（人站在地上）"), AllEnabled(CharacterInvokers));
+	TestTrue(TEXT("角色 → 精简态（人站在地上，只留贴身碰撞）"),
+		IsCharacterReduced(CharacterInvokers, Character->GetStarMapInvokerRange()));
 	TestTrue(TEXT("星图相机 → 关闭"), AllDisabled(CameraInvokers));
 
 	// 视点 = 角色（下船）
@@ -306,7 +365,8 @@ bool FStellarEraInvokerViewpointGateTest::RunTest(const FString& Parameters)
 	// 视点 = 星图相机（进星图）
 	AStellarEraPlayerController::ApplyViewpointInvokerGate(Scoped.World, Camera);
 	TestTrue(TEXT("视点星图 → 打开"), AllEnabled(CameraInvokers));
-	TestTrue(TEXT("角色 → 仍打开（脚下碰撞不能回收）"), AllEnabled(CharacterInvokers));
+	TestTrue(TEXT("角色 → 精简态（脚下碰撞不能回收）"),
+		IsCharacterReduced(CharacterInvokers, Character->GetStarMapInvokerRange()));
 	TestTrue(TEXT("飞船 → 关闭"), AllDisabled(ShipInvokers));
 
 	// 没有视点（OnUnPossess 路径）

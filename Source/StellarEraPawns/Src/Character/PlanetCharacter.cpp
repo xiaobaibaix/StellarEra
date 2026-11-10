@@ -667,8 +667,9 @@ void APlanetCharacter::SetBoarded(bool bInBoarded)
 
 void APlanetCharacter::SetViewpointInvokersActive(const bool bActive)
 {
-	// 刻意不看 bActive：进星图时视点归相机，但人还站在地表上。跟着关掉，脚下一圈碰撞块
-	// 会被回收，CMC 的重力当场把人拽进行星内部。开合只由登船决定。
+	// 主调用器不跟 bActive 开关：进星图时人还站在地表上，关掉它脚下碰撞块被回收，
+	// CMC 的重力当场把人拽进行星内部。bActive 只决定"全量"还是"只留贴身碰撞"。
+	bIsViewpoint = bActive;
 	RefreshInvokerEnabledState();
 }
 
@@ -677,11 +678,28 @@ void APlanetCharacter::RefreshInvokerEnabledState()
 	// 「参与」= 没在船上。登船才停：那时 LODToSet = 0 + 200 米盒子跟着飞船高速平移，
 	// 每帧重网格化是飞船三档之外的一块大头。
 	const bool bActive = !bBoarded;
+	const bool bReduced = bActive && !bIsViewpoint;
+
+	// 只改范围、不翻 bUseForLOD / bUseForCollisions：翻开关会让插件丢掉整棵八叉树。
+	// 插件比对设置时不看范围，靠下面过渡环增删触发的同一次更新把新范围一并读走。
+	if (VoxelInvoker)
+	{
+		if (NormalInvokerLODRange < 0.f)
+		{
+			NormalInvokerLODRange = VoxelInvoker->LODRange;
+			NormalInvokerCollisionsRange = VoxelInvoker->CollisionsRange;
+		}
+		VoxelInvoker->LODRange = bReduced
+			? FMath::Min(StarMapInvokerRange, NormalInvokerLODRange) : NormalInvokerLODRange;
+		VoxelInvoker->CollisionsRange = bReduced
+			? FMath::Min(StarMapInvokerRange, NormalInvokerCollisionsRange) : NormalInvokerCollisionsRange;
+	}
 	VoxelViewpointInvokers::SetEnabled(VoxelInvoker, bActive);
 
-	// 过渡环与主 Invoker 同进同退：只留一个会在脚下留出只有 LOD、没有碰撞的缝。
+	// 过渡环只填 LOD 阶梯，看不见地表时没用；视点在地上时与主调用器同进同退，
+	// 否则脚下会留出只有 LOD、没有碰撞的缝。
 	for (const TObjectPtr<UVoxelSimpleInvokerComponent>& Invoker : FarVoxelInvokers)
 	{
-		VoxelViewpointInvokers::SetEnabled(Invoker, bActive);
+		VoxelViewpointInvokers::SetEnabled(Invoker, bActive && !bReduced);
 	}
 }

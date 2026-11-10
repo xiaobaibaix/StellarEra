@@ -46,9 +46,12 @@ public:
 	TObjectPtr<UPlanetCharacterInputComponent> PlayerInput;
 
 	//~ Begin IVoxelViewpointInvokers Interface
-	/** 照接口实现，但**不理会** bActive：角色开合只看登船，理由见 cpp。 */
+	/** 不是视点（进星图 / 视点在别处）时只留贴身碰撞：过渡环关掉、主调用器缩到 StarMapInvokerRange。
+	 *  主调用器本身仍只看登船，理由见 cpp。 */
 	virtual void SetViewpointInvokersActive(bool bActive) override;
 	//~ End IVoxelViewpointInvokers Interface
+
+	float GetStarMapInvokerRange() const { return StarMapInvokerRange; }
 
 	/** 球面行走输入：X = 前后，Y = 左右，取值 [-1, 1]。 */
 	void Move(const FVector2D& Value);
@@ -127,6 +130,10 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet")
 	TArray<TObjectPtr<UVoxelSimpleInvokerComponent>> FarVoxelInvokers;
 
+	/** 非视点时主调用器的 LOD 与碰撞范围（厘米）。只需接住胶囊体：碰撞细分锁死最细层，范围就是开销。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Planet", meta = (ClampMin = "500.0"))
+	float StarMapInvokerRange = 3000.f;
+
 	/** 相机臂长（厘米）。滚轮缩放的基准值，见 BaseCameraArmLength。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
 	float CameraArmLength = 600.f;
@@ -202,8 +209,8 @@ public:
 
 private:
 	/**
-	 * 按「是否登船」开关自己身上全部调用器。视点不是条件：进星图时视点归相机，但人还
-	 * 站在地表上，回收脚下碰撞块等于让重力把人拽进行星内部。
+	 * 登船 = 全关；在地上且是视点 = 全开；在地上但不是视点（星图）= 过渡环关、主调用器
+	 * 缩到 StarMapInvokerRange。主调用器不能关：回收脚下碰撞块等于让重力把人拽进行星内部。
 	 */
 	void RefreshInvokerEnabledState();
 
@@ -212,6 +219,13 @@ private:
 	 * 行星下，走路时 GetAttachParentActor() 也非空。
 	 */
 	bool bBoarded = false;
+
+	/** 是否当前视点。默认真：OnRegister 早于 Possess，先按全开算，Possess 后由门控纠正。 */
+	bool bIsViewpoint = true;
+
+	/** 进入精简模式前主调用器的原始范围（含蓝图覆写），第一次缩小时记下。 */
+	float NormalInvokerLODRange = -1.f;
+	float NormalInvokerCollisionsRange = -1.f;
 
 	/**
 	 * 把 CharacterMesh / MeshRelativeLocation / MeshRelativeRotation / MeshScale 套到 GetMesh() 上。
