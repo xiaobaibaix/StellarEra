@@ -96,6 +96,11 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Planet")
 	float GetSurfaceRadiusCmAtDirection(const FVector& WorldDirection) const;
 
+	/** 任何方向的地表都不低于此半径（厘米，含缩放、起伏下界与河床下切）。随半径 / 地形 /
+	 *  水文重建而变，大气拿它当解析地面。没有地形模块时等于 GetSurfaceRadiusCm。 */
+	UFUNCTION(BlueprintPure, Category = "Planet")
+	float GetMinSurfaceRadiusCm() const;
+
 	/**
 	 * 指定方向上的**真实体素地表**半径：从体素数据找空/实翻转，挖掘出的坑也看得见
 	 * （GetSurfaceRadiusCmAtDirection 只看生成器理想地表）。以解析半径为种子沿径向

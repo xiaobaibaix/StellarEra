@@ -34,7 +34,7 @@ const TCHAR* const AtmosphereHLSL = TEXT(R"(
 // .ush 的内容不进哈希（实测：改完 .ush 重跑 BuildAtmosphereMaterial、
 // 再 RecompileMaterial，连亮度参数 1→4 都逐像素相同，说明拿到的还是旧编译产物）。
 // 这个常量本身不参与运算，只用来改 Code 字符串 → 改哈希 → 强制重编译。
-#define PLANET_CLOUDS_VERSION 9
+#define PLANET_CLOUDS_VERSION 10
 
 float3 ro = CameraPos;
 float3 rd = normalize(WorldPos - CameraPos);
@@ -107,7 +107,7 @@ float4 march = CloudAtmosphereRaymarch(
     SunCount,
     tEnter, tExit, PlanetRadius,
     RayleighScaleHeight, MieScaleHeight,
-    RayleighBeta.rgb, MieBeta.rgb,
+    RayleighBeta.rgb, MieBeta.rgb, AtmosphereAmbient,
     CloudBaseRadius, CloudTopRadius, CloudExtinction,
     CloudNoiseScale, CloudDetailScale, CloudCoverage,
     CloudDetailStrength, CloudDrift, CloudBrightness);
@@ -200,6 +200,11 @@ bool BuildPlanetAtmosphereMaterial(FString& OutError)
 	// 2.25524e-5 = 0.005328 / 236.25
 	UMaterialExpressionVectorParameter* MieBeta = AddAtmoVectorParam(Material, TEXT("MieBeta"),
 		FLinearColor(2.25524e-5f, 2.25524e-5f, 2.25524e-5f, 1.0f), -800, 100);
+
+	// 多次散射地板（语义见 PlanetClouds.ush 顶部）。0 = 旧行为，可用来 A/B 对照。
+	// 0.02 由 CPU 侧模型扫出来：背阳切向弦 sRGB≈25/41/54，向阳侧只多约 +18。
+	UMaterialExpressionScalarParameter* AtmosphereAmbient =
+		AddAtmoScalarParam(Material, TEXT("AtmosphereAmbient"), 0.02f, -800, 150);
 
 	// 相机位置取视图 uniform（CameraPositionWS），不由 C++ 每帧写 MID —— 组件 Tick
 	// 早于视口 Tick，写进去的位置总慢一帧，快速移动时行星边缘会出硬边暖白色带。
@@ -306,6 +311,7 @@ bool BuildPlanetAtmosphereMaterial(FString& OutError)
 	AddAtmoCustomInput(Custom, TEXT("MieScaleHeight"), MieScaleHeight);
 	AddAtmoCustomInput(Custom, TEXT("RayleighBeta"), RayleighBeta);
 	AddAtmoCustomInput(Custom, TEXT("MieBeta"), MieBeta);
+	AddAtmoCustomInput(Custom, TEXT("AtmosphereAmbient"), AtmosphereAmbient);
 	AddAtmoCustomInput(Custom, TEXT("SunIntensity"), SunIntensity);
 	AddAtmoCustomInput(Custom, TEXT("TwoSidedSign"), TwoSidedSignNode);
 	AddAtmoCustomInput(Custom, TEXT("SceneDepthCm"), SceneDepthNode);

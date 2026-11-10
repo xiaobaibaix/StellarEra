@@ -51,6 +51,19 @@
 // stands in for both and is the only reason the night side stays readable.
 #define CLOUD_AMBIENT 0.25
 
+// The atmosphere fails the same way, and worse. A ray grazing the limb is
+// optically thick along its whole length (tau ~ 7 -> alpha ~ 1), so wherever
+// SunVis is 0 the shell is an opaque *and* non-emitting surface: the blend
+// writes black over whatever is behind it, and nothing shows through. That is
+// the hard black band along the horizon; the crease above it is the same thing
+// seen where alpha has not saturated yet.
+// Real skies stay lit there for ~15 deg past sunset through multiple
+// scattering, which single scattering cannot produce, so the term below stands
+// in for it. It arrives as a material parameter (AtmosphereAmbient on the
+// shell component) rather than a constant so the amount can be dialled in at
+// runtime. Applied once per step regardless of sun count: scaling it per sun
+// would triple the fill on a three-star planet.
+
 // Suns shaded per sample. Must match PlanetClouds::MaxSuns in
 // Source/StellarEraPlanet/Src/Atmosphere/PlanetCloudParams.h - an automation
 // test asserts the two agree. Slot 0 is the star nearest the planet and is the
@@ -241,7 +254,7 @@ void CloudAtmoSegment(
     float3 Ro, float3 Rd, float3 Center, FPlanetSunSet Suns,
     float T0, float T1, int Steps,
     float PlanetRadius, float RayleighScaleHeight, float MieScaleHeight,
-    float3 RayleighBeta, float3 MieBeta,
+    float3 RayleighBeta, float3 MieBeta, float AtmoAmbient,
     float CloudBaseRadius, float CloudTopRadius, float CloudExtinction,
     float CloudNoiseScale, float CloudDetailScale, float CloudCoverage,
     float CloudDetailStrength, float CloudDrift, float CloudBrightness,
@@ -336,6 +349,11 @@ void CloudAtmoSegment(
             }
         }
 
+        // The atmosphere's counterpart to CLOUD_AMBIENT (see the header). It is
+        // independent of the sun, so it is added once per step, not per sun -
+        // scaling it per sun would triple the fill on a three-star planet.
+        Scatter += AtmoAmbient * (RayleighBeta * DR + MieBeta * DM);
+
         Acc += Scatter * Tr * TrSeg * Ds;
 
         if (DC > 0.0)
@@ -356,7 +374,7 @@ float4 CloudAtmosphereRaymarch(
     float SunCount,
     float TEnter, float TExit, float PlanetRadius,
     float RayleighScaleHeight, float MieScaleHeight,
-    float3 RayleighBeta, float3 MieBeta,
+    float3 RayleighBeta, float3 MieBeta, float AtmoAmbient,
     float CloudBaseRadius, float CloudTopRadius, float CloudExtinction,
     float CloudNoiseScale, float CloudDetailScale, float CloudCoverage,
     float CloudDetailStrength, float CloudDrift, float CloudBrightness)
@@ -403,15 +421,15 @@ float4 CloudAtmosphereRaymarch(
         int CloudSteps = (int)clamp(ceil((COut - CIn) / CloudStepTarget),
             (float)CLOUD_MIN_STEPS, (float)CLOUD_STEPS);
         CloudAtmoSegment(Ro, Rd, Center, Suns, TEnter, CIn, ATMO_STEPS,
-            PlanetRadius, RayleighScaleHeight, MieScaleHeight, RayleighBeta, MieBeta,
+            PlanetRadius, RayleighScaleHeight, MieScaleHeight, RayleighBeta, MieBeta, AtmoAmbient,
             CloudBaseRadius, CloudTopRadius, CloudExtinction, CloudNoiseScale, CloudDetailScale,
             CloudCoverage, CloudDetailStrength, CloudDrift, CloudBrightness, Acc, Tr);
         CloudAtmoSegment(Ro, Rd, Center, Suns, CIn, COut, CloudSteps,
-            PlanetRadius, RayleighScaleHeight, MieScaleHeight, RayleighBeta, MieBeta,
+            PlanetRadius, RayleighScaleHeight, MieScaleHeight, RayleighBeta, MieBeta, AtmoAmbient,
             CloudBaseRadius, CloudTopRadius, CloudExtinction, CloudNoiseScale, CloudDetailScale,
             CloudCoverage, CloudDetailStrength, CloudDrift, CloudBrightness, Acc, Tr);
         CloudAtmoSegment(Ro, Rd, Center, Suns, COut, TExit, ATMO_STEPS,
-            PlanetRadius, RayleighScaleHeight, MieScaleHeight, RayleighBeta, MieBeta,
+            PlanetRadius, RayleighScaleHeight, MieScaleHeight, RayleighBeta, MieBeta, AtmoAmbient,
             CloudBaseRadius, CloudTopRadius, CloudExtinction, CloudNoiseScale, CloudDetailScale,
             CloudCoverage, CloudDetailStrength, CloudDrift, CloudBrightness, Acc, Tr);
     }
@@ -419,7 +437,7 @@ float4 CloudAtmosphereRaymarch(
     {
         // No cloud layer on this ray (looking away, or clouds disabled).
         CloudAtmoSegment(Ro, Rd, Center, Suns, TEnter, TExit, ATMO_STEPS * 2,
-            PlanetRadius, RayleighScaleHeight, MieScaleHeight, RayleighBeta, MieBeta,
+            PlanetRadius, RayleighScaleHeight, MieScaleHeight, RayleighBeta, MieBeta, AtmoAmbient,
             CloudBaseRadius, CloudTopRadius, CloudExtinction, CloudNoiseScale, CloudDetailScale,
             CloudCoverage, CloudDetailStrength, CloudDrift, CloudBrightness, Acc, Tr);
     }

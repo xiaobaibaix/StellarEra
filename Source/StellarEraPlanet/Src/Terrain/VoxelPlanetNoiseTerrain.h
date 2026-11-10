@@ -80,6 +80,7 @@ public:
 	//~ Begin UVoxelPlanetTerrainModule Interface
 	virtual TVoxelSharedRef<FVoxelGeneratorInstance> GetInstance(const FVoxelPlanetTerrainContext& Context) override;
 	virtual float GetSurfaceRadiusVoxels(const FVoxelPlanetTerrainContext& Context, const FVector& UnitDir) const override;
+	virtual float GetMinSurfaceRadiusVoxels(const FVoxelPlanetTerrainContext& Context) const override;
 	virtual float GetRawOffset(const FVector& UnitDir) const override;
 	virtual bool GetWaterConfig(FPlanetWaterConfig& OutConfig) const override;
 	//~ End UVoxelPlanetTerrainModule Interface

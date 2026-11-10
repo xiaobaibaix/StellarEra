@@ -1175,6 +1175,17 @@ float AVoxelPlanetActor::GetSurfaceRadiusCmAtDirection(const FVector& WorldDirec
 	return PlanetGenerator->Terrain->GetSurfaceRadiusVoxels(Context, Direction) * VoxelSize;
 }
 
+float AVoxelPlanetActor::GetMinSurfaceRadiusCm() const
+{
+	if (!PlanetGenerator || !PlanetGenerator->Terrain)
+	{
+		return GetSurfaceRadiusCm();
+	}
+	// 上下文里的半径与水文场是本次重建的快照，半径或水文一变这里跟着变。
+	const FVoxelPlanetTerrainContext Context = PlanetGenerator->MakeTerrainContext();
+	return PlanetGenerator->Terrain->GetMinSurfaceRadiusVoxels(Context) * VoxelSize;
+}
+
 float AVoxelPlanetActor::GetVoxelSurfaceRadiusCmAtDirection(const FVector& WorldDirection) const
 {
 	const FVector Direction = WorldDirection.GetSafeNormal();

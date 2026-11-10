@@ -58,6 +58,10 @@ public:
 	virtual float GetSurfaceRadiusVoxels(const FVoxelPlanetTerrainContext& Context, const FVector& UnitDir) const
 		PURE_VIRTUAL(UVoxelPlanetTerrainModule::GetSurfaceRadiusVoxels, return Context.Radius;);
 
+	/** 任何方向上地表都不会低于的半径（体素）。大气拿它当解析地面截断射线：
+	 *  比真实地表高一点，地平线下就会截出一条黑带。默认 = 基准半径（光滑球）。 */
+	virtual float GetMinSurfaceRadiusVoxels(const FVoxelPlanetTerrainContext& Context) const;
+
 	/** 未削平的归一化位移（0 = 基准球面）。与 GetSurfaceRadiusVoxels 的区别是有
 	 * 没有被海平面削平，是水文烘焙的唯一输入 —— 混用会把海床当陆地再淹一遍。 */
 	virtual float GetRawOffset(const FVector& UnitDir) const;

@@ -52,6 +52,12 @@ public:
 	UPROPERTY(EditAnywhere, Category = "StellarEra|Atmosphere")
 	FLinearColor SunIntensity = FLinearColor(14.0f, 14.0f, 14.0f, 1.0f);
 
+	/** 大气版的多次散射地板：单次散射在背阳采样点上恒为 0，而那里的消光照样把 alpha
+	 *  推到 1，不透明又不出光就是地平线那圈纯黑。0 = 旧行为，可用来做 A/B 对照。
+	 *  量级：0.02 把背阳切向弦从纯黑抬到 sRGB≈25/41/54 的暮光蓝，向阳侧只多约 +18。 */
+	UPROPERTY(EditAnywhere, Category = "StellarEra|Atmosphere", meta = (ClampMin = "0.0"))
+	float AtmosphereAmbient = 0.02f;
+
 	/** 驱动定向光时的基础强度；每盏灯实际强度 = 本值 × 该恒星的相对亮度（G2V = 1.0）。 */
 	UPROPERTY(EditAnywhere, Category = "StellarEra|Atmosphere", meta = (ClampMin = "0.0"))
 	float BaseLightIntensity = 10.0f;
@@ -197,4 +203,7 @@ private:
 
 	/** 上次应用时的表面半径（cm）。只服务编辑器预览：gizmo 缩放 / 改 Radius 不重跑 BeginPlay，Tick 比较此值，变了才重算。 */
 	float AppliedSurfaceRadiusCm = 0.0f;
+
+	/** 上次写进材质的解析地面半径（cm）。地形 / 水文重建会改它而基准半径不变，Tick 要单独比。 */
+	float AppliedGroundRadiusCm = 0.0f;
 };

@@ -57,7 +57,7 @@ bool FStellarEraAtmosphereMaterialStructureTest::RunTest(const FString& Paramete
 		TEXT("CloudBaseRadius"), TEXT("CloudTopRadius"), TEXT("CloudCoverage"),
 		TEXT("CloudExtinction"), TEXT("CloudNoiseScale"), TEXT("CloudDetailScale"),
 		TEXT("CloudDetailStrength"), TEXT("CloudDrift"), TEXT("CloudBrightness"),
-		TEXT("SunCount")
+		TEXT("SunCount"), TEXT("AtmosphereAmbient")
 	};
 	for (const TCHAR* Name : ScalarNames)
 	{
@@ -153,6 +153,10 @@ bool FStellarEraAtmosphereMaterialHlslTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("ush 的太阳循环被展开"), CloudUsh.Contains(TEXT("[unroll]")));
 	TestTrue(TEXT("ush 含太阳集合构造函数"), CloudUsh.Contains(TEXT("CloudBuildSunSet(")));
 	TestTrue(TEXT("ush 含云自遮挡步数"), CloudUsh.Contains(TEXT("CLOUD_SHADOW_STEPS")));
+
+	// 大气版的多次散射地板：没有它，切向弦上 alpha≈1 而单次散射为 0，整条地平线是纯黑。
+	TestTrue(TEXT("Code 传大气环境地板"), Custom->Code.Contains(TEXT("AtmosphereAmbient")));
+	TestTrue(TEXT("ush 积分里有大气环境地板"), CloudUsh.Contains(TEXT("AtmoAmbient *")));
 
 	// 下面两条是踩过的坑，删掉任何一条画面都不会报错、只会变坏。
 	// 1) 覆盖率必须映射到噪声实际取值区间：教科书式 Thresh = 1−Coverage 时，

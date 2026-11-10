@@ -43,6 +43,7 @@ namespace
 	const FName ParamMieScaleHeight(TEXT("MieScaleHeight"));
 	const FName ParamRayleighBeta(TEXT("RayleighBeta"));
 	const FName ParamMieBeta(TEXT("MieBeta"));
+	const FName ParamAtmosphereAmbient(TEXT("AtmosphereAmbient"));
 	// 太阳槽位。数组下标即槽位号，必须与 PlanetClouds::MaxSuns 一致。
 	const FName ParamSunDirections[PlanetClouds::MaxSuns] = {
 		FName(TEXT("SunDirection0")), FName(TEXT("SunDirection1")),
@@ -279,7 +280,11 @@ void UPlanetAtmosphereComponent::RefreshAtmosphereGeometry()
 	// 网格是半径 50 cm 的球。用 SetWorldScale3D 而非相对缩放：行星可能自带缩放，会叠加。
 	SetWorldScale3D(FVector(ShellRadiusCm / BasicSphereRadiusCm));
 
-	AtmosphereMID->SetScalarParameterValue(ParamPlanetRadius, SurfaceRadiusCm);
+	// 解析地面取最低地表而非基准半径：基准球比海床/低地高出几十米时，相机一高过它，
+	// 两条地平线之间的射线先撞上悬空假地面、积分被截短，背后又是太空，就是那条黑带。
+	const float GroundRadiusCm = FMath::Min(Planet->GetMinSurfaceRadiusCm(), SurfaceRadiusCm);
+	AppliedGroundRadiusCm = GroundRadiusCm;
+	AtmosphereMID->SetScalarParameterValue(ParamPlanetRadius, GroundRadiusCm);
 	AtmosphereMID->SetScalarParameterValue(ParamShellRadius, ShellRadiusCm);
 	AtmosphereMID->SetScalarParameterValue(ParamRayleighScaleHeight, Scattering.RayleighScaleHeightCm);
 	AtmosphereMID->SetScalarParameterValue(ParamMieScaleHeight, Scattering.MieScaleHeightCm);
@@ -287,6 +292,7 @@ void UPlanetAtmosphereComponent::RefreshAtmosphereGeometry()
 		FLinearColor(Scattering.RayleighBeta.X, Scattering.RayleighBeta.Y, Scattering.RayleighBeta.Z, 1.0f));
 	AtmosphereMID->SetVectorParameterValue(ParamMieBeta,
 		FLinearColor(Scattering.MieBeta.X, Scattering.MieBeta.Y, Scattering.MieBeta.Z, 1.0f));
+	AtmosphereMID->SetScalarParameterValue(ParamAtmosphereAmbient, FMath::Max(AtmosphereAmbient, 0.0f));
 	AtmosphereMID->SetVectorParameterValue(ParamSunIntensity, SunIntensity);
 
 	// 行星中心不在这里写：材质用 ObjectPositionWS 直接取壳自己的变换（原因见 TickComponent 末尾）。
@@ -686,19 +692,16 @@ void UPlanetAtmosphereComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	{
 		RefreshAtmosphereGeometry();
 	}
-#if WITH_EDITOR
-	else if (GetWorld() && !GetWorld()->IsGameWorld())
+	else if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(GetOwner()))
 	{
-		// 编辑器预览：gizmo 缩放 / 改 Radius 不重跑 BeginPlay，按表面半径变化重算。
-		if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(GetOwner()))
+		// 编辑器与游戏世界都查：半径可在运行中改，改地形 / 水文也会移动最低地表而不触发 BeginPlay。
+		const float GroundRadiusCm = FMath::Min(Planet->GetMinSurfaceRadiusCm(), Planet->GetSurfaceRadiusCm());
+		if (!FMath::IsNearlyEqual(Planet->GetSurfaceRadiusCm(), AppliedSurfaceRadiusCm)
+			|| !FMath::IsNearlyEqual(GroundRadiusCm, AppliedGroundRadiusCm, 1.0f))
 		{
-			if (!FMath::IsNearlyEqual(Planet->GetSurfaceRadiusCm(), AppliedSurfaceRadiusCm))
-			{
-				RefreshAtmosphereGeometry();
-			}
+			RefreshAtmosphereGeometry();
 		}
 	}
-#endif
 
 	// 云漂移：每帧一个标量，成本可忽略；CloudDriftPerSecond = 0 时写进去的是常数。
 	AtmosphereMID->SetScalarParameterValue(ParamCloudDrift,

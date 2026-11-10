@@ -133,6 +133,13 @@ float UVoxelPlanetNoiseTerrain::GetSurfaceRadiusVoxels(const FVoxelPlanetTerrain
 	return float(BaseSurface - CarveDepth + GeometryDelta);
 }
 
+float UVoxelPlanetNoiseTerrain::GetMinSurfaceRadiusVoxels(const FVoxelPlanetTerrainContext& Context) const
+{
+	// 与 FVoxelPlanetNoiseTerrainInstance::MinSurfaceRadius 同一包络：海平面与地质外凸只会抬高地表。
+	const double CarveDepth = Context.Hydrology.IsValid() ? double(Context.Hydrology->GetMaxCarveDepth()) : 0.0;
+	return float(double(Context.Radius) + double(MakeParams().Amplitude) * MinNormalizedOffset - CarveDepth);
+}
+
 float UVoxelPlanetNoiseTerrain::GetRawOffset(const FVector& UnitDir) const
 {
 	const FVector Direction = UnitDir.GetSafeNormal();

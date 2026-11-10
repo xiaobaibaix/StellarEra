@@ -14,6 +14,11 @@ TVoxelSharedRef<FVoxelGeneratorInstance> UVoxelPlanetTerrainModule::GetInstance(
 	return MakeVoxelShared<FVoxelPlanetSphereTerrainInstance>(Context);
 }
 
+float UVoxelPlanetTerrainModule::GetMinSurfaceRadiusVoxels(const FVoxelPlanetTerrainContext& Context) const
+{
+	return Context.Radius;
+}
+
 float UVoxelPlanetTerrainModule::GetRawOffset(const FVector& UnitDir) const
 {
 	return 0.f;
