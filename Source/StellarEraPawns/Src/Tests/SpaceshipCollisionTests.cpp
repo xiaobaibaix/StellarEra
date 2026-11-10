@@ -254,9 +254,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraShipLandingDetectionTest,
 
 bool FStellarEraShipLandingDetectionTest::RunTest(const FString& Parameters)
 {
-	// 回归测试：飞船是**船底**着地，机身中心比地面高一整个船体深度（本资源约 1000 cm）。
-	// 落地检测球心在机身中心，旧版固定半径 600 cm 够不到地面 —— IsLanded() 恒为假，
-	// 按 E 也下不了船。这里不用真实行星，而是在独立编辑器世界里生成飞船 + WorldStatic 平台。
+	// 落地 = 船体碰撞形状真的碰到地面：贴地判真；离地超过扫掠容差、哪怕仍在 42 m
+	// 登船球内也判假。独立编辑器世界里生成飞船 + WorldStatic 平台，不用真实行星。
 
 	UWorld* World = UWorld::CreateWorld(EWorldType::Editor, false);
 	if (!TestNotNull(TEXT("测试世界"), World))
@@ -307,11 +306,11 @@ bool FStellarEraShipLandingDetectionTest::RunTest(const FString& Parameters)
 	}
 
 	const float RadiusCm = Ship->GetLandingQueryRadiusCm();
+	const float ToleranceCm = Ship->GetLandingContactToleranceCm();
 	TestTrue(TEXT("船底在机身中心下方"), DepthCm > 0.0);
-	TestTrue(TEXT("落地检测球半径覆盖船底（否则船底着地也判不出落地）"),
-		RadiusCm >= DepthCm);
+	const double BottomZ = ShipLocation.Z - DepthCm;
 
-	// 平台：引擎立方体 100 cm 见方，放大到 2000×2000×100，顶面放在 TopZ。
+	// 平台 200 m 见方：最低探针在翼尖附近（翼展 ±41 m），小平台会让射线从旁边漏过去。
 	auto SpawnPlatform = [World](const FVector& Center, double TopZ) -> AStaticMeshActor*
 	{
 		AStaticMeshActor* Platform = World->SpawnActor<AStaticMeshActor>();
@@ -326,44 +325,37 @@ bool FStellarEraShipLandingDetectionTest::RunTest(const FString& Parameters)
 		Mesh->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 		Mesh->SetCollisionObjectType(ECC_WorldStatic);
 		Mesh->SetCollisionResponseToAllChannels(ECR_Block);
-		Platform->SetActorScale3D(FVector(20.f, 20.f, 1.f));
+		Platform->SetActorScale3D(FVector(200.f, 200.f, 1.f));
 		Platform->SetActorLocation(FVector(Center.X, Center.Y, TopZ - 50.0));
 		return Platform;
 	};
 
-	// 用例 1：顶面落在检测球内 10 cm —— 必须判为落地。
-	AStaticMeshActor* NearPlatform =
-		SpawnPlatform(ShipLocation, ShipLocation.Z - RadiusCm + 10.0);
-	TestNotNull(TEXT("近平台生成"), NearPlatform);
-	const bool bNearLanded = Ship->IsLanded();
-	TestTrue(TEXT("平台顶面在检测球内时 IsLanded 为真"), bNearLanded);
-	if (NearPlatform)
+	auto CheckAt = [&](double TopZ, bool bExpected, const TCHAR* What)
 	{
-		NearPlatform->Destroy();
-	}
+		AStaticMeshActor* Platform = SpawnPlatform(ShipLocation, TopZ);
+		TestNotNull(TEXT("平台生成"), Platform);
+		TestEqual(What, Ship->IsLanded(), bExpected);
+		if (Platform)
+		{
+			Platform->Destroy();
+		}
+	};
 
-	// 用例 2：顶面落在检测球外 100 cm —— 必须判为未落地。
-	AStaticMeshActor* FarPlatform =
-		SpawnPlatform(ShipLocation, ShipLocation.Z - RadiusCm - 100.0);
-	TestNotNull(TEXT("远平台生成"), FarPlatform);
-	const bool bFarLanded = Ship->IsLanded();
-	TestFalse(TEXT("平台顶面在检测球外时 IsLanded 为假"), bFarLanded);
-	if (FarPlatform)
-	{
-		FarPlatform->Destroy();
-	}
+	CheckAt(BottomZ - ToleranceCm * 0.5, true, TEXT("船底离平台不到容差：落地"));
+	CheckAt(BottomZ + 5.0, true, TEXT("船底略嵌进平台：落地"));
+	CheckAt(BottomZ - ToleranceCm - 200.0, false, TEXT("船底离平台超过容差：未落地"));
+	CheckAt(ShipLocation.Z - RadiusCm + 10.0, false, TEXT("只在 42 m 登船球内、船体没碰到：未落地"));
 
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraShipLandingUsesRelativeSpeedTest,
-	"StellarEra.Spaceship.LandedUsesRelativeSpeed",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraShipLandedIgnoresSpeedTest,
+	"StellarEra.Spaceship.LandedIgnoresSpeed",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FStellarEraShipLandingUsesRelativeSpeedTest::RunTest(const FString& Parameters)
+bool FStellarEraShipLandedIgnoresSpeedTest::RunTest(const FString& Parameters)
 {
-	// 回归测试：飞船的**绝对**速度就是行星的轨道速度（本关约 7.3 km/s = 7.3e5 cm/s）。
-	// IsLanded 的 200 cm/s 速度门若比绝对值，落地后永远为假。判据必须是**相对参考行星**的速度。
+	// 落地不看速度：船体贴着地面时，绝对速度是轨道速度、相对速度还在滑，都算落地。
 
 	UWorld* World = UWorld::CreateWorld(EWorldType::Editor, false);
 	if (!TestNotNull(TEXT("测试世界"), World))
@@ -398,9 +390,14 @@ bool FStellarEraShipLandingUsesRelativeSpeedTest::RunTest(const FString& Paramet
 	}
 
 	Ship->RebuildContactProbes();
-
-	// 平台放在检测球内 10 cm：几何上确实「船底贴地」。
-	const float RadiusCm = Ship->GetLandingQueryRadiusCm();
+	TArray<FVector> Probes;
+	Ship->BuildContactProbes(Probes);
+	double DepthCm = 0.0;
+	for (const FVector& Probe : Probes)
+	{
+		DepthCm = FMath::Max(DepthCm, -double(Probe.Z));
+	}
+	TestTrue(TEXT("Hull 有 Simple Collision 探针"), DepthCm > 0.0);
 	AStaticMeshActor* Platform = World->SpawnActor<AStaticMeshActor>();
 	TestNotNull(TEXT("平台生成"), Platform);
 	if (!Platform)
@@ -415,31 +412,24 @@ bool FStellarEraShipLandingUsesRelativeSpeedTest::RunTest(const FString& Paramet
 		Mesh->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 		Mesh->SetCollisionObjectType(ECC_WorldStatic);
 		Mesh->SetCollisionResponseToAllChannels(ECR_Block);
-		Platform->SetActorScale3D(FVector(20.f, 20.f, 1.f));
+		Platform->SetActorScale3D(FVector(200.f, 200.f, 1.f));
 		Platform->SetActorLocation(
-			FVector(ShipLocation.X, ShipLocation.Y, ShipLocation.Z - RadiusCm + 10.0 - 50.0));
+			FVector(ShipLocation.X, ShipLocation.Y, ShipLocation.Z - DepthCm - 10.0 - 50.0));
 	}
 
-	// 行星轨道速度（世界厘米/秒）：7.17 km/s，远高于 200 cm/s 的阈值。
 	const FVector PlanetVelocityCmPerSecond(717354.0, 0.0, 0.0);
 
-	// ① 贴着行星停稳：相对速度为零，必须判为落地。
 	Ship->SetCosmosVelocity(PlanetVelocityCmPerSecond);
 	Ship->SetReferencePlanetVelocity(PlanetVelocityCmPerSecond);
-	TestTrue(TEXT("相对速度为 0 时，落在平台上必须判为已落地"), Ship->IsLanded());
+	TestTrue(TEXT("相对静止贴地：落地"), Ship->IsLanded());
 
-	// ② 同样的几何，但相对速度 10 m/s（1000 cm/s）超过阈值：必须判为未落地。
-	// 这一条守住的是速度门本身 —— 不能为了修 ① 把门整个拆掉。
+	// 旧版 200 cm/s 速度门会在这里判假 —— 用户要求「没停稳也能下船」。
 	Ship->SetCosmosVelocity(PlanetVelocityCmPerSecond + FVector(1000.0, 0.0, 0.0));
-	TestFalse(TEXT("相对速度超过阈值时必须判为未落地"), Ship->IsLanded());
+	TestTrue(TEXT("相对 10 m/s 滑行但贴地：仍落地"), Ship->IsLanded());
 
-	// ③ 没有参考行星（深空）：相对速度退化为绝对速度，同样受阈值约束。
 	Ship->SetCosmosVelocity(FVector(1000.0, 0.0, 0.0));
 	Ship->SetReferencePlanetVelocity(FVector::ZeroVector);
-	TestFalse(TEXT("没有参考行星时按绝对速度判断"), Ship->IsLanded());
-
-	Ship->SetCosmosVelocity(FVector::ZeroVector);
-	TestTrue(TEXT("没有参考行星且速度为零时仍判为已落地"), Ship->IsLanded());
+	TestTrue(TEXT("没有参考行星、有速度但贴地：落地"), Ship->IsLanded());
 
 	return true;
 }

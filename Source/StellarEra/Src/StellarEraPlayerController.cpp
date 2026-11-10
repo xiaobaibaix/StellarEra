@@ -90,6 +90,12 @@ void AStellarEraPlayerController::OnPossess(APawn* InPawn)
 	// 换视点：只有新 Pawn 的体素调用器参与 LOD 与碰撞。所有换 Pawn 路径都收口在这里。
 	ApplyViewpointInvokerGate(GetWorld(), InPawn);
 
+	// 每次上船都从驾驶开始，免得离船前留下的自由视角让光标一上船就出现。
+	if (ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(InPawn))
+	{
+		Ship->SetFreeLookActive(false);
+	}
+
 	ApplyMouseModeForPawn(InPawn);
 }
 
@@ -119,11 +125,14 @@ void AStellarEraPlayerController::ApplyMouseModeForPawn(APawn* InPawn)
 {
 	// 输入状态（左 / 右 / 中键）全归各 Pawn 的输入组件：换 Pawn 时松开事件送到新 Pawn。
 
-	const bool bWalking = Cast<APlanetCharacter>(InPawn) != nullptr;
+	const ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(InPawn);
+	bAppliedShipFreeLook = Ship && Ship->IsFreeLookActive();
+
+	// 飞船自由视角与走路同一套：光标常驻、按住右键环绕。
+	const bool bWalking = Cast<APlanetCharacter>(InPawn) != nullptr || bAppliedShipFreeLook;
 	const bool bStarMap = Cast<AStarMapCameraPawn>(InPawn) != nullptr;
 
-	// 走路时光标常驻。飞船里保持隐藏：鼠标就是它的操纵杆，藏起来才像在驾驶。
-	// 星图里光标也要可见可点。
+	// 驾驶时光标隐藏：鼠标就是操纵杆。星图里光标也要可见可点。
 	bShowMouseCursor = bWalking || bStarMap;
 
 	UGameViewportClient* ViewportClient = GetWorld() ? GetWorld()->GetGameViewport() : nullptr;
@@ -210,6 +219,12 @@ void AStellarEraPlayerController::PlayerTick(float DeltaTime)
 	}
 	else if (ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(GetPawn()))
 	{
+		// Tab 只改飞船状态，鼠标模式在这里跟上；只在变化那一帧重设。
+		if (Ship->IsFreeLookActive() != bAppliedShipFreeLook)
+		{
+			ApplyMouseModeForPawn(Ship);
+		}
+
 		// 落地就提示，不要求舱里有角色：开局操控的就是飞船，角色第一次按 E 才生成。
 		if (Ship->IsLanded())
 		{

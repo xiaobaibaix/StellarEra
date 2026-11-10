@@ -1,7 +1,7 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 //
 // 落地自由视角的验收测试：只测纯数学，不生成 Actor、不依赖关卡。
-// 覆盖「落地且没按 W / Space 才进入自由视角」与「偏航归一化、俯仰夹取」。
+// 覆盖「偏航归一化、俯仰夹取」；Tab 开关的状态契约在 AngularInputState 里测。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
@@ -15,22 +15,6 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraShipFreeLookTest,
 
 bool FStellarEraShipFreeLookTest::RunTest(const FString& Parameters)
 {
-	// --- 激活条件 ---
-	TestTrue(TEXT("落地、无输入 → 自由视角"),
-		ASpaceshipPawn::ShouldUseFreeLook(true, 0.f, 0.f));
-	TestTrue(TEXT("落地、按 S（制动）→ 仍自由视角"),
-		ASpaceshipPawn::ShouldUseFreeLook(true, -1.f, 0.f));
-	TestTrue(TEXT("落地、按 Ctrl（下降）→ 仍自由视角"),
-		ASpaceshipPawn::ShouldUseFreeLook(true, 0.f, -1.f));
-	TestFalse(TEXT("落地、按 W（推力）→ 退出自由视角"),
-		ASpaceshipPawn::ShouldUseFreeLook(true, 1.f, 0.f));
-	TestFalse(TEXT("落地、按 Space（上升）→ 退出自由视角"),
-		ASpaceshipPawn::ShouldUseFreeLook(true, 0.f, 1.f));
-	TestFalse(TEXT("未落地、无输入 → 不自由视角"),
-		ASpaceshipPawn::ShouldUseFreeLook(false, 0.f, 0.f));
-	TestFalse(TEXT("未落地、按 S → 不自由视角"),
-		ASpaceshipPawn::ShouldUseFreeLook(false, -1.f, 0.f));
-
 	// --- 鼠标累加 ---
 	float Yaw = 0.f;
 	float Pitch = 0.f;

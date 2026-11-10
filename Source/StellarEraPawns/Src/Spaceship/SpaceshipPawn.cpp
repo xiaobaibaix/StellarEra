@@ -405,20 +405,6 @@ void ASpaceshipPawn::Tick(float DeltaSeconds)
 	LastVoxelInvokerPlanet = PlanetActor;
 	bHasVoxelInvokerSpeedSample = SamplePlanet != nullptr;
 
-	// --- 0. 落地自由视角判定 ---
-	// 落地且没有起飞方向的输入时，鼠标改为环绕停住的飞船。IsLanded() 每帧一次，开销可忽略。
-	const bool bLandedNow = IsLanded();
-
-	const bool bWasFreeLookActive = bFreeLookActive;
-	bFreeLookActive = ShouldUseFreeLook(bLandedNow, ThrustInput, VerticalInput);
-
-	// 刚进入：丢弃待发冲量，否则落地那一刻的最后一甩会在自由视角里继续带着船转。
-	// 已经转起来的角速度归求解器，由它的 AngularDamping 衰减，本类改不了。
-	if (bFreeLookActive && !bWasFreeLookActive)
-	{
-		PendingAngularImpulseLocalDeg = FVector::ZeroVector;
-	}
-
 	// --- 1–3. 姿态归求解器 ---
 	// 这里原来做三件事：角速度 FInterpTo 衰减、AddActorLocalRotation、自动回正。全部搬走：
 	// 鼠标冲量 → GetAngularAccelerationWorldRadPerS2()；A/D → 持续角加速度；
@@ -655,10 +641,14 @@ FSpaceshipStatus ASpaceshipPawn::GetStatus() const
 	return Status;
 }
 
-bool ASpaceshipPawn::ShouldUseFreeLook(bool bLanded, float InThrustInput, float InVerticalInput)
+void ASpaceshipPawn::SetFreeLookActive(bool bActive)
 {
-	// W / Space 是起飞方向；S / Ctrl 给负值，落地时只是制动 / 下降，不退出自由视角。
-	return bLanded && InThrustInput <= 0.f && InVerticalInput <= 0.f;
+	// 已经转起来的角速度归求解器，由它的 AngularDamping 衰减，本类改不了。
+	if (bActive && !bFreeLookActive)
+	{
+		PendingAngularImpulseLocalDeg = FVector::ZeroVector;
+	}
+	bFreeLookActive = bActive;
 }
 
 void ASpaceshipPawn::ApplyFreeLookLookInput(
@@ -707,26 +697,53 @@ float ASpaceshipPawn::GetLandingQueryRadiusCm() const
 
 bool ASpaceshipPawn::IsLanded() const
 {
-	// 速度门比**相对参考行星**的速度：飞船是 N 体天体，停在一颗公转中的行星上时绝对
-	// 速度就是行星轨道速度（约 7.3 km/s），而阈值只有 200 cm/s，用绝对速度会让
-	// IsLanded 永远为假。深空时相对速度退化为绝对速度。
-	if (GetRelativeVelocity().Size() > LandingSpeedThreshold)
+	UWorld* World = GetWorld();
+	if (!World)
 	{
 		return false;
 	}
 
-	// 全向检测球，球心在机身中心、与横滚无关，半径按船体深度现算。原本是沿机身"下方"
-	// 的射线：自动回正关闭后机身可任意横滚，滚 90° 射线就指向侧面、打不到地面，
-	// IsLanded 恒为假，人被卡在船里按 E 没反应。
+	const FVector Center = GetActorLocation();
+	FVector Down = -GetActorUpVector();
+	if (const AVoxelPlanetActor* Planet = GetPlanetActor())
+	{
+		const FVector ToCenter = (Planet->GetActorLocation() - Center).GetSafeNormal();
+		if (!ToCenter.IsNearlyZero())
+		{
+			Down = ToCenter;
+		}
+	}
+
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(SpaceshipLanding), /*bTraceComplex=*/false, this);
-	// 登船角色附着在飞船附近；将来碰撞一旦因交互 / 布娃娃重新打开，这个球会一直罩住它，先排除。
 	if (BoardedCharacter)
 	{
 		Params.AddIgnoredActor(BoardedCharacter);
 	}
-	return GetWorld()->OverlapAnyTestByChannel(
-		GetActorLocation(), FQuat::Identity, ECC_WorldStatic,
-		FCollisionShape::MakeSphere(GetLandingQueryRadiusCm()), Params);
+
+	// 从凸包探针（求解器解接触用的同一组点）沿「下」打短射线：船壳哪一处碰到地面都算。
+	// 起点往船内回缩 LiftCm：射线起点已在地面里时引擎不报命中，略嵌入的情况会漏判。
+	constexpr float LiftCm = 50.f;
+	const float Reach = GetLandingContactToleranceCm();
+	const FTransform& ActorTransform = GetActorTransform();
+
+	if (ContactProbesLocalCm.IsEmpty())
+	{
+		// 没有凸包时按兜底接触球的最低点打。
+		const FVector Bottom = Center + Down * GetContactRadiusCm();
+		return World->LineTraceTestByChannel(
+			Bottom - Down * LiftCm, Bottom + Down * Reach, ECC_WorldStatic, Params);
+	}
+
+	for (const FVector& LocalProbe : ContactProbesLocalCm)
+	{
+		const FVector Probe = ActorTransform.TransformPosition(LocalProbe);
+		if (World->LineTraceTestByChannel(
+			Probe - Down * LiftCm, Probe + Down * Reach, ECC_WorldStatic, Params))
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 float ASpaceshipPawn::GetBoardingRadiusCm() const

@@ -42,8 +42,8 @@ protected:
 	virtual void PlayerTick(float DeltaTime) override;
 
 	/**
-	 * 按当前 Possess 的 Pawn 切换鼠标模式：角色光标常驻、仅右键时捕获；飞船光标隐藏、
-	 * 永久捕获。挂在 OnPossess 上 —— 换 Pawn 的每条路径（开局、登船、离船、调试）都走它。
+	 * 按当前 Possess 的 Pawn 切换鼠标模式：角色与飞船自由视角光标常驻、仅右键时捕获；
+	 * 飞船驾驶光标隐藏、永久捕获。OnPossess 与飞船 Tab 切换（PlayerTick 里检测）都走它。
 	 */
 	void ApplyMouseModeForPawn(APawn* InPawn);
 
@@ -65,4 +65,8 @@ protected:
 	 */
 	UFUNCTION(Exec)
 	void DebugDisembark();
+
+private:
+	/** 上次按哪种飞船视角设的鼠标模式；与飞船当前状态不同时在 PlayerTick 里重设。 */
+	bool bAppliedShipFreeLook = false;
 };

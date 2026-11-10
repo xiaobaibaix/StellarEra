@@ -39,9 +39,17 @@ struct STELLARERAPAWNS_API FSpaceshipInputActions
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> Boost;
 
-	/** 巡航开关（Tab）。切换飞船的速度保持状态，只绑 Started。 */
+	/** 巡航开关（C）。切换飞船的速度保持状态，只绑 Started。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> Cruise;
+
+	/** 驾驶 / 自由视角切换（Tab）。只绑 Started。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> FreeLookToggle;
+
+	/** 自由视角里按住右键才环绕，与角色同一套手感。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UInputAction> LookActivate;
 
 	/** 飞船调试视角开关（B）。只绑 Started，按一下切一次。 */
 	UPROPERTY(Transient)

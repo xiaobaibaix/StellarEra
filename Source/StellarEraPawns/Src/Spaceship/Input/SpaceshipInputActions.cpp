@@ -19,6 +19,8 @@ void FSpaceshipInputActions::Build(UObject* Outer, UInputMappingContext* Context
 	Vertical = StellarEraInput::MakeAction(Outer, TEXT("IA_Ship_Vertical"), EInputActionValueType::Axis1D);
 	Boost = StellarEraInput::MakeAction(Outer, TEXT("IA_Ship_Boost"), EInputActionValueType::Boolean);
 	Cruise = StellarEraInput::MakeAction(Outer, TEXT("IA_Ship_Cruise"), EInputActionValueType::Boolean);
+	FreeLookToggle = StellarEraInput::MakeAction(Outer, TEXT("IA_Ship_FreeLookToggle"), EInputActionValueType::Boolean);
+	LookActivate = StellarEraInput::MakeAction(Outer, TEXT("IA_Ship_LookActivate"), EInputActionValueType::Boolean);
 	DebugViewToggle = StellarEraInput::MakeAction(Outer, TEXT("IA_Ship_DebugViewToggle"), EInputActionValueType::Boolean);
 	Zoom = StellarEraInput::MakeAction(Outer, TEXT("IA_Ship_Zoom"), EInputActionValueType::Axis1D);
 	Interact = StellarEraInput::MakeAction(Outer, TEXT("IA_Ship_Interact"), EInputActionValueType::Boolean);
@@ -27,7 +29,7 @@ void FSpaceshipInputActions::Build(UObject* Outer, UInputMappingContext* Context
 	// 鼠标位移本身一直有值，能不能用、拿去干什么由各 Pawn 自己按按住的键分派。
 	StellarEraInput::MapKey(Context, Look, EKeys::Mouse2D);
 
-	// 飞船：W 推力 / S 制动，D/A 横滚，Space/LeftControl 升降，LeftShift 加速，Tab 巡航。
+	// 飞船：W 推力 / S 制动，D/A 横滚，Space/LeftControl 升降，LeftShift 加速，C 巡航，Tab 切自由视角。
 	StellarEraInput::MapKey(Context, Thrust, EKeys::W);
 	StellarEraInput::MapKey(Context, Thrust, EKeys::S, { StellarEraInput::MakeNegate(Outer) });
 	StellarEraInput::MapKey(Context, Roll, EKeys::D);
@@ -35,7 +37,9 @@ void FSpaceshipInputActions::Build(UObject* Outer, UInputMappingContext* Context
 	StellarEraInput::MapKey(Context, Vertical, EKeys::SpaceBar);
 	StellarEraInput::MapKey(Context, Vertical, EKeys::LeftControl, { StellarEraInput::MakeNegate(Outer) });
 	StellarEraInput::MapKey(Context, Boost, EKeys::LeftShift);
-	StellarEraInput::MapKey(Context, Cruise, EKeys::Tab);
+	StellarEraInput::MapKey(Context, Cruise, EKeys::C);
+	StellarEraInput::MapKey(Context, FreeLookToggle, EKeys::Tab);
+	StellarEraInput::MapKey(Context, LookActivate, EKeys::RightMouseButton);
 
 	// B 键：飞船调试视角（落地检测球 + 引力合力箭头）。
 	StellarEraInput::MapKey(Context, DebugViewToggle, EKeys::B);

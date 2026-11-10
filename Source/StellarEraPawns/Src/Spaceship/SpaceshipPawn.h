@@ -188,12 +188,6 @@ public:
 		float DeltaSeconds);
 
 	/**
-	 * 落地自由视角的激活条件：已落地、且没有按 W（正向推力）或 Space（上升）。
-	 * 负值只是制动 / 下降，**不**退出自由视角。纯函数，测试直接调它。
-	 */
-	static bool ShouldUseFreeLook(bool bLanded, float InThrustInput, float InVerticalInput);
-
-	/**
 	 * 自由视角的鼠标累加：偏航归一化到 (-180, 180]，俯仰夹在 [MinPitch, MaxPitch]。
 	 * 与 PlanetCharacter 的环绕相机同一套口径。纯函数。
 	 */
@@ -221,7 +215,18 @@ public:
 	void AddZoom(float Value);
 
 	/**
-	 * 巡航开关（Tab）。开 = 关掉阻尼、速度不再衰减，但**推力照给**（否则到不了圆
+	 * 自由视角开关（Tab）：开 = 鼠标环绕飞船、不再转机身，光标由控制器显示。
+	 * 不设前提，落地与否、推不推力都能切；推力在自由视角里照常生效。
+	 */
+	void ToggleFreeLook() { SetFreeLookActive(!bFreeLookActive); }
+
+	/** 进入时丢弃待发鼠标冲量，否则切换前最后一甩会带着船继续转。 */
+	void SetFreeLookActive(bool bActive);
+
+	bool IsFreeLookActive() const { return bFreeLookActive; }
+
+	/**
+	 * 巡航开关（C）。开 = 关掉阻尼、速度不再衰减，但**推力照给**（否则到不了圆
 	 * 轨道速度）；关 = 有阻尼，松手按 τ 停下。只翻转不接收目标值。
 	 */
 	void TogglePreserveVelocity();
@@ -242,17 +247,20 @@ public:
 	FSpaceshipStatus GetStatus() const;
 
 	/**
-	 * 相对参考行星的速度低于阈值、且机身检测球命中地面时为真。速度门必须比相对
-	 * 速度：停在一颗公转中的行星上时，绝对速度就是行星的轨道速度（约 7.3 km/s）。
+	 * 任一凸包探针朝「下」LandingContactToleranceCm 内碰到地面即为真，不看速度。
+	 * 「下」= 朝参考行星球心；没有行星时取机身 -Z。
 	 */
 	UFUNCTION(BlueprintPure, Category = "Spaceship")
 	bool IsLanded() const;
 
 	/**
-	 * 落地检测球半径（厘米）：**运行期恒定**，就是 LandingQueryRadiusCm。
-	 * 测试摆参照物时直接用这个值。
+	 * 登船检测球半径（厘米）：**运行期恒定**，就是 LandingQueryRadiusCm。
+	 * 只用于登船射程与调试球，落地判定不读它。
 	 */
 	float GetLandingQueryRadiusCm() const;
+
+	/** 落地判定的扫掠距离（厘米），即船体离地多近算「碰到」。 */
+	float GetLandingContactToleranceCm() const { return FMath::Max(LandingContactToleranceCm, 0.f); }
 
 	/**
 	 * 登船射程（厘米）：与下船用同一套距离 —— 落地检测球半径与下船落脚点取较大者。
@@ -655,18 +663,17 @@ protected:
 	float VoxelInvokerFineLODSweepLeafWidths = 3.f;
 
 	/**
-	 * 「已落地」的速度阈值（厘米/秒），比的是**相对参考行星**的速度 —— 绝对速度
-	 * 就是行星的轨道速度（本关卡约 7.3 km/s），任何合理阈值都会让它恒为假。
+	 * 落地判定：船体朝下扫多远仍碰到地面就算落地（厘米）。不能为 0：求解器按体素
+	 * 地表半径解接触，静止时船壳与碰撞网格之间可能留有几十厘米缝。
 	 */
-	UPROPERTY(EditAnywhere, Category = "Spaceship|Landing")
-	float LandingSpeedThreshold = 200.f;
+	UPROPERTY(EditAnywhere, Category = "Spaceship|Landing", meta = (ClampMin = "0"))
+	float LandingContactToleranceCm = 100.f;
 
 	/**
 	 * 落地检测球半径（厘米）。**恒定值，不随机身姿态变化** —— 早先按「机身中心到船底
 	 * 沿重力方向的距离」现算，机身一滚球就跟着胀缩，调试球看着像在呼吸。
-	 * 默认 4200 ≈ 本资源翼展半径（网格 ±4133 × ±2755 × ±996），机身横滚到任何姿态
-	 * 球面都够得到地面。代价是机身中心离地 42 m 内就判「落地」（自由视角 + 按 E 下船），
-	 * 对 83 m 翼展的船来说仍算贴地；换模型要跟着改。
+	 * 默认 4200 ≈ 本资源翼展半径（网格 ±4133 × ±2755 × ±996）。现在只决定登船射程
+	 * 与调试球大小，落地判定改走船体扫掠（LandingContactToleranceCm）。
 	 */
 	UPROPERTY(EditAnywhere, Category = "Spaceship|Landing")
 	float LandingQueryRadiusCm = 4200.f;
@@ -802,7 +809,7 @@ private:
 	FQuat SpringArmBaseRotation = FQuat::Identity;
 
 	/**
-	 * 落地自由视角是否激活，每帧 Tick 开头由 ShouldUseFreeLook 重算。激活时鼠标改去累加
+	 * 自由视角是否激活，只由 Tab（SetFreeLookActive）改。激活时鼠标改去累加
 	 * FreeLookYaw/Pitch、不再给飞船角速度；已经转起来的角速度由求解器的角阻尼衰减。
 	 */
 	bool bFreeLookActive = false;

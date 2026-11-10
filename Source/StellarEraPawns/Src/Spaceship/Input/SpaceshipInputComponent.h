@@ -12,8 +12,8 @@ class UInputComponent;
 struct FInputActionValue;
 
 /**
- * ASpaceshipPawn 的全部输入：绑定、回调、只服务输入的状态。与角色输入组件同构，
- * 但飞船**不设「按住右键」的门** —— 鼠标就是操纵杆，要按住右键才能转向等于飞不动。
+ * ASpaceshipPawn 的全部输入：绑定、回调、只服务输入的状态。与角色输入组件同构。
+ * 驾驶时鼠标直接是操纵杆；Tab 切到自由视角后才和角色一样「按住右键环绕」。
  */
 UCLASS()
 class STELLARERAPAWNS_API USpaceshipInputComponent : public UActorComponent
@@ -43,6 +43,9 @@ private:
 	void OnBoostStarted(const FInputActionValue& Value);
 	void OnBoostCompleted(const FInputActionValue& Value);
 	void OnCruiseToggle(const FInputActionValue& Value);
+	void OnFreeLookToggle(const FInputActionValue& Value);
+	void OnLookRightStarted(const FInputActionValue& Value) { bLookHeld = true; }
+	void OnLookRightCompleted(const FInputActionValue& Value) { bLookHeld = false; }
 	void OnDebugViewToggle(const FInputActionValue& Value);
 	void OnZoomInput(const FInputActionValue& Value);
 
@@ -54,4 +57,7 @@ private:
 
 	/** 通过 HUD 的 IStellarEraNoticeSink 弹一条提示；拿不到 HUD 时静默跳过。 */
 	void ShowNotice(const FString& Text) const;
+
+	/** 右键是否按住；只在自由视角里起作用。 */
+	bool bLookHeld = false;
 };

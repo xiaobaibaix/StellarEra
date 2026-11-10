@@ -48,8 +48,11 @@ void USpaceshipInputComponent::Bind(UInputComponent* PlayerInputComponent)
 	EnhancedInput->BindAction(Input.Boost, ETriggerEvent::Started, this, &USpaceshipInputComponent::OnBoostStarted);
 	EnhancedInput->BindAction(Input.Boost, ETriggerEvent::Completed, this, &USpaceshipInputComponent::OnBoostCompleted);
 
-	// 只绑 Started：按住 Tab 只切一次，不会随按键重复翻转状态。B 同理。
+	// 只绑 Started：按住不放只切一次，不会随按键重复翻转状态。Tab / B 同理。
 	EnhancedInput->BindAction(Input.Cruise, ETriggerEvent::Started, this, &USpaceshipInputComponent::OnCruiseToggle);
+	EnhancedInput->BindAction(Input.FreeLookToggle, ETriggerEvent::Started, this, &USpaceshipInputComponent::OnFreeLookToggle);
+	EnhancedInput->BindAction(Input.LookActivate, ETriggerEvent::Started, this, &USpaceshipInputComponent::OnLookRightStarted);
+	EnhancedInput->BindAction(Input.LookActivate, ETriggerEvent::Completed, this, &USpaceshipInputComponent::OnLookRightCompleted);
 	EnhancedInput->BindAction(Input.DebugViewToggle, ETriggerEvent::Started, this, &USpaceshipInputComponent::OnDebugViewToggle);
 
 	// 只绑 Triggered：滚轮每格是一次独立冲量，不滚就不产生值，没有 Completed 可收。
@@ -71,7 +74,12 @@ void USpaceshipInputComponent::OnLookInput(const FInputActionValue& Value)
 		return;
 	}
 
-	// 飞船不设「按住右键」的门：鼠标就是它的操纵杆，要按住右键才能转向等于飞不动。
+	// 驾驶时不设右键门（鼠标就是操纵杆）；自由视角光标可见，按住右键才环绕。
+	if (Pawn->IsFreeLookActive() && !bLookHeld)
+	{
+		return;
+	}
+
 	const FVector2D Axis = Value.Get<FVector2D>();
 	Pawn->Look(Axis.X * LookSensitivity, (bInvertLookY ? -Axis.Y : Axis.Y) * LookSensitivity);
 }
@@ -146,6 +154,20 @@ void USpaceshipInputComponent::OnCruiseToggle(const FInputActionValue& Value)
 	ShowNotice(Pawn->IsPreserveVelocity() ? TEXT("巡航：开") : TEXT("巡航：关"));
 }
 
+void USpaceshipInputComponent::OnFreeLookToggle(const FInputActionValue& Value)
+{
+	ASpaceshipPawn* Pawn = GetPawn();
+	if (!Pawn)
+	{
+		return;
+	}
+
+	// 光标显隐由控制器在 PlayerTick 里跟着 IsFreeLookActive 切。
+	Pawn->ToggleFreeLook();
+	bLookHeld = false;
+	ShowNotice(Pawn->IsFreeLookActive() ? TEXT("视角：自由") : TEXT("视角：驾驶"));
+}
+
 void USpaceshipInputComponent::OnDebugViewToggle(const FInputActionValue& Value)
 {
 	ASpaceshipPawn* Pawn = GetPawn();
@@ -200,7 +222,7 @@ void USpaceshipInputComponent::OnInteract(const FInputActionValue& Value)
 		return;
 	}
 
-	// 空中不能下船：速度没降到阈值以下、或下方没有地面时 IsLanded 为假。
+	// 空中不能下船：船体没碰到地面时 IsLanded 为假；速度不限。
 	if (!Pawn->IsLanded())
 	{
 		return;

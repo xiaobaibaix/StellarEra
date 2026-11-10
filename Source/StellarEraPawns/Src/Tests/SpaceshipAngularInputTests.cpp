@@ -210,46 +210,31 @@ bool FStellarEraShipAngularInputStateTest::RunTest(const FString& Parameters)
 
 	Ship->SetCosmosAngularVelocity(FVector::ZeroVector);
 
-	// ── 4. 进入自由视角时丢掉待发冲量 ──
-	// 平台顶面落在落地检测球内 10 cm，判定才会成立。
-	const float RadiusCm = Ship->GetLandingQueryRadiusCm();
-	AStaticMeshActor* Platform = World->SpawnActor<AStaticMeshActor>();
-	TestNotNull(TEXT("平台生成"), Platform);
-	if (!Platform)
-	{
-		return false;
-	}
-	{
-		UStaticMeshComponent* Mesh = Platform->GetStaticMeshComponent();
-		Mesh->SetMobility(EComponentMobility::Movable);
-		Mesh->SetStaticMesh(LoadObject<UStaticMesh>(
-			nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")));
-		Mesh->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-		Mesh->SetCollisionObjectType(ECC_WorldStatic);
-		Mesh->SetCollisionResponseToAllChannels(ECR_Block);
-		Platform->SetActorScale3D(FVector(20.f, 20.f, 1.f));
-		Platform->SetActorLocation(
-			FVector(ShipLocation.X, ShipLocation.Y, ShipLocation.Z - RadiusCm + 10.0 - 50.0));
-	}
+	// ── 4. Tab 自由视角：不设前提、不随落地自动变、进入时丢掉待发冲量 ──
+	TestFalse(TEXT("默认是驾驶"), Ship->IsFreeLookActive());
+
+	Ship->Look(10.f, 10.f);
+	Ship->ToggleFreeLook();
+	TestTrue(TEXT("悬空也能切到自由视角"), Ship->IsFreeLookActive());
+	TestTrue(TEXT("自由视角下不给角加速度"),
+		Ship->GetAngularAccelerationWorldRadPerS2(0.02f).IsNearlyZero());
+
+	// 推力不再把视角踢回驾驶。
+	Ship->SetThrust(1.f);
+	Ship->SetVertical(1.f);
+	Ship->Tick(0.02f);
+	TestTrue(TEXT("推力 / 上升不退出自由视角"), Ship->IsFreeLookActive());
+
+	Ship->Look(10.f, 10.f); // 自由视角里的鼠标只转相机
+	Ship->ToggleFreeLook();
+	TestFalse(TEXT("再按 Tab 回驾驶"), Ship->IsFreeLookActive());
+	TestTrue(TEXT("回驾驶不补发自由视角里的鼠标位移"),
+		Ship->GetAngularAccelerationWorldRadPerS2(0.02f).IsNearlyZero());
 
 	Ship->SetThrust(0.f);
 	Ship->SetVertical(0.f);
 	Ship->Tick(0.02f);
-	TestTrue(TEXT("平台就位后判为落地"), Ship->IsLanded());
-	TestTrue(TEXT("落地自由视角下不给角加速度"),
-		Ship->GetAngularAccelerationWorldRadPerS2(0.02f).IsNearlyZero());
-
-	// 先退出自由视角（拉起），攒一次冲量，再重新进入 —— 进入那一刻 Tick 必须丢弃它，
-	// 退出后不能补发。期间不读冲量，否则读走清零会让断言失去意义。
-	Ship->SetThrust(1.f);
-	Ship->Tick(0.02f);
-	Ship->Look(10.f, 10.f);
-	Ship->SetThrust(0.f);
-	Ship->Tick(0.02f);
-	Ship->SetThrust(1.f);
-	Ship->Tick(0.02f);
-	TestTrue(TEXT("退出自由视角不补发进入前攒的冲量"),
-		Ship->GetAngularAccelerationWorldRadPerS2(0.02f).IsNearlyZero());
+	TestFalse(TEXT("驾驶状态不随 Tick 自动切进自由视角"), Ship->IsFreeLookActive());
 
 	return true;
 }
