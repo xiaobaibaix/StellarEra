@@ -284,6 +284,7 @@ void CloudAtmoSegment(
 
         float3 Scatter = 0.0;
         float3 CloudLit = 0.0;
+        float AmbVis = 0.0;
 
         // [unroll] keeps Suns.Dir[s] a constant index. A dynamic index turns the
         // array into local memory on some platforms.
@@ -317,6 +318,10 @@ void CloudAtmoSegment(
             float BS = dot(Ops, SunDir);
             float SinSunElevation = BS / max(RLen, 1.0);
             float SunVis = smoothstep(-0.26, 0.02, SinSunElevation);   // ~ -15 .. +1 deg
+            // The ambient floors stand in for light scattered from the lit sky, so
+            // they must die out deep in the umbra too, or the whole night side glows.
+            float TwilightVis = smoothstep(-0.4, 0.02, SinSunElevation);   // ~ -24 .. +1 deg
+            AmbVis = max(AmbVis, TwilightVis);
 
             Scatter += Suns.Radiance[s] * SunVis
                      * (RayleighBeta * DR * Suns.PhaseR[s] + MieBeta * DM * Suns.PhaseM[s]);
@@ -343,7 +348,7 @@ void CloudAtmoSegment(
                     }
                     // The ambient floor is applied once, not per sun: applying it
                     // per sun would triple the night-side fill with three stars.
-                    CloudLight = max(CloudLight, CLOUD_AMBIENT);
+                    CloudLight = max(CloudLight, CLOUD_AMBIENT * TwilightVis);
                 }
                 CloudLit += Suns.Radiance[s] * Suns.PhaseC[s] * CloudLight;
             }
@@ -352,7 +357,7 @@ void CloudAtmoSegment(
         // The atmosphere's counterpart to CLOUD_AMBIENT (see the header). It is
         // independent of the sun, so it is added once per step, not per sun -
         // scaling it per sun would triple the fill on a three-star planet.
-        Scatter += AtmoAmbient * (RayleighBeta * DR + MieBeta * DM);
+        Scatter += AtmoAmbient * AmbVis * (RayleighBeta * DR + MieBeta * DM);
 
         Acc += Scatter * Tr * TrSeg * Ds;
 
