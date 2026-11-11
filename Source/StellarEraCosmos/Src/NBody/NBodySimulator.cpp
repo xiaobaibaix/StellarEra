@@ -1,6 +1,7 @@
 ﻿// N 体引力求解器 —— 实现。
 
 #include "NBodySimulator.h"
+#include "CosmosCurveFilter.h"
 
 // TWeakObjectPtr<AActor> 的成员函数实例化需要 AActor 完整定义，显式引入以免换 PCH 策略后编不过。
 #include "GameFramework/Actor.h"
@@ -877,11 +878,13 @@ bool FNBodySimulator::PredictTrajectory(int32 BodyIndex, double Horizon, int32 N
 }
 
 bool FNBodySimulator::PredictClosedOrbit(int32 BodyIndex, int32 NumSamplesPerOrbit,
-                                         FCosmosClosedOrbitPrediction& Out) const
+                                         FCosmosClosedOrbitPrediction& Out,
+                                         double ReturnToleranceFraction) const
 {
 	Out.RelativePositions.Reset();
 	Out.PrimaryPosition = FVector3d::ZeroVector;
 	Out.PeriodYears = 0.0;
+	Out.ClosureErrorFraction = 0.0;
 
 	if (!Bodies.IsValidIndex(BodyIndex) || NumSamplesPerOrbit < 2)
 	{
@@ -923,17 +926,85 @@ bool FNBodySimulator::PredictClosedOrbit(int32 BodyIndex, int32 NumSamplesPerOrb
 		}
 	}
 
-	if (PrimaryIndex == INDEX_NONE)
+	// 没有更重的天体（如等质量三星）时退到全系统质心：外侧星正好绕它转，中间星就在它上面、
+	// 没有圈可画。只在其余天体总质量比自己重时才退，否则中心星会绕小行星画出巨环。
+	const bool bUseBarycenter = PrimaryIndex == INDEX_NONE;
+	const auto ReferencePosition = [PrimaryIndex](const FNBodySimulator& Sim) -> FVector3d
 	{
-		return false;
+		if (PrimaryIndex != INDEX_NONE)
+		{
+			return Sim.GetBody(PrimaryIndex).Position;
+		}
+		double Mass = 0.0;
+		FVector3d Moment = FVector3d::ZeroVector;
+		for (int32 Index = 0; Index < Sim.GetNumBodies(); ++Index)
+		{
+			const double SourceMass = GravitationalSourceMass(Sim.GetBody(Index));
+			Mass += SourceMass;
+			Moment += SourceMass * Sim.GetBody(Index).Position;
+		}
+		return Mass > 0.0 ? Moment / Mass : FVector3d::ZeroVector;
+	};
+
+	FVector3d PrimaryPosition = FVector3d::ZeroVector;
+	FVector3d PrimaryVelocity = FVector3d::ZeroVector;
+	double Mu = 0.0;
+	if (!bUseBarycenter)
+	{
+		PrimaryPosition = Bodies[PrimaryIndex].Position;
+		PrimaryVelocity = Bodies[PrimaryIndex].Velocity;
+		Mu = GetG() * (Body.Mass + Bodies[PrimaryIndex].Mass);
+	}
+	else
+	{
+		double TotalMass = 0.0;
+		double OthersMass = 0.0;
+		FVector3d Moment = FVector3d::ZeroVector;
+		FVector3d Momentum = FVector3d::ZeroVector;
+		FVector3d Acceleration = FVector3d::ZeroVector;
+		double NearestOther = TNumericLimits<double>::Max();
+		for (int32 Index = 0; Index < Bodies.Num(); ++Index)
+		{
+			const FCosmosBodyState& Other = Bodies[Index];
+			const double SourceMass = GravitationalSourceMass(Other);
+			TotalMass += SourceMass;
+			Moment += SourceMass * Other.Position;
+			Momentum += SourceMass * Other.Velocity;
+			if (Index == BodyIndex || !(SourceMass > 0.0))
+			{
+				continue;
+			}
+			OthersMass += SourceMass;
+			const FVector3d Delta = Other.Position - Body.Position;
+			const double Separation = Delta.Size();
+			if (Separation > 0.0)
+			{
+				NearestOther = FMath::Min(NearestOther, Separation);
+				Acceleration += GetG() * SourceMass * Delta / (Separation * Separation * Separation);
+			}
+		}
+		if (!(OthersMass > Body.Mass) || !(TotalMass > 0.0))
+		{
+			return false;
+		}
+		PrimaryPosition = Moment / TotalMass;
+		PrimaryVelocity = Momentum / TotalMass;
+
+		// 质心不是一个点质量：μ 用指向质心的实际引力反推（μ = a_r·r²），否则周期估错数倍、
+		// 下面按周期定的搜索窗口转不满一圈。
+		const FVector3d Offset = Body.Position - PrimaryPosition;
+		const double Radius = Offset.Size();
+		if (!(Radius > 1.0e-3 * NearestOther))
+		{
+			return false;
+		}
+		Mu = -FVector3d::DotProduct(Acceleration, Offset / Radius) * Radius * Radius;
 	}
 
-	const FCosmosBodyState& Primary = Bodies[PrimaryIndex];
-	const FVector3d RelativePosition = Body.Position - Primary.Position;
-	const FVector3d RelativeVelocity = Body.Velocity - Primary.Velocity;
+	const FVector3d RelativePosition = Body.Position - PrimaryPosition;
+	const FVector3d RelativeVelocity = Body.Velocity - PrimaryVelocity;
 	const double Distance = RelativePosition.Size();
 	const double SpeedSquared = RelativeVelocity.SizeSquared();
-	const double Mu = GetG() * (Body.Mass + Primary.Mass);
 
 	if (!(Distance > 0.0) || !(Mu > 0.0)
 		|| !FMath::IsFinite(Distance) || !FMath::IsFinite(SpeedSquared) || !FMath::IsFinite(Mu))
@@ -989,7 +1060,9 @@ bool FNBodySimulator::PredictClosedOrbit(int32 BodyIndex, int32 NumSamplesPerOrb
 	// 否则圆轨道相邻采样点间距就可能小于容差，出发不久即误判。
 	const double StepSize = Period / double(NumSamplesPerOrbit - 1);
 	const int32 SearchSamples = NumSamplesPerOrbit * 3;
-	const double ReturnTolerance = 0.05 * SemiMajorAxis;
+	// 三体扰动下一圈回不到起点 5% 以内是常态（旧值 0.05 让大尺度轨道几乎全判失败）；
+	// 放宽后误差由下面的线性分摊吸收，不会在接缝处留折角。
+	const double ReturnTolerance = FMath::Max(ReturnToleranceFraction, 0.0) * SemiMajorAxis;
 	constexpr double TwoPi = 2.0 * PI;
 	// 留一点角度余量：最近点可能落在「跨过 2π」那一采样点之前半个步长。
 	constexpr double AngleMargin = 0.1;
@@ -998,7 +1071,7 @@ bool FNBodySimulator::PredictClosedOrbit(int32 BodyIndex, int32 NumSamplesPerOrb
 	Samples.Reserve(SearchSamples);
 
 	const FVector3d StartRelative =
-		Copy.GetBody(BodyIndex).Position - Copy.GetBody(PrimaryIndex).Position;
+		Copy.GetBody(BodyIndex).Position - ReferencePosition(Copy);
 	Samples.Add(StartRelative);
 
 	FVector3d PreviousRelative = StartRelative;
@@ -1011,7 +1084,7 @@ bool FNBodySimulator::PredictClosedOrbit(int32 BodyIndex, int32 NumSamplesPerOrb
 		Copy.StepExact(StepSize);
 
 		const FVector3d Relative =
-			Copy.GetBody(BodyIndex).Position - Copy.GetBody(PrimaryIndex).Position;
+			Copy.GetBody(BodyIndex).Position - ReferencePosition(Copy);
 		Samples.Add(Relative);
 
 		// 步长很小，atan2(|a×b|, a·b) 就是这一步扫过的夹角（无符号，顺逆行都成立）。
@@ -1037,14 +1110,13 @@ bool FNBodySimulator::PredictClosedOrbit(int32 BodyIndex, int32 NumSamplesPerOrb
 		return false;
 	}
 
-	Out.RelativePositions.Reserve(ReturnSample + 2);
 	Out.RelativePositions.Append(Samples.GetData(), ReturnSample + 1);
-	Out.PrimaryPosition = Primary.Position;
+	Out.PrimaryPosition = PrimaryPosition;
 	Out.PeriodYears = double(ReturnSample) * StepSize;
+	Out.ClosureErrorFraction = BestReturnDistance / SemiMajorAxis;
 
-	// 首尾逐位相接。必须先拷到局部变量 —— 直接 Add(Out.RelativePositions[0]) 会触发容器别名校验断言。
-	const FVector3d FirstPosition = Out.RelativePositions[0];
-	Out.RelativePositions.Add(FirstPosition);
+	// 末点 ≈ 起点：误差按时间摊开后末点与首点逐位相等。
+	CosmosCurveFilter::DistributeClosureError(Out.RelativePositions);
 	return true;
 }
 

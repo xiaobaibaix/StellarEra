@@ -151,7 +151,7 @@ struct FCosmosBodyState
  */
 struct FCosmosClosedOrbitPrediction
 {
-	/** 相对主导天体的位置（AU）。成功时首尾相接：Last() 与 [0] 逐位相等。 */
+	/** 相对主导天体的位置（AU）。成功时首尾相接：Last() 与 [0] 逐位相等，闭合误差已沿整圈摊开。 */
 	TArray<FVector3d> RelativePositions;
 
 	/** 主导天体在 t=0 的位置（AU）。 */
@@ -159,6 +159,9 @@ struct FCosmosClosedOrbitPrediction
 
 	/** 实测闭合时间（年），不是密切周期 —— 多体扰动下两者可差数倍。 */
 	double PeriodYears = 0.0;
+
+	/** 摊开前的闭合误差 ÷ 半长轴。调用方做滞回用。 */
+	double ClosureErrorFraction = 0.0;
 };
 
 /**
@@ -320,10 +323,12 @@ public:
 	 * 预测天体相对主导天体（引力 M/r² 最大且更重的那颗）的闭合轨道（一整圈）。
 	 * 密切周期只用来定步长，最多积 3 个周期，取扫满 2π 后离起点最近的点为闭合时刻 ——
 	 * 多体扰动下实测一圈可与密切周期差数倍，按密切周期截断会把闭环画成半截。
-	 * 非椭圆 / e ≥ 0.99 / 找不到主导天体 / 回不到起点附近时返回 false；成功时首尾逐位相等。
+	 * 非椭圆 / e ≥ 0.99 / 找不到主导天体 / 回到起点的距离超过 ReturnToleranceFraction × 半长轴
+	 * 时返回 false。成功时闭合误差按时间线性摊到整圈，不堆在最后一段。
 	 */
 	bool PredictClosedOrbit(int32 BodyIndex, int32 NumSamplesPerOrbit,
-	                        FCosmosClosedOrbitPrediction& Out) const;
+	                        FCosmosClosedOrbitPrediction& Out,
+	                        double ReturnToleranceFraction = 0.3) const;
 
 private:
 	/** 当前单位制下的引力常数。ComputeAccelerations / GetTotalEnergy / 预测三处共用。 */

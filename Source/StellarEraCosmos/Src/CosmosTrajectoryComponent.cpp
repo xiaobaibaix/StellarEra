@@ -6,12 +6,17 @@
 #include "CosmosSimulationSubsystem.h"
 #include "CosmosTypes.h"
 #include "CosmosBody.h"
+#include "CosmosCurveFilter.h"
 #include "VoxelPlanetActor.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerController.h"
+#include "Camera/PlayerCameraManager.h"
+#include "Engine/Engine.h"
+#include "Engine/GameViewportClient.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "UObject/Package.h"
 #include "UObject/UObjectGlobals.h"
@@ -53,6 +58,13 @@ namespace
 
 	/** 自动拖尾时长 = 该系数 × 预测窗口。 */
 	constexpr double AutoTrailHorizonFraction = 0.25;
+
+	/** 闭合判定的滞回：误差 < 0.3 a 才进入闭环，> 0.45 a 才退出。 */
+	constexpr double ClosedOrbitEnterTolerance = 0.3;
+	constexpr double ClosedOrbitExitTolerance = 0.45;
+
+	/** 前后两帧轨道面法向夹角超过约 25° 就不混合，直接换线（轨道被拽翻了）。 */
+	constexpr double ClosedOrbitBlendMinNormalDot = 0.9;
 
 	/** 星图里选中天体时，颜色朝白插值的比例。 */
 	constexpr float HighlightWhiteLerp = 0.45f;
@@ -303,14 +315,12 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 	PredictedWorld.Reset();
 	if (bWantPrediction && OrbitComponent->SimulatorIndex != INDEX_NONE)
 	{
-		const bool bUsedClosedOrbit = Subsystem->PredictClosedOrbitWorld(
-			OrbitComponent->SimulatorIndex, ClosedOrbitSamples, PredictedWorld);
-
-		if (!bUsedClosedOrbit)
-		{
-			Subsystem->PredictTrajectoryWorld(OrbitComponent->SimulatorIndex, Horizon,
-				PredictionSamples, PredictedWorld);
-		}
+		UpdateFilteredPrediction(*Subsystem, OrbitComponent->SimulatorIndex, Horizon,
+			CurrentLocation, DeltaTime);
+	}
+	else
+	{
+		ResetPredictionFilter();
 	}
 
 	// ── 高亮：选中的天体两种颜色都向白提 ──
@@ -327,7 +337,10 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 
 	if (bWantTrail && Trail.Num() >= 2)
 	{
-		AppendPolyline(Trail, HighlightedTrailColor);
+		// 只平滑画出来的副本：采样历史本身不改，否则每帧再平滑一遍会越磨越短。
+		TrailDrawPoints = Trail;
+		CosmosCurveFilter::SmoothOpen(TrailDrawPoints, CurveSmoothIterations);
+		AppendPolyline(TrailDrawPoints, HighlightedTrailColor, TrailThicknessPixels);
 	}
 
 	if (bWantPrediction && PredictedWorld.Num() >= 2)
@@ -367,6 +380,94 @@ void UCosmosTrajectoryComponent::TickComponent(float DeltaTime, ELevelTick TickT
 		LineBatch->DrawLines(Lines);
 	}
 	bDrewLastFrame = Lines.Num() > 0;
+}
+
+void UCosmosTrajectoryComponent::ResetPredictionFilter()
+{
+	FilteredClosed.Reset();
+	FilteredClosedNormal = FVector3d::ZeroVector;
+	FilteredOpen.Reset();
+	bClosedOrbitLatched = false;
+}
+
+void UCosmosTrajectoryComponent::UpdateFilteredPrediction(const UCosmosSimulationSubsystem& Subsystem,
+	int32 SimulatorIndex, double HorizonYears, const FVector& SelfLocation, float DeltaTime)
+{
+	PredictedWorld.Reset();
+	const double Alpha = CosmosCurveFilter::SmoothingAlpha(DeltaTime, PredictionSmoothingSeconds);
+	const double Tolerance = bClosedOrbitLatched ? ClosedOrbitExitTolerance : ClosedOrbitEnterTolerance;
+
+	FVector PrimaryWorld = FVector::ZeroVector;
+	if (Subsystem.PredictClosedOrbitWorld(SimulatorIndex, ClosedOrbitSamples, RawPrediction,
+		PrimaryWorld, Tolerance))
+	{
+		bClosedOrbitLatched = true;
+		FilteredOpen.Reset();
+
+		// 相对主导天体：它在动，世界系里混合会让整圈拖在它身后。
+		for (FVector3d& Point : RawPrediction)
+		{
+			Point -= PrimaryWorld;
+		}
+		CosmosCurveFilter::SmoothClosed(RawPrediction, CurveSmoothIterations);
+
+		FVector3d Normal;
+		if (CosmosCurveFilter::ResampleClosedByAngle(RawPrediction, ClosedOrbitSamples,
+			ResampledPrediction, Normal))
+		{
+			const bool bContinuous = FilteredClosed.Num() == ResampledPrediction.Num()
+				&& FVector3d::DotProduct(Normal, FilteredClosedNormal) > ClosedOrbitBlendMinNormalDot;
+			if (!bContinuous || !CosmosCurveFilter::BlendToward(FilteredClosed, ResampledPrediction, Alpha))
+			{
+				FilteredClosed = ResampledPrediction;
+			}
+			FilteredClosedNormal = Normal;
+		}
+		else
+		{
+			// 角度不单调（自交）：没法逐点对应，这一帧直接画、不混合。
+			FilteredClosed = RawPrediction;
+			FilteredClosedNormal = FVector3d::ZeroVector;
+		}
+
+		PredictedWorld.Reserve(FilteredClosed.Num());
+		for (const FVector3d& Relative : FilteredClosed)
+		{
+			PredictedWorld.Add(PrimaryWorld + Relative);
+		}
+		return;
+	}
+
+	bClosedOrbitLatched = false;
+	FilteredClosed.Reset();
+	FilteredClosedNormal = FVector3d::ZeroVector;
+
+	if (!Subsystem.PredictTrajectoryWorld(SimulatorIndex, HorizonYears, PredictionSamples, RawPrediction)
+		|| RawPrediction.Num() < 2)
+	{
+		FilteredOpen.Reset();
+		return;
+	}
+
+	// 相对自身当前位置、按「距现在的时间」对齐；首点钉在 0，线永远从天体身上出发。
+	for (FVector3d& Point : RawPrediction)
+	{
+		Point -= SelfLocation;
+	}
+	RawPrediction[0] = FVector3d::ZeroVector;
+	CosmosCurveFilter::SmoothOpen(RawPrediction, CurveSmoothIterations);
+
+	if (!CosmosCurveFilter::BlendToward(FilteredOpen, RawPrediction, Alpha))
+	{
+		FilteredOpen = RawPrediction;
+	}
+	FilteredOpen[0] = FVector3d::ZeroVector;
+
+	PredictedWorld.Reserve(FilteredOpen.Num());
+	for (const FVector3d& Relative : FilteredOpen)
+	{
+		PredictedWorld.Add(SelfLocation + Relative);
+	}
 }
 
 void UCosmosTrajectoryComponent::ClearDrawnLines()
@@ -438,12 +539,39 @@ double UCosmosTrajectoryComponent::ResolvePredictionHorizonYears(
 }
 
 void UCosmosTrajectoryComponent::AppendPolyline(TArrayView<const FVector> Points,
-	const FLinearColor& Color)
+	const FLinearColor& Color, const float ThicknessPixels)
 {
+	// 线批的正线宽是世界单位（bScreenSpace 写死 false），远了就没了：按每段到相机的距离
+	// 换算成「此处一个像素多宽」，远近都是同样的像素粗细。拿不到相机就退回 1 像素细线。
+	FVector CameraLocation = FVector::ZeroVector;
+	double WorldPerPixelPerCm = 0.0;
+	if (ThicknessPixels > 1.0f)
+	{
+		const UWorld* World = GetWorld();
+		const APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+		if (PC && PC->PlayerCameraManager)
+		{
+			CameraLocation = PC->PlayerCameraManager->GetCameraLocation();
+			FVector2D ViewportSize(1920.0, 1080.0);
+			if (GEngine && GEngine->GameViewport)
+			{
+				GEngine->GameViewport->GetViewportSize(ViewportSize);
+			}
+			const double HalfFovRad = FMath::DegreesToRadians(double(PC->PlayerCameraManager->GetFOVAngle()) * 0.5);
+			WorldPerPixelPerCm = 2.0 * FMath::Tan(HalfFovRad) / FMath::Max(ViewportSize.X, 1.0);
+		}
+	}
+
 	for (int32 Index = 1; Index < Points.Num(); ++Index)
 	{
+		float Thickness = LineThickness;
+		if (WorldPerPixelPerCm > 0.0)
+		{
+			const FVector Mid = (Points[Index - 1] + Points[Index]) * 0.5;
+			Thickness = float(ThicknessPixels * WorldPerPixelPerCm * FVector::Dist(Mid, CameraLocation));
+		}
 		Lines.Emplace(Points[Index - 1], Points[Index], Color,
-			/*LifeTime=*/0.0f, LineThickness, LineDepthPriority);
+			/*LifeTime=*/0.0f, Thickness, LineDepthPriority);
 	}
 }
 
@@ -1449,6 +1577,16 @@ void UCosmosTrajectoryComponent::DrawInEditor()
 					PredictedWorld.Add(EditorSimulator.ToWorldLocation(Position));
 				}
 			}
+		}
+
+		// 编辑器态不 Tick 求解器、线不跳，只做空间平滑。平移不影响线性平滑，世界系里直接做。
+		if (bUsedClosedOrbit)
+		{
+			CosmosCurveFilter::SmoothClosed(PredictedWorld, CurveSmoothIterations);
+		}
+		else
+		{
+			CosmosCurveFilter::SmoothOpen(PredictedWorld, CurveSmoothIterations);
 		}
 
 		if (PredictedWorld.Num() >= 2)

@@ -1037,7 +1037,8 @@ bool FStellarEraClosedOrbitPredictionTest::RunTest(const FString& Parameters)
 		FCosmosClosedOrbitPrediction Closed;
 		TestTrue(TEXT("圆轨道能闭合"),
 			Simulator.PredictClosedOrbit(1, 256, Closed));
-		TestEqual(TEXT("点数 = 一圈采样数 + 尾点"), Closed.RelativePositions.Num(), 257);
+		// 回到起点的那个采样点本身被吸到首点上，不再另补一个尾点（那一小段就是旧版接缝的折角）。
+		TestEqual(TEXT("点数 = 一圈采样数（末点即回到起点那一采样）"), Closed.RelativePositions.Num(), 256);
 
 		// 首尾是同一个点（逐位相等，不是「接近」）。
 		TestTrue(TEXT("末点与首点逐位相等"),
@@ -1412,6 +1413,64 @@ bool FStellarEraRenderOriginTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("往返换算（Y）"), RoundTrip.Y, Probe.Y, 1.0e-9);
 	TestEqual(TEXT("往返换算（Z）"), RoundTrip.Z, Probe.Z, 1.0e-9);
 
+	return true;
+}
+
+// 等质量欧拉共线三星（UniverseMap 的构型）：谁都不比谁重，旧实现找不到主导天体、
+// 两颗外侧星只能退回半圈有限路径。现在退到「其余天体质心」；中间星就在质心上，不能画巨环。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraClosedOrbitEqualMassTest,
+	"StellarEra.Cosmos.NBodyPrediction.ClosedOrbitEqualMass",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FStellarEraClosedOrbitEqualMassTest::RunTest(const FString& Parameters)
+{
+	FNBodySimulator Simulator;
+	Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
+	Simulator.SetIntegrator(ECosmosIntegrator::VelocityVerlet);
+	Simulator.SetSofteningLength(1.0e-5);
+	Simulator.SetCentimetersPerAu(1.0e6);
+
+	constexpr double Mass = 1.0e5;
+	constexpr double Separation = 12.0;
+	// 外侧星受力 Gm/d² + Gm/(2d)² = 5Gm/(4d²)，圆速度 √(5Gm/(4d))。
+	const double Speed = FMath::Sqrt(5.0 * CosmosUnits::GravitationalConstant_Game * Mass / (4.0 * Separation));
+
+	FCosmosBodyState Middle;
+	Middle.Mass = Mass;
+	Simulator.AddBody(Middle);
+
+	FCosmosBodyState Left;
+	Left.Mass = Mass;
+	Left.Position = FVector3d(-Separation, 0.0, 0.0);
+	Left.Velocity = FVector3d(0.0, -Speed, 0.0);
+	Simulator.AddBody(Left);
+
+	FCosmosBodyState Right;
+	Right.Mass = Mass;
+	Right.Position = FVector3d(Separation, 0.0, 0.0);
+	Right.Velocity = FVector3d(0.0, Speed, 0.0);
+	Simulator.AddBody(Right);
+
+	for (const int32 Outer : { 1, 2 })
+	{
+		FCosmosClosedOrbitPrediction Closed;
+		if (!TestTrue(FString::Printf(TEXT("外侧星 %d 能闭合"), Outer), Simulator.PredictClosedOrbit(Outer, 256, Closed)))
+		{
+			continue;
+		}
+		TestTrue(TEXT("参考点是全系统质心（中间星所在的原点）"), Closed.PrimaryPosition.Equals(FVector3d::ZeroVector, 1.0e-9));
+
+		// 外侧星绕质心的半径就是 d：画出的圈与真实运动是同一个圆。
+		double MaxDeviation = 0.0;
+		for (const FVector3d& Point : Closed.RelativePositions)
+		{
+			MaxDeviation = FMath::Max(MaxDeviation, FMath::Abs(Point.Size() - Separation));
+		}
+		TestTrue(FString::Printf(TEXT("半径贴近 d（最大偏差 %.4f AU）"), MaxDeviation), MaxDeviation < 0.05 * Separation);
+	}
+
+	FCosmosClosedOrbitPrediction MiddleClosed;
+	TestFalse(TEXT("中间星在质心上，不画巨环"), Simulator.PredictClosedOrbit(0, 256, MiddleClosed));
 	return true;
 }
 

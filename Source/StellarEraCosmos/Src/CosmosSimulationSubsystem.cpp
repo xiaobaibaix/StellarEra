@@ -867,15 +867,20 @@ bool UCosmosSimulationSubsystem::PredictTrajectoryWorld(int32 SimulatorIndex, do
 
 bool UCosmosSimulationSubsystem::PredictClosedOrbitWorld(int32 SimulatorIndex,
                                                         int32 NumSamplesPerOrbit,
-                                                        TArray<FVector>& OutWorldPositions) const
+                                                        TArray<FVector>& OutWorldPositions,
+                                                        FVector& OutPrimaryWorld,
+                                                        double ReturnToleranceFraction) const
 {
 	OutWorldPositions.Reset();
+	OutPrimaryWorld = FVector::ZeroVector;
 
 	FCosmosClosedOrbitPrediction Prediction;
-	if (!Simulator.PredictClosedOrbit(SimulatorIndex, NumSamplesPerOrbit, Prediction))
+	if (!Simulator.PredictClosedOrbit(SimulatorIndex, NumSamplesPerOrbit, Prediction,
+		ReturnToleranceFraction))
 	{
 		return false;
 	}
+	OutPrimaryWorld = Simulator.ToWorldLocation(Prediction.PrimaryPosition);
 
 	// 闭环相对主导天体：锚回它 t=0 的位置再转世界坐标。主导天体自己也在动，绝对路径是摆线。
 	OutWorldPositions.Reserve(Prediction.RelativePositions.Num());

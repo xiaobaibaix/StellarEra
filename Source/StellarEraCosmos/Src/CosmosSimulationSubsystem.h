@@ -46,9 +46,13 @@ public:
 	bool PredictTrajectoryWorld(int32 SimulatorIndex, double HorizonYears, int32 NumSamples,
 	                            TArray<FVector>& OutWorldPositions) const;
 
-	/** 预测相对主导天体的闭合轨道（世界坐标厘米）。非椭圆或回不到起点返回 false，调用方退回 PredictTrajectoryWorld。 */
+	/**
+	 * 预测相对主导天体的闭合轨道（世界坐标厘米），OutPrimaryWorld = 主导天体当前世界位置。
+	 * 非椭圆或回不到起点（容差 ReturnToleranceFraction × 半长轴）返回 false，调用方退回 PredictTrajectoryWorld。
+	 */
 	bool PredictClosedOrbitWorld(int32 SimulatorIndex, int32 NumSamplesPerOrbit,
-	                             TArray<FVector>& OutWorldPositions) const;
+	                             TArray<FVector>& OutWorldPositions, FVector& OutPrimaryWorld,
+	                             double ReturnToleranceFraction = 0.3) const;
 
 	/** 已模拟的天文时间（年）。拖尾按模拟时间采样，不按帧 —— 否则覆盖时长会随帧率漂移。 */
 	double GetSimulatedTimeYears() const;

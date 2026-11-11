@@ -75,9 +75,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
 	bool bShowInEditor = false;
 
-	/** 是否画预测折线（浅色那条）。默认开。 */
+	/** 是否画预测折线（浅色那条）。默认关：每帧整段重积分，星图里多颗天体时很卡。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
-	bool bDrawPrediction = true;
+	bool bDrawPrediction = false;
 
 	/** 是否画拖尾（深色那条）。默认开；编辑器态没有历史，此开关被忽略。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
@@ -182,9 +182,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
 	FColor PredictionColor = FColor(90, 170, 255);
 
-	/** 已走过的拖尾颜色。深色。 */
+	/** 已走过的拖尾颜色。预测线默认关掉后它是星图里唯一的轨道线，要亮到黑底上一眼看见。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
-	FColor TrailColor = FColor(20, 50, 110);
+	FColor TrailColor = FColor(80, 170, 255);
+
+	/** 拖尾线宽（屏幕像素）。≤ 1 = 引擎 1 像素细线。按相机距离逐段换算成世界宽度，远近同粗。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory", meta = (ClampMin = "0.0"))
+	float TrailThicknessPixels = 3.0f;
 
 	/** 速度矢量的颜色。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory")
@@ -220,6 +224,16 @@ public:
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory", meta = (ClampMin = "0.0"))
 	double MaxAutoPredictionPeriods = 0.5;
+
+	/** 预测线帧间平滑的时间常数（真实秒）。0 = 不平滑，每帧直接换成新算的线。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory",
+		meta = (ClampMin = "0.0", DisplayName = "预测线平滑时间（秒）"))
+	float PredictionSmoothingSeconds = 0.2f;
+
+	/** 预测线与拖尾的空间平滑遍数（[1,2,1]/4 核）。0 = 原样画采样点。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory",
+		meta = (ClampMin = "0", ClampMax = "32", DisplayName = "曲线平滑遍数"))
+	int32 CurveSmoothIterations = 4;
 
 	/** 拖尾回溯多长，单位模拟年。0 = 自动（= 预测窗口的 1/4）。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Trajectory",
@@ -324,7 +338,7 @@ private:
 	double ResolvePredictionHorizonYears(const UCosmosSimulationSubsystem& Subsystem) const;
 
 	/** 把一段折线追加进 Lines。 */
-	void AppendPolyline(TArrayView<const FVector> Points, const FLinearColor& Color);
+	void AppendPolyline(TArrayView<const FVector> Points, const FLinearColor& Color, float ThicknessPixels = 0.0f);
 
 	/** 速度箭头（运行期，读求解器当前速度）。 */
 	void AppendVelocityArrow(const UCosmosSimulationSubsystem& Subsystem, const FLinearColor& Color);
@@ -371,6 +385,16 @@ private:
 	/** 把已经画上去的线清一次（bDrewLastFrame 为真时才真清）。 */
 	void ClearDrawnLines();
 
+	/**
+	 * 运行期预测：闭环（带滞回）或有限窗口，经空间平滑 + 帧间指数平滑后写进 PredictedWorld。
+	 * 闭环在主导天体相对系里按角度重采样，开放线在自身相对系里按时间对齐，两帧才逐点对应。
+	 */
+	void UpdateFilteredPrediction(const UCosmosSimulationSubsystem& Subsystem, int32 SimulatorIndex,
+		double HorizonYears, const FVector& SelfLocation, float DeltaTime);
+
+	/** 丢掉帧间平滑状态（关预测 / 换天体时），下次直接用新算的线。 */
+	void ResetPredictionFilter();
+
 	/** 编辑器态（不 Play）的绘制：预测折线 + 速度/引力箭头。离线重建求解器，无拖尾。 */
 	void DrawInEditor();
 
@@ -413,6 +437,17 @@ private:
 	/** 复用的中间数组，避免每帧重新分配。 */
 	TArray<FVector> PredictedWorld;
 	TArray<FBatchedLine> Lines;
+
+	/** 帧间平滑状态：闭环存主导天体相对坐标，开放线存自身相对坐标。 */
+	TArray<FVector3d> RawPrediction;
+	TArray<FVector3d> ResampledPrediction;
+	TArray<FVector3d> FilteredClosed;
+	FVector3d FilteredClosedNormal = FVector3d::ZeroVector;
+	TArray<FVector3d> FilteredOpen;
+	TArray<FVector> TrailDrawPoints;
+
+	/** 上一帧是否画成闭环。闭合判定的进出阈值不同，免得在整圈与半截之间逐帧来回跳。 */
+	bool bClosedOrbitLatched = false;
 
 	/** 上一帧画过没有 —— 关掉时只清一次。 */
 	bool bDrewLastFrame = false;
