@@ -24,6 +24,12 @@ AVoxelMineralFieldActor::AVoxelMineralFieldActor()
 	// 强制打开碰撞三项。编辑器分支走 Toggle() → CreateInEditor → PlayType = Preview，所以预览里的矿体世界仍带碰撞，与这两行无关。
 	bEnableCollisions = false;
 	bEnableNavmesh = false;
+
+	// 相机一动 N 个世界同时重建网格、同一帧整批提交，帧率掉到个位数。LOD 只在建世时算一次（Game 模式才生效）。
+	bConstantLOD = true;
+	// 与行星同值：基类 1000 ms 会让一批网格在一帧内全提交；抖动会让新旧两套网格同时画并逐块建 MID。
+	MeshUpdatesBudget = 8.f;
+	bDitherChunks = false;
 }
 
 bool AVoxelMineralFieldActor::CreateForElement(

@@ -158,10 +158,10 @@ APlanetCharacter::APlanetCharacter(const FObjectInitializer& ObjectInitializer)
 	VoxelInvoker->LODRange = 20000.f;
 	VoxelInvoker->bUseForCollisions = true;
 	VoxelInvoker->CollisionsRange = 20000.f;
-	// 导航、事件、优先级本任务用不到，关掉省算力。
+	// 导航、事件本任务用不到，关掉省算力。优先级必须开：全关时插件所有任务同优先级，脚下的块会排到几万个任务后面。
 	VoxelInvoker->bUseForNavmesh = false;
 	VoxelInvoker->bUseForEvents = false;
-	VoxelInvoker->bUseForPriorities = false;
+	VoxelInvoker->bUseForPriorities = true;
 
 	// 200 米以外的过渡环。主 Invoker 只管到 200 米（叶块 32 · VoxelSize），再外面只有
 	// 行星自带 OrbitLOD（这颗星 LOD 7，叶块 2 公里），中间一档都没有，两档近似不同会

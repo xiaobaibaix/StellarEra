@@ -81,7 +81,7 @@ ASpaceshipPawn::ASpaceshipPawn()
 	VoxelInvoker->CollisionsRange = 3000.f;
 	VoxelInvoker->bUseForNavmesh = false;
 	VoxelInvoker->bUseForEvents = false;
-	VoxelInvoker->bUseForPriorities = false;
+	VoxelInvoker->bUseForPriorities = true;   // 按到本 Pawn 的距离排生成任务，否则先后随机
 	VoxelInvoker->bEnablePrediction = true;
 	VoxelInvoker->PredictionTime = 0.03f;
 
