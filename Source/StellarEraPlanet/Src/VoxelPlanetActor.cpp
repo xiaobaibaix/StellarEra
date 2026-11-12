@@ -29,6 +29,11 @@
 #include "VoxelData/VoxelSave.h"
 #include "VoxelData/VoxelSaveUtilities.h"
 #include "VoxelTools/VoxelDataTools.h"
+// 新地质流水线：配方 → 后台烘焙 → 无 UObject 的快照 → 体素生成器。
+#include "PlanetRecipe.h"
+#include "PlanetBakePipeline.h"
+#include "PlanetGeoGenerator.h"
+#include "PlanetShapeEval.h"
 #include "PlanetSurfaceRay.h"
 #include "VoxelData/VoxelData.h"
 #include "VoxelData/VoxelDataLock.h"
@@ -218,6 +223,17 @@ void AVoxelPlanetActor::RefreshLODInvoker()
 	// 拖动星球时每帧都调：没有任何输入变化、invoker 也没被手改，就别去刷全局 invoker。
 	const float RangeSource = GetScaledRadiusVoxels() * FMath::Max(VoxelSize, 0.0001f);
 	const int32 DesiredLOD = ComputeOrbitLOD();
+
+	// geo 模式下「手改优先」这条规则不成立：BP 上填的 LODToSet 是按旧半径调的，配方把半径
+	// 放大 40 倍后它会把整片 invoker 范围压到 2^LOD 体素块，撞 voxel.renderer.
+	// MaxRenderOctreeChunks 后渲染八叉树直接停更（日志 "Render octree update was stopped!"）。
+	if (IsGeoMode() && LODInvoker->LODToSet >= 0 && LODInvoker->LODToSet < DesiredLOD)
+	{
+		UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor %s: 行星 invoker LOD %d 比自动档 %d 更细，夹到自动"),
+			*GetName(), LODInvoker->LODToSet, DesiredLOD);
+		LODInvoker->LODToSet = DesiredLOD;
+	}
+
 	const bool bFirstSync = !bLODInvokerSynced;
 	const bool bOrbitLODChanged = !bFirstSync && LastAppliedOrbitLOD != OrbitLOD;
 	const bool bRangeSourceChanged = bFirstSync || !FMath::IsNearlyEqual(LastAppliedRangeSource, RangeSource);
@@ -382,6 +398,12 @@ UMaterialInstanceDynamic* AVoxelPlanetActor::CreateBiomeMaterialMID(UMaterialInt
 void AVoxelPlanetActor::EnsureSaveObject()
 {
 	if (SaveObject)
+	{
+		return;
+	}
+
+	// geo 模式不落盘：地形随阶段迭代整体重算，旧编辑会盖在新地表上，读回去就是坏星。
+	if (IsGeoMode())
 	{
 		return;
 	}
@@ -558,6 +580,12 @@ void AVoxelPlanetActor::RebuildPlanet()
 	// 且必须排在哈希守卫之前，否则修正会被一起吞掉。函数自带已是新树就早退。
 	RepairLegacyRootComponent();
 
+	// 配方是尺寸真源，必须先于 LOD 与哈希同步 —— 两者都由半径派生。
+	if (GeoRecipe)
+	{
+		SyncGeoDimensions();
+	}
+
 	// Invoker 刷新排在哈希守卫之前：这三项只影响 LOD 提示、不必重建整颗星，
 	// 函数自带值没变就早退。
 	RefreshLODInvoker();
@@ -581,6 +609,12 @@ void AVoxelPlanetActor::RebuildPlanet()
 
 	// 重建一次打一行：拖动星球不应产生新行，每帧刷屏即哈希守卫失效。
 	UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor: 重建 %s（参数哈希 %llu）"), *GetName(), ParamsHash);
+
+	if (GeoRecipe)
+	{
+		RebuildGeoPlanet();
+		return;
+	}
 
 	if (!PlanetGenerator)
 	{
@@ -691,6 +725,167 @@ void AVoxelPlanetActor::RebuildPlanet()
 	{
 		Grid->NotifyVoxelEdited();
 	}
+}
+
+void AVoxelPlanetActor::SyncGeoDimensions()
+{
+	if (!GeoRecipe)
+	{
+		return;
+	}
+
+	// 面板值当镜像：大气、角色、星图全按 Radius × VoxelSize 换算，分叉就整层错位。
+	if (!FMath::IsNearlyEqual(Radius, GeoRecipe->Radius))
+	{
+		UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor %s: Radius %.0f → 配方 %.0f"),
+			*GetName(), Radius, GeoRecipe->Radius);
+		Radius = GeoRecipe->Radius;
+	}
+	if (!FMath::IsNearlyEqual(VoxelSize, GeoRecipe->VoxelSizeCm))
+	{
+		UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor %s: VoxelSize %.1f → 配方 %.1f"),
+			*GetName(), VoxelSize, GeoRecipe->VoxelSizeCm);
+		VoxelSize = GeoRecipe->VoxelSizeCm;
+	}
+
+	// 半径换量级后，按旧尺度调的 LOD 档位全部失效：MaxLOD 6 配 40000 体素半径会让渲染
+	// 八叉树撞 voxel.renderer.MaxRenderOctreeChunks（100 万，报 "Render octree update
+	// was stopped!"）。MaxLOD 只封顶「最粗」，调大不伤近处细节；比自动档更细的 OrbitLOD
+	// 则会把整片 invoker 范围压到 8 体素块，必须交回自动档。
+	const float AutoLODRadius = FMath::Max(GetScaledRadiusVoxels(), 1.f);
+	const int32 AutoLOD = FMath::Clamp(
+		FMath::RoundToInt(FMath::Log2(AutoLODRadius / 16.f)), 0, 8);
+	if (MaxLOD < AutoLOD + 4)
+	{
+		UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor %s: MaxLOD %d → %d（半径 %.0f 体素）"),
+			*GetName(), MaxLOD, AutoLOD + 4, AutoLODRadius);
+		MaxLOD = AutoLOD + 4;
+	}
+	if (OrbitLOD >= 0 && OrbitLOD < AutoLOD)
+	{
+		UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor %s: OrbitLOD %d 比自动档 %d 更细，改回自动"),
+			*GetName(), OrbitLOD, AutoLOD);
+		OrbitLOD = -1;
+	}
+}
+
+void AVoxelPlanetActor::StartGeoBake()
+{
+	if (bGeoBakeInFlight || !GeoRecipe)
+	{
+		return;
+	}
+	bGeoBakeInFlight = true;
+
+	// ToConfig 是唯一一次碰 UObject：烘焙线程只拿 POD。
+	const FPlanetRecipeConfig Config = GeoRecipe->ToConfig();
+	TWeakObjectPtr<AVoxelPlanetActor> WeakThis(this);
+	Async(EAsyncExecution::ThreadPool, [WeakThis, Config]()
+	{
+		const double Start = FPlatformTime::Seconds();
+		FPlanetBakeReport Report;
+		TSharedPtr<const FPlanetSnapshot> Snapshot = FPlanetBakePipeline::MakeDefault().Bake(Config, Report);
+		const double Seconds = FPlatformTime::Seconds() - Start;
+		for (const FString& Error : Report.Errors)
+		{
+			UE_LOG(LogTemp, Error, TEXT("[地质] %s"), *Error);
+		}
+		AsyncTask(ENamedThreads::GameThread, [WeakThis, Snapshot, Seconds]()
+		{
+			if (AVoxelPlanetActor* Self = WeakThis.Get())
+			{
+				Self->OnGeoBakeFinished(Snapshot, Seconds);
+			}
+		});
+	});
+}
+
+void AVoxelPlanetActor::OnGeoBakeFinished(TSharedPtr<const FPlanetSnapshot> InSnapshot, double BakeSeconds)
+{
+	bGeoBakeInFlight = false;
+
+	// 回调可能晚于 PIE 结束 / 关卡切换，那时再建世界会撞上拆除中的世界。
+	UWorld* const World = GetWorld();
+	if (!World || World->bIsTearingDown)
+	{
+		return;
+	}
+	if (!InSnapshot)
+	{
+		// 失败不自动重试：否则 RebuildPlanet ↔ StartGeoBake 会无限循环。
+		bGeoBakeFailed = true;
+		UE_LOG(LogTemp, Error, TEXT("AVoxelPlanetActor %s: 地质烘焙失败，本颗星不建世界"), *GetName());
+		return;
+	}
+
+	GeoSnapshot = InSnapshot;
+	UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor %s: 地质烘焙完成 %.2f s，半径 %.0f 体素，快照 %.1f MB，哈希 %016llx"),
+		*GetName(), BakeSeconds, float(Radius),
+		double(GeoSnapshot->GetAllocatedSize()) / (1024.0 * 1024.0), GeoSnapshot->ContentHash);
+
+	// 快照换了必重建；哈希里虽然混了 ContentHash，抹零让语义显式。
+	LastParamsHash = 0;
+	RebuildPlanet();
+}
+
+void AVoxelPlanetActor::RebuildGeoPlanet()
+{
+	if (!GeoSnapshot.IsValid())
+	{
+		// 没快照建出来是一颗空气球，白跑一次世界创建。
+		if (!bGeoBakeFailed)
+		{
+			StartGeoBake();
+		}
+		return;
+	}
+
+	if (!GeoGenerator)
+	{
+		GeoGenerator = NewObject<UPlanetGeoGenerator>(this, TEXT("GeoGenerator"));
+	}
+	GeoGenerator->SetSnapshot(GeoSnapshot);
+
+	// 与旧路径同一收紧策略：边长收到半径 3 倍并取 2 的幂。
+	SetWorldSize(FMath::RoundUpToPowerOfTwo(FMath::CeilToInt(GetScaledRadiusVoxels() * 3.f)));
+	Generator = FVoxelGeneratorPicker(GeoGenerator.Get());
+
+	UE_LOG(LogTemp, Log,
+		TEXT("AVoxelPlanetActor: 地质世界边长 %u 体素，半径 %.0f 体素，MaxLOD %d，行星 invoker LOD %d 范围 %.0f 厘米"),
+		WorldSizeInVoxel, GetScaledRadiusVoxels(), MaxLOD,
+		LODInvoker ? LODInvoker->LODToSet : -1,
+		LODInvoker ? LODInvoker->LODRange : 0.f);
+
+	if (IsCreated())
+	{
+		DestroyWorld();
+	}
+
+#if WITH_EDITOR
+	// 编辑器世界必须走 Toggle()：OnPreBeginPIE 拆世界后只有 Toggle 会建回来。
+	if (GetWorld() && GetWorld()->WorldType == EWorldType::Editor)
+	{
+		Toggle();
+		return;
+	}
+#endif
+
+	UWorld* const World = GetWorld();
+	if (World && World->IsGameWorld())
+	{
+		bCreateGlobalPool = false;
+		if (!UVoxelBlueprintLibrary::IsWorldVoxelPoolCreated(World))
+		{
+			UVoxelBlueprintLibrary::CreateWorldVoxelThreadPool(
+				World,
+				PriorityCategories,
+				PriorityOffsets,
+				NumberOfThreads,
+				bConstantPriorities);
+		}
+	}
+
+	CreateWorld(FVoxelWorldCreateInfo());
 }
 
 bool AVoxelPlanetActor::InstallBiomeMaterial(bool bForceBake)
@@ -871,6 +1066,14 @@ void AVoxelPlanetActor::InvalidateAndRebuild()
 	// 触发这次重建的是地形资产参数，不参与本 Actor 的哈希；不抹掉 LastParamsHash
 	// 守卫会吞掉重建。
 	LastParamsHash = 0;
+
+	// geo 模式的「地形参数」就是配方内容：配方没有哈希，只能丢快照重烘。
+	if (GeoRecipe)
+	{
+		GeoSnapshot.Reset();
+		bGeoBakeFailed = false;
+	}
+
 	RebuildPlanet();
 
 	// 地形布局变了，表面网格必须重新采样（组件内部按防抖时间重建）。
@@ -901,7 +1104,8 @@ void AVoxelPlanetActor::NotifyVoxelEdited()
 
 void AVoxelPlanetActor::RequestSaveEdits()
 {
-	if (!bHasUnsavedEdits)
+	// 不落盘的星球连「缺 SaveObject」的警告都不该刷。
+	if (IsGeoMode() || !bHasUnsavedEdits)
 	{
 		return;
 	}
@@ -1035,7 +1239,8 @@ void AVoxelPlanetActor::FinishSaveJob()
 
 void AVoxelPlanetActor::SaveEditsToSaveObject()
 {
-	if (!bHasUnsavedEdits)
+	// 与 EnsureSaveObject 同一理由：geo 测试星球的挖掘不持久化。
+	if (IsGeoMode() || !bHasUnsavedEdits)
 	{
 		return;
 	}
@@ -1156,6 +1361,17 @@ float AVoxelPlanetActor::GetSurfaceRadiusCm() const
 
 float AVoxelPlanetActor::GetSurfaceRadiusCmAtDirection(const FVector& WorldDirection) const
 {
+	// geo 模式没有旧生成器可问，地表 = 快照的 R0 + 高程场。
+	if (GeoSnapshot.IsValid())
+	{
+		const FVector Direction = WorldDirection.GetSafeNormal();
+		if (!Direction.IsNearlyZero())
+		{
+			return float(PlanetShapeEval::SurfaceRadius(*GeoSnapshot, FVector3f(Direction))) * VoxelSize;
+		}
+		return GetSurfaceRadiusCm();
+	}
+
 	// 没挂模块（或生成器未建）时地表就是基准球面 —— 光滑球正是没有地形的样子。
 	if (!PlanetGenerator || !PlanetGenerator->Terrain)
 	{
@@ -1177,6 +1393,12 @@ float AVoxelPlanetActor::GetSurfaceRadiusCmAtDirection(const FVector& WorldDirec
 
 float AVoxelPlanetActor::GetMinSurfaceRadiusCm() const
 {
+	// 大气拿它当地面下界，geo 模式必须给真正的最低点，否则整层壳浮空/陷地。
+	if (GeoSnapshot.IsValid())
+	{
+		return float(GeoSnapshot->MinSurfaceRadius) * VoxelSize;
+	}
+
 	if (!PlanetGenerator || !PlanetGenerator->Terrain)
 	{
 		return GetSurfaceRadiusCm();
@@ -1498,6 +1720,13 @@ uint64 AVoxelPlanetActor::ComputeParamsHash() const
 	// 按资产路径混合不混指针；也不混 Revision —— 改预设内容靠显式的「重建行星」。
 	const FString GeologyAssetPath = GeologyAsset ? GeologyAsset->GetPathName() : FString();
 	Mix(*GeologyAssetPath, GeologyAssetPath.Len() * sizeof(TCHAR));
+
+	// geo 模式：配方混路径（改内容走 InvalidateAndRebuild 重烘），再混快照内容哈希 ——
+	// 烘焙完成那一刻哈希必变，世界才会被建起来。
+	const FString GeoRecipePath = GeoRecipe ? GeoRecipe->GetPathName() : FString();
+	Mix(*GeoRecipePath, GeoRecipePath.Len() * sizeof(TCHAR));
+	const uint64 GeoContentHash = GeoSnapshot.IsValid() ? GeoSnapshot->ContentHash : 0;
+	Mix(&GeoContentHash, sizeof(GeoContentHash));
 
 	return Hash;
 }

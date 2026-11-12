@@ -43,11 +43,14 @@ void UCosmosOrbitComponent::BeginPlay()
 	Super::BeginPlay();
 
 	// 组件自己注册，而不是让子系统遍历全关卡：遍历既慢又会漏掉运行期生成的 Actor。
-	if (const UWorld* OwningWorld = GetWorld())
+	if (bRegistersWithSimulation)
 	{
-		if (UCosmosSimulationSubsystem* CosmosSubsystem = OwningWorld->GetSubsystem<UCosmosSimulationSubsystem>())
+		if (const UWorld* OwningWorld = GetWorld())
 		{
-			CosmosSubsystem->RegisterBody(this);
+			if (UCosmosSimulationSubsystem* CosmosSubsystem = OwningWorld->GetSubsystem<UCosmosSimulationSubsystem>())
+			{
+				CosmosSubsystem->RegisterBody(this);
+			}
 		}
 	}
 }

@@ -19,6 +19,9 @@ class UPlanetWaterComponent;
 class UPlanetSkyLightComponent;
 class UVoxelPlanetGenerator;
 class UVoxelPlanetTerrainModule;
+class UPlanetGeoGenerator;
+class UPlanetRecipe;
+struct FPlanetSnapshot;
 class UVoxelSimpleInvokerComponent;
 class UPlanetGeologyPreset;
 class UTextureCube;
@@ -166,6 +169,22 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Geology")
 	TObjectPtr<UPlanetGeologyPreset> GeologyAsset;
 
+	//////////////////////////////////////////////////////////////////////////
+	// 新地质流水线
+
+	/**
+	 * 非空 = 这颗星由新地质流水线生成：半径 / 体素尺寸 / 地形全部取自配方，
+	 * Terrain、GeologyAsset、水文、biome cubemap 旁路。烘焙在后台线程完成后再建世界。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Geo")
+	TObjectPtr<UPlanetRecipe> GeoRecipe;
+
+	UFUNCTION(BlueprintPure, Category = "Planet|Geo")
+	bool IsGeoMode() const { return GeoRecipe != nullptr; }
+
+	/** 当前地质快照；烘焙完成前为空。 */
+	TSharedPtr<const FPlanetSnapshot> GetGeoSnapshot() const { return GeoSnapshot; }
+
 	/**
 	 * GeologyAsset 变化时广播。镜像方（UPlanetMineralViewComponent）订阅以保持同步；
 	 * 用委托而非直接调用，是因为 Terrain 不能反向 include Minerals，否则成环。
@@ -224,6 +243,10 @@ public:
 	 */
 	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "Planet")
 	TObjectPtr<UVoxelPlanetGenerator> PlanetGenerator;
+
+	/** geo 模式下的生成器；与 PlanetGenerator 互斥。 */
+	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "Planet|Geo")
+	TObjectPtr<UPlanetGeoGenerator> GeoGenerator;
 
 	/** 以球心为中心的 LOD Invoker。挂在基类的 WorldRoot 下，随之变换。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet")
@@ -306,6 +329,22 @@ private:
 
 	/** 对**我们自己的**、会影响生成器或世界尺寸的设置做 FNV-1a 哈希。 */
 	uint64 ComputeParamsHash() const;
+
+	/** 配方是尺寸的唯一真源：把面板上的 Radius / VoxelSize 同步成配方值。 */
+	void SyncGeoDimensions();
+
+	/** 后台烘焙；烘焙中重复调用被忽略。回调只在游戏线程。 */
+	void StartGeoBake();
+	void OnGeoBakeFinished(TSharedPtr<const FPlanetSnapshot> InSnapshot, double BakeSeconds);
+
+	/** geo 模式的建世界流程；快照没到时只发起烘焙并返回。 */
+	void RebuildGeoPlanet();
+
+	/** 配方产物，非 UPROPERTY：体素线程要的是无 UObject 的 const 快照。 */
+	TSharedPtr<const FPlanetSnapshot> GeoSnapshot;
+	bool bGeoBakeInFlight = false;
+	/** 烘焙失败过：不自动重试，等 InvalidateAndRebuild 强制。 */
+	bool bGeoBakeFailed = false;
 
 	/**
 	 * 烘焙 biome cubemap 并把材质实例装进 VoxelMaterial。bForceBake true = 无条件
