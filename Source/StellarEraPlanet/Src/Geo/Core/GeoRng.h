@@ -26,11 +26,14 @@ namespace GeoHash
 	/** FNV-1a，编译期把用途名换成 64 位标签。 */
 	constexpr uint64 Str(const char* S)
 	{
-		uint64 H = 1469598103934665603ull;
+		uint64 H = 14695981039346656037ull;
 		while (*S) { H = (H ^ uint8(*S++)) * 1099511628211ull; }
 		return H;
 	}
 }
+
+static_assert(GeoHash::Str("a") != GeoHash::Str("b"), "Str 必须区分不同用途名");
+static_assert(GeoHash::Str("a") == 0xaf63dc4c8601ec8cull, "FNV-1a-64 标准向量");
 
 struct FGeoRng
 {

@@ -48,6 +48,21 @@ bool FGeoRngNoiseTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Value3 有实际起伏"), MaxV - MinV > 1.f);
 	TestTrue(TEXT("Value3 连续（1e-3 步长跳变 < 0.01）"), MaxJump < 0.01f);
 	TestTrue(TEXT("Fbm3 ∈ [-1,1]"), MinF >= -1.f && MaxF <= 1.f);
+
+	TestTrue(TEXT("Fade 端点与中点"), GeoNoise::Fade(0.f) == 0.f && GeoNoise::Fade(1.f) == 1.f && FMath::IsNearlyEqual(GeoNoise::Fade(0.5f), 0.5f, 1e-6f));
+	TestTrue(TEXT("Fade 是五次缓动（线性会得 0.25）"), FMath::IsNearlyEqual(GeoNoise::Fade(0.25f), 0.103515625f, 1e-6f));
+
+	bool bLattice = true;
+	int32 Differ = 0;
+	for (int32 i = 0; i < 200; ++i)
+	{
+		const int32 Ix = i - 100, Iy = (i * 7) % 53 - 26, Iz = (i * 13) % 41 - 20;
+		bLattice &= (GeoNoise::Value3(99, FVector3f(float(Ix), float(Iy), float(Iz))) == GeoNoise::Lattice(99, Ix, Iy, Iz));
+		const FVector3f Q(i * 0.37f + 0.1f, i * 0.11f - 3.3f, i * 0.53f + 0.7f);
+		Differ += (GeoNoise::Value3(99, Q) != GeoNoise::Value3(100, Q)) ? 1 : 0;
+	}
+	TestTrue(TEXT("格点处 Value3 等于 Lattice"), bLattice);
+	TestTrue(TEXT("换种子 → 噪声不同"), Differ > 190);
 	return true;
 }
 
