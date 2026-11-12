@@ -151,7 +151,7 @@ USTRUCT() struct FPlanetRecipeConfig       // 纯 POD，不含 UObject 指针
 | 512 | 1.57 M | 3.1 MB | 1.6 MB | 6.3 MB | **≈ 12 MB** |
 | 1024 | 6.29 M | 12.6 MB | 6.3 MB | 25.2 MB | **≈ 50 MB** |
 
-**`00-pipeline.md` §3.2 把 `faceRes` 上限定在 2048，这里改判为 1024。** 理由：
+**`faceRes` 上限取 1024 而不是 2048**，理由：
 
 - `R=1000` 时 `N=1024` 的 cell 是 `πR/2N = 1.53` 体素，正好压在「1.5 格可辨」的门槛上，够用
 - `N=2048` 四场合计 200 MB/星球，一艘船路过多颗星会直接吃光显存/内存，而收益是 0.77 格 vs 1.53 格——唯一受益者是海岸线，可以靠 shader 的细节噪声补
@@ -386,7 +386,7 @@ Async(EAsyncExecution::ThreadPool, [Cfg, WeakThis]
 
 ### 7.3 确定性：存档里只有 recipe + seed
 
-这是程序化世界最容易欠下的债。**要求：给定 `(Config, Seed)`，任何机器、任何线程数、任何次数，烘焙结果必须字节一致。** 否则存档会随版本膨胀，玩家回档发现地形变了。
+这是程序化世界最容易欠下的债。**要求：给定 `(Config, Seed)`，同一构建下任意线程数、任意次数，烘焙结果必须字节一致**（跨 CPU / 编译器不要求，见 Q10）。 否则存档会随版本膨胀，玩家回档发现地形变了。
 
 六条禁令：
 
@@ -456,7 +456,7 @@ M0 的收益容易被低估：它把「重构」和「改行为」彻底分开�
 | 2 | `UVoxelPlanetTerrainModule::GetSurfaceRadiusVoxels` 是 `const` 虚函数，拿不到快照 | 把快照作为模块的 `TSharedPtr` 成员（非 UPROPERTY，`Transient` 语义），`GetInstance` 时写入；`const` 方法读它。注意读写时序：**先建快照，再交给实例，再让模块回答查询** |
 | 3 | 编辑层（SaveObject）与快照各自演进 | 加版本戳 + 不匹配告警（§7.4） |
 
-顺带一条：`PlanetMineralViewActor` / `PlanetMineralVolume` 已经是矿体可视化前端，**别重写**——把它的数据源从 `FPlanetGeologyField::GetPods` 换成 `FGeoPrimitiveIndex` 的枚举接口，它就是新架构的调试器。
+顺带一条：现有矿物视图（`Minerals/View/` 全部）**整体删除**。它的体素路径每元素建一个体素世界，相机一动就掉到个位数帧，问题在结构本身。调试改用 GeoTools 的场叠加与基元包围盒绘制。
 
 ---
 

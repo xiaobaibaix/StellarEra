@@ -13,9 +13,8 @@
 | 键 | 来源 |
 |---|---|
 | `BoundaryType` `BoundaryDistance` `PlateId` `CrustType` | 2 |
-| `Elevation`（判断是否在水下、剥蚀量） | 3 |
+| `Elevation`（判断是否低于 `R₀`） | 3 |
 | `DeepBlobs`（热点位置） | 1 |
-| `ErosionDepth`（剥蚀改变出露，后置） | 6 |
 
 ## 输出
 
@@ -48,6 +47,8 @@
 
 **蚀变分带**：不建几何。只写材质（`A` 通道的线索类型 + 强度）：
 从内到外 `钾化 → 绢英岩化 → 泥化 → 青磐岩化`，由「到侵入体的距离 × 强度」分段。见 `11-material-field.md`。
+
+> 本阶段只写原始深度 `DepthBelowConeTop`；剥蚀后的出露由阶段 6 结算（见 `06-erosion.md`「出露结算」），本阶段不读 `ErosionDepth`。
 
 ## 撒矿
 

@@ -15,12 +15,12 @@
 ## 条件
 
 ```
-Volcano.bActive == true OR Volcano.Age < 0.3
-AND Depth ∈ [2, 6]                    // 锥顶面以下 2–6 格
+(Volcano.bActive == true OR Volcano.Age < 0.3)
+AND DepthBelowConeTop ∈ [2, 6]                    // 锥顶面以下 2–6 格
 AND DistanceFromConduit < 4 格        // 火山通道附近
 ```
 
-老火山被剥蚀掉锥顶后，这一段会**出露到地表**——这正是「剥蚀改变出露」的体现（阶段 6 的 `ErosionDepth` 参与判定）。
+老火山被剥蚀掉锥顶后，这一段会**出露到地表**——出露由阶段 6 结算（`DepthBelowSurface = DepthBelowConeTop − ErosionDepth`），本规则只写原始深度。
 
 ## 放置
 
@@ -43,7 +43,7 @@ AND DistanceFromConduit < 4 格        // 火山通道附近
 
 | 项 | 值 |
 |---|---|
-| 刻度上限 | Au 30 g/t |
+| 刻度上限 | Au 30 g/t（矿物 Id `au_vein`，与砂金 `au_placer` 分开） |
 | 峰值 | 8–25 g/t（真实浅成低温是数到数十 g/t） |
 | 副产 | Ag 3–10 倍于 Au 的摩尔量 → 写 `U0/V0` |
 | 剖面 | 脉中心满值，横向 `smoothstep` 到 0 |

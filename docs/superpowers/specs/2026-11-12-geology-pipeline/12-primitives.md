@@ -5,14 +5,20 @@
 
 ## 统一接口
 
+求值期禁止虚函数（`20-architecture.md` §2），原语是**带种类标签的扁平结构体**，按 `Kind` 走 `switch`：
+
 ```cpp
-struct IGeoPrimitive
+struct FGeoPrimitive               // POD，进快照
 {
-    virtual float      Evaluate(const FVector& UnitDir, double Depth) const = 0;  // 强度 ∈ [0,1]
-    virtual FBox3d     GetBounds() const = 0;                                     // 包围盒（球面度+深度）
-    virtual FGeoRange  GetRange(const FBox3d& Box) const = 0;                     // 保守值域
-    virtual EPrimitiveKind GetKind() const = 0;
+    EGeoPrimitiveKind Kind;        // 7 种之一
+    uint8  MineralId, Priority;
+    FVector3f Center, Axis0, Axis1;
+    float  Radii[3];
+    float  Params[8];              // 含义按 Kind 解释
+    FBox3f Bounds;                 // 紧包围，含噪声余量
 };
+float     GeoPrimitiveEvaluate(const FGeoPrimitive&, const FVector3f& P);   // inline switch
+FGeoRange GeoPrimitiveRange   (const FGeoPrimitive&, const FBox3f& Box);
 ```
 
 ## 七个原语

@@ -12,8 +12,13 @@ Value = (Distance - BaseSurface + CarveDepth - GeometryDelta) / DensityScale
 新方案把它推广成：
 
 ```cpp
-Value = (|p| - R0 - Elevation(p) + Carve(p) - Union(p)) / DensityScale
+d0    = |p| - R0 - Elevation(p)          // 高度场项，Add 算子都在这里累加
+d1    = min(d0, min_i sdf_i(p))           // Union：火山锥、地表团块
+d2    = max(d1, max_j -sdf_j(p))          // Carve：河谷、火口
+Value = d2 / DensityScale
 ```
+
+先算高度项，再做 SDF 布尔；Union / Carve 不是加减项。
 
 - `R0`：标准球面半径，**同时就是海平面**（2026-11-12 定）。海拔 `= |p| − R0`，水下为负值。
 - `Elevation(p)`：分两段，阶段 2 的 `ElevationBase`（陆台/洋盆，主项）+ 阶段 3 的 `ReliefDelta`（山脉/海沟）。
@@ -30,8 +35,8 @@ Value = (|p| - R0 - Elevation(p) + Carve(p) - Union(p)) / DensityScale
 | 算子 | 公式 | 用于 | 值域 |
 |---|---|---|---|
 | `Add` | `d += h(p)` | 高程、风化薄层 | `[min h, max h]` |
-| `Union` | `d = min(d, sdf(p))` | 火山锥、侵入体、深部团块 | `[min sdf, min sdf]`（保守取最小） |
-| `Carve` | `d = max(d, -sdf(p))` | 河谷、火口、断裂 | `[0, +max]` |
+| `Union` | `d = min(d, sdf(p))` | 火山锥、地表团块 | `[min(d.lo, sdf.lo), min(d.hi, sdf.hi)]` |
+| `Carve` | `d = max(d, -sdf(p))` | 河谷、火口、断裂 | `[max(d.lo, -sdf.hi), max(d.hi, -sdf.lo)]` |
 
 **顺序即因果**：后阶段可以挖掉前阶段（先成矿、后被侵蚀出露），不能反过来。
 调度器按阶段号排序，不按依赖深度排序。

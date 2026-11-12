@@ -86,10 +86,12 @@ N        = clamp(floor(log2(0.2R)), 2, 6)
 |---|---|---|---|---|
 | octave `N` | 4 | 5 | 6 | 6（封顶） |
 
-### 第 4 步 · 合成
+### 第 4 步 · 合成（含海沟）
 
 ```
-ReliefRaw = mask · A_mtn · h(p)  +  (1 − mask) · A_plain · fBm₂oct(p')
+trench    = isSubduction · exp(−(d_ocean / (0.5·W_trench))²)     // 只在俯冲边界的洋侧
+ReliefRaw = mask · A_mtn · h(p)  +  (1 − mask) · A_plain · fBm₂oct(p')  −  A_trench · trench
+// W_trench = clamp(1.6%R, 4, 16)，A_trench = A_mtn；火山弧在陆侧（阶段 4）
 ```
 
 | 参数 | 取值 | R=100 | R=500 | R=1000 |

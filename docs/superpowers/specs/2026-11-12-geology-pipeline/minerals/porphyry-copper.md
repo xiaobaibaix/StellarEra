@@ -15,10 +15,10 @@
 ## 条件
 
 ```
-BoundaryType ∈ {汇聚-洋陆, 汇聚-洋洋}
-AND Intrusion.Type == 岩株
-AND Depth ∈ [6, 15]                   // 锥顶面以下
-AND Intrusion.CrustTypeAround == 陆壳  // 陆弧偏 Cu-Mo，洋弧偏 Cu-Au
+Intrusion.Type == 岩株
+AND Intrusion.ArcType ∈ {洋陆, 洋洋}   // 岩株生成时从所属弧写入；岩株离边界 ~20 格，场上那里是「无」
+AND DepthBelowConeTop ∈ [6, 15]
+副产：ArcType == 洋陆 → Mo；ArcType == 洋洋 → Au
 ```
 
 ## 放置
