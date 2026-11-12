@@ -18,6 +18,15 @@ bool FGeoField2DTest::RunTest(const FString& Parameters)
 		return FVector3f(S * FMath::Cos(Phi), S * FMath::Sin(Phi), Z);
 	};
 
+	const FVector3f Axes[6] = { FVector3f(1, 0, 0), FVector3f(-1, 0, 0), FVector3f(0, 1, 0), FVector3f(0, -1, 0), FVector3f(0, 0, 1), FVector3f(0, 0, -1) };
+	for (int32 Expect = 0; Expect < 6; ++Expect)
+	{
+		int32 Face; float U, V;
+		FGeoField2D::DirToFace(Axes[Expect], Face, U, V);
+		TestEqual(FString::Printf(TEXT("轴向 %d 落在面 %d"), Expect, Expect), Face, Expect);
+		TestTrue(TEXT("轴向的面内坐标为 (0,0)"), FMath::IsNearlyZero(U, 1e-6f) && FMath::IsNearlyZero(V, 1e-6f));
+	}
+
 	float MaxRoundTrip = 0.f;
 	for (int32 i = 0; i < 2000; ++i)
 	{
@@ -49,11 +58,45 @@ bool FGeoField2DTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("同输入同哈希"), Field.Hash() == Same.Hash());
 	TestTrue(TEXT("单线程与并行填充逐位一致"), Field.Hash() == SingleThread.Hash());
 
+	{
+		const int32 Probe[4] = { 5, 20, 32, 58 };
+		float MaxCentreErr = 0.f;
+		for (int32 Face = 0; Face < 6; ++Face)
+		for (const int32 Y : Probe)
+		for (const int32 X : Probe)
+		{
+			MaxCentreErr = FMath::Max(MaxCentreErr, FMath::Abs(Field.Sample(Field.TexelDir(Face, X, Y)) - Field.At(Face, X, Y)));
+		}
+		TestTrue(TEXT("texel 中心采样等于该 texel（< 1e-4，抓半格偏移）"), MaxCentreErr < 1e-4f);
+	}
+
+	FGeoField2D Mutated;
+	Mutated.Init(64); Mutated.Fill(Linear);
+	Mutated.At(3, 10, 20) += 1.f;
+	TestTrue(TEXT("改动单个 texel 后哈希不同"), Mutated.Hash() != Field.Hash());
+
 	FGeoField2D Const;
 	Const.Init(32); Const.Fill([](const FVector3f&) { return 7.f; }); Const.BuildMips(3);
 	TestEqual(TEXT("mip 数"), Const.NumMips(), 3);
 	TestEqual(TEXT("mip2 分辨率"), Const.MipRes(2), 8);
 	TestEqual(TEXT("常量场的 mip2 仍为常量"), Const.Sample(RandomDir(), 2), 7.f);
+
+	FGeoField2D Grad;
+	Grad.Init(4);
+	for (int32 Face = 0; Face < 6; ++Face)
+	for (int32 Y = 0; Y < 4; ++Y)
+	for (int32 X = 0; X < 4; ++X) { Grad.At(Face, X, Y) = float(Face * 100 + Y * 10 + X); }
+	Grad.BuildMips(3);
+	TestEqual(TEXT("mip1 分辨率"), Grad.MipRes(1), 2);
+	TestEqual(TEXT("mip2 分辨率为 1"), Grad.MipRes(2), 1);
+	TestEqual(TEXT("mip1(2,0,0) = 四个父 texel 均值"), Grad.At(2, 0, 0, 1), 205.5f);
+	TestEqual(TEXT("mip1(1,1,1) = 四个父 texel 均值"), Grad.At(1, 1, 1, 1), 100.f + 20.f + 2.f + 5.5f);
+	TestEqual(TEXT("1×1 级为整面均值"), Grad.At(4, 0, 0, 2), 416.5f);
+	TestEqual(TEXT("Mip 超出范围钳到最后一级"), Grad.Sample(FVector3f(1, 0, 0), 9), Grad.Sample(FVector3f(1, 0, 0), 2));
+	TestEqual(TEXT("最后一级采样 +X 面均值"), Grad.Sample(FVector3f(1, 0, 0), 2), 16.5f);
+
+	const FGeoField2D Empty;
+	TestEqual(TEXT("未 Init 的场采样为 0"), Empty.Sample(FVector3f(0, 0, 1)), 0.f);
 	return true;
 }
 

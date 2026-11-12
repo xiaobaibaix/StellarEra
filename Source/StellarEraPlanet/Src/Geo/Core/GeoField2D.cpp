@@ -66,6 +66,7 @@ void FGeoField2D::BuildMips(int32 Count)
 
 float FGeoField2D::Sample(const FVector3f& Dir, int32 Mip) const
 {
+	if (Levels.IsEmpty()) { return 0.f; }
 	Mip = FMath::Clamp(Mip, 0, Levels.Num() - 1);
 	const int32 R = MipRes(Mip);
 	int32 Face; float U, V;
