@@ -25,8 +25,17 @@ bool FPlanetBakePipeline::Validate(FPlanetBakeReport& Report) const
 {
 	EPlanetField Written = EPlanetField::None;
 	bool bOk = true;
+	const IPlanetStage* Prev = nullptr;
 	for (const IPlanetStage* S : Sorted())
 	{
+		// 同号阶段会派生出相同的随机流，且执行先后取决于添加顺序，必须拒绝。
+		if (Prev && Prev->GetStageIndex() == S->GetStageIndex())
+		{
+			Report.Errors.Add(FString::Printf(TEXT("[地质] 阶段 %s 与 %s 的阶段号相同（%u）"),
+				*Prev->GetName().ToString(), *S->GetName().ToString(), S->GetStageIndex()));
+			bOk = false;
+		}
+		Prev = S;
 		const EPlanetField Missing = S->GetReads() & ~Written;
 		if (Missing != EPlanetField::None)
 		{
@@ -43,6 +52,8 @@ TSharedPtr<const FPlanetSnapshot> FPlanetBakePipeline::Bake(const FPlanetRecipeC
 {
 	if (!Validate(Report)) { return nullptr; }
 
+	// 报告可能被复用：只认本次烘焙新增的错误。
+	const int32 ErrorCount = Report.Errors.Num();
 	FPlanetBakeFields Fields;
 	for (const IPlanetStage* S : Sorted())
 	{
@@ -50,7 +61,7 @@ TSharedPtr<const FPlanetSnapshot> FPlanetBakePipeline::Bake(const FPlanetRecipeC
 		FPlanetBakeContext Ctx{ Config, Fields, FGeoRng::Derive(Config.Seed, S->GetStageIndex(), 0), Report };
 		S->Bake(Ctx);
 		Report.StageSeconds.Emplace(S->GetName(), FPlatformTime::Seconds() - T0);
-		if (Report.HasErrors()) { return nullptr; }
+		if (Report.Errors.Num() > ErrorCount) { return nullptr; }
 	}
 
 	TSharedPtr<FPlanetSnapshot> Snap = MakeShared<FPlanetSnapshot>();

@@ -19,8 +19,10 @@ namespace
 		virtual EPlanetField GetWrites() const override { return Writes; }
 		virtual void Bake(FPlanetBakeContext& Ctx) const override
 		{
+			if (bAddError) { Ctx.Report.Errors.Add(TEXT("fake error")); }
 			if (EnumHasAnyFlags(Writes, EPlanetField::Radial)) { Ctx.Fields.Radial.Layers = { { 1.f, 1, 0.f } }; }
 		}
+		bool bAddError = false;
 	private:
 		FName Name; uint32 Index; EPlanetField Reads, Writes;
 	};
@@ -61,6 +63,64 @@ bool FGeoPipelineTest::RunTest(const FString& Parameters)
 	FPlanetRecipeConfig Other = Config;
 	Other.Seed = 1338;
 	TestTrue(TEXT("改种子配方哈希变"), Config.Hash() != Other.Hash());
+
+	// 阶段报错 → Bake 返回空
+	{
+		FPlanetBakePipeline P;
+		TUniquePtr<FFakeStage> S = MakeUnique<FFakeStage>(TEXT("Failing"), 1, EPlanetField::None, EPlanetField::Radial);
+		S->bAddError = true;
+		P.AddStage(MoveTemp(S));
+		FPlanetBakeReport R;
+		TestFalse(TEXT("阶段写了错误 → Bake 返回空"), P.Bake(Config, R).IsValid());
+		TestTrue(TEXT("错误留在报告里"), R.HasErrors());
+	}
+
+	// 复用报告：已有的无关错误不能让合法流水线失败
+	{
+		FPlanetBakePipeline P;
+		P.AddStage(MakeUnique<FFakeStage>(TEXT("Writer"), 1, EPlanetField::None, EPlanetField::Radial));
+		FPlanetBakeReport R;
+		R.Errors.Add(TEXT("earlier unrelated error"));
+		TestTrue(TEXT("复用带旧错误的报告仍能烘焙"), P.Bake(Config, R).IsValid());
+		TestEqual(TEXT("旧错误不被清掉也不新增"), R.Errors.Num(), 1);
+	}
+
+	// 重复阶段号
+	{
+		FPlanetBakePipeline P;
+		P.AddStage(MakeUnique<FFakeStage>(TEXT("DupA"), 1, EPlanetField::None, EPlanetField::Radial));
+		P.AddStage(MakeUnique<FFakeStage>(TEXT("DupB"), 1, EPlanetField::None, EPlanetField::MohoWobble));
+		FPlanetBakeReport R;
+		TestFalse(TEXT("重复阶段号 → 校验失败"), P.Validate(R));
+		TestTrue(TEXT("错误同时点名两个阶段"),
+			R.Errors.Num() > 0 && R.Errors[0].Contains(TEXT("DupA")) && R.Errors[0].Contains(TEXT("DupB")));
+	}
+
+	// 确定性
+	{
+		FPlanetBakePipeline P;
+		P.AddStage(MakeUnique<FFakeStage>(TEXT("Writer"), 1, EPlanetField::None, EPlanetField::Radial));
+		FPlanetBakeReport R1, R2;
+		const TSharedPtr<const FPlanetSnapshot> A = P.Bake(Config, R1);
+		const TSharedPtr<const FPlanetSnapshot> B = P.Bake(Config, R2);
+		TestTrue(TEXT("两次烘焙都成功"), A.IsValid() && B.IsValid());
+		if (A && B) { TestEqual(TEXT("同配方两次烘焙 ContentHash 相同"), A->ContentHash, B->ContentHash); }
+	}
+
+	// 配方哈希敏感度
+	{
+		const uint64 H0 = Config.Hash();
+		FPlanetRecipeConfig C = Config; C.Radius += 1.0;
+		TestTrue(TEXT("Radius 变 → 哈希变"), C.Hash() != H0);
+		C = Config; C.VoxelSizeCm += 1.f;
+		TestTrue(TEXT("VoxelSizeCm 变 → 哈希变"), C.Hash() != H0);
+		C = Config; C.FaceRes += 1;
+		TestTrue(TEXT("FaceRes 变 → 哈希变"), C.Hash() != H0);
+		C = Config; C.Sphere.CrustRatio += 0.01f;
+		TestTrue(TEXT("Sphere 比例变 → 哈希变"), C.Hash() != H0);
+		C = Config; C.bSingleThreadBake = !C.bSingleThreadBake;
+		TestTrue(TEXT("bSingleThreadBake 变 → 哈希不变"), C.Hash() == H0);
+	}
 	return true;
 }
 
