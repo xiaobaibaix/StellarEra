@@ -1,6 +1,7 @@
 ﻿// 全项目唯一的材质通道约定（附录 11-material-field.md §2）。改布局只改这里 + MF_GeoDecode。
 #pragma once
 #include "CoreMinimal.h"
+#include "GeoLithology.h"
 
 struct FGeoSample
 {
@@ -43,5 +44,14 @@ namespace GeoMaterialCodec
 		S.SecondaryMineral = M.U0;
 		S.SecondaryGrade = M.V0;
 		return S;
+	}
+
+	/** M1 调试：RGB 直接写岩性调试色，让现成顶点色材质看得出分层。Task 14 选定方案后删除。 */
+	FORCEINLINE FGeoPackedMaterial EncodeDebugColor(const FGeoSample& S)
+	{
+		FGeoPackedMaterial M = Encode(S);
+		const FColor C = GeoLithology::DebugColor(S.Lithology);
+		M.R = C.R; M.G = C.G; M.B = C.B;
+		return M;
 	}
 }
