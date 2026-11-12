@@ -31,6 +31,15 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("MohoWobbleRatio"), C.Sphere.MohoWobbleRatio, 0.02f);
 	TestEqual(TEXT("WobbleOctaves"), C.Sphere.WobbleOctaves, 4);
 	TestTrue(TEXT("改了字段配方哈希就变"), C.Hash() != Default.Hash());
+
+	// 阶段 2 参数必须进哈希，否则改了大陆形状快照哈希不变、存档校验失效。
+	FPlanetRecipeConfig PlateA, PlateB = PlateA;
+	PlateB.Plates.LandTableVoxels = PlateA.Plates.LandTableVoxels + 10.f;
+	TestTrue(TEXT("陆台高进哈希"), PlateA.Hash() != PlateB.Hash());
+	FPlanetRecipeConfig PlateC = PlateA;
+	PlateC.Plates.AlphaMax = 3.f;
+	TestTrue(TEXT("α 搜索区间进哈希"), PlateA.Hash() != PlateC.Hash());
+	TestEqual(TEXT("默认板块数 7"), PlateA.Plates.PlateCount, 7);
 	return true;
 }
 
