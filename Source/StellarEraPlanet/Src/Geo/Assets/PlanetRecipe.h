@@ -43,5 +43,31 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Stage1|Moho", meta = (ClampMin = "1", ClampMax = "6"))
 	int32 WobbleOctaves = 3;
 
+	// 六个平铺 UPROPERTY 而非 FPlanetPlateParams 的 USTRUCT 镜像：USTRUCT 会把 CoreUObject
+	// 拖进 Geo/Bake（该头只用 CoreMinimal.h + GeoRng.h），check_architecture 会判层次违规。
+	/** 板块数，3–15；> 15 处处是山，< 3 出不了三节点。 */
+	UPROPERTY(EditAnywhere, Category = "Stage2|Plates", meta = (ClampMin = "3", ClampMax = "15"))
+	int32 PlateCount = 7;
+
+	/** 目标陆地面积占比，无量纲 0–1；二分反解 α 收敛到它。 */
+	UPROPERTY(EditAnywhere, Category = "Stage2|Plates", meta = (ClampMin = "0.05", ClampMax = "0.95"))
+	float TargetLandFrac = 0.30f;
+
+	/** 陆台高出海平面的高度，体素。 */
+	UPROPERTY(EditAnywhere, Category = "Stage2|Plates", meta = (ClampMin = "0"))
+	float LandTableVoxels = 240.f;
+
+	/** 洋盆低于海平面的深度，体素。 */
+	UPROPERTY(EditAnywhere, Category = "Stage2|Plates", meta = (ClampMin = "0"))
+	float OceanBasinVoxels = 480.f;
+
+	/** 板块风格低频起伏幅度，体素。 */
+	UPROPERTY(EditAnywhere, Category = "Stage2|Plates", meta = (ClampMin = "0"))
+	float StyleAmpVoxels = 120.f;
+
+	/** 大陆坡水平宽度，体素。 */
+	UPROPERTY(EditAnywhere, Category = "Stage2|Plates", meta = (ClampMin = "1"))
+	float SlopeWidthVoxels = 240.f;
+
 	FPlanetRecipeConfig ToConfig() const;
 };

@@ -17,5 +17,12 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig() const
 	C.Sphere.OuterCoreRatio = OuterCoreRatio;
 	C.Sphere.MohoWobbleRatio = MohoWobbleRatio;
 	C.Sphere.WobbleOctaves = WobbleOctaves;
+	// 只覆盖六个可调项，其余 FPlanetPlateParams 字段保持默认。
+	C.Plates.PlateCount = PlateCount;
+	C.Plates.TargetLandFrac = TargetLandFrac;
+	C.Plates.LandTableVoxels = LandTableVoxels;
+	C.Plates.OceanBasinVoxels = OceanBasinVoxels;
+	C.Plates.StyleAmpVoxels = StyleAmpVoxels;
+	C.Plates.SlopeWidthVoxels = SlopeWidthVoxels;
 	return C;
 }

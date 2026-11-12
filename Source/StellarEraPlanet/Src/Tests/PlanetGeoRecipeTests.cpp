@@ -40,6 +40,49 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 	PlateC.Plates.AlphaMax = 3.f;
 	TestTrue(TEXT("α 搜索区间进哈希"), PlateA.Hash() != PlateC.Hash());
 	TestEqual(TEXT("默认板块数 7"), PlateA.Plates.PlateCount, 7);
+
+	// 阶段 2 六项要逐项落到 C.Plates；用互不相同的量级，赋值错位会在这里暴露。
+	UPlanetRecipe* PlateRecipe = NewObject<UPlanetRecipe>();
+	const FPlanetPlateParams PlateDefaults;
+	const FPlanetRecipeConfig PlateDefaultCfg = PlateRecipe->ToConfig();
+	TestEqual(TEXT("默认 PlateCount"), PlateDefaultCfg.Plates.PlateCount, PlateDefaults.PlateCount);
+	TestEqual(TEXT("默认 TargetLandFrac"), PlateDefaultCfg.Plates.TargetLandFrac, PlateDefaults.TargetLandFrac);
+	TestEqual(TEXT("默认 LandTableVoxels"), PlateDefaultCfg.Plates.LandTableVoxels, PlateDefaults.LandTableVoxels);
+	TestEqual(TEXT("默认 OceanBasinVoxels"), PlateDefaultCfg.Plates.OceanBasinVoxels, PlateDefaults.OceanBasinVoxels);
+	TestEqual(TEXT("默认 StyleAmpVoxels"), PlateDefaultCfg.Plates.StyleAmpVoxels, PlateDefaults.StyleAmpVoxels);
+	TestEqual(TEXT("默认 SlopeWidthVoxels"), PlateDefaultCfg.Plates.SlopeWidthVoxels, PlateDefaults.SlopeWidthVoxels);
+	TestEqual(TEXT("未暴露 WarpAmp 走默认"), PlateDefaultCfg.Plates.WarpAmp, PlateDefaults.WarpAmp);
+	TestEqual(TEXT("未暴露 SigmaRatio 走默认"), PlateDefaultCfg.Plates.SigmaRatio, PlateDefaults.SigmaRatio);
+
+	PlateRecipe->PlateCount = 11;
+	PlateRecipe->TargetLandFrac = 0.42f;
+	PlateRecipe->LandTableVoxels = 310.f;
+	PlateRecipe->OceanBasinVoxels = 520.f;
+	PlateRecipe->StyleAmpVoxels = 95.f;
+	PlateRecipe->SlopeWidthVoxels = 175.f;
+	const FPlanetRecipeConfig PlateCfg = PlateRecipe->ToConfig();
+	TestEqual(TEXT("PlateCount"), PlateCfg.Plates.PlateCount, 11);
+	TestEqual(TEXT("TargetLandFrac"), PlateCfg.Plates.TargetLandFrac, 0.42f);
+	TestEqual(TEXT("LandTableVoxels"), PlateCfg.Plates.LandTableVoxels, 310.f);
+	TestEqual(TEXT("OceanBasinVoxels"), PlateCfg.Plates.OceanBasinVoxels, 520.f);
+	TestEqual(TEXT("StyleAmpVoxels"), PlateCfg.Plates.StyleAmpVoxels, 95.f);
+	TestEqual(TEXT("SlopeWidthVoxels"), PlateCfg.Plates.SlopeWidthVoxels, 175.f);
+
+	// 六项都必须进 Hash()：漏一项则改它快照哈希不变、存档校验失效。
+	const uint64 BaseHash = PlateCfg.Hash();
+	FPlanetRecipeConfig HashProbe = PlateCfg;
+	HashProbe.Plates.PlateCount = 12;
+	TestTrue(TEXT("PlateCount 进哈希"), HashProbe.Hash() != BaseHash);
+	HashProbe = PlateCfg; HashProbe.Plates.TargetLandFrac = 0.43f;
+	TestTrue(TEXT("TargetLandFrac 进哈希"), HashProbe.Hash() != BaseHash);
+	HashProbe = PlateCfg; HashProbe.Plates.LandTableVoxels = 311.f;
+	TestTrue(TEXT("LandTableVoxels 进哈希"), HashProbe.Hash() != BaseHash);
+	HashProbe = PlateCfg; HashProbe.Plates.OceanBasinVoxels = 521.f;
+	TestTrue(TEXT("OceanBasinVoxels 进哈希"), HashProbe.Hash() != BaseHash);
+	HashProbe = PlateCfg; HashProbe.Plates.StyleAmpVoxels = 96.f;
+	TestTrue(TEXT("StyleAmpVoxels 进哈希"), HashProbe.Hash() != BaseHash);
+	HashProbe = PlateCfg; HashProbe.Plates.SlopeWidthVoxels = 176.f;
+	TestTrue(TEXT("SlopeWidthVoxels 进哈希"), HashProbe.Hash() != BaseHash);
 	return true;
 }
 

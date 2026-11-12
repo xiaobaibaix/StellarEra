@@ -217,6 +217,10 @@ StellarEraCosmos/Src/
 判据要看 include 关系而不是文件名：被别的模块引用的东西，往往根本不属于当前这个
 功能面（`Invokers/` 就是这么从 `Terrain/` 里分出来的）。
 
+`Source/StellarEraPlanet/Src/Geo/Bake/Stages/` 是项目里第二处三级目录（第一处是
+`Minerals/Geology/Distributions/`）：以后每个地质阶段一个文件对（`StageNN*.h/.cpp`），
+一律放这里。
+
 ---
 
 ## 随时复查
