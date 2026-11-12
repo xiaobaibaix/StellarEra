@@ -28,7 +28,8 @@ bool FGeoSnapshotTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("地表处接近 0"), FMath::Abs(PlanetShapeEval::Value(S, Dir * 1000.0)) < 1e-3f);
 	TestTrue(TEXT("球心不出 NaN"), FMath::IsFinite(PlanetShapeEval::Value(S, FVector3d::ZeroVector)));
 
-	TestEqual(TEXT("深度 0.1 是地壳"), PlanetMaterialEval::Sample(S, Dir * 900.0).Lithology, GeoLithology::Crust);
+	// 没有高程场的快照把地壳一律算陆壳（无海平面可分）。
+	TestEqual(TEXT("深度 0.1 是陆壳"), PlanetMaterialEval::Sample(S, Dir * 900.0).Lithology, GeoLithology::ContinentalCrust);
 	TestEqual(TEXT("深度 0.5 是内核层"), PlanetMaterialEval::Sample(S, Dir * 500.0).Lithology, GeoLithology::InnerCore);
 
 	FGeoRng Rng = FGeoRng::Derive(5, 0, 0);

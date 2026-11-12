@@ -31,9 +31,14 @@ bool FGeoStage01Test::RunTest(const FString& Parameters)
 	{
 		const float Z = Rng.Range(-1.f, 1.f), Phi = Rng.Range(0.f, 2.f * PI), S = FMath::Sqrt(1.f - Z * Z);
 		const FVector3d Dir(S * FMath::Cos(Phi), S * FMath::Sin(Phi), Z);
+		// 地壳层不再按深度分岩性，按海平面分（阶段 2）。
+		const uint8 ExpectedCrust = Snap->Elevation.Res > 0
+			&& Snap->Elevation.Sample(FVector3f(Dir)) < Snap->CrustSplitElevation
+			? GeoLithology::OceanicCrust : GeoLithology::ContinentalCrust;
 		for (int32 L = 0; L < 6; ++L)
 		{
-			bLayers &= PlanetMaterialEval::Sample(*Snap, Dir * (Config.Radius * (1.0 - Mid[L]))).Lithology == Expect[L];
+			const uint8 Want = L == 0 ? ExpectedCrust : Expect[L];
+			bLayers &= PlanetMaterialEval::Sample(*Snap, Dir * (Config.Radius * (1.0 - Mid[L]))).Lithology == Want;
 		}
 		const float W = Snap->MohoWobble.Sample(FVector3f(Dir));
 		MinW = FMath::Min(MinW, W);

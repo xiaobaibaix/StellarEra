@@ -2,6 +2,7 @@
 #include "HAL/PlatformTime.h"
 #include "PlanetStage.h"
 #include "Stage01Sphere.h"
+#include "Stage02Plates.h"
 
 FPlanetBakePipeline::FPlanetBakePipeline() = default;
 FPlanetBakePipeline::~FPlanetBakePipeline() = default;
@@ -69,8 +70,20 @@ TSharedPtr<const FPlanetSnapshot> FPlanetBakePipeline::Bake(const FPlanetRecipeC
 	Snap->Radial = MoveTemp(Fields.Radial);
 	Snap->MohoWobble = MoveTemp(Fields.MohoWobble);
 	Snap->Primitives.Build(MoveTemp(Fields.Primitives));
-	// M1 没有地形起伏：地表恒为 R0。M3 起由阶段 3 写入实测上下界。
-	Snap->MinSurfaceRadius = Snap->MaxSurfaceRadius = Config.Radius;
+	// 只有阶段 1 时没有高程场，地表恒为 R0；有阶段 2 就用实测上下界。
+	const bool bHasElevation = Fields.Elevation.Res > 0;
+	Snap->Elevation = MoveTemp(Fields.Elevation);
+	Snap->CrustSplitElevation = -0.5f * Config.Plates.OceanBasinVoxels;
+	if (bHasElevation)
+	{
+		Snap->MinSurfaceRadius = Snap->R0 + double(Fields.MinElevation);
+		Snap->MaxSurfaceRadius = Snap->R0 + double(Fields.MaxElevation);
+	}
+	else
+	{
+		Snap->MinSurfaceRadius = Snap->MaxSurfaceRadius = Snap->R0;
+	}
+	// 上下界必须在哈希之前定好：FinalizeHash 读的是当前值，晚写会让哈希与内容不符。
 	Snap->FinalizeHash();
 	return Snap;
 }
@@ -79,5 +92,6 @@ FPlanetBakePipeline FPlanetBakePipeline::MakeDefault()
 {
 	FPlanetBakePipeline P;
 	P.AddStage(MakeUnique<FStage01Sphere>());
+	P.AddStage(MakeUnique<FStage02Plates>());
 	return P;
 }

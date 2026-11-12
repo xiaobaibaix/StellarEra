@@ -19,10 +19,12 @@ public:
 	/** 校验失败或任一阶段写了 Error 时返回空。 */
 	TSharedPtr<const FPlanetSnapshot> Bake(const FPlanetRecipeConfig& Config, FPlanetBakeReport& Report) const;
 
-	/** 项目默认的阶段集合（M1 只有阶段 1）。 */
+	/** 项目默认的阶段集合（阶段 1 圈层 + 阶段 2 板块与高程）。 */
 	static FPlanetBakePipeline MakeDefault();
+
+	/** 按阶段号排序后的执行顺序；测试用它确认默认管线包含哪些阶段。 */
+	TArray<const IPlanetStage*> Sorted() const;
 
 private:
 	TArray<TUniquePtr<IPlanetStage>> Stages;
-	TArray<const IPlanetStage*> Sorted() const;
 };

@@ -5,9 +5,9 @@
 
 namespace PlanetShapeEval
 {
-	FORCEINLINE double SurfaceRadius(const FPlanetSnapshot& S, const FVector3f& /*Dir*/)
+	FORCEINLINE double SurfaceRadius(const FPlanetSnapshot& S, const FVector3f& Dir)
 	{
-		return S.R0;   // M3 起叠加 Elevation
+		return S.R0 + (S.Elevation.Res > 0 ? double(S.Elevation.Sample(Dir)) : 0.0);
 	}
 
 	FORCEINLINE float Value(const FPlanetSnapshot& S, const FVector3d& P)

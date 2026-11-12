@@ -14,6 +14,12 @@ namespace PlanetMaterialEval
 		const float Wobble = S.MohoWobble.Res > 0 ? S.MohoWobble.Sample(Dir) : 0.f;
 		FGeoSample Out;
 		Out.Lithology = S.Radial.LithologyAt(DepthRatio, Wobble);
+		// 地壳不分深度，按海平面分陆壳 / 洋壳：两套成矿背景的判据是海拔不是厚度。
+		if (Out.Lithology == GeoLithology::Crust)
+		{
+			const float E = S.Elevation.Res > 0 ? S.Elevation.Sample(Dir) : 0.f;
+			Out.Lithology = E < S.CrustSplitElevation ? GeoLithology::OceanicCrust : GeoLithology::ContinentalCrust;
+		}
 		return Out;
 	}
 }

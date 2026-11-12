@@ -15,6 +15,10 @@ struct STELLARERAPLANET_API FPlanetSnapshot
 	/** 莫霍面等界面的起伏，∈ [-1,1]，乘各层 WobbleRatio 得到半径比例。 */
 	FGeoField2D MohoWobble;
 	FGeoPrimitiveIndex Primitives;
+	/** 地表高程（体素，相对 R0）；Res==0 表示阶段 2 未运行，地表仍是 R0。 */
+	FGeoField2D Elevation;
+	/** 低于它算洋壳岩性；取洋盆深度的一半，与烘焙期 CrustType 的分界一致。 */
+	float CrustSplitElevation = -240.f;
 	/** 地表半径的保守上下界，值域与早退都以它为准。 */
 	double MinSurfaceRadius = 0.0;
 	double MaxSurfaceRadius = 0.0;

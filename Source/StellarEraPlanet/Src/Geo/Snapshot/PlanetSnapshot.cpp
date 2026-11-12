@@ -18,6 +18,8 @@ void FPlanetSnapshot::FinalizeHash()
 	H = GeoHash::Combine(H, Radial.Hash());
 	H = GeoHash::Combine(H, MohoWobble.Hash());
 	H = GeoHash::Combine(H, Primitives.Hash());
+	H = GeoHash::Combine(H, Elevation.Hash());
+	H = GeoHash::Combine(H, GeoHash::Float(CrustSplitElevation));
 	H = GeoHash::Combine(H, HashDouble(MinSurfaceRadius));
 	H = GeoHash::Combine(H, HashDouble(MaxSurfaceRadius));
 	ContentHash = H;
@@ -25,5 +27,6 @@ void FPlanetSnapshot::FinalizeHash()
 
 SIZE_T FPlanetSnapshot::GetAllocatedSize() const
 {
-	return Radial.Layers.GetAllocatedSize() + MohoWobble.GetAllocatedSize() + Primitives.GetAllocatedSize();
+	return Radial.Layers.GetAllocatedSize() + MohoWobble.GetAllocatedSize() + Primitives.GetAllocatedSize()
+		+ Elevation.GetAllocatedSize();
 }
