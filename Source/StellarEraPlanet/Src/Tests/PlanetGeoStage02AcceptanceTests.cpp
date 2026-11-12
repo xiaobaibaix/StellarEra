@@ -9,7 +9,7 @@
 
 namespace
 {
-	FVector3f RandomUnitDir(FGeoRng& Rng)
+	FVector3f AcceptanceRandomUnitDir(FGeoRng& Rng)
 	{
 		const float Z = Rng.Range(-1.f, 1.f), Phi = Rng.Range(0.f, 2.f * PI), S = FMath::Sqrt(1.f - Z * Z);
 		return FVector3f(S * FMath::Cos(Phi), S * FMath::Sin(Phi), Z);
@@ -50,7 +50,7 @@ bool FGeoStage02AcceptanceTest::RunTest(const FString& Parameters)
 		float MinV = TNumericLimits<float>::Max(), MaxV = -TNumericLimits<float>::Max();
 		for (int32 i = 0; i < 100000; ++i)
 		{
-			const FVector3d BoxCenter = FVector3d(RandomUnitDir(Rng)) * (Snap->R0 + double(Rng.Range(-800.f, 800.f)));
+			const FVector3d BoxCenter = FVector3d(AcceptanceRandomUnitDir(Rng)) * (Snap->R0 + double(Rng.Range(-800.f, 800.f)));
 			const FVector3d Half(64.0);
 			const FGeoRange Range = PlanetShapeEval::ValueRange(*Snap, BoxCenter - Half, BoxCenter + Half);
 			const FVector3d P(BoxCenter.X + double(Rng.Range(-64.f, 64.f)),
@@ -70,7 +70,7 @@ bool FGeoStage02AcceptanceTest::RunTest(const FString& Parameters)
 		int32 Land = 0;
 		for (int32 i = 0; i < Probes; ++i)
 		{
-			Land += Snap->Elevation.Sample(RandomUnitDir(Rng)) > 0.f ? 1 : 0;
+			Land += Snap->Elevation.Sample(AcceptanceRandomUnitDir(Rng)) > 0.f ? 1 : 0;
 		}
 		const double LandFrac = double(Land) / double(Probes);
 		TestTrue(FString::Printf(TEXT("陆地占比 %.4f ∈ [0.22, 0.38]"), LandFrac), LandFrac >= 0.22 && LandFrac <= 0.38);
