@@ -1,6 +1,7 @@
 ﻿#include "PlanetBakePipeline.h"
 #include "HAL/PlatformTime.h"
 #include "PlanetStage.h"
+#include "Stage01Sphere.h"
 
 FPlanetBakePipeline::FPlanetBakePipeline() = default;
 FPlanetBakePipeline::~FPlanetBakePipeline() = default;
@@ -65,5 +66,7 @@ TSharedPtr<const FPlanetSnapshot> FPlanetBakePipeline::Bake(const FPlanetRecipeC
 
 FPlanetBakePipeline FPlanetBakePipeline::MakeDefault()
 {
-	return FPlanetBakePipeline();
+	FPlanetBakePipeline P;
+	P.AddStage(MakeUnique<FStage01Sphere>());
+	return P;
 }
