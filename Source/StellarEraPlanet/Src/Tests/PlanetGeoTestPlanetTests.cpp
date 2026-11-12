@@ -16,6 +16,8 @@ bool FGeoTestPlanetTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("RGB 材质配置"), Cdo->MaterialConfig == EVoxelMaterialConfig::RGB);
 	TestEqual(TEXT("R=40000 → 世界边长 131072"), AGeoTestPlanetActor::ComputeWorldSize(40000.0), 131072);
 	TestEqual(TEXT("R=1000 → 4096"), AGeoTestPlanetActor::ComputeWorldSize(1000.0), 4096);
+	TestTrue(TEXT("R=0 不返回 0"), AGeoTestPlanetActor::ComputeWorldSize(0.0) > 0);
+	TestTrue(TEXT("巨大 R 不回绕成非正"), AGeoTestPlanetActor::ComputeWorldSize(1e12) > 0);
 	return true;
 }
 

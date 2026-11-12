@@ -29,13 +29,22 @@ AGeoTestPlanetActor::AGeoTestPlanetActor()
 
 int32 AGeoTestPlanetActor::ComputeWorldSize(double RadiusVoxels)
 {
-	return int32(FMath::RoundUpToPowerOfTwo(uint32(FMath::CeilToInt(RadiusVoxels * 3.0))));
+	// 夹到 [1, 2^30]：非正值会得 0，过大值会让 uint32 溢出回绕成 0。
+	const double Clamped = FMath::Clamp(RadiusVoxels * 3.0, 1.0, double(1 << 30));
+	return int32(FMath::RoundUpToPowerOfTwo(uint32(FMath::CeilToInt(Clamped))));
 }
 
 void AGeoTestPlanetActor::BeginPlay()
 {
 	Super::BeginPlay();
+	bShuttingDown = false;
 	StartBake();
+}
+
+void AGeoTestPlanetActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	bShuttingDown = true;
+	Super::EndPlay(EndPlayReason);
 }
 
 void AGeoTestPlanetActor::StartBake()
@@ -66,10 +75,15 @@ void AGeoTestPlanetActor::StartBake()
 void AGeoTestPlanetActor::OnBakeFinished(TSharedPtr<const FPlanetSnapshot> InSnapshot, double RadiusVoxels, double BakeSeconds)
 {
 	bBakeInFlight = false;
+	UWorld* World = GetWorld();
+	if (bShuttingDown || !World || World->bIsTearingDown) { return; }
 	if (!InSnapshot) { return; }
 	Snapshot = InSnapshot;
 	UE_LOG(LogTemp, Log, TEXT("[地质] %s 烘焙完成：半径 %.0f 体素，%.2f s，快照 %.1f MB，哈希 %016llx"),
 		*GetName(), RadiusVoxels, BakeSeconds, double(Snapshot->GetAllocatedSize()) / (1024.0 * 1024.0), Snapshot->ContentHash);
+
+	// 先拆旧世界：已创建时 SetWorldSize 会被拒，且旧世界还在用旧生成器。
+	if (IsCreated()) { DestroyWorld(); }
 
 	if (!GeoGenerator) { GeoGenerator = NewObject<UPlanetGeoGenerator>(this, TEXT("GeoGenerator")); }
 	GeoGenerator->SetSnapshot(Snapshot);
@@ -77,8 +91,6 @@ void AGeoTestPlanetActor::OnBakeFinished(TSharedPtr<const FPlanetSnapshot> InSna
 	// 必须在 CreateWorld 前：插件在创建时快照生成器。
 	Generator = FVoxelGeneratorPicker(GeoGenerator.Get());
 
-	if (IsCreated()) { DestroyWorld(); }
-	UWorld* World = GetWorld();
 	if (World && World->IsGameWorld() && !UVoxelBlueprintLibrary::IsWorldVoxelPoolCreated(World))
 	{
 		UVoxelBlueprintLibrary::CreateWorldVoxelThreadPool(World, PriorityCategories, PriorityOffsets, NumberOfThreads, bConstantPriorities);

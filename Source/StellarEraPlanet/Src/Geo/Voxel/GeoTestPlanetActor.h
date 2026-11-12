@@ -28,6 +28,7 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
 	UPROPERTY(Transient)
@@ -35,6 +36,8 @@ private:
 
 	TSharedPtr<const FPlanetSnapshot> Snapshot;
 	bool bBakeInFlight = false;
+	// 后台烘焙回调可能晚于 PIE 结束；此时再 CreateWorld 会撞上世界拆除。
+	bool bShuttingDown = false;
 
 	void OnBakeFinished(TSharedPtr<const FPlanetSnapshot> InSnapshot, double RadiusVoxels, double BakeSeconds);
 };
