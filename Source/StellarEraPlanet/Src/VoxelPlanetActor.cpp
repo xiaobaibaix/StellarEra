@@ -845,6 +845,7 @@ void AVoxelPlanetActor::RebuildGeoPlanet()
 		GeoGenerator = NewObject<UPlanetGeoGenerator>(this, TEXT("GeoGenerator"));
 	}
 	GeoGenerator->SetSnapshot(GeoSnapshot);
+	GeoGenerator->DebugColor = GeoDebugColor;
 
 	// 与旧路径同一收紧策略：边长收到半径 3 倍并取 2 的幂。
 	SetWorldSize(FMath::RoundUpToPowerOfTwo(FMath::CeilToInt(GetScaledRadiusVoxels() * 3.f)));
@@ -1727,6 +1728,7 @@ uint64 AVoxelPlanetActor::ComputeParamsHash() const
 	Mix(*GeoRecipePath, GeoRecipePath.Len() * sizeof(TCHAR));
 	const uint64 GeoContentHash = GeoSnapshot.IsValid() ? GeoSnapshot->ContentHash : 0;
 	Mix(&GeoContentHash, sizeof(GeoContentHash));
+	Mix(&GeoDebugColor, sizeof(GeoDebugColor));
 
 	return Hash;
 }

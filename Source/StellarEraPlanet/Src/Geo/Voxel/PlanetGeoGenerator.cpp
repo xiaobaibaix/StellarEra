@@ -2,6 +2,7 @@
 #include "GeoMaterialCodec.h"
 #include "PlanetMaterialEval.h"
 #include "PlanetShapeEval.h"
+#include "PlanetDebugColor.h"
 #include "VoxelIntBox.h"
 
 TVoxelSharedRef<FVoxelGeneratorInstance> UPlanetGeoGenerator::GetInstance()
@@ -10,14 +11,14 @@ TVoxelSharedRef<FVoxelGeneratorInstance> UPlanetGeoGenerator::GetInstance()
 	{
 		UE_LOG(LogTemp, Error, TEXT("[地质] UPlanetGeoGenerator 没有快照，生成空气"));
 	}
-	return MakeVoxelShared<FPlanetGeoGeneratorInstance>(*this, Snapshot, bDebugLithologyColor);
+	return MakeVoxelShared<FPlanetGeoGeneratorInstance>(*this, Snapshot, DebugColor);
 }
 
 FPlanetGeoGeneratorInstance::FPlanetGeoGeneratorInstance(
-	UPlanetGeoGenerator& Owner, TSharedPtr<const FPlanetSnapshot> InSnapshot, bool bInDebugColor)
+	UPlanetGeoGenerator& Owner, TSharedPtr<const FPlanetSnapshot> InSnapshot, EPlanetGeoDebugColor InDebugColor)
 	: Super(&Owner)
 	, Snapshot(MoveTemp(InSnapshot))
-	, bDebugColor(bInDebugColor)
+	, DebugColor(InDebugColor)
 {
 }
 
@@ -31,8 +32,23 @@ FVoxelMaterial FPlanetGeoGeneratorInstance::GetMaterialImpl(v_flt X, v_flt Y, v_
 {
 	FVoxelMaterial M(ForceInit);
 	if (!Snapshot) { return M; }
-	const FGeoSample S = PlanetMaterialEval::Sample(*Snapshot, FVector3d(X, Y, Z));
-	const FGeoPackedMaterial P = bDebugColor ? GeoMaterialCodec::EncodeDebugColor(S) : GeoMaterialCodec::Encode(S);
+	const FVector3d Pos(X, Y, Z);
+	const FGeoSample S = PlanetMaterialEval::Sample(*Snapshot, Pos);
+	FGeoPackedMaterial P = DebugColor == EPlanetGeoDebugColor::None ? GeoMaterialCodec::Encode(S) : GeoMaterialCodec::EncodeDebugColor(S);
+	if (DebugColor == EPlanetGeoDebugColor::Elevation)
+	{
+		const double D = Pos.Size();
+		const FVector3f Dir = D > 1e-6 ? FVector3f(Pos / D) : FVector3f::UpVector;
+		const double Surface = PlanetShapeEval::SurfaceRadius(*Snapshot, Dir);
+		// 只染地表 16 体素内：挖下去要能看见圈层，不能整颗星都是地形色。
+		if (Surface - D < 16.0)
+		{
+			const FColor C = PlanetDebugColor::FromElevation(float(Surface - Snapshot->R0),
+				float(Snapshot->R0 - Snapshot->MinSurfaceRadius), float(Snapshot->MaxSurfaceRadius - Snapshot->R0),
+				Snapshot->CrustSplitElevation);
+			P.R = C.R; P.G = C.G; P.B = C.B;
+		}
+	}
 	M.SetR(P.R); M.SetG(P.G); M.SetB(P.B); M.SetA(P.A);
 	M.SetU0(P.U0); M.SetV0(P.V0); M.SetU1(P.U1); M.SetV1(P.V1);
 	return M;

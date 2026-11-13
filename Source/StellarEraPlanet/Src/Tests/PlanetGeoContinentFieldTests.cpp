@@ -4,6 +4,7 @@
 #include "GeoContinentField.h"
 #include "GeoRng.h"
 #include "Stage02Plates.h"
+#include "PlanetDebugColor.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -111,6 +112,17 @@ bool FGeoContinentFieldTest::RunTest(const FString& Parameters)
 		TestTrue(FString::Printf(TEXT("Rank(0.5) ≈ 0.75（%.4f）"), Cdf.Rank(0.5f)), FMath::Abs(Cdf.Rank(0.5f) - 0.75f) < 0.01f);
 		TestTrue(TEXT("面中心权重 > 面角"),
 			GeoContinentField::TexelWeight(Field, 32, 32) > GeoContinentField::TexelWeight(Field, 0, 0));
+	}
+
+	// 调试色五档互不相同，海是蓝调、陆不是。
+	{
+		const float Es[5] = { -470.f, -20.f, 2.f, 60.f, 230.f };
+		FColor Cs[5];
+		for (int32 i = 0; i < 5; ++i) { Cs[i] = PlanetDebugColor::FromElevation(Es[i], 480.f, 240.f, -48.f); }
+		for (int32 i = 0; i < 5; ++i) for (int32 j = i + 1; j < 5; ++j) { TestTrue(FString::Printf(TEXT("调试色 %d≠%d"), i, j), Cs[i] != Cs[j]); }
+		TestTrue(TEXT("深海偏蓝"), Cs[0].B > Cs[0].R);
+		TestTrue(TEXT("陆架偏蓝"), Cs[1].B > Cs[1].R);
+		TestTrue(TEXT("平原不偏蓝"), Cs[3].G > Cs[3].B);
 	}
 	return true;
 }

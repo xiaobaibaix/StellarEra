@@ -25,7 +25,7 @@ bool FGeoGeneratorTest::RunTest(const FString& Parameters)
 	if (!TestTrue(TEXT("烘焙成功"), Snap.IsValid())) { return false; }
 
 	UPlanetGeoGenerator* Gen = NewObject<UPlanetGeoGenerator>();
-	Gen->bDebugLithologyColor = false;
+	Gen->DebugColor = EPlanetGeoDebugColor::None;
 	Gen->SetSnapshot(Snap);
 	const TVoxelSharedRef<FVoxelGeneratorInstance> Base = Gen->GetInstance();
 	const FPlanetGeoGeneratorInstance& Inst = static_cast<const FPlanetGeoGeneratorInstance&>(*Base);

@@ -10,6 +10,7 @@
 #include "VoxelData/VoxelSave.h"
 // FObjectPreSaveContext / FObjectPostSaveRootContext：PreSave / PostSaveRoot 覆写的形参。
 #include "UObject/ObjectSaveContext.h"
+#include "PlanetGeoGenerator.h"
 #include "VoxelPlanetActor.generated.h"
 
 class UMaterialInterface;
@@ -178,6 +179,10 @@ public:
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Geo")
 	TObjectPtr<UPlanetRecipe> GeoRecipe;
+
+	/** geo 模式的体素调试着色；默认按高程分色，方便验收大陆形状。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Geo")
+	EPlanetGeoDebugColor GeoDebugColor = EPlanetGeoDebugColor::Elevation;
 
 	UFUNCTION(BlueprintPure, Category = "Planet|Geo")
 	bool IsGeoMode() const { return GeoRecipe != nullptr; }

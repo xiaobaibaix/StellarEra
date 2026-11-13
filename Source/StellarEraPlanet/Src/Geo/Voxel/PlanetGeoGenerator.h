@@ -5,6 +5,15 @@
 #include "PlanetSnapshot.h"
 #include "PlanetGeoGenerator.generated.h"
 
+/** 体素 RGB 调试着色：None 写真实编码；Elevation 只染地表附近，地下仍按岩性。 */
+UENUM(BlueprintType)
+enum class EPlanetGeoDebugColor : uint8
+{
+	None,
+	Lithology,
+	Elevation,
+};
+
 UCLASS()
 class STELLARERAPLANET_API UPlanetGeoGenerator : public UVoxelGenerator
 {
@@ -18,7 +27,7 @@ public:
 
 	/** 必须 VisibleAnywhere：UVoxelGenerator 会把 EditAnywhere 属性当生成器参数枚举，只认少数类型。 */
 	UPROPERTY(VisibleAnywhere, Category = "Geo")
-	bool bDebugLithologyColor = true;
+	EPlanetGeoDebugColor DebugColor = EPlanetGeoDebugColor::Lithology;
 
 private:
 	TSharedPtr<const FPlanetSnapshot> Snapshot;
@@ -29,7 +38,7 @@ class FPlanetGeoGeneratorInstance : public TVoxelGeneratorInstanceHelper<FPlanet
 public:
 	using Super = TVoxelGeneratorInstanceHelper<FPlanetGeoGeneratorInstance, UPlanetGeoGenerator>;
 
-	FPlanetGeoGeneratorInstance(UPlanetGeoGenerator& Owner, TSharedPtr<const FPlanetSnapshot> InSnapshot, bool bInDebugColor);
+	FPlanetGeoGeneratorInstance(UPlanetGeoGenerator& Owner, TSharedPtr<const FPlanetSnapshot> InSnapshot, EPlanetGeoDebugColor InDebugColor);
 
 	v_flt GetValueImpl(v_flt X, v_flt Y, v_flt Z, int32 LOD, const FVoxelItemStack& Items) const;
 	FVoxelMaterial GetMaterialImpl(v_flt X, v_flt Y, v_flt Z, int32 LOD, const FVoxelItemStack& Items) const;
@@ -39,5 +48,5 @@ public:
 
 private:
 	const TSharedPtr<const FPlanetSnapshot> Snapshot;
-	const bool bDebugColor;
+	const EPlanetGeoDebugColor DebugColor;
 };
