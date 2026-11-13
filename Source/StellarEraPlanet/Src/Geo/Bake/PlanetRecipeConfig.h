@@ -43,6 +43,26 @@ struct FPlanetPlateParams
 	float BoundaryBandRatio = 0.02f;      // BoundaryType 只在距边界 2%R 内非零
 };
 
+/** 阶段 2 大陆场：全球一张连续场 F，按立体角加权分位数定海陆，再按排名映射高程。 */
+struct FPlanetContinentParams
+{
+	int32 FrameDegree = 4;                // 球谐最高阶：1–2 超大陆、4 类地球、≥6 群岛
+	float LandFrac = 0.30f;
+	float CoastRoughness = 0.35f;         // 细节层 std / 框架层 std
+	float ShelfFrac = 0.15f;              // 陆架占海洋面积
+	float LandHeightVoxels = 240.f;
+	float OceanDepthVoxels = 480.f;
+	// 以下不暴露：画面实测定的形状常数
+	float FrameSpectralDecay = 1.0f;      // 每阶总功率 ∝ l^-decay
+	float DetailFrequency = 3.0f;         // 单位球上的基频
+	int32 DetailOctaves = 5;
+	float DetailWarpAmp = 0.15f;
+	float LandCurvePower = 1.6f;          // >1：低地多、高地少
+	float ShelfDepthRatio = 0.10f;        // 陆架底 = 比例 × OceanDepth
+	float SlopeFrac = 0.12f;              // 陆坡占海洋面积
+	float AbyssRatio = 0.85f;             // 陆坡底 = 比例 × OceanDepth
+};
+
 struct FPlanetRecipeConfig
 {
 	double Radius = 40000.0;
@@ -53,6 +73,7 @@ struct FPlanetRecipeConfig
 	bool bSingleThreadBake = false;
 	FPlanetSphereParams Sphere;
 	FPlanetPlateParams Plates;
+	FPlanetContinentParams Continents;
 
 	uint64 Hash() const
 	{
