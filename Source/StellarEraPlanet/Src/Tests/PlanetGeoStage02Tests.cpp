@@ -60,8 +60,10 @@ bool FGeoStage02Test::RunTest(const FString& Parameters)
 	ScanField(Fields.Elevation, MinE, MaxE);
 	TestTrue(FString::Printf(TEXT("M ∈ [0,1] 且跨过海岸 (Min=%f Max=%f)"), MinM, MaxM),
 		MinM >= 0.f && MaxM <= 1.f && MinM < 0.1f && MaxM > 0.9f);
-	TestTrue(FString::Printf(TEXT("高程端点 = 曲线端点 (Min=%.1f Max=%.1f)"), MinE, MaxE),
-		FMath::IsNearlyEqual(MinE, -C.Continents.OceanDepthVoxels, 2.f) && FMath::IsNearlyEqual(MaxE, C.Continents.LandHeightVoxels, 2.f));
+	// 模糊只会把端点往里收：上下界不越曲线端点，且仍有深海与高地。
+	TestTrue(FString::Printf(TEXT("高程在曲线端点内且非退化 (Min=%.1f Max=%.1f)"), MinE, MaxE),
+		MinE >= -C.Continents.OceanDepthVoxels - 1e-3f && MaxE <= C.Continents.LandHeightVoxels + 1e-3f
+		&& MinE < -0.8f * C.Continents.OceanDepthVoxels && MaxE > 0.5f * C.Continents.LandHeightVoxels);
 	TestTrue(TEXT("记录的值域与实际一致"),
 		FMath::Abs(Fields.MinElevation - MinE) < 1e-3f && FMath::Abs(Fields.MaxElevation - MaxE) < 1e-3f);
 

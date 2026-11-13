@@ -1,4 +1,5 @@
 ﻿#include "GeoContinentField.h"
+#include "Async/ParallelFor.h"
 #include "GeoNoise.h"
 #include "GeoRng.h"
 
@@ -41,7 +42,9 @@ GeoContinentField::FFrame GeoContinentField::BuildFrame(const FPlanetRecipeConfi
 	Frame.Coeffs.SetNumZeroed((Frame.Degree + 1) * (Frame.Degree + 1));
 
 	FGeoRng Rng = FGeoRng::Derive(Config.Seed, 2, GeoHash::Str("continent-frame"));
-	for (int32 l = 1; l <= Frame.Degree; ++l)
+	// 只取 [⌈L/2⌉, L] 这段阶：从 l=1 叠起时 l=1 的半球偏置永远占最大份额，阶数调多高都是一块大陆。
+	const int32 MinDegree = FMath::Max(1, (Frame.Degree + 1) / 2);
+	for (int32 l = MinDegree; l <= Frame.Degree; ++l)
 	{
 		// 每阶总功率 ∝ l^-decay，摊到 2l+1 个系数上；否则高阶系数多、天然盖过低阶。
 		const double Sigma = FMath::Sqrt(FMath::Pow(double(l), -double(P.FrameSpectralDecay)) / double(2 * l + 1));
@@ -164,4 +167,28 @@ float GeoContinentField::Elevation(float Rank, const FPlanetContinentParams& P)
 	}
 	const float Rest = FMath::Max(1.f - Shelf - Slope, 1e-6f);
 	return -FMath::Lerp(AbyssTop, P.OceanDepthVoxels, FMath::Clamp((S - Shelf - Slope) / Rest, 0.f, 1.f));
+}
+
+void GeoContinentField::SmoothKeepSign(FGeoField2D& Field, TConstArrayView<int32> Offsets, bool bSingleThread)
+{
+	const FGeoField2D Original = Field;
+	const int32 Res = Field.Res;
+	for (const int32 Offset : Offsets)
+	{
+		const FGeoField2D Src = Field;
+		const float Du = 2.f * float(Offset) / float(Res);
+		ParallelFor(6 * Res, [&](int32 Row)
+		{
+			const int32 Face = Row / Res, Y = Row % Res;
+			for (int32 X = 0; X < Res; ++X)
+			{
+				const float U = (float(X) + 0.5f) / float(Res) * 2.f - 1.f, V = (float(Y) + 0.5f) / float(Res) * 2.f - 1.f;
+				const float Sum = Src.Sample(FGeoField2D::FaceToDir(Face, U + Du, V)) + Src.Sample(FGeoField2D::FaceToDir(Face, U - Du, V))
+					+ Src.Sample(FGeoField2D::FaceToDir(Face, U, V + Du)) + Src.Sample(FGeoField2D::FaceToDir(Face, U, V - Du));
+				const float Blurred = 0.5f * Src.At(Face, X, Y) + 0.125f * Sum;
+				// 符号钳住：模糊会把海岸两侧互相拉过零点，陆地占比与海岸线就漂了。
+				Field.At(Face, X, Y) = Original.At(Face, X, Y) > 0.f ? FMath::Max(Blurred, 0.01f) : FMath::Min(Blurred, 0.f);
+			}
+		}, bSingleThread ? EParallelForFlags::ForceSingleThread : EParallelForFlags::None);
+	}
 }

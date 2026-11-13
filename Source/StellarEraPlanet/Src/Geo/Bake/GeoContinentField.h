@@ -33,4 +33,7 @@ namespace GeoContinentField
 
 	/** 排名 → 高程（体素，相对 R0）；Rank = 1−LandFrac 处恰为 0，全程单调不减。 */
 	STELLARERAPLANET_API float Elevation(float Rank, const FPlanetContinentParams& P);
+
+	/** à-trous 十字模糊，每遍偏移 Offsets[i] 个 texel；每个 texel 保持原来的海陆符号，海岸线不动。 */
+	STELLARERAPLANET_API void SmoothKeepSign(FGeoField2D& Field, TConstArrayView<int32> Offsets, bool bSingleThread);
 }

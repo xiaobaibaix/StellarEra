@@ -72,6 +72,10 @@ void FStage02Plates::Bake(FPlanetBakeContext& Ctx) const
 			Fields.Elevation.At(Face, X, Y) = GeoContinentField::Elevation(Cdf.Rank(Continent.At(Face, X, Y)), K);
 		}
 	}, bSingleThread ? EParallelForFlags::ForceSingleThread : EParallelForFlags::None);
+	// 排名→高程在场值变化快处会把整段陆坡压进一个 texel（实测坡度 1.7）；陆坡落差 360 体素
+	// 要摊到 ~700 体素宽才缓，à-trous 偏移必须到 16 texel（≈830 体素）。
+	static const int32 SmoothOffsets[] = { 1, 2, 4, 8, 16, 8, 4, 2, 1 };
+	GeoContinentField::SmoothKeepSign(Fields.Elevation, SmoothOffsets, bSingleThread);
 
 	double LandW = 0.0, TotalW = 0.0;
 	float MinE = TNumericLimits<float>::Max(), MaxE = -TNumericLimits<float>::Max();
