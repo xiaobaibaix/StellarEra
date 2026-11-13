@@ -64,7 +64,7 @@ bool FGeoStage02AcceptanceTest::RunTest(const FString& Parameters)
 		AddInfo(FString::Printf(TEXT("ValueRange 抽样实测 V ∈ [%.1f, %.1f]"), MinV, MaxV));
 	}
 
-	// 快照侧没有 M，用 Elevation > 0 代替（h_base 在 M=0.5 处过零）；风格项会拓宽，故带宽 ±0.08。
+	// 均匀方向抽样本身就是面积加权：与目标差 > 0.02 说明烘焙侧的加权写错了。
 	{
 		const int32 Probes = 65536;
 		int32 Land = 0;
@@ -73,11 +73,11 @@ bool FGeoStage02AcceptanceTest::RunTest(const FString& Parameters)
 			Land += Snap->Elevation.Sample(AcceptanceRandomUnitDir(Rng)) > 0.f ? 1 : 0;
 		}
 		const double LandFrac = double(Land) / double(Probes);
-		TestTrue(FString::Printf(TEXT("陆地占比 %.4f ∈ [0.22, 0.38]"), LandFrac), LandFrac >= 0.22 && LandFrac <= 0.38);
+		TestTrue(FString::Printf(TEXT("陆地占比 %.4f ≈ 0.30 ± 0.02"), LandFrac), FMath::Abs(LandFrac - 0.30) <= 0.02);
 		AddInfo(FString::Printf(TEXT("陆地占比 %.4f（%d/%d 个方向 E>0）"), LandFrac, Land, Probes));
 	}
 
-	// 穿越次数：8 条大圆 × 512 步。阈值 12 是 R=40000 的实测标定，附录的 6–10 是按小星球推的。
+	// 穿越次数：8 条大圆 × 512 步，只卡下限；上限随格局参数变。
 	{
 		int32 WorstCrossings = 0;
 		FString PerCircle;
@@ -100,8 +100,7 @@ bool FGeoStage02AcceptanceTest::RunTest(const FString& Parameters)
 			PerCircle += FString::Printf(TEXT("%d "), Crossings);
 			WorstCrossings = FMath::Max(WorstCrossings, Crossings);
 		}
-		TestTrue(FString::Printf(TEXT("8 条大圆最差穿越 %d ∈ [2, 12]"), WorstCrossings),
-			WorstCrossings >= 2 && WorstCrossings <= 12);
+		TestTrue(FString::Printf(TEXT("8 条大圆最差穿越 %d ≥ 2"), WorstCrossings), WorstCrossings >= 2);
 		AddInfo(FString::Printf(TEXT("8 条大圆穿越次数：%s（最差 %d）"), *PerCircle, WorstCrossings));
 	}
 

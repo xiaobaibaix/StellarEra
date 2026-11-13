@@ -73,7 +73,7 @@ TSharedPtr<const FPlanetSnapshot> FPlanetBakePipeline::Bake(const FPlanetRecipeC
 	// 只有阶段 1 时没有高程场，地表恒为 R0；有阶段 2 就用实测上下界。
 	const bool bHasElevation = Fields.Elevation.Res > 0;
 	Snap->Elevation = MoveTemp(Fields.Elevation);
-	Snap->CrustSplitElevation = -0.5f * Config.Plates.OceanBasinVoxels;
+	Snap->CrustSplitElevation = Fields.CrustSplitElevation;
 	if (bHasElevation)
 	{
 		Snap->MinSurfaceRadius = Snap->R0 + double(Fields.MinElevation);

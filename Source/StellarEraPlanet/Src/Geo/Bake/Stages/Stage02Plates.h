@@ -1,4 +1,4 @@
-﻿// 阶段 2：板块、陆块、宏观高程。第一个改密度的阶段。
+﻿// 阶段 2：板块框架 + 整体大陆场 + 宏观高程。第一个改密度的阶段。
 #pragma once
 #include "CoreMinimal.h"
 #include "PlanetStage.h"

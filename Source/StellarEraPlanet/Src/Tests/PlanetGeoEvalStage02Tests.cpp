@@ -106,7 +106,7 @@ bool FGeoEvalStage02Test::RunTest(const FString& Parameters)
 	// 快照哈希敏感：陆地占比进配方 → 大陆形状变 → ContentHash 必须变。
 	{
 		FPlanetRecipeConfig Lower = Config;
-		Lower.Plates.TargetLandFrac = 0.25f;
+		Lower.Continents.LandFrac = 0.25f;
 		FPlanetBakeReport LowerReport;
 		const TSharedPtr<const FPlanetSnapshot> LowerSnap = FPlanetBakePipeline::MakeDefault().Bake(Lower, LowerReport);
 		TestTrue(TEXT("改陆地占比仍能烘焙"), LowerSnap.IsValid());

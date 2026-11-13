@@ -48,60 +48,6 @@ FGeoPlateFrame GeoPlates::Build(const FPlanetRecipeConfig& Config)
 	{
 		Swap(Kinds[i], Kinds[int32(Rng.NextU64() % uint64(i + 1))]);
 	}
-	for (int32 i = 0; i < N; ++i) { Frame.Plates[i].Kind = Kinds[i]; }
-
-	for (int32 i = 0; i < N; ++i)
-	{
-		FGeoPlate& Plate = Frame.Plates[i];
-		int32 CoreCount = 0;
-		switch (Plate.Kind)
-		{
-		case EGeoPlateKind::Continental:
-			CoreCount = FMath::RoundToInt(Rng.Range(P.ContinentalCoreMin, P.ContinentalCoreMax));
-			break;
-		case EGeoPlateKind::Mixed:
-			CoreCount = FMath::RoundToInt(Rng.Range(P.MixedCoreMin, P.MixedCoreMax));
-			break;
-		default:
-			CoreCount = Rng.NextFloat() < P.MicroCoreChance ? 1 : 0;
-			break;
-		}
-
-		for (int32 c = 0; c < CoreCount && Frame.Cores.Num() < 16; ++c)
-		{
-			FVector3f Center(0.f);
-			bool bPlaced = false;
-			// 拒绝采样：64 次还挤不下就少一个核，不硬塞。
-			for (int32 Try = 0; Try < 64 && !bPlaced; ++Try)
-			{
-				const float Z = Rng.Range(-1.f, 1.f);
-				const float Phi = Rng.Range(0.f, 2.f * PI);
-				const float S = FMath::Sqrt(FMath::Max(0.f, 1.f - Z * Z));
-				Center = FVector3f(S * FMath::Cos(Phi), S * FMath::Sin(Phi), Z);
-				bPlaced = true;
-				for (const FGeoContinentCore& Other : Frame.Cores)
-				{
-					if ((Center - Other.Center).Size() < P.CoreMinSpacingRatio) { bPlaced = false; break; }
-				}
-			}
-			if (!bPlaced) { continue; }
-
-			FGeoContinentCore Core;
-			Core.Center = Center;
-			Core.RadiusRatio = Plate.Kind == EGeoPlateKind::Oceanic
-				? P.CoreMinSpacingRatio / 5.f
-				: P.CoreRadiusRatio * Rng.Range(0.85f, 1.15f);
-			Frame.Cores.Add(Core);
-		}
-	}
-
-	for (FGeoPlate& Plate : Frame.Plates)
-	{
-		Plate.StyleOffset = Rng.Range(-0.2f, 0.2f) * P.LandTableVoxels;
-		Plate.StyleAmp = P.StyleAmpVoxels * Rng.Range(0.6f, 1.4f);
-		Plate.StyleSeed = Rng.NextU64();
-	}
-
 	Frame.PairBoundaryType.SetNumZeroed(N * N);
 	for (int32 A = 0; A < N; ++A)
 	{
@@ -187,17 +133,6 @@ uint64 FGeoPlateFrame::Hash() const
 		H = GeoHash::Combine(H, GeoHash::Float(P.Center.Z));
 		H = GeoHash::Combine(H, GeoHash::Float(P.Weight));
 		H = GeoHash::Combine(H, uint64(P.Kind));
-		H = GeoHash::Combine(H, GeoHash::Float(P.StyleOffset));
-		H = GeoHash::Combine(H, GeoHash::Float(P.StyleAmp));
-		H = GeoHash::Combine(H, P.StyleSeed);
-	}
-	H = GeoHash::Combine(H, uint64(Cores.Num()));
-	for (const FGeoContinentCore& C : Cores)
-	{
-		H = GeoHash::Combine(H, GeoHash::Float(C.Center.X));
-		H = GeoHash::Combine(H, GeoHash::Float(C.Center.Y));
-		H = GeoHash::Combine(H, GeoHash::Float(C.Center.Z));
-		H = GeoHash::Combine(H, GeoHash::Float(C.RadiusRatio));
 	}
 	H = GeoHash::Combine(H, uint64(PairBoundaryType.Num()));
 	for (const uint8 Type : PairBoundaryType) { H = GeoHash::Combine(H, uint64(Type)); }

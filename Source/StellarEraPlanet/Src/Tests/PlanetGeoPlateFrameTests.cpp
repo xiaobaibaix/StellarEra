@@ -17,9 +17,7 @@ bool FGeoPlateFrameTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("板块数"), A.Num(), 7);
 	TestTrue(TEXT("同配方两次构建逐位一致"), A.Hash() == B.Hash());
 	TestTrue(TEXT("板块种子不全同"), A.Plates[0].Center != A.Plates[1].Center);
-	TestTrue(TEXT("核数在 6–16"), A.Cores.Num() >= 6 && A.Cores.Num() <= 16);
-	TestTrue(TEXT("核半径 ≥ 0.05R"), A.Cores[0].RadiusRatio >= 0.05f);
-	AddInfo(FString::Printf(TEXT("核数 %d，板块数 %d"), A.Cores.Num(), A.Num()));
+	AddInfo(FString::Printf(TEXT("板块数 %d"), A.Num()));
 
 	// 覆盖性：任意方向都落到一块板块，且每块都被访问到；最大板块占比不能吞掉整颗星
 	TArray<int32> Hits; Hits.SetNumZeroed(A.Num());

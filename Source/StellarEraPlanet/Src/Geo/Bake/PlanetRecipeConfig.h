@@ -23,22 +23,6 @@ struct FPlanetPlateParams
 	float PlateWeightMin = 0.6f;          // 加权 Voronoi 的权重区间，乘性才出得了巨型板块
 	float PlateWeightMax = 1.8f;
 	float WarpAmp = 0.06f;                // 方向单位（≈弧度）：不做 domain warp 边界是完美圆弧
-	float ContinentalCoreMin = 2.f;
-	float ContinentalCoreMax = 4.f;
-	float MixedCoreMin = 1.f;
-	float MixedCoreMax = 2.f;
-	float MicroCoreChance = 0.15f;        // 大洋型板块出现微陆核的概率
-	float CoreRadiusRatio = 0.12f;        // × R，再乘二分反解出的 α
-	float CoreMinSpacingRatio = 0.25f;    // × R，核间最小中心角
-	float SigmaRatio = 0.55f;             // σ = SigmaRatio · α · r
-	float AlphaMin = 0.5f;
-	float AlphaMax = 6.0f;                // 附录写的 2.0 在 R=40000 下达不到 30% 陆地占比
-	float TargetLandFrac = 0.30f;
-	float LandTableVoxels = 240.f;        // A_up
-	float OceanBasinVoxels = 480.f;       // A_down
-	float SlopeWidthVoxels = 240.f;       // w_s
-	float StyleAmpVoxels = 120.f;
-	float StyleNoiseWavelengths = 1.5f;   // 每半球波长数，与 R 无关
 	float AgeScaleRatio = 0.25f;
 	float BoundaryBandRatio = 0.02f;      // BoundaryType 只在距边界 2%R 内非零
 };
@@ -85,14 +69,16 @@ struct FPlanetRecipeConfig
 		for (const float V : S) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 		H = GeoHash::Combine(H, uint64(Sphere.WobbleOctaves));
 		H = GeoHash::Combine(H, uint64(Plates.PlateCount));
-		// AlphaMin/AlphaMax 也在内：改搜索区间会改大陆形状。
-		const float P[21] = { Plates.PlateWeightMin, Plates.PlateWeightMax, Plates.WarpAmp,
-			Plates.ContinentalCoreMin, Plates.ContinentalCoreMax, Plates.MixedCoreMin, Plates.MixedCoreMax,
-			Plates.MicroCoreChance, Plates.CoreRadiusRatio, Plates.CoreMinSpacingRatio, Plates.SigmaRatio,
-			Plates.AlphaMin, Plates.AlphaMax, Plates.TargetLandFrac, Plates.LandTableVoxels,
-			Plates.OceanBasinVoxels, Plates.SlopeWidthVoxels, Plates.StyleAmpVoxels,
-			Plates.StyleNoiseWavelengths, Plates.AgeScaleRatio, Plates.BoundaryBandRatio };
+		const float P[5] = { Plates.PlateWeightMin, Plates.PlateWeightMax, Plates.WarpAmp,
+			Plates.AgeScaleRatio, Plates.BoundaryBandRatio };
 		for (const float V : P) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
+		const FPlanetContinentParams& K = Continents;
+		H = GeoHash::Combine(H, uint64(K.FrameDegree));
+		H = GeoHash::Combine(H, uint64(K.DetailOctaves));
+		const float C[12] = { K.LandFrac, K.CoastRoughness, K.ShelfFrac, K.LandHeightVoxels, K.OceanDepthVoxels,
+			K.FrameSpectralDecay, K.DetailFrequency, K.DetailWarpAmp, K.LandCurvePower, K.ShelfDepthRatio,
+			K.SlopeFrac, K.AbyssRatio };
+		for (const float V : C) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 		return H;
 	}
 };
