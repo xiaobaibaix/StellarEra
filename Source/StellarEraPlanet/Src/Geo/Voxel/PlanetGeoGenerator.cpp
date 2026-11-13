@@ -40,8 +40,9 @@ FVoxelMaterial FPlanetGeoGeneratorInstance::GetMaterialImpl(v_flt X, v_flt Y, v_
 		const double D = Pos.Size();
 		const FVector3f Dir = D > 1e-6 ? FVector3f(Pos / D) : FVector3f::UpVector;
 		const double Surface = PlanetShapeEval::SurfaceRadius(*Snapshot, Dir);
-		// 只染地表 16 体素内：挖下去要能看见圈层，不能整颗星都是地形色。
-		if (Surface - D < 16.0)
+		// 只染地表附近：挖下去要能看见圈层。粗 LOD 的材质取在 2^LOD 体素网格点上，可能深达一格，
+		// 门限只给 16 会让远看的陆地全落回岩性色。
+		if (Surface - D < 16.0 + 2.0 * double(1 << FMath::Clamp(LOD, 0, 20)))
 		{
 			const FColor C = PlanetDebugColor::FromElevation(float(Surface - Snapshot->R0),
 				float(Snapshot->R0 - Snapshot->MinSurfaceRadius), float(Snapshot->MaxSurfaceRadius - Snapshot->R0),
