@@ -33,6 +33,7 @@
 #include "PlanetRecipe.h"
 #include "PlanetBakePipeline.h"
 #include "PlanetGeoGenerator.h"
+#include "PlanetGeoDebugRender.h"
 #include "PlanetShapeEval.h"
 #include "PlanetSurfaceRay.h"
 #include "VoxelData/VoxelData.h"
@@ -592,6 +593,11 @@ void AVoxelPlanetActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyCh
 		UVoxelBlueprintLibrary::ApplyNewMaterials(this);
 	}
 
+	if (GeoRecipe && ApplyGeoDebugOverlay() && IsCreated())
+	{
+		UVoxelBlueprintLibrary::ApplyNewMaterials(this);
+	}
+
 	// OnConstruction 只在移动/添加时重跑，细节面板改参数要在这里重建。
 	RebuildPlanet();
 }
@@ -795,7 +801,9 @@ void AVoxelPlanetActor::StartGeoBake()
 	bGeoBakeInFlight = true;
 
 	// ToConfig 是唯一一次碰 UObject：烘焙线程只拿 POD。
-	const FPlanetRecipeConfig Config = GeoRecipe->ToConfig(double(GetScaledRadiusVoxels()));
+	FPlanetRecipeConfig Config = GeoRecipe->ToConfig(double(GetScaledRadiusVoxels()));
+	// 编辑器里多留一份中间场给调试图层；打包后的游戏不需要，也不该多占 12 MB。
+	Config.bKeepDebugFields = GIsEditor;
 	TWeakObjectPtr<AVoxelPlanetActor> WeakThis(this);
 	Async(EAsyncExecution::ThreadPool, [WeakThis, Config]()
 	{
@@ -877,6 +885,11 @@ void AVoxelPlanetActor::RebuildGeoPlanet()
 	}
 	GeoGenerator->SetSnapshot(GeoSnapshot);
 	GeoGenerator->DebugColor = GeoDebugColor;
+	GeoGenerator->Cutaway = GeoCutaway;
+	GeoGenerator->SurfaceLayer = GeoCutaway != EPlanetGeoCutaway::None ? GeoDebugSurfaceLayer : NAME_None;
+	GeoGenerator->VolumeLayer = GeoDebugVolumeLayer;
+	// 材质必须在建世界前就位：渲染器创建时快照它。
+	ApplyGeoDebugOverlay();
 
 	// 与旧路径同一收紧策略：边长收到半径 3 倍并取 2 的幂。
 	SetWorldSize(FMath::RoundUpToPowerOfTwo(FMath::CeilToInt(GetScaledRadiusVoxels() * 3.f)));
@@ -1760,6 +1773,80 @@ uint64 AVoxelPlanetActor::ComputeParamsHash() const
 	const uint64 GeoContentHash = GeoSnapshot.IsValid() ? GeoSnapshot->ContentHash : 0;
 	Mix(&GeoContentHash, sizeof(GeoContentHash));
 	Mix(&GeoDebugColor, sizeof(GeoDebugColor));
+	// 剖切改的是密度与顶点色，要重建；不剖切时地表图层只换贴图，不进哈希。
+	Mix(&GeoCutaway, sizeof(GeoCutaway));
+	const FString GeoDebugKey = GeoDebugVolumeLayer.ToString()
+		+ (GeoCutaway != EPlanetGeoCutaway::None ? GeoDebugSurfaceLayer.ToString() : FString());
+	Mix(*GeoDebugKey, GeoDebugKey.Len() * sizeof(TCHAR));
 
 	return Hash;
+}
+
+TArray<FName> AVoxelPlanetActor::GetGeoDebugLayerOptions() const
+{
+	TArray<FName> Out = { NAME_None };
+	for (const FGeoDebugLayer& L : FPlanetBakePipeline::DefaultDebugLayers()) { Out.Add(L.Id); }
+	return Out;
+}
+
+bool AVoxelPlanetActor::ApplyGeoDebugOverlay()
+{
+	const FGeoDebugLayer* Layer = FPlanetBakePipeline::FindDefaultDebugLayer(GeoDebugSurfaceLayer);
+	const bool bWant = GeoSnapshot.IsValid() && Layer && GeoDebugOverlayOpacity > 0.f && GeoCutaway == EPlanetGeoCutaway::None;
+
+	// 父材质永远是用户设的那个：VoxelMaterial 此刻可能指着上次的 MID（PIE 复制时甚至是副本）。
+	if (!BiomeMaterial || VoxelMaterial != BiomeMaterial)
+	{
+		BaseVoxelMaterial = StripMaterialInstanceDynamic(VoxelMaterial);
+		if (!BaseVoxelMaterial)
+		{
+			if (const AVoxelPlanetActor* Defaults = GetClass()->GetDefaultObject<AVoxelPlanetActor>())
+			{
+				BaseVoxelMaterial = StripMaterialInstanceDynamic(Defaults->VoxelMaterial);
+			}
+		}
+	}
+
+	if (!bWant)
+	{
+		if (BiomeMaterial && VoxelMaterial == BiomeMaterial && BaseVoxelMaterial)
+		{
+			VoxelMaterial = BaseVoxelMaterial;
+			return true;
+		}
+		return false;
+	}
+	if (!BaseVoxelMaterial)
+	{
+		return false;
+	}
+
+	// 图层与快照都没变就不重烘：只改不透明度时这里是零成本。
+	if (!BiomeCubemap || OverlayBakedLayer != Layer->Id || OverlayBakedHash != GeoSnapshot->ContentHash)
+	{
+		const double T0 = FPlatformTime::Seconds();
+		BiomeCubemap = PlanetGeoDebugRender::BakeCube(*GeoSnapshot, *Layer, 512);
+		OverlayBakedLayer = Layer->Id;
+		OverlayBakedHash = GeoSnapshot->ContentHash;
+		UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor %s: 调试叠加「%s」烘焙 %.0f ms"),
+			*GetName(), *Layer->DisplayName, (FPlatformTime::Seconds() - T0) * 1000.0);
+	}
+	if (!BiomeCubemap)
+	{
+		return false;
+	}
+	if (!BiomeMaterial || BiomeMaterial->Parent != BaseVoxelMaterial)
+	{
+		BiomeMaterial = CreateBiomeMaterialMID(BaseVoxelMaterial);
+		if (!BiomeMaterial || !BiomeMaterial->Parent)
+		{
+			BiomeMaterial = nullptr;
+			return false;
+		}
+	}
+	BiomeMaterial->SetTextureParameterValue(TEXT("BiomeCube"), BiomeCubemap);
+	BiomeMaterial->SetScalarParameterValue(TEXT("BiomeCubeBlend"), GeoDebugOverlayOpacity);
+	const bool bSwitched = VoxelMaterial != BiomeMaterial;
+	VoxelMaterial = BiomeMaterial;
+	return bSwitched;
 }

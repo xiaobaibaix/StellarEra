@@ -66,6 +66,11 @@ TSharedPtr<const FPlanetSnapshot> FPlanetBakePipeline::Bake(const FPlanetRecipeC
 	}
 
 	TSharedPtr<FPlanetSnapshot> Snap = MakeShared<FPlanetSnapshot>();
+	// 先导出调试场：下面的 MoveTemp 会把 Fields 搬空。
+	if (Config.bKeepDebugFields)
+	{
+		for (const IPlanetStage* S : Sorted()) { S->ExportDebugFields(Fields, Snap->DebugFields); }
+	}
 	Snap->R0 = Config.Radius;
 	Snap->Radial = MoveTemp(Fields.Radial);
 	Snap->MohoWobble = MoveTemp(Fields.MohoWobble);
@@ -94,4 +99,23 @@ FPlanetBakePipeline FPlanetBakePipeline::MakeDefault()
 	P.AddStage(MakeUnique<FStage01Sphere>());
 	P.AddStage(MakeUnique<FStage02Plates>());
 	return P;
+}
+
+TArray<FGeoDebugLayer> FPlanetBakePipeline::DescribeDebugLayers() const
+{
+	TArray<FGeoDebugLayer> Out;
+	for (const IPlanetStage* S : Sorted()) { S->DescribeDebugLayers(Out); }
+	return Out;
+}
+
+const TArray<FGeoDebugLayer>& FPlanetBakePipeline::DefaultDebugLayers()
+{
+	static const TArray<FGeoDebugLayer> Layers = MakeDefault().DescribeDebugLayers();
+	return Layers;
+}
+
+const FGeoDebugLayer* FPlanetBakePipeline::FindDefaultDebugLayer(FName Id)
+{
+	if (Id.IsNone()) { return nullptr; }
+	return DefaultDebugLayers().FindByPredicate([Id](const FGeoDebugLayer& L) { return L.Id == Id; });
 }

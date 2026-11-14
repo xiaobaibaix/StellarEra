@@ -23,6 +23,8 @@ struct STELLARERAPLANET_API FPlanetSnapshot
 	double MinSurfaceRadius = 0.0;
 	double MaxSurfaceRadius = 0.0;
 	uint64 ContentHash = 0;
+	/** 只在 bKeepDebugFields 时存在（编辑器调试图层用）：不进 ContentHash、不计入快照预算。 */
+	TMap<FName, FGeoField2D> DebugFields;
 
 	void FinalizeHash();
 	SIZE_T GetAllocatedSize() const;

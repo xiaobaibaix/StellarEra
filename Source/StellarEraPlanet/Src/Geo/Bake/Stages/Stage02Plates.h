@@ -14,4 +14,6 @@ public:
 		return EPlanetField::Plates | EPlanetField::Continental | EPlanetField::Elevation;
 	}
 	virtual void Bake(FPlanetBakeContext& Ctx) const override;
+	virtual void DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const override;
+	virtual void ExportDebugFields(const FPlanetBakeFields& Fields, TMap<FName, FGeoField2D>& Out) const override;
 };

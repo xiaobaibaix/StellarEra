@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "PlanetBakeTypes.h"
 #include "PlanetSnapshot.h"
+#include "PlanetDebugLayer.h"
 
 class IPlanetStage;
 
@@ -24,6 +25,12 @@ public:
 
 	/** 按阶段号排序后的执行顺序；测试用它确认默认管线包含哪些阶段。 */
 	TArray<const IPlanetStage*> Sorted() const;
+
+	/** 按阶段顺序收集全部调试图层。 */
+	TArray<FGeoDebugLayer> DescribeDebugLayers() const;
+	/** 默认管线的图层表（首次调用时构建，之后只读，可跨线程用）。 */
+	static const TArray<FGeoDebugLayer>& DefaultDebugLayers();
+	static const FGeoDebugLayer* FindDefaultDebugLayer(FName Id);
 
 private:
 	TArray<TUniquePtr<IPlanetStage>> Stages;

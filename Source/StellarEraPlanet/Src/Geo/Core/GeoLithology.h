@@ -16,6 +16,13 @@ namespace GeoLithology
 	constexpr uint8 OceanicCrust = 8;
 	constexpr uint8 Count = 9;
 
+	inline const TCHAR* DisplayName(uint8 Id)
+	{
+		static const TCHAR* Names[Count] = { TEXT("无"), TEXT("地壳"), TEXT("上地幔"), TEXT("过渡带"),
+			TEXT("下地幔"), TEXT("外核"), TEXT("内核"), TEXT("陆壳"), TEXT("洋壳") };
+		return Id < Count ? Names[Id] : Names[0];
+	}
+
 	/** 调试色：M1 在测试星球上肉眼区分圈层用，不是最终美术。 */
 	inline FColor DebugColor(uint8 Id)
 	{

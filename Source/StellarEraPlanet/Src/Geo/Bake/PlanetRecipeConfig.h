@@ -57,6 +57,8 @@ struct FPlanetRecipeConfig
 	int32 FaceRes = 1024;
 	/** 只给确定性测试用：强制单线程烘焙，与并行结果对拍。 */
 	bool bSingleThreadBake = false;
+	/** 编辑器调试图层用：快照额外保留阶段中间场（约 12 MB）。不进哈希，运行时恒为 false。 */
+	bool bKeepDebugFields = false;
 	FPlanetSphereParams Sphere;
 	FPlanetPlateParams Plates;
 	FPlanetContinentParams Continents;

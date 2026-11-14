@@ -26,7 +26,7 @@ python Tools/vscode_intellisense.py
 ```
 最后在 VS Code 执行 `C/C++: Reset IntelliSense Database`（或重载窗口）—— cpptools 缓存编译命令，不重载不生效。
 
-## 模块结构（5 个模块，依赖严格分层，无环）
+## 模块结构（5 个运行时模块 + 1 个编辑器模块，依赖严格分层，无环）
 ```
 StellarEra        ─→ StellarEraUI（Public）, StellarEraCosmos, StellarEraPawns,
                      StellarEraPlanet
@@ -34,6 +34,7 @@ StellarEraUI      ─→ StellarEraPlanet（Public）, StellarEraCosmos, Stellar
 StellarEraCosmos  ─→ StellarEraPlanet（Private）
 StellarEraPawns   ─→ StellarEraCosmos（Public）, StellarEraPlanet（Public）, Voxel（Public）
 StellarEraPlanet  ─→ Voxel（Public），无其它项目依赖
+StellarEraPlanetEditor ─→ StellarEraPlanet（Public）  编辑器专用：地质查看器面板
 ```
 ```
 Source/
@@ -50,6 +51,7 @@ Source/
 ├── StellarEraCosmos/      N 体求解器 + 单位类型（CosmosTypes）+ 天体接口（CosmosBody）
 │                          + 编排（子系统 / 轨道组件 / 轨迹组件）
 └── StellarEraUI/          HUD、星图面板、矿物图例
+└── StellarEraPlanetEditor/ 编辑器专用（Type=Editor）：地质查看器（窗口 → 工具 → 地质查看器）
 Plugins/
 ├── VoxelFree/          第三方体素插件，勿改
 └── VibeUE/             第三方编辑器 AI 工具，勿改
@@ -172,6 +174,11 @@ Character/Spaceship → Pawns），历史类路径由 `Config/DefaultEngine.ini`
 | `APlanetCharacter` / `UPlanetCharacterMovementComponent` | Character | 球面行走；重力方向喂给 CMC |
 | `ASpaceshipPawn` | Spaceship | 街机飞船；推力交给 N 体求解器 |
 | `UPlanetAtmosphereComponent` | Atmosphere | 大气壳（球外可见、球内被背面剔除） |
+
+## 地质调试可视化（2026-11-14）
+- 图层由阶段自己声明：`IPlanetStage::DescribeDebugLayers`（中间场经 `ExportDebugFields` 进快照 `DebugFields`，只在编辑器烘焙时保留，不进哈希）。**新阶段只注册图层，查看器不用改**；测试 `StellarEra.Planet.Geo.Debug.Registry` 会抓「阶段没登记图层」。
+- 三种看法：星球细节面板 `Planet|GeoDebug`（地表叠加 / 剖切 + 切面图层）、地质查看器面板（展开地图 + 剖面 + 悬停读数 + 图例）、`StellarEra.Geo.ExportLayers [宽度]` 导出 PNG 到 `Saved/GeoDebug/`。
+- 共用代码在 `Planet/Src/Geo/Debug/` 与 `Geo/Snapshot/PlanetDebugLayer.*`。
 
 ## 关卡
 - `UniverseMap`：**唯一有体素行星、球面重力、N 体与飞船的关卡**，PIE 验证都在这里。

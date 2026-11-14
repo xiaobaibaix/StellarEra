@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 using UnrealBuildTool;
 using System.Collections.Generic;
@@ -17,6 +17,7 @@ public class StellarEraEditorTarget : TargetRules
 			"StellarEraPawns",    // 受控实体：角色 / 飞船 / 星图相机
 			"StellarEraCosmos",   // 天体：N 体编排与轨迹
 			"StellarEraUI",       // 界面：HUD / 星图面板 / 编辑 UI
+			"StellarEraPlanetEditor", // 编辑器：地质查看器
 		});
 	}
 }

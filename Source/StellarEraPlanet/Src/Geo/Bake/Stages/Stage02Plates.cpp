@@ -3,6 +3,8 @@
 #include "GeoContinentField.h"
 #include "GeoPlates.h"
 #include "GeoNoise.h"
+#include "PlanetDebugColor.h"
+#include "PlanetSnapshot.h"
 
 namespace
 {
@@ -153,4 +155,103 @@ void FStage02Plates::Bake(FPlanetBakeContext& Ctx) const
 		Fields.CrustType.At(Face, X, Y) = E > 0.f ? 1.f : (E >= Fields.CrustSplitElevation ? 2.f : 0.f);
 		Fields.CrustThickness.At(Face, X, Y) = FMath::Clamp(0.1f + 0.9f * M, 0.f, 1.f);
 	}
+}
+
+namespace
+{
+	/** 调试场只在 bKeepDebugFields 的快照里有；缺了返回无数据，不报错。 */
+	float Stage02DebugField(const FPlanetSnapshot& S, const TCHAR* Name, const FVector3d& P, bool bNearest)
+	{
+		const FGeoField2D* F = S.DebugFields.Find(FName(Name));
+		if (!F || F->Res <= 0) { return FGeoDebugLayer::NoData(); }
+		const FVector3f Dir(P.GetSafeNormal());
+		return bNearest ? F->SampleNearest(Dir) : F->Sample(Dir);
+	}
+
+	FGeoDebugLayer Stage02FieldLayer(const TCHAR* Id, const TCHAR* Name, EGeoDebugKind Kind, bool bNearest)
+	{
+		FGeoDebugLayer L;
+		L.Id = Id;
+		L.DisplayName = Name;
+		L.Stage = 2;
+		L.Kind = Kind;
+		L.Sample = [Id, bNearest](const FPlanetSnapshot& S, const FVector3d& P) { return Stage02DebugField(S, Id, P, bNearest); };
+		return L;
+	}
+}
+
+void FStage02Plates::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const
+{
+	{
+		FGeoDebugLayer L;
+		L.Id = TEXT("Elevation");
+		L.DisplayName = TEXT("高程 / 海陆");
+		L.Stage = 2;
+		L.Unit = TEXT("体素");
+		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P)
+		{
+			return S.Elevation.Res > 0 ? S.Elevation.Sample(FVector3f(P.GetSafeNormal())) : FGeoDebugLayer::NoData();
+		};
+		L.Range = [](const FPlanetSnapshot& S)
+		{
+			return FVector2f(float(S.MinSurfaceRadius - S.R0), float(S.MaxSurfaceRadius - S.R0));
+		};
+		L.Colorize = [](const FPlanetSnapshot& S, float V)
+		{
+			return PlanetDebugColor::FromElevation(V, float(S.R0 - S.MinSurfaceRadius), float(S.MaxSurfaceRadius - S.R0),
+				S.CrustSplitElevation);
+		};
+		Out.Add(MoveTemp(L));
+	}
+	{
+		FGeoDebugLayer L = Stage02FieldLayer(TEXT("PlateId"), TEXT("板块编号"), EGeoDebugKind::Categorical, true);
+		for (int32 i = 0; i < 15; ++i)
+		{
+			// 色相按约 137° 跳：相邻编号颜色差最大，不会两块同色。
+			const uint8 Hue = uint8(FMath::Fmod(float(i) * 97.f, 256.f));
+			L.Legend.Add({ FString::Printf(TEXT("板块 %d"), i), FLinearColor::MakeFromHSV8(Hue, 170, 230).ToFColor(true) });
+		}
+		Out.Add(MoveTemp(L));
+	}
+	{
+		FGeoDebugLayer L = Stage02FieldLayer(TEXT("BoundaryType"), TEXT("板块边界类型"), EGeoDebugKind::Categorical, true);
+		L.Legend = {
+			{ TEXT("非边界"), FColor(55, 55, 60) },
+			{ TEXT("汇聚：洋-陆（俯冲）"), FColor(225, 70, 45) },
+			{ TEXT("汇聚：洋-洋（岛弧）"), FColor(245, 160, 40) },
+			{ TEXT("汇聚：陆-陆（碰撞）"), FColor(170, 50, 170) },
+			{ TEXT("离散（洋中脊 / 裂谷）"), FColor(60, 145, 245) },
+			{ TEXT("转换断层"), FColor(80, 205, 95) } };
+		Out.Add(MoveTemp(L));
+	}
+	{
+		FGeoDebugLayer L = Stage02FieldLayer(TEXT("CrustType"), TEXT("地壳类型"), EGeoDebugKind::Categorical, true);
+		L.Legend = { { TEXT("洋壳"), FColor(40, 70, 130) }, { TEXT("陆壳"), FColor(95, 150, 70) }, { TEXT("陆架"), FColor(115, 195, 225) } };
+		Out.Add(MoveTemp(L));
+	}
+	{
+		FGeoDebugLayer L = Stage02FieldLayer(TEXT("ContinentalMask"), TEXT("大陆度"), EGeoDebugKind::Continuous, false);
+		L.Unit = TEXT("0 海 … 1 陆");
+		Out.Add(MoveTemp(L));
+	}
+	{
+		FGeoDebugLayer L = Stage02FieldLayer(TEXT("CrustAge"), TEXT("地壳年龄（相对）"), EGeoDebugKind::Continuous, false);
+		L.Unit = TEXT("0 新 … 1 老");
+		Out.Add(MoveTemp(L));
+	}
+	{
+		FGeoDebugLayer L = Stage02FieldLayer(TEXT("CrustThickness"), TEXT("地壳厚度（相对）"), EGeoDebugKind::Continuous, false);
+		L.Unit = TEXT("0 薄 … 1 厚");
+		Out.Add(MoveTemp(L));
+	}
+}
+
+void FStage02Plates::ExportDebugFields(const FPlanetBakeFields& Fields, TMap<FName, FGeoField2D>& Out) const
+{
+	Out.Add(TEXT("PlateId"), Fields.PlateId);
+	Out.Add(TEXT("BoundaryType"), Fields.BoundaryType);
+	Out.Add(TEXT("CrustType"), Fields.CrustType);
+	Out.Add(TEXT("ContinentalMask"), Fields.ContinentalMask);
+	Out.Add(TEXT("CrustAge"), Fields.CrustAge);
+	Out.Add(TEXT("CrustThickness"), Fields.CrustThickness);
 }

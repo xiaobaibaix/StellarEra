@@ -24,6 +24,8 @@ public:
 
 	/** 面内双线性，越界钳到边缘 texel：接缝误差约半个 texel，M1 的宏观量够用。 */
 	float Sample(const FVector3f& Dir, int32 Mip = 0) const;
+	/** 最近 texel：分类场（板块号、边界类型）不能双线性，否则边界处会混出不存在的编号。 */
+	float SampleNearest(const FVector3f& Dir) const;
 
 	uint64 Hash() const;
 	SIZE_T GetAllocatedSize() const;

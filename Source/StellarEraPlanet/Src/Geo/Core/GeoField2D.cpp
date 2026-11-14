@@ -96,3 +96,13 @@ SIZE_T FGeoField2D::GetAllocatedSize() const
 	for (const TArray<float>& Level : Levels) { Size += Level.GetAllocatedSize(); }
 	return Size;
 }
+
+float FGeoField2D::SampleNearest(const FVector3f& Dir) const
+{
+	if (Levels.IsEmpty()) { return 0.f; }
+	int32 Face; float U, V;
+	DirToFace(Dir, Face, U, V);
+	const int32 X = FMath::Clamp(int32((U + 1.f) * 0.5f * float(Res)), 0, Res - 1);
+	const int32 Y = FMath::Clamp(int32((V + 1.f) * 0.5f * float(Res)), 0, Res - 1);
+	return At(Face, X, Y);
+}

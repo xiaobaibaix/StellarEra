@@ -23,6 +23,7 @@
 | L3 | `StellarEraPawns` | 44 | 9312 | 11 | 玩家能 possess 的：角色、飞船、星图相机（输入各自成 `Input/`） | Public: Cosmos, Planet, Voxel / Private: EnhancedInput, InputCore |
 | L4 | `StellarEraUI` | 10 | 2856 | 4 | HUD、星图面板、矿物图例 | Public: Planet, Pawns / Private: Cosmos, Voxel |
 | L5 | `StellarEra` | 12 | 3290 | 6 | GameMode、PlayerController、输入动作表聚合（primary game module） | Public: UI, Pawns / Private: Planet, Cosmos, Voxel, InputCore, EnhancedInput |
+| 编辑器 | `StellarEraPlanetEditor` | 4 | 398 | 0 | 地质查看器面板（Slate，Type=Editor，不进打包） | Public: Planet / Private: Slate, SlateCore, InputCore, UnrealEd, WorkspaceMenuStructure |
 
 **没有 L0 了。** 只剩引擎与 `Voxel` 插件，项目自研代码分五层。
 

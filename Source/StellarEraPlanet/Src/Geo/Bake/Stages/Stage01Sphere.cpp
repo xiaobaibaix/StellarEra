@@ -1,6 +1,9 @@
 ﻿#include "Stage01Sphere.h"
 #include "GeoLithology.h"
 #include "GeoNoise.h"
+#include "PlanetMaterialEval.h"
+#include "PlanetShapeEval.h"
+#include "PlanetSnapshot.h"
 
 namespace
 {
@@ -49,4 +52,41 @@ void FStage01Sphere::Bake(FPlanetBakeContext& Ctx) const
 	{
 		return GeoNoise::Fbm3(NoiseSeed, Dir * 2.f, Octaves);
 	}, Ctx.Config.bSingleThreadBake);
+}
+
+void FStage01Sphere::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const
+{
+	{
+		FGeoDebugLayer L;
+		L.Id = TEXT("Lithology");
+		L.DisplayName = TEXT("圈层 / 岩性");
+		L.Stage = 1;
+		L.Domain = EGeoDebugDomain::Volume;
+		L.Kind = EGeoDebugKind::Categorical;
+		for (uint8 Id = 0; Id < GeoLithology::Count; ++Id)
+		{
+			L.Legend.Add({ FString(GeoLithology::DisplayName(Id)), GeoLithology::DebugColor(Id) });
+		}
+		// 与体素材质同一条求值路径：看到的就是挖下去会遇到的。
+		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P)
+		{
+			return PlanetShapeEval::Value(S, P) > 0.f ? FGeoDebugLayer::NoData()
+				: float(PlanetMaterialEval::Sample(S, P).Lithology);
+		};
+		Out.Add(MoveTemp(L));
+	}
+	{
+		FGeoDebugLayer L;
+		L.Id = TEXT("MohoWobble");
+		L.DisplayName = TEXT("莫霍面起伏");
+		L.Stage = 1;
+		L.Min = -1.f;
+		L.Max = 1.f;
+		L.Unit = TEXT("× 起伏幅度");
+		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P)
+		{
+			return S.MohoWobble.Res > 0 ? S.MohoWobble.Sample(FVector3f(P.GetSafeNormal())) : FGeoDebugLayer::NoData();
+		};
+		Out.Add(MoveTemp(L));
+	}
 }

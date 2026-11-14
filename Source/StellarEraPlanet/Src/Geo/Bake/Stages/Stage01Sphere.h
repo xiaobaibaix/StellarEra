@@ -11,4 +11,5 @@ public:
 	virtual EPlanetField GetReads() const override { return EPlanetField::None; }
 	virtual EPlanetField GetWrites() const override { return EPlanetField::Radial | EPlanetField::MohoWobble; }
 	virtual void Bake(FPlanetBakeContext& Ctx) const override;
+	virtual void DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const override;
 };

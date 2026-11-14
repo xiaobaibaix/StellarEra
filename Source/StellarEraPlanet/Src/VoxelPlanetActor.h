@@ -186,6 +186,29 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Geo")
 	EPlanetGeoDebugColor GeoDebugColor = EPlanetGeoDebugColor::Elevation;
 
+	/**
+	 * 地表叠加图层（编辑器调试）。下拉框列出全部已注册图层：Lithology 圈层/岩性、MohoWobble 莫霍面起伏、
+	 * Elevation 高程、PlateId 板块、BoundaryType 板块边界、CrustType 地壳类型、ContinentalMask 大陆度、
+	 * CrustAge 地壳年龄、CrustThickness 地壳厚度。不剖切时烘成贴图叠在星球上，切换不重建网格。
+	 */
+	UPROPERTY(EditAnywhere, Category = "Planet|GeoDebug", meta = (GetOptions = "GetGeoDebugLayerOptions"))
+	FName GeoDebugSurfaceLayer;
+
+	/** 地表叠加的不透明度：0 = 只看原来的颜色，1 = 只看图层。 */
+	UPROPERTY(EditAnywhere, Category = "Planet|GeoDebug", meta = (ClampMin = "0", ClampMax = "1"))
+	float GeoDebugOverlayOpacity = 1.f;
+
+	/** 剖切：切掉一块看内部。剖切时地表图层直接写进顶点色（叠加贴图会盖住切面）。改它重建网格约 2 s。 */
+	UPROPERTY(EditAnywhere, Category = "Planet|GeoDebug")
+	EPlanetGeoCutaway GeoCutaway = EPlanetGeoCutaway::None;
+
+	/** 剖切面着色用的图层，默认圈层 / 岩性。 */
+	UPROPERTY(EditAnywhere, Category = "Planet|GeoDebug", meta = (GetOptions = "GetGeoDebugLayerOptions"))
+	FName GeoDebugVolumeLayer = TEXT("Lithology");
+
+	UFUNCTION()
+	TArray<FName> GetGeoDebugLayerOptions() const;
+
 	UFUNCTION(BlueprintPure, Category = "Planet|Geo")
 	bool IsGeoMode() const { return GeoRecipe != nullptr; }
 
@@ -354,6 +377,10 @@ private:
 	bool bGeoBakeFailed = false;
 	/** 烘焙途中配方又改了：当前结果作废，完成后立刻重烘。 */
 	bool bGeoRebakePending = false;
+	/** 按 GeoDebugSurfaceLayer 烘叠加贴图并切换材质；返回材质是否换了（换了要 ApplyNewMaterials）。 */
+	bool ApplyGeoDebugOverlay();
+	FName OverlayBakedLayer;
+	uint64 OverlayBakedHash = 0;
 #if WITH_EDITOR
 	/** 配方是资产，改它不触发本 Actor 的 PostEditChangeProperty，只能听全局事件。 */
 	void OnAnyObjectPropertyChanged(UObject* Object, FPropertyChangedEvent& Event);
