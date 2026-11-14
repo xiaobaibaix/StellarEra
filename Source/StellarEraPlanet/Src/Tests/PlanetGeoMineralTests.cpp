@@ -153,11 +153,11 @@ bool FGeoMineralScatterTest::RunTest(const FString& Parameters)
 			const FVector3f Dir(Sx * FMath::Cos(Phi), Sx * FMath::Sin(Phi), Z);
 			if (O.Mask.Sample(Dir) <= 0.5f) { continue; }
 			++Covered;
-			BadCover += Type->SampleNearest(Dir) != 0.f ? 1 : 0;
+			BadCover += Snap->Elevation.Sample(Dir) >= Snap->CrustSplitElevation ? 1 : 0;
 		}
 		AddInfo(FString::Printf(TEXT("锰结核覆盖 %d/20000 个方向"), Covered));
 		TestTrue(TEXT("锰结核确实有覆盖"), Covered > 0);
-		TestEqual(TEXT("锰结核只在洋壳上"), BadCover, 0);
+		TestEqual(TEXT("锰结核只在洋底（陆架以下）"), BadCover, 0);
 	}
 
 	// 确定性 + 叠加：同配方两次一致；同一规则再叠一份只改种子偏移，矿体数翻倍。

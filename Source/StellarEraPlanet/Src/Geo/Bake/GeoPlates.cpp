@@ -75,16 +75,29 @@ FGeoPlateFrame GeoPlates::Build(const FPlanetRecipeConfig& Config)
 	return Frame;
 }
 
-FVector3f GeoPlates::WarpDirection(const FGeoPlateFrame& Frame, const FVector3f& Dir, float WarpAmp)
+FVector3f GeoPlates::WarpDirection(const FGeoPlateFrame& Frame, const FVector3f& Dir, const FPlanetPlateParams& P)
 {
 	if (Dir.IsNearlyZero()) { return Dir; }
-	const FVector3f P = Dir * 1.5f;
-	const FVector3f Offset(
-		GeoNoise::Fbm3(Frame.WarpSeed ^ 0ull, P, 2),
-		GeoNoise::Fbm3(Frame.WarpSeed ^ 1ull, P, 2),
-		GeoNoise::Fbm3(Frame.WarpSeed ^ 2ull, P, 2));
-	const FVector3f Out = Dir + WarpAmp * Offset;
-	return Out.IsNearlyZero() ? Dir : Out.GetSafeNormal();
+	// 两级：大尺度弯折出凸角与凹湾，小尺度在弯折后的坐标上再加锯齿。实测（FaceRes 1024）：0.5 / 2 / 0.08 / 10 边界长 1.5 倍、飞地 0.2%；再大飞地陡增。
+	const FVector3f Q = Dir * P.WarpFrequency;
+	const int32 Oct = FMath::Clamp(P.WarpOctaves, 1, 8);
+	const FVector3f Big(
+		GeoNoise::Fbm3(Frame.WarpSeed ^ 0ull, Q, Oct),
+		GeoNoise::Fbm3(Frame.WarpSeed ^ 1ull, Q, Oct),
+		GeoNoise::Fbm3(Frame.WarpSeed ^ 2ull, Q, Oct));
+	FVector3f W = Dir + P.WarpAmp * Big;
+	W = W.IsNearlyZero() ? Dir : W.GetSafeNormal();
+	if (P.DetailWarpAmp > 0.f)
+	{
+		const FVector3f Q2 = W * P.DetailWarpFrequency;
+		const FVector3f Small(
+			GeoNoise::Fbm3(Frame.WarpSeed ^ 10ull, Q2, 3),
+			GeoNoise::Fbm3(Frame.WarpSeed ^ 11ull, Q2, 3),
+			GeoNoise::Fbm3(Frame.WarpSeed ^ 12ull, Q2, 3));
+		const FVector3f W2 = W + P.DetailWarpAmp * Small;
+		W = W2.IsNearlyZero() ? W : W2.GetSafeNormal();
+	}
+	return W;
 }
 
 void GeoPlates::NearestTwo(const FGeoPlateFrame& Frame, const FVector3f& Dir,

@@ -136,7 +136,7 @@ void FStage02Plates::Bake(FPlanetBakeContext& Ctx) const
 	for (int32 X = 0; X < MacroRes; ++X)
 	{
 		const FVector3f Dir = Fields.PlateId.TexelDir(Face, X, Y);
-		const FVector3f W = GeoPlates::WarpDirection(Frame, Dir, P.WarpAmp);
+		const FVector3f W = GeoPlates::WarpDirection(Frame, Dir, P);
 		int32 Near, Second; float D1, D2;
 		GeoPlates::NearestTwo(Frame, W, Near, Second, D1, D2);
 		const float B = 0.5f * (D2 - D1);

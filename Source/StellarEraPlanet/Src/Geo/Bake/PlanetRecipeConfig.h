@@ -23,7 +23,11 @@ struct FPlanetPlateParams
 	int32 PlateCount = 7;                 // 3–15；> 15 处处是山，< 3 出不了三节点
 	float PlateWeightMin = 0.6f;          // 加权 Voronoi 的权重区间，乘性才出得了巨型板块
 	float PlateWeightMax = 1.8f;          // 权重上限：越大最大板块越大
-	float WarpAmp = 0.06f;                // 方向单位（≈弧度）：不做 domain warp 边界是完美圆弧
+	float WarpAmp = 0.5f;                 // 边界大尺度弯折幅度（方向单位 ≈ 弧度）：不扭 Voronoi 边界是完美圆弧
+	float WarpFrequency = 2.0f;           // 大尺度弯折的基频（单位球上）
+	int32 WarpOctaves = 5;                // 弯折层数：层数越多，凸角凹湾越多
+	float DetailWarpAmp = 0.08f;          // 边界小尺度锯齿幅度
+	float DetailWarpFrequency = 10.f;     // 小尺度锯齿频率
 	float AgeScaleRatio = 0.25f;          // 洋壳年龄随离边界距离增长的尺度（× 弦距）
 	float BoundaryBandRatio = 0.02f;      // BoundaryType 只在距边界 2%R 内非零
 };
@@ -94,8 +98,9 @@ struct FPlanetRecipeConfig
 		for (const float V : S) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 		H = GeoHash::Combine(H, uint64(Sphere.WobbleOctaves));
 		H = GeoHash::Combine(H, uint64(Plates.PlateCount));
-		const float P[5] = { Plates.PlateWeightMin, Plates.PlateWeightMax, Plates.WarpAmp,
-			Plates.AgeScaleRatio, Plates.BoundaryBandRatio };
+		H = GeoHash::Combine(H, uint64(Plates.WarpOctaves));
+		const float P[8] = { Plates.PlateWeightMin, Plates.PlateWeightMax, Plates.WarpAmp,
+			Plates.AgeScaleRatio, Plates.BoundaryBandRatio, Plates.WarpFrequency, Plates.DetailWarpAmp, Plates.DetailWarpFrequency };
 		for (const float V : P) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 		const FPlanetContinentParams& K = Continents;
 		H = GeoHash::Combine(H, uint64(K.FrameDegree));

@@ -30,8 +30,8 @@ namespace GeoPlates
 	/** 只用 Config.Seed 与 Plates 参数；连调两次必须逐位一致。 */
 	FGeoPlateFrame Build(const FPlanetRecipeConfig& Config);
 
-	/** 板块边界扰动：不加 warp 时 Voronoi 边界是完美圆弧，一眼假。 */
-	FVector3f WarpDirection(const FGeoPlateFrame& Frame, const FVector3f& Dir, float WarpAmp);
+	/** 板块边界扰动：多尺度 fBm 扭采样方向。不扭时 Voronoi 边界是完美圆弧，海沟、山脉跟着变成画出来的线。 */
+	FVector3f WarpDirection(const FGeoPlateFrame& Frame, const FVector3f& Dir, const FPlanetPlateParams& P);
 
 	/** 加权距离 = 弦距 / 权重；输出最近与次近两块及到的加权距离（方向单位）。 */
 	void NearestTwo(const FGeoPlateFrame& Frame, const FVector3f& Dir,

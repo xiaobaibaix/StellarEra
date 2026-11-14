@@ -20,6 +20,8 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 	C.Sphere.WobbleOctaves = WobbleOctaves;
 	// 只覆盖暴露项，其余形状常数保持 FPlanetContinentParams 默认。
 	C.Plates.PlateCount = PlateCount;
+	C.Plates.WarpAmp = BoundaryWarp;
+	C.Plates.DetailWarpAmp = BoundaryDetail;
 	C.Continents.FrameDegree = FrameDegree;
 	C.Continents.LandFrac = LandFrac;
 	C.Continents.CoastRoughness = CoastRoughness;

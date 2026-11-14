@@ -50,6 +50,14 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Stage2|Plates", meta = (ClampMin = "3", ClampMax = "15"))
 	int32 PlateCount = 7;
 
+	/** 板块边界弯折程度：越大边界越曲折、凸角凹湾越多；0 = 规则圆弧。超过约 0.6 会把板块撕出碎块。 */
+	UPROPERTY(EditAnywhere, Category = "Stage2|Plates", meta = (ClampMin = "0", ClampMax = "1"))
+	float BoundaryWarp = 0.5f;
+
+	/** 板块边界小尺度锯齿：越大边界越毛糙。海沟、山脉都沿边界走，会跟着变。 */
+	UPROPERTY(EditAnywhere, Category = "Stage2|Plates", meta = (ClampMin = "0", ClampMax = "0.2"))
+	float BoundaryDetail = 0.08f;
+
 	// 平铺而非 USTRUCT 镜像：USTRUCT 会把 CoreUObject 拖进 Geo/Bake，check_architecture 判层次违规。
 	/** 大陆框架阶数：越大陆块越多越小。1–2 超大陆，4 类地球，6 以上配高海岸破碎度出群岛。 */
 	UPROPERTY(EditAnywhere, Category = "Stage2|Continents", meta = (ClampMin = "1", ClampMax = "12"))

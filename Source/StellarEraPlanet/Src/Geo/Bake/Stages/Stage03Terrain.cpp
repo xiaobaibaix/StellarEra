@@ -52,6 +52,7 @@ void FStage03Terrain::Bake(FPlanetBakeContext& Ctx) const
 	const FGeoPlateFrame& Frame = F.PlateFrame;
 	FGeoRng Rng = Ctx.Rng;
 	const uint64 WarpSeed = Rng.NextU64(), RidgeSeed = Rng.NextU64(), SegSeed = Rng.NextU64(), PlainSeed = Rng.NextU64();
+	const uint64 TrenchSeed = Rng.NextU64();
 
 	// 宏观带场：与阶段 2 同一个 warp，山带才和板块边界对齐。
 	FGeoField2D BeltDist, BeltWeight, Subduct;
@@ -61,7 +62,7 @@ void FStage03Terrain::Bake(FPlanetBakeContext& Ctx) const
 		const int32 Face = Row / MacroRes, Y = Row % MacroRes;
 		for (int32 X = 0; X < MacroRes; ++X)
 		{
-			const FVector3f W = GeoPlates::WarpDirection(Frame, BeltDist.TexelDir(Face, X, Y), Cfg.Plates.WarpAmp);
+			const FVector3f W = GeoPlates::WarpDirection(Frame, BeltDist.TexelDir(Face, X, Y), Cfg.Plates);
 			int32 Near, Second; float D1, D2;
 			GeoPlates::NearestTwo(Frame, W, Near, Second, D1, D2);
 			const uint8 Type = Frame.BoundaryTypeBetween(Near, Second);
@@ -133,7 +134,23 @@ void FStage03Terrain::Bake(FPlanetBakeContext& Ctx) const
 		const float Sub = Subduct.Sample(Dir);
 		if (Sub > 1e-3f && E0 < 0.f)
 		{
-			Out.Trench = ATrench * Sub * FMath::Exp(-Stage03Sq(B / (0.5f * TrenchW))) * (1.f - FMath::SmoothStep(0.1f, 0.5f, M));
+			// 沿走向分段：有深段有浅段、有宽有窄，不是一条等深的笔画。
+			const FVector3f TQ = Wp * (1.f / (6.f * TrenchW));
+			const float TDepth = 0.35f + 0.65f * FMath::Clamp(0.5f + 0.5f * GeoNoise::Fbm3(TrenchSeed, TQ, 3), 0.f, 1.f);
+			const float TWidth = 0.7f + 0.6f * FMath::Clamp(0.5f + 0.5f * GeoNoise::Fbm3(GeoHash::Combine(TrenchSeed, 7), TQ, 3), 0.f, 1.f);
+			// 横断面不对称：向陆一侧陡、向洋一侧缓。离边界越远大陆度越高 = 陆侧（两梯度同向）。
+			FVector3f E1, E2;
+			Stage03Tangents(Dir, E1, E2);
+			const auto Grad = [&](const FGeoField2D& Fd)
+			{
+				return FVector2f(Fd.Sample((Dir + E1 * GradEps).GetSafeNormal()) - Fd.Sample((Dir - E1 * GradEps).GetSafeNormal()),
+					Fd.Sample((Dir + E2 * GradEps).GetSafeNormal()) - Fd.Sample((Dir - E2 * GradEps).GetSafeNormal()));
+			};
+			const FVector2f GB = Grad(BeltDist), GM = Grad(F.ContinentalMask);
+			const float Cos = FVector2f::DotProduct(GB, GM) / FMath::Max(GB.Size() * GM.Size(), 1e-8f);
+			const float Side = FMath::Lerp(1.4f, 0.6f, FMath::SmoothStep(-0.3f, 0.3f, Cos));
+			Out.Trench = ATrench * Sub * TDepth * FMath::Exp(-Stage03Sq(B / (0.5f * TrenchW * TWidth * Side)))
+				* (1.f - FMath::SmoothStep(0.1f, 0.5f, M));
 		}
 		Out.Relief = Mountain + Plain - Out.Trench;
 		return Out;

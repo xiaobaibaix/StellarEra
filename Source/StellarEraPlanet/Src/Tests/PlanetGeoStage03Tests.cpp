@@ -78,7 +78,7 @@ bool FGeoStage03Test::RunTest(const FString& Parameters)
 		{
 			const FVector3f Dir = F.ReliefType.TexelDir(Face, X, Y);
 			int32 Near, Second; float D1, D2;
-			GeoPlates::NearestTwo(F.PlateFrame, GeoPlates::WarpDirection(F.PlateFrame, Dir, C.Plates.WarpAmp), Near, Second, D1, D2);
+			GeoPlates::NearestTwo(F.PlateFrame, GeoPlates::WarpDirection(F.PlateFrame, Dir, C.Plates), Near, Second, D1, D2);
 			const uint8 Type = F.PlateFrame.BoundaryTypeBetween(Near, Second);
 			if (F.ReliefType.At(Face, X, Y) == 5.f)
 			{

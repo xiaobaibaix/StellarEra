@@ -133,15 +133,18 @@ void FGeoNoduleRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) co
 	const uint64 Seed = Ctx.Rng.NextU64();
 	const float Threshold = 1.f - FMath::Clamp(P.Coverage, 0.f, 1.f);
 	O.Mask.Init(F.CrustType.Res);
-	O.Mask.Fill([&F, this, Seed, Threshold](const FVector3f& Dir)
+	const float Split = F.CrustSplitElevation;
+	O.Mask.Fill([&F, this, Seed, Threshold, Split](const FVector3f& Dir)
 	{
-		if (F.CrustType.SampleNearest(Dir) != 0.f || F.CrustAge.Sample(Dir) < P.AgeMin || F.ContinentalMask.Sample(Dir) > P.ContinentalMax)
-		{
-			return 0.f;
-		}
+		// 全部用平滑判据：最近邻取宏观分类图会让斑块边缘成锯齿。高程是全分辨率的，洋底判据用它。
+		const float Ocean = 1.f - FMath::SmoothStep(1.5f * Split, Split, F.Elevation.Sample(Dir));
+		const float Old = FMath::SmoothStep(P.AgeMin - 0.05f, P.AgeMin + 0.05f, F.CrustAge.Sample(Dir));
+		const float Far = 1.f - FMath::SmoothStep(P.ContinentalMax, P.ContinentalMax + 0.05f, F.ContinentalMask.Sample(Dir));
+		const float Env = Ocean * Old * Far;
+		if (Env <= 0.f) { return 0.f; }
 		// 斑块噪声决定「这片老洋底里哪些地方有结核」；阈值随覆盖率走，覆盖率只是近似值。
 		const float N = 0.5f * (GeoNoise::Fbm3(Seed, Dir * P.PatchFrequency, 3) + 1.f);
-		return FMath::SmoothStep(Threshold - 0.05f, Threshold + 0.05f, N);
+		return Env * FMath::SmoothStep(Threshold - 0.05f, Threshold + 0.05f, N);
 	}, Ctx.Config.bSingleThreadBake);
 	Out.Overlays.Add(MoveTemp(O));
 }

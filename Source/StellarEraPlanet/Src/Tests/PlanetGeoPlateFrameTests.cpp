@@ -49,7 +49,7 @@ bool FGeoPlateFrameTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("边界类型都在 1–5"), bTypes);
 
 	// warp 只改方向不改长度
-	const FVector3f W = GeoPlates::WarpDirection(A, FVector3f(0.f, 0.f, 1.f), C.Plates.WarpAmp);
+	const FVector3f W = GeoPlates::WarpDirection(A, FVector3f(0.f, 0.f, 1.f), C.Plates);
 	TestTrue(TEXT("warp 输出是单位向量"), FMath::Abs(W.Size() - 1.f) < 1e-4f);
 	TestTrue(TEXT("warp 确实挪了方向"), !W.Equals(FVector3f(0.f, 0.f, 1.f), 1e-3f));
 	return true;

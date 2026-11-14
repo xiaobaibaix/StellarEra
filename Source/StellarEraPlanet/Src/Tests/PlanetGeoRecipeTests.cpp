@@ -66,6 +66,8 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 	Probe = C2; Probe.Continents.ShelfFrac = 0.22f;         TestTrue(TEXT("ShelfFrac 进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Continents.LandHeightRatio = 0.0078f;  TestTrue(TEXT("LandHeightRatio 进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Continents.OceanDepthRatio = 0.0131f;  TestTrue(TEXT("OceanDepthRatio 进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Plates.WarpAmp = 0.51f;              TestTrue(TEXT("BoundaryWarp 进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Plates.DetailWarpAmp = 0.09f;        TestTrue(TEXT("BoundaryDetail 进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Terrain.MountainHeightRatio = 0.071f;  TestTrue(TEXT("MountainHeightRatio 进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Terrain.ErosionIterations = 10;      TestTrue(TEXT("ErosionIterations 进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Continents.DetailOctaves = 6;         TestTrue(TEXT("DetailOctaves 进哈希"), Probe.Hash() != Base);
