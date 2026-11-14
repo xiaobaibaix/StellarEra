@@ -5,6 +5,9 @@
 #include "PlanetRecipeConfig.h"
 #include "PlanetRecipe.generated.h"
 
+class UGeoMineralCatalog;
+class UGeoMineralScatterer;
+
 UCLASS(BlueprintType)
 class STELLARERAPLANET_API UPlanetRecipe : public UPrimaryDataAsset
 {
@@ -71,6 +74,14 @@ public:
 	/** 最深洋盆低于海平面多少，单位体素。 */
 	UPROPERTY(EditAnywhere, Category = "Stage2|Continents", meta = (ClampMin = "1"))
 	float OceanDepthVoxels = 480.f;
+
+	/** 矿物目录：编号、中文名、调试色。撒矿器只引用这里的编号。 */
+	UPROPERTY(EditAnywhere, Category = "Minerals")
+	TObjectPtr<UGeoMineralCatalog> MineralCatalog;
+
+	/** 撒矿器列表：一项一种成矿规律，可增删、排序、复制；同一种可叠加多份（用种子偏移错开）。 */
+	UPROPERTY(EditAnywhere, Instanced, Category = "Minerals")
+	TArray<TObjectPtr<UGeoMineralScatterer>> MineralScatterers;
 
 	/** 拷成烘焙用的 POD。半径由行星给（行星是半径的唯一真源），配方本身不存。 */
 	FPlanetRecipeConfig ToConfig(double RadiusVoxels) const;

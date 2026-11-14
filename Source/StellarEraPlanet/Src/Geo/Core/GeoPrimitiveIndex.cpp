@@ -50,7 +50,8 @@ uint64 FGeoPrimitiveIndex::Hash() const
 	{
 		H = GeoHash::Combine(H, uint64(P.Kind) | (uint64(P.MineralId) << 8) | (uint64(P.LithologyId) << 16)
 			| (uint64(P.Grade) << 24) | (uint64(P.Priority) << 32));
-		const float Vals[7] = { P.Center.X, P.Center.Y, P.Center.Z, P.Radii.X, P.Radii.Y, P.Radii.Z, P.Hard };
+		const float Vals[11] = { P.Center.X, P.Center.Y, P.Center.Z, P.Radii.X, P.Radii.Y, P.Radii.Z, P.Hard,
+			P.Rotation.X, P.Rotation.Y, P.Rotation.Z, P.Rotation.W };
 		for (const float V : Vals) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 	}
 	for (const int32 I : Order) { H = GeoHash::Combine(H, uint64(I)); }

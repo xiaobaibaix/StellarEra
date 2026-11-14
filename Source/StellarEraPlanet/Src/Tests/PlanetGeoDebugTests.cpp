@@ -52,7 +52,7 @@ bool FGeoDebugRegistryTest::RunTest(const FString& Parameters)
 		TestFalse(FString::Printf(TEXT("%s 有中文名"), *L.Id.ToString()), L.DisplayName.IsEmpty());
 		if (L.Kind == EGeoDebugKind::Categorical)
 		{
-			TestTrue(FString::Printf(TEXT("%s 分类图层有图例"), *L.Id.ToString()), L.Legend.Num() >= 2);
+			TestTrue(FString::Printf(TEXT("%s 分类图层有图例"), *L.Id.ToString()), L.Legend.Num() >= 2 || bool(L.DynamicLegend));
 		}
 	}
 	// 每个默认阶段都至少登记了一个图层：新阶段忘了 DescribeDebugLayers 会在这里暴露。

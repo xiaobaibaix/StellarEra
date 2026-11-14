@@ -1,6 +1,7 @@
 ﻿#include "PlanetBakePipeline.h"
 #include "HAL/PlatformTime.h"
 #include "PlanetStage.h"
+#include "GeoMineralRules.h"
 #include "Stage01Sphere.h"
 #include "Stage02Plates.h"
 
@@ -55,12 +56,31 @@ TSharedPtr<const FPlanetSnapshot> FPlanetBakePipeline::Bake(const FPlanetRecipeC
 
 	// 报告可能被复用：只认本次烘焙新增的错误。
 	const int32 ErrorCount = Report.Errors.Num();
+	for (const TSharedPtr<const IGeoMineralRule>& Rule : Config.MineralRules)
+	{
+		if (Rule && !Sorted().ContainsByPredicate([&Rule](const IPlanetStage* S) { return S->GetStageIndex() == Rule->GetStage(); }))
+		{
+			Report.Errors.Add(FString::Printf(TEXT("[地质] 撒矿器「%s」挂在阶段 %u，但管线里没有这个阶段"), Rule->GetRuleName(), Rule->GetStage()));
+			return nullptr;
+		}
+	}
 	FPlanetBakeFields Fields;
 	for (const IPlanetStage* S : Sorted())
 	{
 		const double T0 = FPlatformTime::Seconds();
 		FPlanetBakeContext Ctx{ Config, Fields, FGeoRng::Derive(Config.Seed, S->GetStageIndex(), 0), Report };
 		S->Bake(Ctx);
+		// 本阶段的撒矿器紧跟阶段运行：读到的是这一阶段刚写完的场，后面的阶段看得到它们撒的矿。
+		for (const TSharedPtr<const IGeoMineralRule>& Rule : Config.MineralRules)
+		{
+			if (!Rule || Rule->GetStage() != S->GetStageIndex()) { continue; }
+			const uint64 Purpose = GeoHash::Combine(GeoHash::Combine(GeoHash::Str("scatter"), Rule->HashParams()), uint64(Rule->SeedOffset));
+			FGeoScatterContext SC{ Config, Fields, FGeoRng::Derive(Config.Seed, S->GetStageIndex(), Purpose), Report.Errors };
+			FGeoScatterOutput Scattered;
+			Rule->Scatter(SC, Scattered);
+			for (FGeoPrimitive& B : Scattered.Bodies) { B.MineralId = Rule->MineralId; Fields.Primitives.Add(B); }
+			for (FGeoMineralOverlay& O : Scattered.Overlays) { O.MineralId = Rule->MineralId; Fields.MineralOverlays.Add(MoveTemp(O)); }
+		}
 		Report.StageSeconds.Emplace(S->GetName(), FPlatformTime::Seconds() - T0);
 		if (Report.Errors.Num() > ErrorCount) { return nullptr; }
 	}
@@ -75,6 +95,8 @@ TSharedPtr<const FPlanetSnapshot> FPlanetBakePipeline::Bake(const FPlanetRecipeC
 	Snap->Radial = MoveTemp(Fields.Radial);
 	Snap->MohoWobble = MoveTemp(Fields.MohoWobble);
 	Snap->Primitives.Build(MoveTemp(Fields.Primitives));
+	Snap->MineralOverlays = MoveTemp(Fields.MineralOverlays);
+	Snap->Minerals = Config.Minerals;
 	// 只有阶段 1 时没有高程场，地表恒为 R0；有阶段 2 就用实测上下界。
 	const bool bHasElevation = Fields.Elevation.Res > 0;
 	Snap->Elevation = MoveTemp(Fields.Elevation);
@@ -105,6 +127,7 @@ TArray<FGeoDebugLayer> FPlanetBakePipeline::DescribeDebugLayers() const
 {
 	TArray<FGeoDebugLayer> Out;
 	for (const IPlanetStage* S : Sorted()) { S->DescribeDebugLayers(Out); }
+	GeoMineralRules::DescribeDebugLayers(Out);
 	return Out;
 }
 

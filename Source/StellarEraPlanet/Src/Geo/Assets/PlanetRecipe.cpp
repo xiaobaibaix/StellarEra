@@ -1,5 +1,7 @@
 ﻿// 游戏线程把 UObject 字段拷成 POD，烘焙期不再碰 UObject。
 #include "PlanetRecipe.h"
+#include "GeoMineralCatalog.h"
+#include "GeoMineralScatterer.h"
 
 FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 {
@@ -24,5 +26,30 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 	C.Continents.ShelfFrac = ShelfFrac;
 	C.Continents.LandHeightVoxels = LandHeightVoxels;
 	C.Continents.OceanDepthVoxels = OceanDepthVoxels;
+	if (MineralCatalog)
+	{
+		for (const FGeoMineralDef& D : MineralCatalog->Minerals)
+		{
+			C.Minerals.Add({ D.DisplayName.IsEmpty() ? D.Id.ToString() : D.DisplayName, D.DebugColor.ToFColorSRGB() });
+		}
+	}
+	for (const UGeoMineralScatterer* S : MineralScatterers)
+	{
+		if (!S || !S->bEnabled) { continue; }
+		const int32 Index = MineralCatalog ? MineralCatalog->FindIndex(S->Mineral) : INDEX_NONE;
+		if (Index == INDEX_NONE || Index >= 255)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[地质] 配方 %s：撒矿器 %s 的矿物「%s」不在矿物目录里，跳过"),
+				*GetName(), *S->GetClass()->GetName(), *S->Mineral.ToString());
+			continue;
+		}
+		TSharedPtr<IGeoMineralRule> Rule = S->MakeRule();
+		if (!Rule) { continue; }
+		Rule->MineralId = uint8(Index + 1);
+		Rule->SeedOffset = uint32(S->SeedOffset);
+		Rule->GradeMin = uint8(FMath::Clamp(S->GradeMin, 1, 255));
+		Rule->GradeMax = uint8(FMath::Clamp(S->GradeMax, 1, 255));
+		C.MineralRules.Add(Rule);
+	}
 	return C;
 }

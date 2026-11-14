@@ -2,6 +2,7 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "GeoRng.h"
+#include "GeoMineralRule.h"
 
 /** 圈层底界，都是从地表向下的累计深度占 R（附录 01-sphere.md）。 */
 struct FPlanetSphereParams
@@ -62,6 +63,10 @@ struct FPlanetRecipeConfig
 	FPlanetSphereParams Sphere;
 	FPlanetPlateParams Plates;
 	FPlanetContinentParams Continents;
+	/** 撒矿规则（来自配方的撒矿器列表，已过滤掉停用项）。规则不可变，后台线程只读。 */
+	TArray<TSharedPtr<const IGeoMineralRule>> MineralRules;
+	/** 矿物调色板，只供显示，不进哈希。 */
+	TArray<FGeoMineralInfo> Minerals;
 
 	uint64 Hash() const
 	{
@@ -83,6 +88,10 @@ struct FPlanetRecipeConfig
 			K.FrameSpectralDecay, K.DetailFrequency, K.DetailWarpAmp, K.LandCurvePower, K.ShelfDepthRatio,
 			K.SlopeFrac, K.AbyssRatio };
 		for (const float V : C) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
+		for (const TSharedPtr<const IGeoMineralRule>& Rule : MineralRules)
+		{
+			if (Rule) { H = GeoHash::Combine(H, Rule->Hash()); }
+		}
 		return H;
 	}
 };

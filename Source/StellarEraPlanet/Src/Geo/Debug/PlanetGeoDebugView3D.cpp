@@ -110,6 +110,13 @@ void PlanetGeoDebugView3D::Render(const FPlanetSnapshot& S, const FGeoDebugLayer
 			const double Nx = ((double(X) + 0.5) / double(W) * 2.0 - 1.0) * Cam.TanHalf * double(W) / double(H);
 			const double Ny = (1.0 - (double(Y) + 0.5) / double(H) * 2.0) * Cam.TanHalf;
 			const FVector3d D = (Cam.Fwd + Cam.Right * Nx + Cam.Up * Ny).GetSafeNormal();
+			TArray<TPair<double, float>> Extra;
+			if (Layer.RayHits)
+			{
+				Layer.RayHits(S, Cam.Pos, D, Extra);
+				Extra.Sort([](const TPair<double, float>& A, const TPair<double, float>& B) { return A.Key < B.Key; });
+			}
+			int32 ExtraNext = 0;
 
 			FLinearColor Acc(0.f, 0.f, 0.f, 0.f);
 			double A = 0.0;
@@ -165,7 +172,7 @@ void PlanetGeoDebugView3D::Render(const FPlanetSnapshot& S, const FGeoDebugLayer
 							Composite(L.ColorOf(S, V), bCut ? CutNormal(E) : SurfaceNormal(E), E, MainValue);
 						}
 					}
-					else if (bInPrev && bInN && bCategorical)
+					else if (bInPrev && bInN && bCategorical && !Layer.RayHits)
 					{
 						const int32 CatN = View3DCat(LayerValue(Layer, Cam.Pos + D * Tn));
 						if (CatN != SegCat)
@@ -182,6 +189,13 @@ void PlanetGeoDebugView3D::Render(const FPlanetSnapshot& S, const FGeoDebugLayer
 							// 圈层是同心的：层间分界的法线取径向就够看出层次。
 							if (!IsHidden(V)) { Composite(Layer.ColorOf(S, V), E.GetSafeNormal(), E, V); }
 						}
+					}
+					while (ExtraNext < Extra.Num() && Extra[ExtraNext].Key <= Tn && A < 0.995)
+					{
+						const TPair<double, float>& Hx = Extra[ExtraNext++];
+						const FVector3d E = Cam.Pos + D * Hx.Key;
+						bool bC = false;
+						if (Inside(E, bC) && !IsHidden(Hx.Value)) { Composite(Layer.ColorOf(S, Hx.Value), E.GetSafeNormal(), E, Hx.Value); }
 					}
 					T = Tn;
 					bInPrev = bInN;

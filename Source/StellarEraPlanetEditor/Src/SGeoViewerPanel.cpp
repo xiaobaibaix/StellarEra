@@ -133,7 +133,8 @@ void SGeoViewerPanel::Construct(const FArguments& InArgs)
 	OuterIds.Add(NAME_None);
 	for (const FGeoDebugLayer& L : FPlanetBakePipeline::DefaultDebugLayers())
 	{
-		LayerItems.Add(MakeShared<FString>(FString::Printf(TEXT("阶段 %u · %s%s"), L.Stage, *L.DisplayName,
+		LayerItems.Add(MakeShared<FString>(FString::Printf(TEXT("%s · %s%s"),
+			L.Stage == 0 ? TEXT("矿物") : *FString::Printf(TEXT("阶段 %u"), L.Stage), *L.DisplayName,
 			L.Domain == EGeoDebugDomain::Volume ? TEXT("（地下）") : TEXT(""))));
 		if (L.Domain == EGeoDebugDomain::Surface)
 		{
@@ -451,16 +452,21 @@ void SGeoViewerPanel::RebuildLegend()
 	const FGeoDebugLayer* Layer = GeoViewerLayer(LayerIndex);
 	if (!Snap || !Layer) { return; }
 	LegendBox->AddSlot().AutoHeight().Padding(0, 0, 0, 4)[SNew(STextBlock).Text(FText::FromString(Layer->DisplayName))];
-	if (Layer->Kind == EGeoDebugKind::Categorical && !Layer->Legend.IsEmpty())
+	const TArray<FGeoDebugLegendEntry> Legend = Layer->GetLegend(*Snap);
+	if (Layer->Kind == EGeoDebugKind::Categorical && !Legend.IsEmpty())
 	{
-		View.Hidden.SetNum(Layer->Legend.Num());
+		if (View.Hidden.Num() != Legend.Num())
+		{
+			View.Hidden.Init(false, Legend.Num());
+			for (const int32 i : Layer->DefaultHidden) { if (View.Hidden.IsValidIndex(i)) { View.Hidden[i] = true; } }
+		}
 		LegendBox->AddSlot().AutoHeight().Padding(0, 0, 0, 4)
 		[
 			SNew(STextBlock).Text(FText::FromString(TEXT("取消勾选 = 在 3D 里隐藏这一层")))
 		];
-		for (int32 i = 0; i < Layer->Legend.Num(); ++i)
+		for (int32 i = 0; i < Legend.Num(); ++i)
 		{
-			const FGeoDebugLegendEntry& E = Layer->Legend[i];
+			const FGeoDebugLegendEntry& E = Legend[i];
 			LegendBox->AddSlot().AutoHeight()
 			[
 				SNew(SHorizontalBox)
@@ -484,7 +490,7 @@ void SGeoViewerPanel::RebuildLegend()
 		for (int32 i = 4; i >= 0; --i)
 		{
 			const float V = FMath::Lerp(R.X, R.Y, float(i) / 4.f);
-			LegendBox->AddSlot().AutoHeight()[GeoViewerSwatch(Layer->ColorOf(*Snap, V), Layer->FormatValue(V))];
+			LegendBox->AddSlot().AutoHeight()[GeoViewerSwatch(Layer->ColorOf(*Snap, V), Layer->FormatValue(*Snap, V))];
 		}
 	}
 	LegendBox->AddSlot().AutoHeight()[GeoViewerSwatch(FGeoDebugLayer::NoDataColor(), TEXT("无数据"))];
@@ -505,17 +511,18 @@ void SGeoViewerPanel::OnView3DHover(FVector2f UV)
 	const double Km = Planet ? Depth * double(Planet->VoxelSize) / 100000.0 : 0.0;
 	Readout = FText::FromString(FString::Printf(TEXT("3D  纬度 %.1f°  经度 %.1f°  距海平面深度 %.0f 体素（%.1f km）  →  %s"),
 		FMath::RadiansToDegrees(FMath::Asin(FMath::Clamp(Dir.Z, -1.0, 1.0))), FMath::RadiansToDegrees(FMath::Atan2(Dir.Y, Dir.X)),
-		Depth, Km, *Layer->FormatValue(HitValues[Y * Res + X])));
+		Depth, Km, *Layer->FormatValue(*Snap, HitValues[Y * Res + X])));
 }
 
 void SGeoViewerPanel::OnMapHover(FVector2f UV)
 {
+	const TSharedPtr<const FPlanetSnapshot> Snap = CurrentSnapshot();
 	const FGeoDebugLayer* Layer = GeoViewerLayer(LayerIndex);
-	if (!Layer || Map.Values.Num() != Map.W * Map.H || Map.W == 0) { return; }
+	if (!Snap || !Layer || Map.Values.Num() != Map.W * Map.H || Map.W == 0) { return; }
 	const int32 X = FMath::Clamp(int32(UV.X * Map.W), 0, Map.W - 1), Y = FMath::Clamp(int32(UV.Y * Map.H), 0, Map.H - 1);
 	const float Lon = (float(X) + 0.5f) / float(Map.W) * 360.f - 180.f, Lat = 90.f - (float(Y) + 0.5f) / float(Map.H) * 180.f;
 	Readout = FText::FromString(FString::Printf(TEXT("地图  纬度 %.1f°  经度 %.1f°  →  %s"), Lat, Lon,
-		*Layer->FormatValue(Map.Values[Y * Map.W + X])));
+		*Layer->FormatValue(*Snap, Map.Values[Y * Map.W + X])));
 }
 
 void SGeoViewerPanel::OnSectionHover(FVector2f UV)
@@ -529,7 +536,7 @@ void SGeoViewerPanel::OnSectionHover(FVector2f UV)
 	const AVoxelPlanetActor* Planet = Planets.IsValidIndex(PlanetIndex) ? Planets[PlanetIndex].Get() : nullptr;
 	const double Km = Planet ? Depth * double(Planet->VoxelSize) / 100000.0 : 0.0;
 	Readout = FText::FromString(FString::Printf(TEXT("剖面  距海平面深度 %.0f 体素（%.1f km）  →  %s"),
-		Depth, Km, *Layer->FormatValue(Section.Values[Y * Section.W + X])));
+		Depth, Km, *Layer->FormatValue(*Snap, Section.Values[Y * Section.W + X])));
 }
 
 void SGeoViewerPanel::Export()

@@ -31,6 +31,7 @@
 #include "VoxelTools/VoxelDataTools.h"
 // 新地质流水线：配方 → 后台烘焙 → 无 UObject 的快照 → 体素生成器。
 #include "PlanetRecipe.h"
+#include "GeoMineralCatalog.h"
 #include "PlanetBakePipeline.h"
 #include "PlanetGeoGenerator.h"
 #include "PlanetGeoDebugRender.h"
@@ -560,7 +561,10 @@ void AVoxelPlanetActor::BeginDestroy()
 void AVoxelPlanetActor::OnAnyObjectPropertyChanged(UObject* Object, FPropertyChangedEvent& Event)
 {
 	// 拖动滑条时每帧都会来一次：只在松手（ValueSet）时重烘，否则会排起一长串 1–3 s 的烘焙。
-	if (!GeoRecipe || Object != GeoRecipe || !GetWorld() || Event.ChangeType == EPropertyChangeType::Interactive)
+	// 撒矿器是配方的子对象、矿物目录是另一份资产：改它们也要重烘。
+	const bool bMine = GeoRecipe && Object && (Object == GeoRecipe || Object->IsIn(GeoRecipe)
+		|| Object == GeoRecipe->MineralCatalog.Get());
+	if (!bMine || !GetWorld() || Event.ChangeType == EPropertyChangeType::Interactive)
 	{
 		return;
 	}

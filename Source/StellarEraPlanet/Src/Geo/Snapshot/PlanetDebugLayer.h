@@ -32,10 +32,17 @@ struct STELLARERAPLANET_API FGeoDebugLayer
 	TFunction<float(const FPlanetSnapshot&, const FVector3d&)> Sample;
 	TFunction<FColor(const FPlanetSnapshot&, float)> Colorize;
 	TFunction<FVector2f(const FPlanetSnapshot&)> Range;
+	/** 分类随星球变的图层（矿物）用它代替 Legend。 */
+	TFunction<TArray<FGeoDebugLegendEntry>(const FPlanetSnapshot&)> DynamicLegend;
+	/** 3D 视图里默认隐藏的分类（例如「无矿」，隐藏后只剩矿体）。 */
+	TArray<int32> DefaultHidden;
+	/** 薄小目标（矿体）光线步进会漏：给出光线 O + tD 进入它们的 (t, 值)，3D 视图解析叠加。 */
+	TFunction<void(const FPlanetSnapshot&, const FVector3d&, const FVector3d&, TArray<TPair<double, float>>&)> RayHits;
 
 	FVector2f GetRange(const FPlanetSnapshot& S) const;
 	FColor ColorOf(const FPlanetSnapshot& S, float V) const;
-	FString FormatValue(float V) const;
+	TArray<FGeoDebugLegendEntry> GetLegend(const FPlanetSnapshot& S) const;
+	FString FormatValue(const FPlanetSnapshot& S, float V) const;
 
 	static float NoData() { return std::numeric_limits<float>::quiet_NaN(); }
 	static FColor NoDataColor() { return FColor(60, 60, 60, 255); }

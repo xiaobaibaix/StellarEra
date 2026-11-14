@@ -2,6 +2,7 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "GeoField2D.h"
+#include "GeoMineral.h"
 #include "GeoPlates.h"
 #include "GeoPrimitive.h"
 #include "GeoProfile.h"
@@ -25,6 +26,7 @@ struct FPlanetBakeFields
 	FGeoProfile Radial;
 	FGeoField2D MohoWobble;
 	TArray<FGeoPrimitive> Primitives;
+	TArray<FGeoMineralOverlay> MineralOverlays;
 
 	// 阶段 2 的宏观场一律 MacroRes（= FaceRes/4）；只有 Elevation 是全分辨率，它进快照。
 	FGeoPlateFrame PlateFrame;

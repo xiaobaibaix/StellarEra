@@ -2,6 +2,7 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "GeoField2D.h"
+#include "GeoMineral.h"
 #include "GeoPrimitiveIndex.h"
 #include "GeoProfile.h"
 
@@ -25,7 +26,18 @@ struct STELLARERAPLANET_API FPlanetSnapshot
 	uint64 ContentHash = 0;
 	/** 只在 bKeepDebugFields 时存在（编辑器调试图层用）：不进 ContentHash、不计入快照预算。 */
 	TMap<FName, FGeoField2D> DebugFields;
+	/** 撒矿器产出的覆层；矿体在 Primitives 里。 */
+	TArray<FGeoMineralOverlay> MineralOverlays;
+	/** 矿物调色板（编号 − 1 为下标），只供显示。 */
+	TArray<FGeoMineralInfo> Minerals;
+
+	FColor MineralColor(uint8 Id) const { return Minerals.IsValidIndex(int32(Id) - 1) ? Minerals[Id - 1].Color : FColor(255, 0, 255); }
+	FString MineralName(uint8 Id) const
+	{
+		return Id == 0 ? FString(TEXT("无矿")) : (Minerals.IsValidIndex(int32(Id) - 1) ? Minerals[Id - 1].Name : FString::Printf(TEXT("矿物 %d"), Id));
+	}
 
 	void FinalizeHash();
 	SIZE_T GetAllocatedSize() const;
+	SIZE_T MineralOverlaysSize() const;
 };

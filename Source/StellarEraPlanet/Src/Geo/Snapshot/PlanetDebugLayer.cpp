@@ -29,13 +29,19 @@ FColor FGeoDebugLayer::ColorOf(const FPlanetSnapshot& S, float V) const
 	return Ramp(R.Y > R.X ? (V - R.X) / (R.Y - R.X) : 0.5f);
 }
 
-FString FGeoDebugLayer::FormatValue(float V) const
+TArray<FGeoDebugLegendEntry> FGeoDebugLayer::GetLegend(const FPlanetSnapshot& S) const
+{
+	return DynamicLegend ? DynamicLegend(S) : Legend;
+}
+
+FString FGeoDebugLayer::FormatValue(const FPlanetSnapshot& S, float V) const
 {
 	if (FMath::IsNaN(V)) { return TEXT("无数据"); }
 	if (Kind == EGeoDebugKind::Categorical)
 	{
 		const int32 I = FMath::RoundToInt(V);
-		return Legend.IsValidIndex(I) ? Legend[I].Label : FString::Printf(TEXT("%d"), I);
+		const TArray<FGeoDebugLegendEntry> L = GetLegend(S);
+		return L.IsValidIndex(I) ? L[I].Label : FString::Printf(TEXT("%d"), I);
 	}
 	return Unit.IsEmpty() ? FString::Printf(TEXT("%.3f"), V) : FString::Printf(TEXT("%.1f %s"), V, *Unit);
 }

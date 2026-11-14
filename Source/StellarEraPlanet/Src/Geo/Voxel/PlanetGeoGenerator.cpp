@@ -91,6 +91,11 @@ FVoxelMaterial FPlanetGeoGeneratorInstance::GetMaterialImpl(v_flt X, v_flt Y, v_
 			float(Snapshot->R0 - Snapshot->MinSurfaceRadius), float(Snapshot->MaxSurfaceRadius - Snapshot->R0),
 			Snapshot->CrustSplitElevation));
 	}
+	// 调试着色下矿用矿物色盖过去：切面与地表都能直接看到矿体。
+	if (View.Color != EPlanetGeoDebugColor::None && S.Mineral != 0)
+	{
+		GeoSetRGB(P, Snapshot->MineralColor(S.Mineral));
+	}
 	M.SetR(P.R); M.SetG(P.G); M.SetB(P.B); M.SetA(P.A);
 	M.SetU0(P.U0); M.SetV0(P.V0); M.SetU1(P.U1); M.SetV1(P.V1);
 	return M;
