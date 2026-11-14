@@ -11,6 +11,8 @@
 #include "VoxelPlanetActor.h"
 #include "Widgets/Images/SImage.h"
 #include "Widgets/Input/SButton.h"
+#include "Widgets/Input/SCheckBox.h"
+#include "Widgets/Input/SSlider.h"
 #include "Widgets/Input/STextComboBox.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
@@ -21,6 +23,9 @@
 namespace
 {
 	constexpr int32 GeoViewerMapW = 1024, GeoViewerMapH = 512, GeoViewerSection = 512;
+	// 拖动时用低分辨率保证跟手，松手 0.25 s 后补一张高分辨率。
+	constexpr int32 GeoViewer3DFast = 200, GeoViewer3DFull = 640;
+	constexpr double GeoViewerSettleSeconds = 0.25;
 
 	/** 悬停读数用：鼠标在图片上的归一化位置交给回调。 */
 	class SGeoHoverImage : public SCompoundWidget
@@ -32,21 +37,67 @@ namespace
 
 		TFunction<void(FVector2f)> OnHover;
 
-		void Construct(const FArguments& InArgs)
-		{
-			ChildSlot[SNew(SImage).Image(InArgs._Brush)];
-		}
+		void Construct(const FArguments& InArgs) { ChildSlot[SNew(SImage).Image(InArgs._Brush)]; }
 
 		virtual FReply OnMouseMove(const FGeometry& Geometry, const FPointerEvent& Event) override
 		{
 			const FVector2f Local = Geometry.AbsoluteToLocal(Event.GetScreenSpacePosition());
 			const FVector2f Size = Geometry.GetLocalSize();
-			if (OnHover && Size.X > 0.f && Size.Y > 0.f)
-			{
-				OnHover(FVector2f(Local.X / Size.X, Local.Y / Size.Y));
-			}
+			if (OnHover && Size.X > 0.f && Size.Y > 0.f) { OnHover(FVector2f(Local.X / Size.X, Local.Y / Size.Y)); }
 			return FReply::Handled();
 		}
+	};
+
+	/** 3D 视图：左键拖动旋转、右键拖动平移、滚轮缩放、悬停读数。 */
+	class SGeoOrbitImage : public SCompoundWidget
+	{
+	public:
+		SLATE_BEGIN_ARGS(SGeoOrbitImage) {}
+			SLATE_ARGUMENT(const FSlateBrush*, Brush)
+		SLATE_END_ARGS()
+
+		TFunction<void(FVector2f)> OnHover;
+		TFunction<void(FVector2f, bool)> OnDrag;   // 像素位移；true = 平移
+		TFunction<void(float)> OnZoom;
+
+		void Construct(const FArguments& InArgs) { ChildSlot[SNew(SImage).Image(InArgs._Brush)]; }
+
+		virtual FReply OnMouseButtonDown(const FGeometry&, const FPointerEvent& Event) override
+		{
+			if (Event.GetEffectingButton() == EKeys::LeftMouseButton || Event.GetEffectingButton() == EKeys::RightMouseButton)
+			{
+				bPan = Event.GetEffectingButton() == EKeys::RightMouseButton;
+				bDragging = true;
+				return FReply::Handled().CaptureMouse(SharedThis(this));
+			}
+			return FReply::Unhandled();
+		}
+		virtual FReply OnMouseButtonUp(const FGeometry&, const FPointerEvent& Event) override
+		{
+			if (bDragging) { bDragging = false; return FReply::Handled().ReleaseMouseCapture(); }
+			return FReply::Unhandled();
+		}
+		virtual FReply OnMouseMove(const FGeometry& Geometry, const FPointerEvent& Event) override
+		{
+			if (bDragging && OnDrag) { OnDrag(FVector2f(Event.GetCursorDelta()), bPan); return FReply::Handled(); }
+			const FVector2f Local = Geometry.AbsoluteToLocal(Event.GetScreenSpacePosition());
+			const FVector2f Size = Geometry.GetLocalSize();
+			if (OnHover && Size.X > 0.f && Size.Y > 0.f) { OnHover(FVector2f(Local.X / Size.X, Local.Y / Size.Y)); }
+			return FReply::Handled();
+		}
+		virtual FReply OnMouseWheel(const FGeometry&, const FPointerEvent& Event) override
+		{
+			if (OnZoom) { OnZoom(Event.GetWheelDelta()); }
+			return FReply::Handled();
+		}
+		virtual FCursorReply OnCursorQuery(const FGeometry&, const FPointerEvent&) const override
+		{
+			return FCursorReply::Cursor(bDragging ? EMouseCursor::GrabHandClosed : EMouseCursor::GrabHand);
+		}
+
+	private:
+		bool bDragging = false;
+		bool bPan = false;
 	};
 
 	TSharedRef<SWidget> GeoViewerSwatch(const FColor& C, const FString& Label)
@@ -62,6 +113,13 @@ namespace
 			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[SNew(STextBlock).Text(FText::FromString(Label))];
 	}
 
+	TSharedRef<SWidget> GeoViewerLabeled(const TCHAR* Label, TSharedRef<SWidget> Widget)
+	{
+		return SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 4, 0)[SNew(STextBlock).Text(FText::FromString(Label))]
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[Widget];
+	}
+
 	const FGeoDebugLayer* GeoViewerLayer(int32 Index)
 	{
 		const TArray<FGeoDebugLayer>& Layers = FPlanetBakePipeline::DefaultDebugLayers();
@@ -71,19 +129,52 @@ namespace
 
 void SGeoViewerPanel::Construct(const FArguments& InArgs)
 {
+	OuterItems.Add(MakeShared<FString>(TEXT("外表面：同主图层")));
+	OuterIds.Add(NAME_None);
 	for (const FGeoDebugLayer& L : FPlanetBakePipeline::DefaultDebugLayers())
 	{
 		LayerItems.Add(MakeShared<FString>(FString::Printf(TEXT("阶段 %u · %s%s"), L.Stage, *L.DisplayName,
 			L.Domain == EGeoDebugDomain::Volume ? TEXT("（地下）") : TEXT(""))));
+		if (L.Domain == EGeoDebugDomain::Surface)
+		{
+			OuterItems.Add(MakeShared<FString>(FString::Printf(TEXT("外表面：%s"), *L.DisplayName)));
+			OuterIds.Add(L.Id);
+		}
 	}
+	// 默认外表面看海陆、切面看圈层：一眼同时看到地表与内部。
+	OuterIndex = FMath::Max(0, OuterIds.IndexOfByKey(FName(TEXT("Elevation"))));
 	PlaneItems = { MakeShared<FString>(TEXT("XZ 剖面（过两极）")), MakeShared<FString>(TEXT("YZ 剖面（过两极）")),
 		MakeShared<FString>(TEXT("XY 剖面（赤道面）")) };
+	ClipItems = { MakeShared<FString>(TEXT("不切")), MakeShared<FString>(TEXT("切掉 +X 半球")),
+		MakeShared<FString>(TEXT("切掉四分之一")), MakeShared<FString>(TEXT("正对视线切开（可调深度）")) };
 	RefreshPlanets();
 
 	TSharedRef<SGeoHoverImage> MapImage = SNew(SGeoHoverImage).Brush(&Map.Brush);
 	MapImage->OnHover = [this](FVector2f UV) { OnMapHover(UV); };
 	TSharedRef<SGeoHoverImage> SectionImage = SNew(SGeoHoverImage).Brush(&Section.Brush);
 	SectionImage->OnHover = [this](FVector2f UV) { OnSectionHover(UV); };
+	TSharedRef<SGeoOrbitImage> OrbitImage = SNew(SGeoOrbitImage).Brush(&View3D.Brush);
+	OrbitImage->OnHover = [this](FVector2f UV) { OnView3DHover(UV); };
+	OrbitImage->OnDrag = [this](FVector2f Delta, bool bPan)
+	{
+		if (bPan)
+		{
+			const float K = 0.0025f * View.Distance;
+			View.Pan += FVector2f(-Delta.X * K, Delta.Y * K);
+		}
+		else
+		{
+			View.YawDeg -= Delta.X * 0.4f;
+			View.PitchDeg = FMath::Clamp(View.PitchDeg + Delta.Y * 0.4f, -89.f, 89.f);
+		}
+		MarkView3DDirty();
+	};
+	OrbitImage->OnZoom = [this](float Wheel)
+	{
+		// 距离是到视线中心的，最近能贴到地表附近看细节。
+		View.Distance = FMath::Clamp(View.Distance * FMath::Pow(0.88f, Wheel), 0.08f, 12.f);
+		MarkView3DDirty();
+	};
 
 	ChildSlot
 	[
@@ -91,7 +182,7 @@ void SGeoViewerPanel::Construct(const FArguments& InArgs)
 		+ SScrollBox::Slot().Padding(6)
 		[
 			SNew(SVerticalBox)
-			+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 6)
+			+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 4)
 			[
 				SNew(SHorizontalBox)
 				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 4, 0)[SNew(STextBlock).Text(FText::FromString(TEXT("星球")))]
@@ -123,15 +214,7 @@ void SGeoViewerPanel::Construct(const FArguments& InArgs)
 					.OnSelectionChanged_Lambda([this](TSharedPtr<FString> Item, ESelectInfo::Type)
 					{
 						LayerIndex = FMath::Max(0, LayerItems.IndexOfByKey(Item));
-						Render();
-					})
-				]
-				+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 8, 0)
-				[
-					SNew(STextComboBox).OptionsSource(&PlaneItems).InitiallySelectedItem(PlaneItems[0])
-					.OnSelectionChanged_Lambda([this](TSharedPtr<FString> Item, ESelectInfo::Type)
-					{
-						PlaneIndex = FMath::Max(0, PlaneItems.IndexOfByKey(Item));
+						View.Hidden.Reset();
 						Render();
 					})
 				]
@@ -142,14 +225,86 @@ void SGeoViewerPanel::Construct(const FArguments& InArgs)
 			]
 			+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 4)
 			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 10, 0)
+				[
+					SNew(STextComboBox).OptionsSource(&OuterItems).InitiallySelectedItem(OuterItems[OuterIndex])
+					.ToolTipText(FText::FromString(TEXT("从太空直接看到的外表面用哪个图层上色；切面与内部始终用主图层")))
+					.OnSelectionChanged_Lambda([this](TSharedPtr<FString> Item, ESelectInfo::Type)
+					{
+						OuterIndex = FMath::Max(0, OuterItems.IndexOfByKey(Item));
+						MarkView3DDirty();
+					})
+				]
+				+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 10, 0)
+				[
+					SNew(STextComboBox).OptionsSource(&ClipItems).InitiallySelectedItem(ClipItems[int32(View.Clip)])
+					.OnSelectionChanged_Lambda([this](TSharedPtr<FString> Item, ESelectInfo::Type)
+					{
+						View.Clip = PlanetGeoDebugView3D::EClip(FMath::Max(0, ClipItems.IndexOfByKey(Item)));
+						MarkView3DDirty();
+					})
+				]
+				+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 10, 0)
+				[
+					GeoViewerLabeled(TEXT("切面位置"), SNew(SBox).WidthOverride(140)
+					[
+						SNew(SSlider).MinValue(-1.f).MaxValue(1.f).Value_Lambda([this]() { return View.ClipOffset; })
+						.ToolTipText(FText::FromString(TEXT("「正对视线切开」时切面离球心的距离：0 过球心，向右切得越少（看浅层），向左切得越深")))
+						.OnValueChanged_Lambda([this](float V) { View.ClipOffset = V; MarkView3DDirty(); })
+					])
+				]
+				+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 10, 0)
+				[
+					GeoViewerLabeled(TEXT("不透明度"), SNew(SBox).WidthOverride(140)
+					[
+						SNew(SSlider).MinValue(0.05f).MaxValue(1.f).Value_Lambda([this]() { return View.Opacity; })
+						.ToolTipText(FText::FromString(TEXT("小于 1 时每一层都半透明，能透过外层看到里层的形状")))
+						.OnValueChanged_Lambda([this](float V) { View.Opacity = V; MarkView3DDirty(); })
+					])
+				]
+				+ SHorizontalBox::Slot().AutoWidth()
+				[
+					SNew(SButton).Text(FText::FromString(TEXT("重置视角"))).OnClicked_Lambda([this]() { ResetView(); return FReply::Handled(); })
+				]
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 4)
+			[
 				SNew(STextBlock).Text_Lambda([this]() { return Readout; })
 			]
 			+ SVerticalBox::Slot().AutoHeight()
 			[
 				SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 8, 0)[MapImage]
-				+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 8, 0)[SectionImage]
+				+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 8, 0)
+				[
+					SNew(SVerticalBox)
+					+ SVerticalBox::Slot().AutoHeight()[OrbitImage]
+					+ SVerticalBox::Slot().AutoHeight()[SNew(STextBlock).Text_Lambda([this]() { return Status3D; })]
+				]
 				+ SHorizontalBox::Slot().AutoWidth()[SAssignNew(LegendBox, SVerticalBox)]
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0, 8, 0, 4)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 8, 0)
+				[
+					SNew(STextBlock).Text(FText::FromString(TEXT("2D：左 全球展开（经度 −180°…180°，上北下南）；右 过球心剖面")))
+				]
+				+ SHorizontalBox::Slot().AutoWidth()
+				[
+					SNew(STextComboBox).OptionsSource(&PlaneItems).InitiallySelectedItem(PlaneItems[0])
+					.OnSelectionChanged_Lambda([this](TSharedPtr<FString> Item, ESelectInfo::Type)
+					{
+						PlaneIndex = FMath::Max(0, PlaneItems.IndexOfByKey(Item));
+						Render();
+					})
+				]
+			]
+			+ SVerticalBox::Slot().AutoHeight()
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 8, 0)[MapImage]
+				+ SHorizontalBox::Slot().AutoWidth()[SectionImage]
 			]
 			+ SVerticalBox::Slot().AutoHeight().Padding(0, 4, 0, 0)
 			[
@@ -158,6 +313,36 @@ void SGeoViewerPanel::Construct(const FArguments& InArgs)
 		]
 	];
 	Render();
+}
+
+void SGeoViewerPanel::ResetView()
+{
+	const TArray<bool> Hidden = View.Hidden;
+	View = PlanetGeoDebugView3D::FView();
+	View.Hidden = Hidden;
+	MarkView3DDirty();
+}
+
+void SGeoViewerPanel::MarkView3DDirty()
+{
+	bView3DDirty = true;
+	bView3DFull = false;
+	LastInteraction = FPlatformTime::Seconds();
+}
+
+void SGeoViewerPanel::Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime)
+{
+	SCompoundWidget::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
+	if (bView3DDirty)
+	{
+		bView3DDirty = false;
+		Render3D(false);
+	}
+	else if (!bView3DFull && FPlatformTime::Seconds() - LastInteraction > GeoViewerSettleSeconds)
+	{
+		bView3DFull = true;
+		Render3D(true);
+	}
 }
 
 void SGeoViewerPanel::RefreshPlanets()
@@ -189,26 +374,47 @@ TSharedPtr<const FPlanetSnapshot> SGeoViewerPanel::CurrentSnapshot() const
 	return Planet ? Planet->GetGeoSnapshot() : nullptr;
 }
 
-void SGeoViewerPanel::Upload(FImageView& View, int32 W, int32 H, const TArray<FColor>& Colors, FVector2D DisplaySize)
+const FGeoDebugLayer* SGeoViewerPanel::OuterLayer() const
 {
-	if (!View.Texture || View.W != W || View.H != H)
+	return OuterIds.IsValidIndex(OuterIndex) ? FPlanetBakePipeline::FindDefaultDebugLayer(OuterIds[OuterIndex]) : nullptr;
+}
+
+void SGeoViewerPanel::Upload(FImageView& Img, int32 W, int32 H, const TArray<FColor>& Colors, FVector2D DisplaySize)
+{
+	if (!Img.Texture || Img.W != W || Img.H != H)
 	{
 		UTexture2D* T = UTexture2D::CreateTransient(W, H, PF_B8G8R8A8);
 		if (!T) { return; }
 		T->SRGB = true;
-		T->Filter = TF_Nearest;
-		View.Texture.Reset(T);
-		View.W = W;
-		View.H = H;
+		T->Filter = TF_Bilinear;
+		Img.Texture.Reset(T);
+		Img.W = W;
+		Img.H = H;
 	}
-	FTexture2DMipMap& Mip = View.Texture->GetPlatformData()->Mips[0];
+	FTexture2DMipMap& Mip = Img.Texture->GetPlatformData()->Mips[0];
 	void* Dest = Mip.BulkData.Lock(LOCK_READ_WRITE);
 	FMemory::Memcpy(Dest, Colors.GetData(), Colors.Num() * sizeof(FColor));
 	Mip.BulkData.Unlock();
-	View.Texture->UpdateResource();
-	View.Brush.SetResourceObject(View.Texture.Get());
-	View.Brush.ImageSize = DisplaySize;
-	View.Brush.DrawAs = ESlateBrushDrawType::Image;
+	Img.Texture->UpdateResource();
+	Img.Brush.SetResourceObject(Img.Texture.Get());
+	Img.Brush.ImageSize = DisplaySize;
+	Img.Brush.DrawAs = ESlateBrushDrawType::Image;
+}
+
+void SGeoViewerPanel::Render3D(bool bFull)
+{
+	const TSharedPtr<const FPlanetSnapshot> Snap = CurrentSnapshot();
+	const FGeoDebugLayer* Layer = GeoViewerLayer(LayerIndex);
+	if (!Snap || !Layer) { return; }
+	const double T0 = FPlatformTime::Seconds();
+	const int32 Res = bFull ? GeoViewer3DFull : GeoViewer3DFast;
+	PlanetGeoDebugView3D::FView V = View;
+	V.Steps = bFull ? 384 : 96;
+	TArray<FColor> Colors;
+	PlanetGeoDebugView3D::Render(*Snap, *Layer, OuterLayer(), V, Res, Res, Colors, &HitPos, &HitValues);
+	Upload(View3D, Res, Res, Colors, FVector2D(GeoViewer3DFull, GeoViewer3DFull));
+	Status3D = FText::FromString(FString::Printf(TEXT("3D：左键拖动旋转 · 右键拖动平移 · 滚轮缩放   %d×%d，%.0f ms"),
+		Res, Res, (FPlatformTime::Seconds() - T0) * 1000.0));
 }
 
 void SGeoViewerPanel::Render()
@@ -226,14 +432,15 @@ void SGeoViewerPanel::Render()
 	const double T0 = FPlatformTime::Seconds();
 	TArray<FColor> Colors;
 	PlanetGeoDebugRender::RenderMap(*Snap, *Layer, GeoViewerMapW, GeoViewerMapH, Colors, &Map.Values);
-	Upload(Map, GeoViewerMapW, GeoViewerMapH, Colors, FVector2D(768, 384));
+	Upload(Map, GeoViewerMapW, GeoViewerMapH, Colors, FVector2D(640, 320));
 	PlanetGeoDebugRender::RenderSection(*Snap, *Layer, GeoViewerSection,
 		PlanetGeoDebugRender::ESectionPlane(PlaneIndex), Colors, &Section.Values);
-	Upload(Section, GeoViewerSection, GeoViewerSection, Colors, FVector2D(384, 384));
-	Status = FText::FromString(FString::Printf(TEXT("「%s」出图 %.0f ms。左：全球展开（经度 −180°…180°，上北下南）；右：过球心剖面。%s"),
+	Upload(Section, GeoViewerSection, GeoViewerSection, Colors, FVector2D(320, 320));
+	Status = FText::FromString(FString::Printf(TEXT("「%s」2D 出图 %.0f ms。%s"),
 		*Layer->DisplayName, (FPlatformTime::Seconds() - T0) * 1000.0,
 		Snap->DebugFields.IsEmpty() ? TEXT("快照里没有调试场（非编辑器烘焙），阶段 2 的辅助图层会显示为无数据。") : TEXT("")));
 	RebuildLegend();
+	MarkView3DDirty();
 }
 
 void SGeoViewerPanel::RebuildLegend()
@@ -246,13 +453,33 @@ void SGeoViewerPanel::RebuildLegend()
 	LegendBox->AddSlot().AutoHeight().Padding(0, 0, 0, 4)[SNew(STextBlock).Text(FText::FromString(Layer->DisplayName))];
 	if (Layer->Kind == EGeoDebugKind::Categorical && !Layer->Legend.IsEmpty())
 	{
-		for (const FGeoDebugLegendEntry& E : Layer->Legend)
+		View.Hidden.SetNum(Layer->Legend.Num());
+		LegendBox->AddSlot().AutoHeight().Padding(0, 0, 0, 4)
+		[
+			SNew(STextBlock).Text(FText::FromString(TEXT("取消勾选 = 在 3D 里隐藏这一层")))
+		];
+		for (int32 i = 0; i < Layer->Legend.Num(); ++i)
 		{
-			LegendBox->AddSlot().AutoHeight()[GeoViewerSwatch(E.Color, E.Label)];
+			const FGeoDebugLegendEntry& E = Layer->Legend[i];
+			LegendBox->AddSlot().AutoHeight()
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+				[
+					SNew(SCheckBox)
+					.IsChecked_Lambda([this, i]() { return View.Hidden.IsValidIndex(i) && View.Hidden[i] ? ECheckBoxState::Unchecked : ECheckBoxState::Checked; })
+					.OnCheckStateChanged_Lambda([this, i](ECheckBoxState State)
+					{
+						if (View.Hidden.IsValidIndex(i)) { View.Hidden[i] = State != ECheckBoxState::Checked; MarkView3DDirty(); }
+					})
+				]
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[GeoViewerSwatch(E.Color, E.Label)]
+			];
 		}
 	}
 	else
 	{
+		View.Hidden.Reset();
 		const FVector2f R = Layer->GetRange(*Snap);
 		for (int32 i = 4; i >= 0; --i)
 		{
@@ -261,6 +488,24 @@ void SGeoViewerPanel::RebuildLegend()
 		}
 	}
 	LegendBox->AddSlot().AutoHeight()[GeoViewerSwatch(FGeoDebugLayer::NoDataColor(), TEXT("无数据"))];
+}
+
+void SGeoViewerPanel::OnView3DHover(FVector2f UV)
+{
+	const TSharedPtr<const FPlanetSnapshot> Snap = CurrentSnapshot();
+	const FGeoDebugLayer* Layer = GeoViewerLayer(LayerIndex);
+	const int32 Res = View3D.W;
+	if (!Snap || !Layer || Res <= 0 || HitPos.Num() != Res * Res) { return; }
+	const int32 X = FMath::Clamp(int32(UV.X * Res), 0, Res - 1), Y = FMath::Clamp(int32(UV.Y * Res), 0, Res - 1);
+	const FVector3d P = HitPos[Y * Res + X];
+	if (P.ContainsNaN()) { Readout = FText::FromString(TEXT("3D  太空")); return; }
+	const FVector3d Dir = P.GetSafeNormal();
+	const double Depth = Snap->R0 - P.Size();
+	const AVoxelPlanetActor* Planet = Planets.IsValidIndex(PlanetIndex) ? Planets[PlanetIndex].Get() : nullptr;
+	const double Km = Planet ? Depth * double(Planet->VoxelSize) / 100000.0 : 0.0;
+	Readout = FText::FromString(FString::Printf(TEXT("3D  纬度 %.1f°  经度 %.1f°  距海平面深度 %.0f 体素（%.1f km）  →  %s"),
+		FMath::RadiansToDegrees(FMath::Asin(FMath::Clamp(Dir.Z, -1.0, 1.0))), FMath::RadiansToDegrees(FMath::Atan2(Dir.Y, Dir.X)),
+		Depth, Km, *Layer->FormatValue(HitValues[Y * Res + X])));
 }
 
 void SGeoViewerPanel::OnMapHover(FVector2f UV)
@@ -282,9 +527,9 @@ void SGeoViewerPanel::OnSectionHover(FVector2f UV)
 	const FVector3d P = PlanetGeoDebugRender::SectionPixelToPos(*Snap, X, Y, Section.W, PlanetGeoDebugRender::ESectionPlane(PlaneIndex));
 	const double Depth = Snap->R0 - P.Size();
 	const AVoxelPlanetActor* Planet = Planets.IsValidIndex(PlanetIndex) ? Planets[PlanetIndex].Get() : nullptr;
-	const double Meters = Planet ? Depth * double(Planet->VoxelSize) / 100.0 : 0.0;
+	const double Km = Planet ? Depth * double(Planet->VoxelSize) / 100000.0 : 0.0;
 	Readout = FText::FromString(FString::Printf(TEXT("剖面  距海平面深度 %.0f 体素（%.1f km）  →  %s"),
-		Depth, Meters / 1000.0, *Layer->FormatValue(Section.Values[Y * Section.W + X])));
+		Depth, Km, *Layer->FormatValue(Section.Values[Y * Section.W + X])));
 }
 
 void SGeoViewerPanel::Export()

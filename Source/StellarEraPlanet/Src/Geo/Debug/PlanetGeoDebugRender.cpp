@@ -6,6 +6,8 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "PlanetBiomeCubemap.h"
+#include "PlanetBakePipeline.h"
+#include "PlanetGeoDebugView3D.h"
 #include "PlanetShapeEval.h"
 
 namespace
@@ -148,6 +150,9 @@ int32 PlanetGeoDebugRender::ExportAll(const FPlanetSnapshot& S, const TArray<FGe
 		Written += SavePng(Base + TEXT("_map.png"), MapWidth, MapWidth / 2, Colors) ? 1 : 0;
 		RenderSection(S, L, MapWidth / 2, ESectionPlane::XZ, Colors);
 		Written += SavePng(Base + TEXT("_section.png"), MapWidth / 2, MapWidth / 2, Colors) ? 1 : 0;
+		PlanetGeoDebugView3D::Render(S, L, FPlanetBakePipeline::FindDefaultDebugLayer(TEXT("Elevation")),
+			PlanetGeoDebugView3D::FView(), MapWidth / 2, MapWidth / 2, Colors);
+		Written += SavePng(Base + TEXT("_view3d.png"), MapWidth / 2, MapWidth / 2, Colors) ? 1 : 0;
 	}
 	return Written;
 }

@@ -9,6 +9,7 @@
 #include "GeoRng.h"
 #include "PlanetBakePipeline.h"
 #include "PlanetGeoDebugRender.h"
+#include "PlanetGeoDebugView3D.h"
 #include "PlanetGeoGenerator.h"
 #include "PlanetShapeEval.h"
 #include "PlanetStage.h"
@@ -182,10 +183,10 @@ bool FGeoDebugRenderTest::RunTest(const FString& Parameters)
 		IFileManager::Get().DeleteDirectory(*Dir, false, true);
 		const TArray<FGeoDebugLayer>& Layers = FPlanetBakePipeline::DefaultDebugLayers();
 		const int32 N = PlanetGeoDebugRender::ExportAll(*Snap, Layers, Dir, 128);
-		TestEqual(TEXT("每个图层导出两张 PNG"), N, 2 * Layers.Num());
+		TestEqual(TEXT("每个图层导出三张 PNG"), N, 3 * Layers.Num());
 		TArray<FString> Files;
 		IFileManager::Get().FindFiles(Files, *FPaths::Combine(Dir, TEXT("*.png")), true, false);
-		TestEqual(TEXT("磁盘上的 PNG 数"), Files.Num(), 2 * Layers.Num());
+		TestEqual(TEXT("磁盘上的 PNG 数"), Files.Num(), 3 * Layers.Num());
 	}
 	return true;
 }
@@ -235,6 +236,65 @@ bool FGeoDebugCutawayTest::RunTest(const FString& Parameters)
 		bCovers &= V >= R.Min && V <= R.Max;
 	}
 	TestTrue(TEXT("剖切后值域仍覆盖盒内采样"), bCovers);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoDebugView3DTest, "StellarEra.Planet.Geo.Debug.View3D",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoDebugView3DTest::RunTest(const FString& Parameters)
+{
+	FPlanetBakeReport Report;
+	const TSharedPtr<const FPlanetSnapshot> Snap = FPlanetBakePipeline::MakeDefault().Bake(GeoDebugTestConfig(true), Report);
+	if (!TestTrue(TEXT("烘焙成功"), Snap.IsValid())) { return false; }
+	const FGeoDebugLayer* Lith = FPlanetBakePipeline::FindDefaultDebugLayer(TEXT("Lithology"));
+	const FGeoDebugLayer* Elev = FPlanetBakePipeline::FindDefaultDebugLayer(TEXT("Elevation"));
+	const int32 N = 96;
+	const int32 C = (N / 2) * N + N / 2;
+
+	// 正对 +X 看、切掉 +X 半球：中心像素打到切面上的球心附近 → 内核。
+	PlanetGeoDebugView3D::FView V;
+	V.YawDeg = 0.f; V.PitchDeg = 0.f; V.Distance = 3.f;
+	V.Clip = PlanetGeoDebugView3D::EClip::Half;
+	TArray<FColor> Colors; TArray<FVector3d> Hit; TArray<float> Val;
+	PlanetGeoDebugView3D::Render(*Snap, *Lith, Elev, V, N, N, Colors, &Hit, &Val);
+	TestEqual(TEXT("像素数"), Colors.Num(), N * N);
+	TestEqual(TEXT("切开后中心看到内核"), FMath::RoundToInt(Val[C]), int32(GeoLithology::InnerCore));
+	TestTrue(FString::Printf(TEXT("中心命中点在切面上（X=%.1f）"), Hit[C].X), FMath::Abs(Hit[C].X) < 40.0);
+	TestTrue(TEXT("角上是太空"), Hit[0].ContainsNaN());
+
+	// 不切：中心打到地表，命中点半径 ≈ 地表半径。
+	V.Clip = PlanetGeoDebugView3D::EClip::None;
+	PlanetGeoDebugView3D::Render(*Snap, *Lith, Elev, V, N, N, Colors, &Hit, &Val);
+	const double Rs = PlanetShapeEval::SurfaceRadius(*Snap, FVector3f(Hit[C].GetSafeNormal()));
+	TestTrue(FString::Printf(TEXT("不切时命中地表（|r−Rs|=%.1f）"), FMath::Abs(Hit[C].Size() - Rs)), FMath::Abs(Hit[C].Size() - Rs) < 40.0);
+
+	// 隐藏地壳与上地幔：切面中心沿径向往外第一个可见的就不再是这两层。
+	V.Clip = PlanetGeoDebugView3D::EClip::FacingCamera;
+	V.ClipOffset = 0.f;
+	V.Hidden.SetNum(Lith->Legend.Num());
+	for (const uint8 Id : { GeoLithology::Crust, GeoLithology::ContinentalCrust, GeoLithology::OceanicCrust, GeoLithology::UpperMantle })
+	{
+		V.Hidden[Id] = true;
+	}
+	PlanetGeoDebugView3D::Render(*Snap, *Lith, nullptr, V, N, N, Colors, &Hit, &Val);
+	int32 Bad = 0;
+	for (const float X : Val)
+	{
+		if (FMath::IsNaN(X)) { continue; }
+		const int32 Id = FMath::RoundToInt(X);
+		Bad += (Id == GeoLithology::Crust || Id == GeoLithology::ContinentalCrust || Id == GeoLithology::OceanicCrust || Id == GeoLithology::UpperMantle) ? 1 : 0;
+	}
+	TestEqual(TEXT("隐藏的圈层一个像素都不出现"), Bad, 0);
+
+	// 半透明：同一视角下颜色与不透明时不同（能透出里层）。
+	V.Hidden.Reset();
+	V.Clip = PlanetGeoDebugView3D::EClip::None;
+	TArray<FColor> Opaque, Glass;
+	PlanetGeoDebugView3D::Render(*Snap, *Lith, nullptr, V, N, N, Opaque);
+	V.Opacity = 0.3f;
+	PlanetGeoDebugView3D::Render(*Snap, *Lith, nullptr, V, N, N, Glass);
+	TestTrue(TEXT("半透明改变了中心颜色"), Opaque[C] != Glass[C]);
 	return true;
 }
 

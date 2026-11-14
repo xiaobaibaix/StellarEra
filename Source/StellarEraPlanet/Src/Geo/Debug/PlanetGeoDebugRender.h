@@ -31,7 +31,7 @@ namespace PlanetGeoDebugRender
 	/** 立方体贴图，Outer 是瞬态包：挂到体素材质上的贴图 Outer 不能是行星（会让切图泄漏崩溃）。 */
 	STELLARERAPLANET_API UTextureCube* BakeCube(const FPlanetSnapshot& S, const FGeoDebugLayer& Layer, int32 Resolution);
 
-	/** 每个图层写 Stage<阶段>_<Id>_map.png 与 _section.png，返回写成功的文件数。 */
+	/** 每个图层写 Stage<阶段>_<Id>_map.png、_section.png、_view3d.png（默认 3D 视角，外表面看高程），返回写成功的文件数。 */
 	STELLARERAPLANET_API int32 ExportAll(const FPlanetSnapshot& S, const TArray<FGeoDebugLayer>& Layers,
 		const FString& Directory, int32 MapWidth);
 }
