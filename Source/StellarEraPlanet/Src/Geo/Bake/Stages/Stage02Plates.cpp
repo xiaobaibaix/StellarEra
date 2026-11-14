@@ -71,7 +71,7 @@ void FStage02Plates::Bake(FPlanetBakeContext& Ctx) const
 		const int32 Face = Row / FaceRes, Y = Row % FaceRes;
 		for (int32 X = 0; X < FaceRes; ++X)
 		{
-			Fields.Elevation.At(Face, X, Y) = GeoContinentField::Elevation(Cdf.Rank(Continent.At(Face, X, Y)), K);
+			Fields.Elevation.At(Face, X, Y) = GeoContinentField::Elevation(Cdf.Rank(Continent.At(Face, X, Y)), K, Ctx.Config.Radius);
 		}
 	}, bSingleThread ? EParallelForFlags::ForceSingleThread : EParallelForFlags::None);
 	// 排名→高程在场值变化快处会把整段陆坡压进一个 texel（实测坡度 1.7）；陆坡落差 360 体素
@@ -95,7 +95,7 @@ void FStage02Plates::Bake(FPlanetBakeContext& Ctx) const
 	Fields.LandAreaFrac = float(LandW / FMath::Max(TotalW, 1e-30));
 	Fields.MinElevation = MinE;
 	Fields.MaxElevation = MaxE;
-	Fields.CrustSplitElevation = -K.ShelfDepthRatio * K.OceanDepthVoxels;
+	Fields.CrustSplitElevation = -K.ShelfDepthRatio * K.OceanDepthRatio * float(Ctx.Config.Radius);
 	if (FMath::Abs(Fields.LandAreaFrac - K.LandFrac) > 0.02f)
 	{
 		Ctx.Report.Errors.Add(FString::Printf(TEXT("[地质] 阶段 2：陆地占比 %.3f 偏离目标 %.3f 超过 0.02"),

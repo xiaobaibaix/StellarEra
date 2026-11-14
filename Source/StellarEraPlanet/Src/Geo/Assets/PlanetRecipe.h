@@ -67,13 +67,46 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Stage2|Continents", meta = (ClampMin = "0", ClampMax = "0.9"))
 	float ShelfFrac = 0.15f;
 
-	/** 最高陆地高出海平面多少，单位体素。 */
-	UPROPERTY(EditAnywhere, Category = "Stage2|Continents", meta = (ClampMin = "0"))
-	float LandHeightVoxels = 240.f;
+	/** 最高陆地高出海平面多少，占半径比例（R=40000 时 0.006 ≈ 240 体素）。星球变大变小时形状不变。 */
+	UPROPERTY(EditAnywhere, Category = "Stage2|Continents", meta = (ClampMin = "0", ClampMax = "0.1"))
+	float LandHeightRatio = 0.006f;
 
-	/** 最深洋盆低于海平面多少，单位体素。 */
-	UPROPERTY(EditAnywhere, Category = "Stage2|Continents", meta = (ClampMin = "1"))
-	float OceanDepthVoxels = 480.f;
+	/** 最深洋盆低于海平面多少，占半径比例（R=40000 时 0.012 ≈ 480 体素）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage2|Continents", meta = (ClampMin = "0.0001", ClampMax = "0.1"))
+	float OceanDepthRatio = 0.012f;
+
+	// 阶段 3：宏观地形。全部占半径比例，括号里是 R=40000 时的体素数。
+	/** 山脉起伏幅度：山顶 ≈ 陆台 + 0.8 × 它（0.05 ≈ 2000 体素）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0", ClampMax = "0.2"))
+	float MountainHeightRatio = 0.05f;
+
+	/** 海沟在洋底之下再往下切多深（0.025 ≈ 1000 体素）。只在俯冲边界的洋侧出现。 */
+	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0", ClampMax = "0.2"))
+	float TrenchDepthRatio = 0.025f;
+
+	/** 山带以外的平原丘陵起伏（0.002 ≈ 80 体素）。0 = 平原是平的。 */
+	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0", ClampMax = "0.05"))
+	float PlainReliefRatio = 0.002f;
+
+	/** 造山带宽度（0.06 ≈ 2400 体素）。越大山脉越宽、覆盖面积越大。 */
+	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0.002", ClampMax = "0.3"))
+	float BeltWidthRatio = 0.06f;
+
+	/** 山脊间距（0.06 ≈ 2400 体素）。越小山脊越密越碎。 */
+	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0.005", ClampMax = "0.5"))
+	float RidgeWavelengthRatio = 0.06f;
+
+	/** 热力侵蚀遍数：越多山越圆、坡越缓。0 = 不侵蚀。 */
+	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0", ClampMax = "50"))
+	int32 ErosionIterations = 5;
+
+	/** 侵蚀强度：每遍陡坡向周围平均高度靠拢的比例。 */
+	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0", ClampMax = "1"))
+	float ErosionStrength = 0.2f;
+
+	/** 休止角（度）：比它陡的坡才会被侵蚀削平。 */
+	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "5", ClampMax = "80"))
+	float TalusAngleDeg = 30.f;
 
 	/** 矿物目录：编号、中文名、调试色。撒矿器只引用这里的编号。 */
 	UPROPERTY(EditAnywhere, Category = "Minerals")

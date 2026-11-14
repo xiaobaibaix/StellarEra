@@ -84,14 +84,14 @@ bool FGeoContinentFieldTest::RunTest(const FString& Parameters)
 	{
 		const FPlanetContinentParams P;
 		const float Coast = 1.f - P.LandFrac;
-		TestTrue(TEXT("海岸处高程 0"), FMath::Abs(GeoContinentField::Elevation(Coast, P)) < 1e-3f);
-		TestTrue(TEXT("Rank 0 = −OceanDepth"), FMath::IsNearlyEqual(GeoContinentField::Elevation(0.f, P), -P.OceanDepthVoxels, 1e-2f));
-		TestTrue(TEXT("Rank 1 = +LandHeight"), FMath::IsNearlyEqual(GeoContinentField::Elevation(1.f, P), P.LandHeightVoxels, 1e-2f));
+		TestTrue(TEXT("海岸处高程 0"), FMath::Abs(GeoContinentField::Elevation(Coast, P, 40000.0)) < 1e-3f);
+		TestTrue(TEXT("Rank 0 = −OceanDepth"), FMath::IsNearlyEqual(GeoContinentField::Elevation(0.f, P, 40000.0), -P.OceanDepthRatio * 40000.f, 1e-2f));
+		TestTrue(TEXT("Rank 1 = +LandHeight"), FMath::IsNearlyEqual(GeoContinentField::Elevation(1.f, P, 40000.0), P.LandHeightRatio * 40000.f, 1e-2f));
 		bool bMono = true;
-		float Prev = GeoContinentField::Elevation(0.f, P);
+		float Prev = GeoContinentField::Elevation(0.f, P, 40000.0);
 		for (int32 i = 1; i <= 4000; ++i)
 		{
-			const float E = GeoContinentField::Elevation(float(i) / 4000.f, P);
+			const float E = GeoContinentField::Elevation(float(i) / 4000.f, P, 40000.0);
 			bMono &= E >= Prev - 1e-4f;
 			Prev = E;
 		}

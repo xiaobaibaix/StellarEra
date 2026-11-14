@@ -24,8 +24,16 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 	C.Continents.LandFrac = LandFrac;
 	C.Continents.CoastRoughness = CoastRoughness;
 	C.Continents.ShelfFrac = ShelfFrac;
-	C.Continents.LandHeightVoxels = LandHeightVoxels;
-	C.Continents.OceanDepthVoxels = OceanDepthVoxels;
+	C.Continents.LandHeightRatio = LandHeightRatio;
+	C.Continents.OceanDepthRatio = OceanDepthRatio;
+	C.Terrain.MountainHeightRatio = MountainHeightRatio;
+	C.Terrain.TrenchDepthRatio = TrenchDepthRatio;
+	C.Terrain.PlainReliefRatio = PlainReliefRatio;
+	C.Terrain.BeltWidthRatio = BeltWidthRatio;
+	C.Terrain.RidgeWavelengthRatio = RidgeWavelengthRatio;
+	C.Terrain.ErosionIterations = ErosionIterations;
+	C.Terrain.ErosionStrength = ErosionStrength;
+	C.Terrain.TalusAngleDeg = TalusAngleDeg;
 	if (MineralCatalog)
 	{
 		for (const FGeoMineralDef& D : MineralCatalog->Minerals)

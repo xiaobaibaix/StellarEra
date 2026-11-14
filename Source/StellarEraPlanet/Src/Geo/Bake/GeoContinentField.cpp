@@ -142,21 +142,22 @@ float GeoContinentField::FWeightedCdf::Rank(float V) const
 	return float(Lo + (Cum[Bin] - Lo) * FMath::Clamp(T - double(Bin), 0.0, 1.0));
 }
 
-float GeoContinentField::Elevation(float Rank, const FPlanetContinentParams& P)
+float GeoContinentField::Elevation(float Rank, const FPlanetContinentParams& P, double Radius)
 {
+	const float LandH = float(P.LandHeightRatio * Radius), OceanD = float(P.OceanDepthRatio * Radius);
 	const float Coast = 1.f - FMath::Clamp(P.LandFrac, 0.01f, 0.99f);
 	if (Rank >= Coast)
 	{
 		const float T = (Rank - Coast) / (1.f - Coast);
-		return P.LandHeightVoxels * FMath::Pow(FMath::Clamp(T, 0.f, 1.f), FMath::Max(P.LandCurvePower, 0.01f));
+		return LandH * FMath::Pow(FMath::Clamp(T, 0.f, 1.f), FMath::Max(P.LandCurvePower, 0.01f));
 	}
 
 	// S = 当前点以上（更浅）的海洋面积占比：陆架 → 陆坡 → 深海平原依次铺开。
 	const float S = (Coast - Rank) / Coast;
 	const float Shelf = FMath::Clamp(P.ShelfFrac, 0.f, 0.9f);
 	const float Slope = FMath::Clamp(P.SlopeFrac, 0.01f, 1.f - Shelf);
-	const float ShelfBottom = P.ShelfDepthRatio * P.OceanDepthVoxels;
-	const float AbyssTop = FMath::Max(P.AbyssRatio * P.OceanDepthVoxels, ShelfBottom);
+	const float ShelfBottom = P.ShelfDepthRatio * OceanD;
+	const float AbyssTop = FMath::Max(P.AbyssRatio * OceanD, ShelfBottom);
 	if (S <= Shelf)
 	{
 		return -ShelfBottom * (Shelf > 0.f ? S / Shelf : 1.f);
@@ -166,7 +167,7 @@ float GeoContinentField::Elevation(float Rank, const FPlanetContinentParams& P)
 		return -FMath::Lerp(ShelfBottom, AbyssTop, ContinentSmooth((S - Shelf) / Slope));
 	}
 	const float Rest = FMath::Max(1.f - Shelf - Slope, 1e-6f);
-	return -FMath::Lerp(AbyssTop, P.OceanDepthVoxels, FMath::Clamp((S - Shelf - Slope) / Rest, 0.f, 1.f));
+	return -FMath::Lerp(AbyssTop, OceanD, FMath::Clamp((S - Shelf - Slope) / Rest, 0.f, 1.f));
 }
 
 void GeoContinentField::SmoothKeepSign(FGeoField2D& Field, TConstArrayView<int32> Offsets, bool bSingleThread)

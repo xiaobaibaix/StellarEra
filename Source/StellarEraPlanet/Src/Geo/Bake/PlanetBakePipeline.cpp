@@ -4,6 +4,7 @@
 #include "GeoMineralRules.h"
 #include "Stage01Sphere.h"
 #include "Stage02Plates.h"
+#include "Stage03Terrain.h"
 
 FPlanetBakePipeline::FPlanetBakePipeline() = default;
 FPlanetBakePipeline::~FPlanetBakePipeline() = default;
@@ -120,6 +121,7 @@ FPlanetBakePipeline FPlanetBakePipeline::MakeDefault()
 	FPlanetBakePipeline P;
 	P.AddStage(MakeUnique<FStage01Sphere>());
 	P.AddStage(MakeUnique<FStage02Plates>());
+	P.AddStage(MakeUnique<FStage03Terrain>());
 	return P;
 }
 

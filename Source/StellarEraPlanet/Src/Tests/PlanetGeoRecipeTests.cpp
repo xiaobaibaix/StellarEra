@@ -39,20 +39,22 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("默认 LandFrac"), D2.Continents.LandFrac, KD.LandFrac);
 	TestEqual(TEXT("默认 CoastRoughness"), D2.Continents.CoastRoughness, KD.CoastRoughness);
 	TestEqual(TEXT("默认 ShelfFrac"), D2.Continents.ShelfFrac, KD.ShelfFrac);
-	TestEqual(TEXT("默认 LandHeightVoxels"), D2.Continents.LandHeightVoxels, KD.LandHeightVoxels);
-	TestEqual(TEXT("默认 OceanDepthVoxels"), D2.Continents.OceanDepthVoxels, KD.OceanDepthVoxels);
+	TestEqual(TEXT("默认 LandHeightRatio"), D2.Continents.LandHeightRatio, KD.LandHeightRatio);
+	TestEqual(TEXT("默认 OceanDepthRatio"), D2.Continents.OceanDepthRatio, KD.OceanDepthRatio);
 	TestEqual(TEXT("未暴露 DetailFrequency 走默认"), D2.Continents.DetailFrequency, KD.DetailFrequency);
 
 	R2->PlateCount = 11; R2->FrameDegree = 6; R2->LandFrac = 0.42f; R2->CoastRoughness = 0.8f;
-	R2->ShelfFrac = 0.21f; R2->LandHeightVoxels = 310.f; R2->OceanDepthVoxels = 520.f;
+	R2->ShelfFrac = 0.21f; R2->LandHeightRatio = 0.0077f; R2->OceanDepthRatio = 0.013f; R2->MountainHeightRatio = 0.07f; R2->ErosionIterations = 9;
 	const FPlanetRecipeConfig C2 = R2->ToConfig(40000.0);
 	TestEqual(TEXT("PlateCount"), C2.Plates.PlateCount, 11);
 	TestEqual(TEXT("FrameDegree"), C2.Continents.FrameDegree, 6);
 	TestEqual(TEXT("LandFrac"), C2.Continents.LandFrac, 0.42f);
 	TestEqual(TEXT("CoastRoughness"), C2.Continents.CoastRoughness, 0.8f);
 	TestEqual(TEXT("ShelfFrac"), C2.Continents.ShelfFrac, 0.21f);
-	TestEqual(TEXT("LandHeightVoxels"), C2.Continents.LandHeightVoxels, 310.f);
-	TestEqual(TEXT("OceanDepthVoxels"), C2.Continents.OceanDepthVoxels, 520.f);
+	TestEqual(TEXT("LandHeightRatio"), C2.Continents.LandHeightRatio, 0.0077f);
+	TestEqual(TEXT("OceanDepthRatio"), C2.Continents.OceanDepthRatio, 0.013f);
+	TestEqual(TEXT("MountainHeightRatio"), C2.Terrain.MountainHeightRatio, 0.07f);
+	TestEqual(TEXT("ErosionIterations"), C2.Terrain.ErosionIterations, 9);
 
 	// 每项都必须进 Hash()：漏一项则改它快照哈希不变、存档校验失效。
 	const uint64 Base = C2.Hash();
@@ -62,8 +64,10 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 	Probe = C2; Probe.Continents.LandFrac = 0.43f;          TestTrue(TEXT("LandFrac 进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Continents.CoastRoughness = 0.81f;    TestTrue(TEXT("CoastRoughness 进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Continents.ShelfFrac = 0.22f;         TestTrue(TEXT("ShelfFrac 进哈希"), Probe.Hash() != Base);
-	Probe = C2; Probe.Continents.LandHeightVoxels = 311.f;  TestTrue(TEXT("LandHeightVoxels 进哈希"), Probe.Hash() != Base);
-	Probe = C2; Probe.Continents.OceanDepthVoxels = 521.f;  TestTrue(TEXT("OceanDepthVoxels 进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Continents.LandHeightRatio = 0.0078f;  TestTrue(TEXT("LandHeightRatio 进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Continents.OceanDepthRatio = 0.0131f;  TestTrue(TEXT("OceanDepthRatio 进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Terrain.MountainHeightRatio = 0.071f;  TestTrue(TEXT("MountainHeightRatio 进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Terrain.ErosionIterations = 10;      TestTrue(TEXT("ErosionIterations 进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Continents.DetailOctaves = 6;         TestTrue(TEXT("DetailOctaves 进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Continents.AbyssRatio = 0.8f;         TestTrue(TEXT("AbyssRatio 进哈希"), Probe.Hash() != Base);
 	return true;

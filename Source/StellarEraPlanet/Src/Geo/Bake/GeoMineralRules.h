@@ -70,6 +70,29 @@ public:
 	virtual uint64 HashParams() const override;
 };
 
+/** 蛇绿岩铬铁矿：陆-陆碰撞缝合带（被推上陆的古洋壳碎片）里成串的豆荚状透镜体。 */
+struct FGeoChromiteParams
+{
+	int32 Chains = 80;
+	int32 PodMin = 3;
+	int32 PodMax = 8;
+	float SpacingVoxels = 150.f;
+	float PodRadiusVoxels = 40.f;
+	float PodThicknessVoxels = 15.f;
+	float DepthMinVoxels = 5.f;
+	float DepthMaxVoxels = 0.f;   // ≤ 0 = 到地壳底
+};
+
+class STELLARERAPLANET_API FGeoChromiteRule final : public IGeoMineralRule
+{
+public:
+	FGeoChromiteParams P;
+	virtual uint32 GetStage() const override { return 3; }
+	virtual const TCHAR* GetRuleName() const override { return TEXT("蛇绿岩铬铁矿"); }
+	virtual void Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const override;
+	virtual uint64 HashParams() const override;
+};
+
 namespace GeoMineralRules
 {
 	/** 矿物图层（地下 / 地表矿化），图例来自快照的矿物调色板。不属于某一阶段，Stage = 0。 */

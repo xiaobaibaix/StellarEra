@@ -34,3 +34,10 @@ TSharedPtr<IGeoMineralRule> UGeoNoduleScatterer::MakeRule() const
 	R->P = { AgeMin, ContinentalMax, Coverage, PatchFrequency, DepthVoxels };
 	return R;
 }
+
+TSharedPtr<IGeoMineralRule> UGeoChromiteScatterer::MakeRule() const
+{
+	TSharedPtr<FGeoChromiteRule> R = MakeShared<FGeoChromiteRule>();
+	R->P = { Chains, PodMin, PodMax, SpacingVoxels, PodRadiusVoxels, PodThicknessVoxels, DepthMinVoxels, DepthMaxVoxels };
+	return R;
+}

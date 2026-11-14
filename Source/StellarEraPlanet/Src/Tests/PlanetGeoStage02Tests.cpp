@@ -62,8 +62,8 @@ bool FGeoStage02Test::RunTest(const FString& Parameters)
 		MinM >= 0.f && MaxM <= 1.f && MinM < 0.1f && MaxM > 0.9f);
 	// 模糊只会把端点往里收：上下界不越曲线端点，且仍有深海与高地。
 	TestTrue(FString::Printf(TEXT("高程在曲线端点内且非退化 (Min=%.1f Max=%.1f)"), MinE, MaxE),
-		MinE >= -C.Continents.OceanDepthVoxels - 1e-3f && MaxE <= C.Continents.LandHeightVoxels + 1e-3f
-		&& MinE < -0.8f * C.Continents.OceanDepthVoxels && MaxE > 0.5f * C.Continents.LandHeightVoxels);
+		MinE >= -(C.Continents.OceanDepthRatio * float(C.Radius)) - 1e-3f && MaxE <= (C.Continents.LandHeightRatio * float(C.Radius)) + 1e-3f
+		&& MinE < -0.8f * (C.Continents.OceanDepthRatio * float(C.Radius)) && MaxE > 0.5f * (C.Continents.LandHeightRatio * float(C.Radius)));
 	TestTrue(TEXT("记录的值域与实际一致"),
 		FMath::Abs(Fields.MinElevation - MinE) < 1e-3f && FMath::Abs(Fields.MaxElevation - MaxE) < 1e-3f);
 

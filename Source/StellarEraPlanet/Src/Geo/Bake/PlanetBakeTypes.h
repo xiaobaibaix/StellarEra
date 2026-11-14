@@ -18,6 +18,7 @@ enum class EPlanetField : uint32
 	Plates      = 1 << 3,   // PlateId / BoundaryType / BoundaryDistance / CrustAge
 	Continental = 1 << 4,   // ContinentalMask / ContinentalGrad / CrustType / CrustThickness
 	Elevation   = 1 << 5,   // Elevation
+	Relief      = 1 << 6,   // MountainMask / ReliefDelta / ReliefType
 };
 ENUM_CLASS_FLAGS(EPlanetField);
 
@@ -38,6 +39,11 @@ struct FPlanetBakeFields
 	/** 低于它算洋壳：取陆架底部，与 CrustType 的分界同源。 */
 	float CrustSplitElevation = 0.f;
 	float MinElevation = 0.f, MaxElevation = 0.f;
+
+	// 阶段 3：宏观场同 MacroRes；Elevation 已被就地改成最终高程。
+	FGeoField2D MountainMask, ReliefDelta, ReliefType;
+	/** 侵蚀前 / 后地形增量的最大值：侵蚀只削不抬，前者是值域的保守依据。 */
+	float ReliefRawMax = 0.f, ReliefDeltaMax = 0.f;
 };
 
 struct FPlanetBakeReport

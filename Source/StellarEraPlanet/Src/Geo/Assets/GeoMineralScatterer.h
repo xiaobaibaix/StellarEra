@@ -113,6 +113,43 @@ public:
 	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
 };
 
+/** 蛇绿岩铬铁矿：陆-陆碰撞缝合带里成串的豆荚状透镜体。运行于阶段 3 之后。 */
+UCLASS(meta = (DisplayName = "蛇绿岩铬铁矿（阶段 3）"))
+class STELLARERAPLANET_API UGeoChromiteScatterer : public UGeoMineralScatterer
+{
+	GENERATED_BODY()
+
+public:
+	UGeoChromiteScatterer() { Mineral = TEXT("Chromite"); }
+
+	/** 全球矿串条数。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "4096"))
+	int32 Chains = 80;
+	/** 每串最少几个豆荚体。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1", ClampMax = "32"))
+	int32 PodMin = 3;
+	/** 每串最多几个豆荚体（走出缝合带会提前截断）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1", ClampMax = "32"))
+	int32 PodMax = 8;
+	/** 相邻豆荚体间距（体素）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1"))
+	float SpacingVoxels = 150.f;
+	/** 豆荚体长半径（体素）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1"))
+	float PodRadiusVoxels = 40.f;
+	/** 豆荚体厚度（体素）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1"))
+	float PodThicknessVoxels = 15.f;
+	/** 埋深下限（体素，从地表往下）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0"))
+	float DepthMinVoxels = 5.f;
+	/** 埋深上限（体素）。0 = 一直到地壳底。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0"))
+	float DepthMaxVoxels = 0.f;
+
+	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
+};
+
 /** 锰结核：古老洋壳、远离大陆的海底表层斑块（覆层，不是矿体）。运行于阶段 2 之后。 */
 UCLASS(meta = (DisplayName = "锰结核（阶段 2）"))
 class STELLARERAPLANET_API UGeoNoduleScatterer : public UGeoMineralScatterer

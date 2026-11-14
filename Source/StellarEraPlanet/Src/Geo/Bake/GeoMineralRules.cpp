@@ -151,6 +151,41 @@ uint64 FGeoNoduleRule::HashParams() const
 	return GeoMineralRulesHashFloats(GeoHash::Str("nodule"), { P.AgeMin, P.ContinentalMax, P.Coverage, P.PatchFrequency, P.DepthVoxels });
 }
 
+void FGeoChromiteRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const
+{
+	if (!GeoMineralRulesNeedStage2(Ctx, GetRuleName())) { return; }
+	const FPlanetBakeFields& F = Ctx.Fields;
+	if (F.MountainMask.Res <= 0) { Ctx.Errors.Add(TEXT("[地质] 撒矿器「蛇绿岩铬铁矿」需要阶段 3 的 MountainMask")); return; }
+	const int32 Chains = FMath::Clamp(P.Chains, 0, 4096);
+	const double R = Ctx.Config.Radius;
+	int32 Placed = 0;
+	for (int32 Try = 0; Try < Chains * 4000 && Placed < Chains; ++Try)
+	{
+		const FVector3f Dir = GeoMineralRulesRandomDir(Ctx.Rng);
+		// 缝合带 = 陆上的碰撞造山带核部：洋壳碎片被挤上陆才叫蛇绿岩。
+		if (F.MountainMask.Sample(Dir) < 0.5f || F.Elevation.Sample(Dir) <= 0.f) { continue; }
+		const FVector3f Along = GeoMineralRules::TangentFrame(Dir, Ctx.Rng.Range(0.f, 2.f * PI)).RotateVector(FVector3f::XAxisVector);
+		const int32 Pods = FMath::RoundToInt(Ctx.Rng.Range(float(FMath::Min(P.PodMin, P.PodMax)), float(FMath::Max(P.PodMin, P.PodMax))));
+		for (int32 k = 0; k < Pods; ++k)
+		{
+			const FVector3f Q = (Dir + Along * float(double(k) * P.SpacingVoxels / R)).GetSafeNormal();
+			if (F.MountainMask.Sample(Q) < 0.5f) { break; }
+			const FVector3f Radii(P.PodRadiusVoxels, 0.5f * P.PodRadiusVoxels, FMath::Max(0.5f * P.PodThicknessVoxels, 0.5f));
+			FGeoPrimitive Body = FGeoPrimitive::MakeOrientedBlob(GeoMineralRulesInVolume(Ctx, Q, P.DepthMinVoxels, P.DepthMaxVoxels, Radii.Z),
+				Radii, GeoMineralRules::TangentFrame(Q, Ctx.Rng.Range(0.f, 2.f * PI)), 0.15f);
+			Body.Grade = RandomGrade(Ctx.Rng);
+			Out.Bodies.Add(Body);
+		}
+		++Placed;
+	}
+}
+
+uint64 FGeoChromiteRule::HashParams() const
+{
+	return GeoMineralRulesHashFloats(GeoHash::Combine(GeoHash::Str("chromite"), uint64(P.Chains) | (uint64(P.PodMin) << 20) | (uint64(P.PodMax) << 40)),
+		{ P.SpacingVoxels, P.PodRadiusVoxels, P.PodThicknessVoxels, P.DepthMinVoxels, P.DepthMaxVoxels });
+}
+
 namespace
 {
 	TArray<FGeoDebugLegendEntry> GeoMineralRulesLegend(const FPlanetSnapshot& S)

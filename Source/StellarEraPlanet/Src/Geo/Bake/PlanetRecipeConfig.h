@@ -35,8 +35,8 @@ struct FPlanetContinentParams
 	float LandFrac = 0.30f;               // 陆地占表面积比例
 	float CoastRoughness = 0.35f;         // 细节层 std / 框架层 std
 	float ShelfFrac = 0.15f;              // 陆架占海洋面积
-	float LandHeightVoxels = 240.f;       // 最高陆地高出海平面（体素）
-	float OceanDepthVoxels = 480.f;       // 最深洋盆低于海平面（体素）
+	float LandHeightRatio = 0.006f;      // 最高陆地高出海平面，占半径（R=40000 时 240 体素）
+	float OceanDepthRatio = 0.012f;      // 最深洋盆低于海平面，占半径（R=40000 时 480 体素）
 	// 以下不暴露：画面实测定的形状常数
 	float FrameSpectralDecay = 1.0f;      // 每阶总功率 ∝ l^-decay
 	float DetailFrequency = 3.0f;         // 单位球上的基频
@@ -46,6 +46,21 @@ struct FPlanetContinentParams
 	float ShelfDepthRatio = 0.10f;        // 陆架底 = 比例 × OceanDepth
 	float SlopeFrac = 0.12f;              // 陆坡占海洋面积
 	float AbyssRatio = 0.85f;             // 陆坡底 = 比例 × OceanDepth
+};
+
+/** 阶段 3 宏观地形：所有尺度都是占半径的比例，星球放大缩小形状不变。 */
+struct FPlanetTerrainParams
+{
+	float MountainHeightRatio = 0.05f;    // 山脉起伏幅度（R=40000 时 2000 体素）
+	float TrenchDepthRatio = 0.025f;      // 海沟在洋底之下再下切（1000 体素）
+	float PlainReliefRatio = 0.002f;      // 平原丘陵起伏（80 体素）
+	float BeltWidthRatio = 0.06f;         // 造山带宽（方向单位 ≈ 弧度）
+	float TrenchWidthRatio = 0.016f;      // 海沟宽
+	float RidgeWavelengthRatio = 0.06f;   // 山脊基波长
+	float WarpRatio = 0.03f;              // 采样坐标扭曲幅度：山脊弯曲
+	int32 ErosionIterations = 5;          // 热力侵蚀遍数
+	float ErosionStrength = 0.2f;         // 每遍向邻域均值靠拢的比例
+	float TalusAngleDeg = 30.f;           // 只有比它陡的坡才被侵蚀
 };
 
 struct FPlanetRecipeConfig
@@ -63,6 +78,7 @@ struct FPlanetRecipeConfig
 	FPlanetSphereParams Sphere;
 	FPlanetPlateParams Plates;
 	FPlanetContinentParams Continents;
+	FPlanetTerrainParams Terrain;
 	/** 撒矿规则（来自配方的撒矿器列表，已过滤掉停用项）。规则不可变，后台线程只读。 */
 	TArray<TSharedPtr<const IGeoMineralRule>> MineralRules;
 	/** 矿物调色板，只供显示，不进哈希。 */
@@ -84,10 +100,15 @@ struct FPlanetRecipeConfig
 		const FPlanetContinentParams& K = Continents;
 		H = GeoHash::Combine(H, uint64(K.FrameDegree));
 		H = GeoHash::Combine(H, uint64(K.DetailOctaves));
-		const float C[12] = { K.LandFrac, K.CoastRoughness, K.ShelfFrac, K.LandHeightVoxels, K.OceanDepthVoxels,
+		const float C[12] = { K.LandFrac, K.CoastRoughness, K.ShelfFrac, K.LandHeightRatio, K.OceanDepthRatio,
 			K.FrameSpectralDecay, K.DetailFrequency, K.DetailWarpAmp, K.LandCurvePower, K.ShelfDepthRatio,
 			K.SlopeFrac, K.AbyssRatio };
 		for (const float V : C) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
+		const FPlanetTerrainParams& T = Terrain;
+		H = GeoHash::Combine(H, uint64(T.ErosionIterations));
+		const float Tr[9] = { T.MountainHeightRatio, T.TrenchDepthRatio, T.PlainReliefRatio, T.BeltWidthRatio, T.TrenchWidthRatio,
+			T.RidgeWavelengthRatio, T.WarpRatio, T.ErosionStrength, T.TalusAngleDeg };
+		for (const float V : Tr) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 		for (const TSharedPtr<const IGeoMineralRule>& Rule : MineralRules)
 		{
 			if (Rule) { H = GeoHash::Combine(H, Rule->Hash()); }
