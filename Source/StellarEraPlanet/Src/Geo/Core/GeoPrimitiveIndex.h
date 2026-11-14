@@ -9,6 +9,8 @@ public:
 	void Build(TArray<FGeoPrimitive> InPrims);
 	const TArray<FGeoPrimitive>& GetPrimitives() const { return Prims; }
 	bool IsEmpty() const { return Prims.Num() == 0; }
+	/** 所有原语包围盒半宽的最大值（不进哈希）。调试显示把矿体放大时用它外扩查询盒。 */
+	float GetMaxHalfExtent() const { return MaxHalfExtent; }
 
 	/** Visit(int32) 收到的是 GetPrimitives() 的原始下标。 */
 	template <typename TVisit> void QueryPoint(const FVector3f& Point, TVisit&& Visit) const
@@ -32,6 +34,7 @@ private:
 	TArray<FGeoPrimitive> Prims;
 	TArray<int32> Order;
 	TArray<FNode> Nodes;
+	float MaxHalfExtent = 0.f;
 
 	int32 BuildNode(int32 First, int32 Count);
 

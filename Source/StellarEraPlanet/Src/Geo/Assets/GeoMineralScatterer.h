@@ -50,7 +50,7 @@ public:
 
 	/** 全球矿体个数。 */
 	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "4096"))
-	int32 Count = 40;
+	int32 Count = 400;
 	/** 只撒在地壳年龄（0 新 … 1 老）高于它的陆壳上。 */
 	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "1"))
 	float AgeMin = 0.8f;
@@ -66,12 +66,12 @@ public:
 	/** 矿体厚度（体素，竖直方向）。 */
 	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1"))
 	float ThicknessVoxels = 20.f;
-	/** 矿体顶面埋深下限（体素，从地表往下）。 */
+	/** 矿体埋深下限（体素，从地表往下）。 */
 	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0"))
 	float DepthMinVoxels = 10.f;
-	/** 矿体顶面埋深上限（体素）。 */
+	/** 矿体埋深上限（体素）。0 = 一直到地壳底：在整个地壳体积里按体积均匀撒。 */
 	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0"))
-	float DepthMaxVoxels = 200.f;
+	float DepthMaxVoxels = 0.f;
 
 	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
 };
@@ -87,7 +87,7 @@ public:
 
 	/** 全球矿串条数。 */
 	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "4096"))
-	int32 Chains = 30;
+	int32 Chains = 200;
 	/** 每串最少几个透镜体。 */
 	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1", ClampMax = "32"))
 	int32 LensMin = 3;
@@ -103,12 +103,12 @@ public:
 	/** 透镜体厚度（体素）。 */
 	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1"))
 	float LensThicknessVoxels = 20.f;
-	/** 顶面埋深下限（体素，从海底往下）。 */
+	/** 埋深下限（体素，从海底往下）。 */
 	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0"))
 	float DepthMinVoxels = 5.f;
-	/** 顶面埋深上限（体素）。 */
+	/** 埋深上限（体素）。0 = 一直到地壳底：在整个地壳体积里按体积均匀撒。 */
 	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0"))
-	float DepthMaxVoxels = 60.f;
+	float DepthMaxVoxels = 0.f;
 
 	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
 };

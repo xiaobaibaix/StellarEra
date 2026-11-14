@@ -23,8 +23,15 @@ namespace PlanetGeoDebugRender
 	STELLARERAPLANET_API double SectionHalfExtent(const FPlanetSnapshot& S);
 	STELLARERAPLANET_API FVector3d SectionPixelToPos(const FPlanetSnapshot& S, int32 X, int32 Y, int32 Size, ESectionPlane Plane);
 	/** 星球外是太空色、值为无数据；地表图层在剖面上按方向取地表值（整根柱子同色）。 */
+	/** MineralScale > 0 时剖面上叠矿物色（按该倍数放大显示）。 */
 	STELLARERAPLANET_API void RenderSection(const FPlanetSnapshot& S, const FGeoDebugLayer& Layer, int32 Size, ESectionPlane Plane,
-		TArray<FColor>& OutColors, TArray<float>* OutValues = nullptr);
+		TArray<FColor>& OutColors, TArray<float>* OutValues = nullptr, float MineralScale = 0.f);
+
+	/**
+	 * 该点的矿物编号（0 = 无矿）。Scale > 1 时矿体按比例放大、覆层按比例加厚，只供显示：
+	 * 真实尺寸的矿体在整星视图里不到一个像素。
+	 */
+	STELLARERAPLANET_API uint8 MineralAt(const FPlanetSnapshot& S, const FVector3d& P, float Scale);
 
 	STELLARERAPLANET_API bool SavePng(const FString& Path, int32 W, int32 H, const TArray<FColor>& Colors);
 

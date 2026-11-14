@@ -7,14 +7,14 @@
 /** 条带状铁建造：古老陆壳内部，顺地层躺平的扁平层状体。 */
 struct FGeoBifParams
 {
-	int32 Count = 40;
+	int32 Count = 400;
 	float AgeMin = 0.8f;
 	float ContinentalMin = 0.9f;
 	float LengthVoxels = 300.f;
 	float WidthVoxels = 120.f;
 	float ThicknessVoxels = 20.f;
 	float DepthMinVoxels = 10.f;
-	float DepthMaxVoxels = 200.f;
+	float DepthMaxVoxels = 0.f;   // ≤ 0 = 到地壳底
 };
 
 class STELLARERAPLANET_API FGeoBifRule final : public IGeoMineralRule
@@ -30,14 +30,14 @@ public:
 /** 块状硫化物 VMS：离散板块边界（洋中脊）的海底下，成串的透镜体。 */
 struct FGeoVmsParams
 {
-	int32 Chains = 30;
+	int32 Chains = 200;
 	int32 LensMin = 3;
 	int32 LensMax = 6;
 	float SpacingVoxels = 200.f;
 	float LensRadiusVoxels = 50.f;
 	float LensThicknessVoxels = 20.f;
 	float DepthMinVoxels = 5.f;
-	float DepthMaxVoxels = 60.f;
+	float DepthMaxVoxels = 0.f;   // ≤ 0 = 到地壳底
 };
 
 class STELLARERAPLANET_API FGeoVmsRule final : public IGeoMineralRule

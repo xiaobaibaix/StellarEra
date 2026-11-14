@@ -28,11 +28,20 @@ namespace
 		return false;
 	}
 
-	/** 中心放在地表下 Depth 处再下沉半个厚度：矿体顶面恰好在 Depth。 */
-	FVector3f GeoMineralRulesBelowSurface(const FGeoScatterContext& Ctx, const FVector3f& Dir, float Depth, float HalfThickness)
+	/**
+	 * 在地表下 [DMin, DMax] 的球壳里按体积均匀取矿体中心；DMax ≤ 0 = 一直到地壳底（莫霍面最高处之上）。
+	 * 按 r³ 均匀取：外层球壳体积大，分到的矿就多；按深度均匀取会让矿偏向深处。
+	 */
+	FVector3f GeoMineralRulesInVolume(FGeoScatterContext& Ctx, const FVector3f& Dir, float DMin, float DMax, float HalfThickness)
 	{
-		const double Surface = Ctx.Config.Radius + double(Ctx.Fields.Elevation.Sample(Dir));
-		return FVector3f(FVector3d(Dir) * (Surface - double(Depth) - double(HalfThickness)));
+		const FPlanetRecipeConfig& C = Ctx.Config;
+		const double Surface = C.Radius + double(Ctx.Fields.Elevation.Sample(Dir));
+		const double CrustFloor = C.Radius * (1.0 - double(C.Sphere.CrustRatio) + double(C.Sphere.MohoWobbleRatio)) + HalfThickness;
+		const double Top = Surface - double(DMin) - HalfThickness;
+		const double Bottom = DMax > 0.f ? FMath::Max(Surface - double(DMax) - HalfThickness, CrustFloor) : CrustFloor;
+		const double U = double(Ctx.Rng.NextFloat());
+		const double R = Bottom >= Top ? Top : FMath::Pow(U * (Top * Top * Top - Bottom * Bottom * Bottom) + Bottom * Bottom * Bottom, 1.0 / 3.0);
+		return FVector3f(FVector3d(Dir) * R);
 	}
 }
 
@@ -61,10 +70,10 @@ void FGeoBifRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const
 		{
 			continue;
 		}
-		const float Depth = Ctx.Rng.Range(P.DepthMinVoxels, FMath::Max(P.DepthMinVoxels, P.DepthMaxVoxels));
 		const FVector3f Radii(0.5f * P.LengthVoxels, 0.5f * P.WidthVoxels, FMath::Max(0.5f * P.ThicknessVoxels, 0.5f));
 		const FQuat4f Rot = GeoMineralRules::TangentFrame(Dir, Ctx.Rng.Range(0.f, 2.f * PI));
-		FGeoPrimitive Body = FGeoPrimitive::MakeOrientedBlob(GeoMineralRulesBelowSurface(Ctx, Dir, Depth, Radii.Z), Radii, Rot, 0.1f);
+		const FVector3f Center = GeoMineralRulesInVolume(Ctx, Dir, P.DepthMinVoxels, P.DepthMaxVoxels, Radii.Z);
+		FGeoPrimitive Body = FGeoPrimitive::MakeOrientedBlob(Center, Radii, Rot, 0.1f);
 		Body.Grade = RandomGrade(Ctx.Rng);
 		Out.Bodies.Add(Body);
 		++Placed;
@@ -98,9 +107,8 @@ void FGeoVmsRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const
 			const FVector3f Q = (Dir + Along * float(double(k) * P.SpacingVoxels / R)).GetSafeNormal();
 			// 链子走出洋中脊就截断：矿只能长在脊上。
 			if (F.BoundaryType.SampleNearest(Q) != 4.f) { break; }
-			const float Depth = Ctx.Rng.Range(P.DepthMinVoxels, FMath::Max(P.DepthMinVoxels, P.DepthMaxVoxels));
 			const FVector3f Radii(P.LensRadiusVoxels, 0.7f * P.LensRadiusVoxels, FMath::Max(0.5f * P.LensThicknessVoxels, 0.5f));
-			FGeoPrimitive Body = FGeoPrimitive::MakeOrientedBlob(GeoMineralRulesBelowSurface(Ctx, Q, Depth, Radii.Z), Radii,
+			FGeoPrimitive Body = FGeoPrimitive::MakeOrientedBlob(GeoMineralRulesInVolume(Ctx, Q, P.DepthMinVoxels, P.DepthMaxVoxels, Radii.Z), Radii,
 				GeoMineralRules::TangentFrame(Q, Ctx.Rng.Range(0.f, 2.f * PI)), 0.15f);
 			Body.Grade = RandomGrade(Ctx.Rng);
 			Out.Bodies.Add(Body);

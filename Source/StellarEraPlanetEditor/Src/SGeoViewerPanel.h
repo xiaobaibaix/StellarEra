@@ -44,6 +44,8 @@ private:
 	PlanetGeoDebugView3D::FView View;
 	TArray<FVector3d> HitPos;
 	TArray<float> HitValues;
+	bool bShowMinerals = true;
+	float MineralScale = 20.f;
 	bool bView3DDirty = true;
 	bool bView3DFull = false;
 	double LastInteraction = 0.0;

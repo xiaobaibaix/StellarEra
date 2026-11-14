@@ -32,6 +32,8 @@ namespace PlanetGeoDebugView3D
 		TArray<bool> Hidden;
 		/** 沿星球直径的采样数；分界处再二分细化，所以不用很大。 */
 		int32 Steps = 192;
+		/** > 0 时切面上叠矿物色，矿体按这个倍数放大显示（只影响显示）。 */
+		float MineralScale = 0.f;
 	};
 
 	/**

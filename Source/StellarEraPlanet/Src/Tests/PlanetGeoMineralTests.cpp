@@ -10,6 +10,7 @@
 #include "PlanetRecipe.h"
 #include "PlanetShapeEval.h"
 #include "PlanetGeoDebugView3D.h"
+#include "PlanetGeoDebugRender.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -78,7 +79,7 @@ bool FGeoMineralScatterTest::RunTest(const FString& Parameters)
 
 	const int32 NBif = GeoMineralTestCount(*Snap, 1), NVms = GeoMineralTestCount(*Snap, 2);
 	AddInfo(FString::Printf(TEXT("BIF %d 个，VMS 透镜 %d 个，覆层 %d 张"), NBif, NVms, Snap->MineralOverlays.Num()));
-	TestEqual(TEXT("BIF 撒满 40 个"), NBif, 40);
+	TestEqual(TEXT("BIF 撒满默认个数"), NBif, FGeoBifParams().Count);
 	TestTrue(TEXT("VMS 至少 10 个透镜体"), NVms >= 10);
 	TestEqual(TEXT("锰结核一张覆层"), Snap->MineralOverlays.Num(), 1);
 
@@ -98,6 +99,31 @@ bool FGeoMineralScatterTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("每个矿体都落在自己的成矿环境里"), BadPlace, 0);
 	TestEqual(TEXT("矿体中心的材质是这种矿"), BadMaterial, 0);
 	TestEqual(TEXT("矿体全在地下"), Buried, Snap->Primitives.GetPrimitives().Num());
+
+	// 体积撒矿：矿体分布在整个地壳厚度里，且不越过莫霍面。
+	{
+		const double Floor = C.Radius * (1.0 - double(C.Sphere.CrustRatio) + double(C.Sphere.MohoWobbleRatio));
+		double MaxDepth = 0.0;
+		int32 BelowFloor = 0, Deep = 0;
+		for (const FGeoPrimitive& P : Snap->Primitives.GetPrimitives())
+		{
+			const double R = FVector3d(P.Center).Size();
+			MaxDepth = FMath::Max(MaxDepth, C.Radius - R);
+			BelowFloor += R < Floor ? 1 : 0;
+			Deep += C.Radius - R > 0.5 * C.Sphere.CrustRatio * C.Radius ? 1 : 0;
+		}
+		AddInfo(FString::Printf(TEXT("最深矿体在海平面下 %.0f 体素，深于半个地壳的 %d 个"), MaxDepth, Deep));
+		TestEqual(TEXT("矿体都在莫霍面之上"), BelowFloor, 0);
+		TestTrue(TEXT("地壳下半部也有矿体"), Deep > 0);
+	}
+
+	// 显示放大：真实尺寸只在矿体内命中，放大 20 倍后十倍半径处也命中。
+	{
+		const FGeoPrimitive& B = Snap->Primitives.GetPrimitives()[0];
+		const FVector3d Far = FVector3d(B.Center + B.Rotation.RotateVector(FVector3f::XAxisVector) * (B.Radii.X * 10.f));
+		TestEqual(TEXT("中心处真实尺寸命中"), int32(PlanetGeoDebugRender::MineralAt(*Snap, FVector3d(B.Center), 1.f)), int32(B.MineralId));
+		TestEqual(TEXT("放大 20 倍后十倍半径处命中"), int32(PlanetGeoDebugRender::MineralAt(*Snap, Far, 20.f)), int32(B.MineralId));
+	}
 
 	FPlanetRecipeConfig Plain = C;
 	Plain.MineralRules.Reset();

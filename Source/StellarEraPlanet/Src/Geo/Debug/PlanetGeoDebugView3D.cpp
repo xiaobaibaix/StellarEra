@@ -169,7 +169,13 @@ void PlanetGeoDebugView3D::Render(const FPlanetSnapshot& S, const FGeoDebugLayer
 							const bool bUseSurface = !bCut && SurfaceLayer;
 							const FGeoDebugLayer& L = bUseSurface ? *SurfaceLayer : Layer;
 							const float V = bUseSurface ? LayerValue(L, E) : MainValue;
-							Composite(L.ColorOf(S, V), bCut ? CutNormal(E) : SurfaceNormal(E), E, MainValue);
+							FColor Col = L.ColorOf(S, V);
+							if (bCut && View.MineralScale > 0.f)
+							{
+								const uint8 Ore = PlanetGeoDebugRender::MineralAt(S, E, View.MineralScale);
+								if (Ore != 0) { Col = S.MineralColor(Ore); }
+							}
+							Composite(Col, bCut ? CutNormal(E) : SurfaceNormal(E), E, MainValue);
 						}
 					}
 					else if (bInPrev && bInN && bCategorical && !Layer.RayHits)

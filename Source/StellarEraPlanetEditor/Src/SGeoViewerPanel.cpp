@@ -264,6 +264,27 @@ void SGeoViewerPanel::Construct(const FArguments& InArgs)
 						.OnValueChanged_Lambda([this](float V) { View.Opacity = V; MarkView3DDirty(); })
 					])
 				]
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 10, 0)
+				[
+					SNew(SCheckBox)
+					.IsChecked_Lambda([this]() { return bShowMinerals ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+					.OnCheckStateChanged_Lambda([this](ECheckBoxState S) { bShowMinerals = S == ECheckBoxState::Checked; Render(); })
+					.ToolTipText(FText::FromString(TEXT("在 3D 切面与 2D 剖面上叠加矿体颜色")))
+					[SNew(STextBlock).Text(FText::FromString(TEXT("切面显示矿体")))]
+				]
+				+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 10, 0)
+				[
+					GeoViewerLabeled(TEXT("矿体显示放大"), SNew(SBox).WidthOverride(140)
+					[
+						SNew(SSlider).MinValue(1.f).MaxValue(50.f).Value_Lambda([this]() { return MineralScale; })
+						.ToolTipText(FText::FromString(TEXT("只影响显示：真实尺寸的矿体在整星视图里不到一个像素")))
+						.OnValueChanged_Lambda([this](float V) { MineralScale = V; Render(); })
+					])
+				]
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 10, 0)
+				[
+					SNew(STextBlock).Text_Lambda([this]() { return FText::FromString(FString::Printf(TEXT("%.0f×"), MineralScale)); })
+				]
 				+ SHorizontalBox::Slot().AutoWidth()
 				[
 					SNew(SButton).Text(FText::FromString(TEXT("重置视角"))).OnClicked_Lambda([this]() { ResetView(); return FReply::Handled(); })
@@ -411,6 +432,7 @@ void SGeoViewerPanel::Render3D(bool bFull)
 	const int32 Res = bFull ? GeoViewer3DFull : GeoViewer3DFast;
 	PlanetGeoDebugView3D::FView V = View;
 	V.Steps = bFull ? 384 : 96;
+	V.MineralScale = bShowMinerals && !Layer->RayHits ? MineralScale : 0.f;
 	TArray<FColor> Colors;
 	PlanetGeoDebugView3D::Render(*Snap, *Layer, OuterLayer(), V, Res, Res, Colors, &HitPos, &HitValues);
 	Upload(View3D, Res, Res, Colors, FVector2D(GeoViewer3DFull, GeoViewer3DFull));
@@ -435,7 +457,7 @@ void SGeoViewerPanel::Render()
 	PlanetGeoDebugRender::RenderMap(*Snap, *Layer, GeoViewerMapW, GeoViewerMapH, Colors, &Map.Values);
 	Upload(Map, GeoViewerMapW, GeoViewerMapH, Colors, FVector2D(640, 320));
 	PlanetGeoDebugRender::RenderSection(*Snap, *Layer, GeoViewerSection,
-		PlanetGeoDebugRender::ESectionPlane(PlaneIndex), Colors, &Section.Values);
+		PlanetGeoDebugRender::ESectionPlane(PlaneIndex), Colors, &Section.Values, bShowMinerals && !Layer->RayHits ? MineralScale : 0.f);
 	Upload(Section, GeoViewerSection, GeoViewerSection, Colors, FVector2D(320, 320));
 	Status = FText::FromString(FString::Printf(TEXT("「%s」2D 出图 %.0f ms。%s"),
 		*Layer->DisplayName, (FPlatformTime::Seconds() - T0) * 1000.0,

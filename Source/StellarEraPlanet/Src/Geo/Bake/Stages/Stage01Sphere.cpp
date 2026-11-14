@@ -63,15 +63,17 @@ void FStage01Sphere::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const
 		L.Stage = 1;
 		L.Domain = EGeoDebugDomain::Volume;
 		L.Kind = EGeoDebugKind::Categorical;
-		for (uint8 Id = 0; Id < GeoLithology::Count; ++Id)
+		// 只列到内核：陆壳 / 洋壳在调试显示里并成「地壳」。
+		for (uint8 Id = 0; Id < GeoLithology::ContinentalCrust; ++Id)
 		{
 			L.Legend.Add({ FString(GeoLithology::DisplayName(Id)), GeoLithology::DebugColor(Id) });
 		}
 		// 与体素材质同一条求值路径：看到的就是挖下去会遇到的。
 		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P)
 		{
-			return PlanetShapeEval::Value(S, P) > 0.f ? FGeoDebugLayer::NoData()
-				: float(PlanetMaterialEval::Sample(S, P).Lithology);
+			if (PlanetShapeEval::Value(S, P) > 0.f) { return FGeoDebugLayer::NoData(); }
+			const uint8 Id = PlanetMaterialEval::Sample(S, P).Lithology;
+			return float(Id == GeoLithology::ContinentalCrust || Id == GeoLithology::OceanicCrust ? GeoLithology::Crust : Id);
 		};
 		Out.Add(MoveTemp(L));
 	}

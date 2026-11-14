@@ -29,7 +29,8 @@ namespace GeoLithology
 		static const FColor Colors[Count] = {
 			FColor(255, 0, 255), FColor(150, 130, 110), FColor(70, 110, 60), FColor(60, 90, 120),
 			FColor(110, 70, 110), FColor(230, 120, 30), FColor(250, 210, 80),
-			FColor(90, 120, 80), FColor(40, 70, 130) };
+			// 陆壳 / 洋壳都是岩石，调试色与地壳相同；海陆差别只在地表着色上体现。
+			FColor(150, 130, 110), FColor(150, 130, 110) };
 		return Id < Count ? Colors[Id] : Colors[0];
 	}
 }

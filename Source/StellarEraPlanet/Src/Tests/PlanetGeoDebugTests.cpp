@@ -272,7 +272,7 @@ bool FGeoDebugView3DTest::RunTest(const FString& Parameters)
 	// 隐藏地壳与上地幔：切面中心沿径向往外第一个可见的就不再是这两层。
 	V.Clip = PlanetGeoDebugView3D::EClip::FacingCamera;
 	V.ClipOffset = 0.f;
-	V.Hidden.SetNum(Lith->Legend.Num());
+	V.Hidden.SetNum(GeoLithology::Count);
 	for (const uint8 Id : { GeoLithology::Crust, GeoLithology::ContinentalCrust, GeoLithology::OceanicCrust, GeoLithology::UpperMantle })
 	{
 		V.Hidden[Id] = true;

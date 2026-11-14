@@ -8,6 +8,8 @@ void FGeoPrimitiveIndex::Build(TArray<FGeoPrimitive> InPrims)
 	Order.SetNumUninitialized(Prims.Num());
 	for (int32 i = 0; i < Order.Num(); ++i) { Order[i] = i; }
 	Nodes.Reset();
+	MaxHalfExtent = 0.f;
+	for (const FGeoPrimitive& P : Prims) { MaxHalfExtent = FMath::Max(MaxHalfExtent, P.Bounds.GetExtent().GetMax()); }
 	if (Prims.Num() > 0) { BuildNode(0, Prims.Num()); }
 }
 

@@ -8,6 +8,7 @@
 #include "PlanetBiomeCubemap.h"
 #include "PlanetBakePipeline.h"
 #include "PlanetGeoDebugView3D.h"
+#include "PlanetMaterialEval.h"
 #include "PlanetShapeEval.h"
 
 namespace
@@ -70,8 +71,39 @@ FVector3d PlanetGeoDebugRender::SectionPixelToPos(const FPlanetSnapshot& S, int3
 	}
 }
 
+uint8 PlanetGeoDebugRender::MineralAt(const FPlanetSnapshot& S, const FVector3d& P, float Scale)
+{
+	if (Scale <= 1.001f) { return PlanetMaterialEval::Sample(S, P).Mineral; }
+	const FVector3f Pf(P);
+	uint8 Best = 0;
+	float BestD = 1.f;
+	if (!S.Primitives.IsEmpty())
+	{
+		// 原语包围盒是真实尺寸：查询盒按最大半宽外扩，放大后的矿体才不会被 BVH 剪掉。
+		const float Pad = S.Primitives.GetMaxHalfExtent() * (Scale - 1.f) + 1.f;
+		const TArray<FGeoPrimitive>& Prims = S.Primitives.GetPrimitives();
+		S.Primitives.QueryBox(FBox3f(Pf - FVector3f(Pad), Pf + FVector3f(Pad)), [&](int32 i)
+		{
+			const FGeoPrimitive& Pr = Prims[i];
+			if (Pr.MineralId == 0) { return; }
+			const FVector3f L = Pr.Kind == EGeoPrimitiveKind::OrientedBlob ? Pr.Rotation.UnrotateVector(Pf - Pr.Center) : Pf - Pr.Center;
+			const float D = (L / (Pr.Radii * Scale)).Size();
+			if (D < BestD) { BestD = D; Best = Pr.MineralId; }
+		});
+	}
+	if (Best != 0 || S.MineralOverlays.IsEmpty()) { return Best; }
+	const double Dist = P.Size();
+	const FVector3f Dir = Dist > 1e-6 ? FVector3f(P / Dist) : FVector3f::UpVector;
+	const double Below = S.R0 + double(S.Elevation.Res > 0 ? S.Elevation.Sample(Dir) : 0.f) - Dist;
+	for (const FGeoMineralOverlay& O : S.MineralOverlays)
+	{
+		if (Below >= -2.0 && Below <= double(O.DepthVoxels * Scale) && O.Mask.Sample(Dir) > 0.5f) { return O.MineralId; }
+	}
+	return 0;
+}
+
 void PlanetGeoDebugRender::RenderSection(const FPlanetSnapshot& S, const FGeoDebugLayer& Layer, int32 Size, ESectionPlane Plane,
-	TArray<FColor>& OutColors, TArray<float>* OutValues)
+	TArray<FColor>& OutColors, TArray<float>* OutValues, float MineralScale)
 {
 	Size = FMath::Max(Size, 1);
 	OutColors.SetNumUninitialized(Size * Size);
@@ -89,6 +121,11 @@ void PlanetGeoDebugRender::RenderSection(const FPlanetSnapshot& S, const FGeoDeb
 					: SurfacePoint(S, FVector3f(P.GetSafeNormal()), Layer.Domain);
 				V = GeoDebugSampleAt(S, Layer, Q);
 				C = GeoDebugOpaque(Layer.ColorOf(S, V));
+				if (MineralScale > 0.f)
+				{
+					const uint8 Id = MineralAt(S, P, MineralScale);
+					if (Id != 0) { C = GeoDebugOpaque(S.MineralColor(Id)); }
+				}
 			}
 			OutColors[Y * Size + X] = C;
 			if (OutValues) { (*OutValues)[Y * Size + X] = V; }
@@ -148,9 +185,12 @@ int32 PlanetGeoDebugRender::ExportAll(const FPlanetSnapshot& S, const TArray<FGe
 		const FString Base = FPaths::Combine(Directory, FString::Printf(TEXT("Stage%u_%s"), L.Stage, *L.Id.ToString()));
 		RenderMap(S, L, MapWidth, MapWidth / 2, Colors);
 		Written += SavePng(Base + TEXT("_map.png"), MapWidth, MapWidth / 2, Colors) ? 1 : 0;
-		RenderSection(S, L, MapWidth / 2, ESectionPlane::XZ, Colors);
+		// 地下图层（矿体图层自己除外）在剖面与 3D 切面上叠矿，放大 20 倍才看得见。
+		const float OreScale = L.Domain == EGeoDebugDomain::Volume && !L.RayHits ? 20.f : 0.f;
+		RenderSection(S, L, MapWidth / 2, ESectionPlane::XZ, Colors, nullptr, OreScale);
 		Written += SavePng(Base + TEXT("_section.png"), MapWidth / 2, MapWidth / 2, Colors) ? 1 : 0;
 		PlanetGeoDebugView3D::FView View;
+		View.MineralScale = OreScale;
 		// 与查看器同口径：默认隐藏的类（例如「无矿」）在导出里也隐藏，否则岩石把矿体全挡住。
 		for (const int32 i : L.DefaultHidden) { if (i >= 0) { View.Hidden.SetNum(FMath::Max(View.Hidden.Num(), i + 1)); View.Hidden[i] = true; } }
 		PlanetGeoDebugView3D::Render(S, L, L.DefaultHidden.IsEmpty() ? FPlanetBakePipeline::FindDefaultDebugLayer(TEXT("Elevation")) : nullptr,
