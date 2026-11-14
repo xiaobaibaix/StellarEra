@@ -48,28 +48,31 @@ FGeoPlateFrame GeoPlates::Build(const FPlanetRecipeConfig& Config)
 	{
 		Swap(Kinds[i], Kinds[int32(Rng.NextU64() % uint64(i + 1))]);
 	}
-	Frame.PairBoundaryType.SetNumZeroed(N * N);
-	for (int32 A = 0; A < N; ++A)
+	for (int32 i = 0; i < N; ++i) { Frame.Plates[i].Kind = Kinds[i]; }
+
+	// 运动用独立随机流：加运动不改变板块中心与权重（板块形状不变）。
+	FGeoRng Motion = FGeoRng::Derive(Config.Seed, 2, GeoHash::Str("plate-motion"));
+	const float SMin = FMath::Max(0.f, FMath::Min(P.SpeedMin, P.SpeedMax)), SMax = FMath::Max(P.SpeedMin, P.SpeedMax);
+	for (int32 i = 0; i < N; ++i)
 	{
-		for (int32 B = A + 1; B < N; ++B)
+		FGeoPlate& Plate = Frame.Plates[i];
+		float Speed = Motion.Range(SMin, SMax);
+		float Azimuth = Motion.Range(0.f, 360.f);
+		for (const FPlanetPlateOverride& O : P.Overrides)
 		{
-			const uint64 Key = Frame.WarpSeed ^ ((uint64(uint32(A)) << 32) | uint64(uint32(B)));
-			const float U = float(GeoHash::Mix64(Key) >> 40) / 16777216.f;
-			uint8 Type = 5;
-			if (U < 0.7f)
-			{
-				const bool bABothContinental = Frame.Plates[A].Kind == EGeoPlateKind::Continental
-					&& Frame.Plates[B].Kind == EGeoPlateKind::Continental;
-				const bool bABothOceanic = Frame.Plates[A].Kind == EGeoPlateKind::Oceanic
-					&& Frame.Plates[B].Kind == EGeoPlateKind::Oceanic;
-				Type = bABothContinental ? 3 : (bABothOceanic ? 2 : 1);
-			}
-			else if (U < 0.9f)
-			{
-				Type = 4;
-			}
-			Frame.PairBoundaryType[A * N + B] = Type;
+			if (O.Plate != i) { continue; }
+			if (O.bSpeed) { Speed = FMath::Max(O.Speed, 0.f); }
+			if (O.bDirection) { Azimuth = O.DirectionDeg; }
 		}
+		const FVector3f C = Plate.Center;
+		const FVector3f Ref = FMath::Abs(C.Z) < 0.99f ? FVector3f::UpVector : FVector3f::ForwardVector;
+		const FVector3f North = (Ref - C * FVector3f::DotProduct(Ref, C)).GetSafeNormal();
+		const FVector3f East = FVector3f::CrossProduct(North, C);
+		const float Az = FMath::DegreesToRadians(Azimuth);
+		const FVector3f Vel = North * FMath::Cos(Az) + East * FMath::Sin(Az);
+		// (C × V) × C = V：这样构造的欧拉极让板块中心处的速度恰好是 Speed · V。
+		Plate.Omega = FVector3f::CrossProduct(C, Vel) * Speed;
+		Plate.Speed = Speed;
 	}
 
 	return Frame;
@@ -127,13 +130,21 @@ void GeoPlates::NearestTwo(const FGeoPlateFrame& Frame, const FVector3f& Dir,
 	}
 }
 
-uint8 FGeoPlateFrame::BoundaryTypeBetween(int32 A, int32 B) const
+FGeoBoundaryMotion GeoPlates::BoundaryMotion(const FGeoPlateFrame& Frame, const FVector3f& Dir, int32 A, int32 B, const FPlanetPlateParams& P)
 {
-	const int32 N = Plates.Num();
-	if (A < 0 || B < 0 || A >= N || B >= N || A == B) { return 0; }
-	if (A > B) { Swap(A, B); }
-	const int32 Index = A * N + B;
-	return PairBoundaryType.IsValidIndex(Index) ? PairBoundaryType[Index] : 0;
+	FGeoBoundaryMotion Out;
+	if (!Frame.Plates.IsValidIndex(A) || !Frame.Plates.IsValidIndex(B) || A == B) { return Out; }
+	const FGeoPlate& PA = Frame.Plates[A];
+	const FGeoPlate& PB = Frame.Plates[B];
+	const FVector3f Chord = PB.Center - PA.Center;
+	const FVector3f N = (Chord - Dir * FVector3f::DotProduct(Chord, Dir)).GetSafeNormal();
+	const FVector3f Rel = PB.VelocityAt(Dir) - PA.VelocityAt(Dir);
+	const float Normal = FVector3f::DotProduct(Rel, N);
+	Out.Convergence = -Normal;
+	Out.Shear = (Rel - N * Normal).Size();
+	if (Out.Shear > FMath::Max(P.TransformShearRatio, 0.f) * FMath::Abs(Out.Convergence)) { Out.Type = 5; }
+	else { Out.Type = Out.Convergence > 0.f ? 1 : 4; }
+	return Out;
 }
 
 uint64 FGeoPlateFrame::Hash() const
@@ -146,8 +157,8 @@ uint64 FGeoPlateFrame::Hash() const
 		H = GeoHash::Combine(H, GeoHash::Float(P.Center.Z));
 		H = GeoHash::Combine(H, GeoHash::Float(P.Weight));
 		H = GeoHash::Combine(H, uint64(P.Kind));
+		const float M[4] = { P.Omega.X, P.Omega.Y, P.Omega.Z, P.Speed };
+		for (const float V : M) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 	}
-	H = GeoHash::Combine(H, uint64(PairBoundaryType.Num()));
-	for (const uint8 Type : PairBoundaryType) { H = GeoHash::Combine(H, uint64(Type)); }
 	return H;
 }

@@ -17,6 +17,16 @@ struct FPlanetSphereParams
 	int32 WobbleOctaves = 3;              // 莫霍面起伏噪声层数
 };
 
+/** 单块板块的运动覆盖：按板块编号（查看器「板块编号」图层可读）单独指定速度 / 方向。 */
+struct FPlanetPlateOverride
+{
+	int32 Plate = 0;
+	bool bSpeed = false;
+	float Speed = 5.f;
+	bool bDirection = false;
+	float DirectionDeg = 0.f;   // 板块中心处的运动方位角：0 = 北，90 = 东（从星球外看顺时针）
+};
+
 /** 阶段 2 的尺度一律是体素：按 00-pipeline.md §3.0 的物理尺寸，不再写 k·R（R=40000 下 clamp 全撞上限）。 */
 struct FPlanetPlateParams
 {
@@ -30,6 +40,10 @@ struct FPlanetPlateParams
 	float DetailWarpFrequency = 10.f;     // 小尺度锯齿频率
 	float AgeScaleRatio = 0.25f;          // 洋壳年龄随离边界距离增长的尺度（× 弦距）
 	float BoundaryBandRatio = 0.02f;      // BoundaryType 只在距边界 2%R 内非零
+	float SpeedMin = 1.f;                 // 板块速度下限（相对单位，可理解为 cm/年）
+	float SpeedMax = 10.f;                // 板块速度上限
+	float TransformShearRatio = 1.5f;     // 剪切 / 挤压超过它就判为转换断层
+	TArray<FPlanetPlateOverride> Overrides;
 };
 
 /** 阶段 2 大陆场：全球一张连续场 F，按立体角加权分位数定海陆，再按排名映射高程。 */
@@ -68,6 +82,8 @@ struct FPlanetTerrainParams
 	float TrenchSedimentFill = 0.7f;      // 海沟沉积充填：0 不填，1 近岸几乎填平（远洋段不受影响）
 	float TrenchSlump = 0.5f;             // 海沟两壁坍塌平滑强度：0 不塌，1 最缓
 	float TrenchWedge = 0.5f;             // 陆侧增生楔隆起强度
+	float SpeedWidthEffect = 0.6f;        // 挤压速度对山带宽度的影响：快 → 窄，慢 → 宽
+	float SpeedHeightEffect = 0.6f;       // 挤压速度对山高 / 海沟深的影响：快 → 高，慢 → 低
 };
 
 struct FPlanetRecipeConfig
@@ -102,8 +118,14 @@ struct FPlanetRecipeConfig
 		H = GeoHash::Combine(H, uint64(Sphere.WobbleOctaves));
 		H = GeoHash::Combine(H, uint64(Plates.PlateCount));
 		H = GeoHash::Combine(H, uint64(Plates.WarpOctaves));
-		const float P[8] = { Plates.PlateWeightMin, Plates.PlateWeightMax, Plates.WarpAmp,
-			Plates.AgeScaleRatio, Plates.BoundaryBandRatio, Plates.WarpFrequency, Plates.DetailWarpAmp, Plates.DetailWarpFrequency };
+		const float P[11] = { Plates.PlateWeightMin, Plates.PlateWeightMax, Plates.WarpAmp,
+			Plates.AgeScaleRatio, Plates.BoundaryBandRatio, Plates.WarpFrequency, Plates.DetailWarpAmp, Plates.DetailWarpFrequency,
+			Plates.SpeedMin, Plates.SpeedMax, Plates.TransformShearRatio };
+		for (const FPlanetPlateOverride& O : Plates.Overrides)
+		{
+			H = GeoHash::Combine(H, uint64(uint32(O.Plate)) | (uint64(O.bSpeed) << 32) | (uint64(O.bDirection) << 33));
+			H = GeoHash::Combine(GeoHash::Combine(H, GeoHash::Float(O.Speed)), GeoHash::Float(O.DirectionDeg));
+		}
 		for (const float V : P) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 		const FPlanetContinentParams& K = Continents;
 		H = GeoHash::Combine(H, uint64(K.FrameDegree));
@@ -114,8 +136,8 @@ struct FPlanetRecipeConfig
 		for (const float V : C) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 		const FPlanetTerrainParams& T = Terrain;
 		H = GeoHash::Combine(H, uint64(T.ErosionIterations));
-		const float Tr[12] = { T.MountainHeightRatio, T.TrenchDepthRatio, T.PlainReliefRatio, T.BeltWidthRatio, T.TrenchWidthRatio,
-			T.RidgeWavelengthRatio, T.WarpRatio, T.ErosionStrength, T.TalusAngleDeg, T.TrenchSedimentFill, T.TrenchSlump, T.TrenchWedge };
+		const float Tr[14] = { T.MountainHeightRatio, T.TrenchDepthRatio, T.PlainReliefRatio, T.BeltWidthRatio, T.TrenchWidthRatio,
+			T.RidgeWavelengthRatio, T.WarpRatio, T.ErosionStrength, T.TalusAngleDeg, T.TrenchSedimentFill, T.TrenchSlump, T.TrenchWedge, T.SpeedWidthEffect, T.SpeedHeightEffect };
 		for (const float V : Tr) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 		for (const TSharedPtr<const IGeoMineralRule>& Rule : MineralRules)
 		{

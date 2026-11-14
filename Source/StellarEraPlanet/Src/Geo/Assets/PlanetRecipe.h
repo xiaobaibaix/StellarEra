@@ -8,6 +8,33 @@
 class UGeoMineralCatalog;
 class UGeoMineralScatterer;
 
+/** 单块板块的运动覆盖。板块编号在地质查看器「阶段 2 · 板块编号」图层里读。 */
+USTRUCT(BlueprintType)
+struct FGeoPlateOverride
+{
+	GENERATED_BODY()
+
+	/** 要覆盖的板块编号（0 起）。 */
+	UPROPERTY(EditAnywhere, Category = "Plate", meta = (ClampMin = "0", ClampMax = "14"))
+	int32 PlateIndex = 0;
+
+	/** 勾上才覆盖速度。 */
+	UPROPERTY(EditAnywhere, Category = "Plate")
+	bool bOverrideSpeed = true;
+
+	/** 板块速度（相对单位，可理解为 cm/年）。越快，与它相撞的边界山越窄越高、海沟越深。 */
+	UPROPERTY(EditAnywhere, Category = "Plate", meta = (ClampMin = "0", ClampMax = "30", EditCondition = "bOverrideSpeed"))
+	float Speed = 10.f;
+
+	/** 勾上才覆盖方向。 */
+	UPROPERTY(EditAnywhere, Category = "Plate")
+	bool bOverrideDirection = false;
+
+	/** 运动方向：板块中心处的方位角，0 = 北，90 = 东（从星球外看顺时针）。 */
+	UPROPERTY(EditAnywhere, Category = "Plate", meta = (ClampMin = "0", ClampMax = "360", EditCondition = "bOverrideDirection"))
+	float DirectionDeg = 0.f;
+};
+
 UCLASS(BlueprintType)
 class STELLARERAPLANET_API UPlanetRecipe : public UPrimaryDataAsset
 {
@@ -57,6 +84,22 @@ public:
 	/** 板块边界小尺度锯齿：越大边界越毛糙。海沟、山脉都沿边界走，会跟着变。 */
 	UPROPERTY(EditAnywhere, Category = "Stage2|Plates", meta = (ClampMin = "0", ClampMax = "0.2"))
 	float BoundaryDetail = 0.08f;
+
+	/** 板块速度下限（相对单位，可理解为 cm/年）。每块板块在上下限之间随机取一个速度、随机取方向。 */
+	UPROPERTY(EditAnywhere, Category = "Stage2|Plates", meta = (ClampMin = "0", ClampMax = "30"))
+	float PlateSpeedMin = 1.f;
+
+	/** 板块速度上限。两块板块相对速度越大，碰撞带的山越窄越高。 */
+	UPROPERTY(EditAnywhere, Category = "Stage2|Plates", meta = (ClampMin = "0", ClampMax = "30"))
+	float PlateSpeedMax = 10.f;
+
+	/** 转换断层判据：沿边界的错动超过挤压 / 拉开的这么多倍，就判为转换断层（几乎不长山）。越小转换断层越多。 */
+	UPROPERTY(EditAnywhere, Category = "Stage2|Plates", meta = (ClampMin = "0.1", ClampMax = "10"))
+	float TransformShearRatio = 1.5f;
+
+	/** 单块板块覆盖：按编号单独指定速度 / 方向，用来刻意做出某条特别高（快撞）或特别宽（慢撞）的山脉。 */
+	UPROPERTY(EditAnywhere, Category = "Stage2|Plates", meta = (TitleProperty = "PlateIndex"))
+	TArray<FGeoPlateOverride> PlateOverrides;
 
 	// 平铺而非 USTRUCT 镜像：USTRUCT 会把 CoreUObject 拖进 Geo/Bake，check_architecture 判层次违规。
 	/** 大陆框架阶数：越大陆块越多越小。1–2 超大陆，4 类地球，6 以上配高海岸破碎度出群岛。 */
@@ -127,6 +170,14 @@ public:
 	/** 增生楔：海沟靠陆一侧被刮积起来的低缓隆起，始终在海面以下。0 = 没有。 */
 	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0", ClampMax = "1"))
 	float TrenchWedge = 0.5f;
+
+	/** 挤压速度对山带宽度的影响：快撞 → 窄而密，慢撞 → 宽而缓（整体抬升）。0 = 所有山带一样宽。 */
+	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0", ClampMax = "0.9"))
+	float SpeedWidthEffect = 0.6f;
+
+	/** 挤压速度对山高与海沟深的影响：快撞 → 高、海沟深，慢撞 → 低、海沟浅。0 = 一样高。 */
+	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0", ClampMax = "0.9"))
+	float SpeedHeightEffect = 0.6f;
 
 	/** 矿物目录：编号、中文名、调试色。撒矿器只引用这里的编号。 */
 	UPROPERTY(EditAnywhere, Category = "Minerals")

@@ -22,6 +22,13 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 	C.Plates.PlateCount = PlateCount;
 	C.Plates.WarpAmp = BoundaryWarp;
 	C.Plates.DetailWarpAmp = BoundaryDetail;
+	C.Plates.SpeedMin = PlateSpeedMin;
+	C.Plates.SpeedMax = PlateSpeedMax;
+	C.Plates.TransformShearRatio = TransformShearRatio;
+	for (const FGeoPlateOverride& O : PlateOverrides)
+	{
+		C.Plates.Overrides.Add({ O.PlateIndex, O.bOverrideSpeed, O.Speed, O.bOverrideDirection, O.DirectionDeg });
+	}
 	C.Continents.FrameDegree = FrameDegree;
 	C.Continents.LandFrac = LandFrac;
 	C.Continents.CoastRoughness = CoastRoughness;
@@ -39,6 +46,8 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 	C.Terrain.TrenchSedimentFill = TrenchSedimentFill;
 	C.Terrain.TrenchSlump = TrenchSlump;
 	C.Terrain.TrenchWedge = TrenchWedge;
+	C.Terrain.SpeedWidthEffect = SpeedWidthEffect;
+	C.Terrain.SpeedHeightEffect = SpeedHeightEffect;
 	if (MineralCatalog)
 	{
 		for (const FGeoMineralDef& D : MineralCatalog->Minerals)

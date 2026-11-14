@@ -79,11 +79,11 @@ bool FGeoStage03Test::RunTest(const FString& Parameters)
 			const FVector3f Dir = F.ReliefType.TexelDir(Face, X, Y);
 			int32 Near, Second; float D1, D2;
 			GeoPlates::NearestTwo(F.PlateFrame, GeoPlates::WarpDirection(F.PlateFrame, Dir, C.Plates), Near, Second, D1, D2);
-			const uint8 Type = F.PlateFrame.BoundaryTypeBetween(Near, Second);
+			const uint8 Type = GeoPlates::BoundaryMotion(F.PlateFrame, Dir, Near, Second, C.Plates).Type;
 			if (F.ReliefType.At(Face, X, Y) == 5.f)
 			{
 				++Trenches;
-				BadTrench += (Type >= 1 && Type <= 3) ? 0 : 1;
+				BadTrench += Type == 1 ? 0 : 1;
 				CoreTrench += F.ContinentalMask.Sample(Dir) > 0.9f ? 1 : 0;
 			}
 			if (Type == 4 && 0.5f * (D2 - D1) < 0.5f * C.Terrain.BeltWidthRatio)
@@ -153,12 +153,16 @@ bool FGeoTrenchFillTest::RunTest(const FString& Parameters)
 	Bare.Terrain.TrenchSedimentFill = 0.f;
 	Bare.Terrain.TrenchSlump = 0.f;
 	Bare.Terrain.TrenchWedge = 0.f;
+	// 与板块速度无关：速度效应关掉、全部板块同速，海沟才足够多、近岸远洋都有样本。
+	Bare.Terrain.SpeedWidthEffect = Bare.Terrain.SpeedHeightEffect = 0.f;
+	Bare.Plates.SpeedMin = Bare.Plates.SpeedMax = 10.f;
 	FPlanetRecipeConfig Filled = Bare;
 	Filled.Terrain.TrenchSedimentFill = 1.f;
 	FPlanetRecipeConfig Slumped = Bare;
 	Slumped.Terrain.TrenchSlump = 1.f;
-	FPlanetRecipeConfig Def;
-	Def.FaceRes = 512;
+	FPlanetRecipeConfig Def = Bare;
+	Def.Terrain = FPlanetTerrainParams();
+	Def.Terrain.SpeedWidthEffect = Def.Terrain.SpeedHeightEffect = 0.f;
 
 	FPlanetBakeFields F0, F1, F2, F3;
 	FPlanetBakeReport R0, R1, R2, R3;
@@ -183,7 +187,7 @@ bool FGeoTrenchFillTest::RunTest(const FString& Parameters)
 		if (Bare0 > -0.3f * ATrench) { continue; }
 		if (F3.Elevation.Sample(Dir) >= 0.f) { ++Surfaced; }
 		const double Keep = double(F1.ReliefDelta.At(Face, X, Y)) / double(Bare0);
-		if (-E0 < 0.6f * OceanD) { NearKeep += Keep; ++NearN; } else if (-E0 > 0.97f * OceanD) { FarKeep += Keep; ++FarN; }
+		if (-E0 < 0.6f * OceanD) { NearKeep += Keep; ++NearN; } else if (-E0 > 0.9f * OceanD) { FarKeep += Keep; ++FarN; }
 	}
 	NearKeep /= FMath::Max(NearN, 1);
 	FarKeep /= FMath::Max(FarN, 1);
@@ -213,6 +217,49 @@ bool FGeoTrenchFillTest::RunTest(const FString& Parameters)
 	const float S0 = TrenchSlope(F0), S2 = TrenchSlope(F2);
 	AddInfo(FString::Printf(TEXT("海沟带最大坡度：不塌 %.3f / 坍塌 %.3f"), S0, S2));
 	TestTrue(FString::Printf(TEXT("坍塌削缓海沟壁：%.3f < %.3f"), S2, S0), S2 < S0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoPlateSpeedTest, "StellarEra.Planet.Geo.Stage03.PlateSpeed",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoPlateSpeedTest::RunTest(const FString& Parameters)
+{
+	// 同一套方向，只把全部板块的速度统一调慢 / 调快：快的山更高、山带更窄。
+	FPlanetRecipeConfig Slow;
+	Slow.FaceRes = 512;
+	Slow.Plates.SpeedMin = Slow.Plates.SpeedMax = 10.f;
+	FPlanetRecipeConfig Fast = Slow;
+	for (int32 i = 0; i < 15; ++i)
+	{
+		Slow.Plates.Overrides.Add({ i, true, 3.f, false, 0.f });
+		Fast.Plates.Overrides.Add({ i, true, 10.f, false, 0.f });
+	}
+	FPlanetBakeFields FS, FF;
+	FPlanetBakeReport RS, RF;
+	Stage03TestBake(Slow, FS, RS);
+	Stage03TestBake(Fast, FF, RF);
+	const auto Area = [](const FPlanetBakeFields& F, float Th)
+	{
+		return Stage03TestArea(F.MountainMask, [&F, Th](int32 Fc, int32 X, int32 Y) { return F.MountainMask.At(Fc, X, Y) > Th; });
+	};
+	const double AS = Area(FS, 0.2f), AF = Area(FF, 0.2f);
+	AddInfo(FString::Printf(TEXT("慢撞：山带 %.4f 峰 %.0f；快撞：山带 %.4f 峰 %.0f"), AS, FS.MaxElevation, AF, FF.MaxElevation));
+	TestTrue(TEXT("快撞的山更高"), FF.MaxElevation > FS.MaxElevation);
+	TestTrue(TEXT("慢撞的山带更宽"), AS > AF);
+
+	// 离散边界两侧确实在分开。
+	int32 Bad = 0, N = 0;
+	for (int32 Face = 0; Face < 6; ++Face)
+	for (int32 Y = 0; Y < FF.BoundaryType.Res; ++Y)
+	for (int32 X = 0; X < FF.BoundaryType.Res; ++X)
+	{
+		if (FF.BoundaryType.At(Face, X, Y) != 4.f) { continue; }
+		++N;
+		Bad += FF.Convergence.At(Face, X, Y) >= 0.f ? 1 : 0;
+	}
+	TestTrue(TEXT("有离散边界"), N > 0);
+	TestEqual(TEXT("离散边界两侧都在分开"), Bad, 0);
 	return true;
 }
 

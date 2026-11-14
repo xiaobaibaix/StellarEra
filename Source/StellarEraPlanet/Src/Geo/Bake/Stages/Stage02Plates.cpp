@@ -125,8 +125,8 @@ void FStage02Plates::Bake(FPlanetBakeContext& Ctx) const
 	}, bSingleThread);
 
 	// 8 张宏观场一次循环写完：每 texel 的 warp 与 Fbm3 是阶段里最贵的部分，拆四次 Fill 就重算四遍。
-	FGeoField2D* Macro[8] = { &Fields.PlateId, &Fields.BoundaryType, &Fields.BoundaryDistance, &Fields.CrustAge,
-		&Fields.ContinentalMask, &Fields.ContinentalGrad, &Fields.CrustType, &Fields.CrustThickness };
+	FGeoField2D* Macro[10] = { &Fields.PlateId, &Fields.BoundaryType, &Fields.BoundaryDistance, &Fields.CrustAge,
+		&Fields.ContinentalMask, &Fields.ContinentalGrad, &Fields.CrustType, &Fields.CrustThickness, &Fields.Convergence, &Fields.PlateSpeed };
 	for (FGeoField2D* Field : Macro) { Field->Init(MacroRes); }
 
 	const float Band = P.BoundaryBandRatio;
@@ -146,7 +146,13 @@ void FStage02Plates::Bake(FPlanetBakeContext& Ctx) const
 
 		Fields.PlateId.At(Face, X, Y) = float(Near);
 		Fields.BoundaryDistance.At(Face, X, Y) = B;
-		Fields.BoundaryType.At(Face, X, Y) = B > Band ? 0.f : float(Frame.BoundaryTypeBetween(Near, Second));
+		// 边界类型由两侧板块的相对运动算出；汇聚再按大陆度分洋-陆 / 洋-洋 / 陆-陆。
+		const FGeoBoundaryMotion Mot = GeoPlates::BoundaryMotion(Frame, Dir, Near, Second, P);
+		uint8 Type = Mot.Type;
+		if (Type == 1) { Type = M > 0.7f ? 3 : (M < 0.3f ? 2 : 1); }
+		Fields.BoundaryType.At(Face, X, Y) = B > Band ? 0.f : float(Type);
+		Fields.Convergence.At(Face, X, Y) = Mot.Convergence;
+		Fields.PlateSpeed.At(Face, X, Y) = Frame.Plates[Near].VelocityAt(Dir).Size();
 		// 陆区地壳年龄取高：真实大陆核部更老，这一版只做近似。
 		Fields.CrustAge.At(Face, X, Y) = M > 0.5f ? FMath::Max(Age, 0.75f + 0.25f * M) : Age;
 		Fields.ContinentalMask.At(Face, X, Y) = M;
@@ -225,6 +231,27 @@ void FStage02Plates::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const
 		Out.Add(MoveTemp(L));
 	}
 	{
+		FGeoDebugLayer L = Stage02FieldLayer(TEXT("Convergence"), TEXT("边界挤压速率"), EGeoDebugKind::Continuous, false);
+		L.Unit = TEXT("> 0 汇聚 / < 0 离散");
+		L.Min = -10.f;
+		L.Max = 10.f;
+		// 红 = 汇聚、蓝 = 离散，越深越快；白 = 板块内部或纯剪切。
+		L.Colorize = [](const FPlanetSnapshot& S, float V)
+		{
+			const float T = FMath::Clamp(V / 10.f, -1.f, 1.f);
+			const FLinearColor Mid(0.95f, 0.95f, 0.95f), Hot(0.8f, 0.1f, 0.05f), Cold(0.05f, 0.25f, 0.85f);
+			return (T >= 0.f ? FMath::Lerp(Mid, Hot, T) : FMath::Lerp(Mid, Cold, -T)).ToFColor(false);
+		};
+		Out.Add(MoveTemp(L));
+	}
+	{
+		FGeoDebugLayer L = Stage02FieldLayer(TEXT("PlateSpeed"), TEXT("板块运动速率"), EGeoDebugKind::Continuous, false);
+		L.Unit = TEXT("cm/年（相对）");
+		L.Min = 0.f;
+		L.Max = 12.f;
+		Out.Add(MoveTemp(L));
+	}
+	{
 		FGeoDebugLayer L = Stage02FieldLayer(TEXT("CrustType"), TEXT("地壳类型"), EGeoDebugKind::Categorical, true);
 		L.Legend = { { TEXT("洋壳"), FColor(40, 70, 130) }, { TEXT("陆壳"), FColor(95, 150, 70) }, { TEXT("陆架"), FColor(115, 195, 225) } };
 		Out.Add(MoveTemp(L));
@@ -254,4 +281,6 @@ void FStage02Plates::ExportDebugFields(const FPlanetBakeFields& Fields, TMap<FNa
 	Out.Add(TEXT("ContinentalMask"), Fields.ContinentalMask);
 	Out.Add(TEXT("CrustAge"), Fields.CrustAge);
 	Out.Add(TEXT("CrustThickness"), Fields.CrustThickness);
+	Out.Add(TEXT("Convergence"), Fields.Convergence);
+	Out.Add(TEXT("PlateSpeed"), Fields.PlateSpeed);
 }

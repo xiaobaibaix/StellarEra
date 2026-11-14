@@ -56,22 +56,26 @@ void FStage03Terrain::Bake(FPlanetBakeContext& Ctx) const
 	const uint64 TrenchSeed = Rng.NextU64();
 
 	// 宏观带场：与阶段 2 同一个 warp，山带才和板块边界对齐。
-	FGeoField2D BeltDist, BeltWeight, Subduct;
-	BeltDist.Init(MacroRes); BeltWeight.Init(MacroRes); Subduct.Init(MacroRes);
+	FGeoField2D BeltDist, BeltWeight, Subduct, BeltSpeed;
+	BeltDist.Init(MacroRes); BeltWeight.Init(MacroRes); Subduct.Init(MacroRes); BeltSpeed.Init(MacroRes);
+	const float SpeedRef = FMath::Max(Cfg.Plates.SpeedMax, 1e-3f);
 	ParallelFor(6 * MacroRes, [&](int32 Row)
 	{
 		const int32 Face = Row / MacroRes, Y = Row % MacroRes;
 		for (int32 X = 0; X < MacroRes; ++X)
 		{
-			const FVector3f W = GeoPlates::WarpDirection(Frame, BeltDist.TexelDir(Face, X, Y), Cfg.Plates);
+			const FVector3f Dir0 = BeltDist.TexelDir(Face, X, Y);
+			const FVector3f W = GeoPlates::WarpDirection(Frame, Dir0, Cfg.Plates);
 			int32 Near, Second; float D1, D2;
 			GeoPlates::NearestTwo(Frame, W, Near, Second, D1, D2);
-			const uint8 Type = Frame.BoundaryTypeBetween(Near, Second);
+			const FGeoBoundaryMotion Mot = GeoPlates::BoundaryMotion(Frame, Dir0, Near, Second, Cfg.Plates);
 			BeltDist.At(Face, X, Y) = 0.5f * (D2 - D1);
-			// 只取「汇聚 / 离散 / 转换」：阶段 2 的洋陆分类按板块种类定，与大陆场无关；海陆改由本点大陆度判。
-			const bool bConvergent = Type >= 1 && Type <= 3;
-			BeltWeight.At(Face, X, Y) = bConvergent ? 1.f : (Type < 6 ? Stage03BeltWeight[Type] : 0.f);
+			const bool bConvergent = Mot.Type == 1;
+			// 挤压速率归一到 [0,1]：决定这段山带的宽窄高低。几乎不挤的汇聚段只长低丘。
+			const float S = bConvergent ? FMath::Clamp(Mot.Convergence / SpeedRef, 0.f, 1.f) : 0.f;
+			BeltWeight.At(Face, X, Y) = bConvergent ? FMath::SmoothStep(0.f, 0.1f, S) : Stage03BeltWeight[Mot.Type];
 			Subduct.At(Face, X, Y) = bConvergent ? 1.f : 0.f;
+			BeltSpeed.At(Face, X, Y) = S;
 		}
 	}, PF);
 
@@ -91,7 +95,11 @@ void FStage03Terrain::Bake(FPlanetBakeContext& Ctx) const
 		const float B = BeltDist.Sample(Dir);
 		const float M = F.ContinentalMask.Sample(Dir);
 		const FVector3f Wp = Stage03Warp(WarpSeed, Dir, T.WarpRatio);
-		const float Profile = FMath::Exp(-Stage03Sq(B / (0.5f * BeltW)));
+		// 快挤压：窄、高、山脊密；慢挤压：宽、低、更像整体抬升的高原。SpeedXxxEffect = 0 时回到统一形态。
+		const float Sp = BeltSpeed.Sample(Dir);
+		const float WidthMul = FMath::Max(0.2f, 1.f + T.SpeedWidthEffect * (1.f - 2.f * Sp));
+		const float HeightMul = FMath::Max(0.1f, 1.f + T.SpeedHeightEffect * (2.f * Sp - 1.f));
+		const float Profile = FMath::Exp(-Stage03Sq(B / (0.5f * BeltW * WidthMul)));
 		const float Wt = BeltWeight.Sample(Dir);
 		if (Profile * Wt > 1e-4f)
 		{
@@ -115,7 +123,7 @@ void FStage03Terrain::Bake(FPlanetBakeContext& Ctx) const
 				const FVector3f S = FVector3f::CrossProduct(Dir, N.GetSafeNormal());
 				Q = Wp - S * ((2.f / 3.f) * FVector3f::DotProduct(Wp, S));
 			}
-			float H = 0.f, Amp = 1.f, Norm = 0.f, Freq = 1.f / L0;
+			float H = 0.f, Amp = 1.f, Norm = 0.f, Freq = (1.f + T.SpeedWidthEffect * (Sp - 0.5f)) / L0;
 			for (int32 k = 0; k < Octaves; ++k)
 			{
 				// ridged = 1 − |n|，再平方让脊更尖、谷更宽；普通 fBm 圆润像沙丘。
@@ -125,7 +133,10 @@ void FStage03Terrain::Bake(FPlanetBakeContext& Ctx) const
 				Amp *= 0.5f;
 				Freq *= 2.f;
 			}
-			Mountain = Out.Mask * AMtn * H / FMath::Max(Norm, 1e-6f);
+			const float Ridged = H / FMath::Max(Norm, 1e-6f);
+			// 慢挤压把脊线压平成高台：基座占一半、脊线只剩一半起伏。
+			const float Shape = FMath::Lerp(0.5f + 0.5f * Ridged, Ridged, FMath::Clamp(Sp + (1.f - T.SpeedWidthEffect), 0.f, 1.f));
+			Mountain = Out.Mask * AMtn * HeightMul * Shape;
 		}
 		// 平原起伏只抬不降、靠海岸淡出：降了会把海岸线挪走，阶段 2 的陆地占比就失效了。
 		float Plain = 0.f;
@@ -151,7 +162,7 @@ void FStage03Terrain::Bake(FPlanetBakeContext& Ctx) const
 			const FVector2f GB = Grad(BeltDist), GM = Grad(F.ContinentalMask);
 			const float Cos = FVector2f::DotProduct(GB, GM) / FMath::Max(GB.Size() * GM.Size(), 1e-8f);
 			const float Side = FMath::Lerp(1.4f, 0.6f, FMath::SmoothStep(-0.3f, 0.3f, Cos));
-			const float Raw = ATrench * Sub * TDepth * FMath::Exp(-Stage03Sq(B / (0.5f * TrenchW * TWidth * Side)))
+			const float Raw = ATrench * HeightMul * Sub * TDepth * FMath::Exp(-Stage03Sq(B / (0.5f * TrenchW * TWidth * Side)))
 				* (1.f - FMath::SmoothStep(0.1f, 0.5f, M));
 			// 沉积充填：洋底越浅（越靠陆架 / 陆坡）泥沙来源越近、填得越多；深海平原段几乎不填。
 			// 阶段 6 有了真实入海泥沙后应改读它。

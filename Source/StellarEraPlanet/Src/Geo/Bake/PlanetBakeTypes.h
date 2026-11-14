@@ -32,6 +32,8 @@ struct FPlanetBakeFields
 	// 阶段 2 的宏观场一律 MacroRes（= FaceRes/4）；只有 Elevation 是全分辨率，它进快照。
 	FGeoPlateFrame PlateFrame;
 	FGeoField2D PlateId, BoundaryType, BoundaryDistance, CrustAge;
+	/** 边界挤压速率（> 0 汇聚，< 0 离散，单位同板块速度）与所在板块的运动速率。 */
+	FGeoField2D Convergence, PlateSpeed;
 	FGeoField2D ContinentalMask, ContinentalGrad, CrustType, CrustThickness;
 	FGeoField2D Elevation;
 	/** 立体角加权的 E>0 面积占比。 */

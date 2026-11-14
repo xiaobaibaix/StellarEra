@@ -42,11 +42,39 @@ bool FGeoPlateFrameTest::RunTest(const FString& Parameters)
 	TestTrue(FString::Printf(TEXT("最大板块占比 %.2f ∈ [0.10, 0.55]"), MaxShare), MaxShare > 0.10f && MaxShare < 0.55f);
 	AddInfo(FString::Printf(TEXT("最大板块占比 %.3f（%d/4000）"), MaxShare, MaxHits));
 
-	// 边界类型都在 1–5
-	bool bTypes = true;
-	for (int32 p = 0; p < A.Num(); ++p) for (int32 q = p + 1; q < A.Num(); ++q)
-	{ const uint8 T = A.BoundaryTypeBetween(p, q); bTypes &= (T >= 1 && T <= 5); }
-	TestTrue(TEXT("边界类型都在 1–5"), bTypes);
+	// 运动：速度在范围内、中心处速度大小 = Speed 且与径向正交；覆盖生效；边界类型由相对运动定。
+	bool bSpeeds = true;
+	for (const FGeoPlate& Pl : A.Plates)
+	{
+		bSpeeds &= Pl.Speed >= C.Plates.SpeedMin && Pl.Speed <= C.Plates.SpeedMax;
+		bSpeeds &= FMath::IsNearlyEqual(Pl.VelocityAt(Pl.Center).Size(), Pl.Speed, 1e-3f * FMath::Max(Pl.Speed, 1.f));
+		bSpeeds &= FMath::Abs(FVector3f::DotProduct(Pl.VelocityAt(Pl.Center), Pl.Center)) < 1e-3f;
+	}
+	TestTrue(TEXT("板块速度在范围内且沿球面"), bSpeeds);
+	{
+		FPlanetRecipeConfig O = C;
+		O.Plates.Overrides.Add({ 2, true, 25.f, true, 90.f });
+		const FGeoPlateFrame F2 = GeoPlates::Build(O);
+		TestTrue(TEXT("覆盖速度生效"), FMath::IsNearlyEqual(F2.Plates[2].Speed, 25.f));
+		TestTrue(TEXT("覆盖不改其它板块"), F2.Plates[3].Speed == A.Plates[3].Speed);
+		TestTrue(TEXT("覆盖不改板块中心"), F2.Plates[2].Center == A.Plates[2].Center);
+		TestTrue(TEXT("覆盖进哈希"), O.Hash() != C.Hash());
+	}
+	{
+		// 两块板块对撞 → 汇聚，背离 → 离散，平行错动 → 转换。
+		FGeoPlateFrame T;
+		T.Plates.SetNum(2);
+		T.Plates[0].Center = FVector3f(0.f, -0.2f, 1.f).GetSafeNormal();
+		T.Plates[1].Center = FVector3f(0.f, 0.2f, 1.f).GetSafeNormal();
+		const FVector3f Mid(0.f, 0.f, 1.f);
+		const auto Set = [&T](int32 i, const FVector3f& V) { T.Plates[i].Omega = FVector3f::CrossProduct(T.Plates[i].Center, V); };
+		Set(0, FVector3f(0.f, 5.f, 0.f)); Set(1, FVector3f(0.f, -5.f, 0.f));
+		TestEqual(TEXT("对撞 = 汇聚"), int32(GeoPlates::BoundaryMotion(T, Mid, 0, 1, C.Plates).Type), 1);
+		Set(0, FVector3f(0.f, -5.f, 0.f)); Set(1, FVector3f(0.f, 5.f, 0.f));
+		TestEqual(TEXT("背离 = 离散"), int32(GeoPlates::BoundaryMotion(T, Mid, 0, 1, C.Plates).Type), 4);
+		Set(0, FVector3f(5.f, 0.f, 0.f)); Set(1, FVector3f(-5.f, 0.f, 0.f));
+		TestEqual(TEXT("错动 = 转换"), int32(GeoPlates::BoundaryMotion(T, Mid, 0, 1, C.Plates).Type), 5);
+	}
 
 	// warp 只改方向不改长度
 	const FVector3f W = GeoPlates::WarpDirection(A, FVector3f(0.f, 0.f, 1.f), C.Plates);
