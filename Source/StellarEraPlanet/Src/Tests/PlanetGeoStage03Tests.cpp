@@ -143,6 +143,79 @@ bool FGeoStage03Test::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoTrenchFillTest, "StellarEra.Planet.Geo.Stage03.TrenchFill",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoTrenchFillTest::RunTest(const FString& Parameters)
+{
+	FPlanetRecipeConfig Bare;
+	Bare.FaceRes = 512;
+	Bare.Terrain.TrenchSedimentFill = 0.f;
+	Bare.Terrain.TrenchSlump = 0.f;
+	Bare.Terrain.TrenchWedge = 0.f;
+	FPlanetRecipeConfig Filled = Bare;
+	Filled.Terrain.TrenchSedimentFill = 1.f;
+	FPlanetRecipeConfig Slumped = Bare;
+	Slumped.Terrain.TrenchSlump = 1.f;
+	FPlanetRecipeConfig Def;
+	Def.FaceRes = 512;
+
+	FPlanetBakeFields F0, F1, F2, F3;
+	FPlanetBakeReport R0, R1, R2, R3;
+	const FGeoField2D Base = Stage03TestBake(Bare, F0, R0);
+	Stage03TestBake(Filled, F1, R1);
+	Stage03TestBake(Slumped, F2, R2);
+	Stage03TestBake(Def, F3, R3);
+	const double Rad = Bare.Radius;
+	const float ATrench = float(Bare.Terrain.TrenchDepthRatio * Rad), OceanD = float(Bare.Continents.OceanDepthRatio * Rad);
+
+	// 近岸 vs 远洋：同一批海沟 texel，充填后剩下的深度占比，近岸应明显小于远洋。
+	double NearKeep = 0.0, FarKeep = 0.0;
+	int32 NearN = 0, FarN = 0, Surfaced = 0;
+	const FGeoField2D& D0 = F0.ReliefDelta;
+	for (int32 Face = 0; Face < 6; ++Face)
+	for (int32 Y = 0; Y < D0.Res; ++Y)
+	for (int32 X = 0; X < D0.Res; ++X)
+	{
+		const FVector3f Dir = D0.TexelDir(Face, X, Y);
+		const float E0 = Base.Sample(Dir);
+		const float Bare0 = D0.At(Face, X, Y);
+		if (Bare0 > -0.3f * ATrench) { continue; }
+		if (F3.Elevation.Sample(Dir) >= 0.f) { ++Surfaced; }
+		const double Keep = double(F1.ReliefDelta.At(Face, X, Y)) / double(Bare0);
+		if (-E0 < 0.6f * OceanD) { NearKeep += Keep; ++NearN; } else if (-E0 > 0.97f * OceanD) { FarKeep += Keep; ++FarN; }
+	}
+	NearKeep /= FMath::Max(NearN, 1);
+	FarKeep /= FMath::Max(FarN, 1);
+	AddInfo(FString::Printf(TEXT("充填后剩余深度：近岸 %.2f（%d texel） / 远洋 %.2f（%d texel）"), NearKeep, NearN, FarKeep, FarN));
+	TestTrue(TEXT("有近岸与远洋海沟样本"), NearN > 0 && FarN > 0);
+	TestTrue(FString::Printf(TEXT("近岸海沟被填得更浅：%.2f < %.2f"), NearKeep, FarKeep), NearKeep < FarKeep - 0.2);
+	TestEqual(TEXT("默认参数下海沟带没有露出海面"), Surfaced, 0);
+	TestTrue(TEXT("充填后最深处不比不填时更深"), F1.MinElevation >= F0.MinElevation - 1.f);
+
+	// 坍塌：海沟带内最大坡度变小。
+	const auto TrenchSlope = [&](const FPlanetBakeFields& Fx)
+	{
+		float Worst = 0.f;
+		const FGeoField2D& E = Fx.Elevation;
+		for (int32 Face = 0; Face < 6; ++Face)
+		for (int32 Y = 0; Y < E.Res; ++Y)
+		for (int32 X = 0; X + 1 < E.Res; ++X)
+		{
+			const FVector3f A = E.TexelDir(Face, X, Y);
+			if (D0.Sample(A) > -0.3f * ATrench) { continue; }
+			const FVector3f B = E.TexelDir(Face, X + 1, Y);
+			const float Arc = float(Rad) * FMath::Acos(FMath::Clamp(FVector3f::DotProduct(A, B), -1.f, 1.f));
+			Worst = FMath::Max(Worst, FMath::Abs(E.At(Face, X + 1, Y) - E.At(Face, X, Y)) / FMath::Max(Arc, 1e-3f));
+		}
+		return Worst;
+	};
+	const float S0 = TrenchSlope(F0), S2 = TrenchSlope(F2);
+	AddInfo(FString::Printf(TEXT("海沟带最大坡度：不塌 %.3f / 坍塌 %.3f"), S0, S2));
+	TestTrue(FString::Printf(TEXT("坍塌削缓海沟壁：%.3f < %.3f"), S2, S0), S2 < S0);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoChromiteTest, "StellarEra.Planet.Geo.Mineral.Chromite",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 

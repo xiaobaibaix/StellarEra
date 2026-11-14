@@ -33,6 +33,7 @@ namespace
 		float Mask = 0.f;
 		float Relief = 0.f;
 		float Trench = 0.f;
+		float Wedge = 0.f;
 	};
 }
 
@@ -77,6 +78,7 @@ void FStage03Terrain::Bake(FPlanetBakeContext& Ctx) const
 	const float BeltW = FMath::Max(T.BeltWidthRatio, 1e-4f), TrenchW = FMath::Max(T.TrenchWidthRatio, 1e-4f);
 	const float AMtn = float(T.MountainHeightRatio * R), ATrench = float(T.TrenchDepthRatio * R), APlain = float(T.PlainReliefRatio * R);
 	const float LandH = FMath::Max(float(Cfg.Continents.LandHeightRatio * R), 1.f);
+	const float OceanD = float(Cfg.Continents.OceanDepthRatio * R);
 	const float L0 = FMath::Max(T.RidgeWavelengthRatio, 1e-4f);
 	// octave 数由分辨率定、不由半径定：最细一层波长至少 4 个 texel，再细是白算（也保证缩放不变）。
 	const int32 Octaves = FMath::Clamp(1 + FMath::FloorToInt(FMath::Log2(L0 * float(Res) / 6.3f)), 1, 6);
@@ -149,19 +151,38 @@ void FStage03Terrain::Bake(FPlanetBakeContext& Ctx) const
 			const FVector2f GB = Grad(BeltDist), GM = Grad(F.ContinentalMask);
 			const float Cos = FVector2f::DotProduct(GB, GM) / FMath::Max(GB.Size() * GM.Size(), 1e-8f);
 			const float Side = FMath::Lerp(1.4f, 0.6f, FMath::SmoothStep(-0.3f, 0.3f, Cos));
-			Out.Trench = ATrench * Sub * TDepth * FMath::Exp(-Stage03Sq(B / (0.5f * TrenchW * TWidth * Side)))
+			const float Raw = ATrench * Sub * TDepth * FMath::Exp(-Stage03Sq(B / (0.5f * TrenchW * TWidth * Side)))
 				* (1.f - FMath::SmoothStep(0.1f, 0.5f, M));
+			// 沉积充填：洋底越浅（越靠陆架 / 陆坡）泥沙来源越近、填得越多；深海平原段几乎不填。
+			// 阶段 6 有了真实入海泥沙后应改读它。
+			const float Near = 1.f - FMath::SmoothStep(0.55f, 0.95f, -E0 / FMath::Max(OceanD, 1.f));
+			Out.Trench = Raw * (1.f - FMath::Clamp(T.TrenchSedimentFill, 0.f, 1.f) * Near);
+			// 海沟带里不许留洋侧山体：原来靠海沟深度抵消，填浅后山体会把洋底顶出海面。
+			Mountain *= 1.f - FMath::Clamp(Raw / FMath::Max(0.3f * ATrench, 1.f), 0.f, 1.f);
+			// 增生楔：陆侧离边界约 1.5 个海沟宽处的低缓隆起；封顶在本地水深的三成，保证始终在水下。
+			if (T.TrenchWedge > 0.f && Cos > 0.f)
+			{
+				const float Wb = (FMath::Abs(B) - 1.5f * TrenchW) / TrenchW;
+				const float Bump = 0.15f * ATrench * T.TrenchWedge * Sub * TDepth * FMath::Exp(-Wb * Wb) * FMath::Clamp(Cos, 0.f, 1.f);
+				Out.Wedge = FMath::Min(Bump, 0.3f * (-E0));
+			}
 		}
-		Out.Relief = Mountain + Plain - Out.Trench;
+		Out.Relief = Mountain + Plain - Out.Trench + Out.Wedge;
 		return Out;
 	};
 
-	FGeoField2D Raw;
+	FGeoField2D Raw, TrenchAmt;
 	Raw.Init(Res);
+	TrenchAmt.Init(Res);
 	ParallelFor(6 * Res, [&](int32 Row)
 	{
 		const int32 Face = Row / Res, Y = Row % Res;
-		for (int32 X = 0; X < Res; ++X) { Raw.At(Face, X, Y) = Eval(Raw.TexelDir(Face, X, Y), Base.At(Face, X, Y)).Relief; }
+		for (int32 X = 0; X < Res; ++X)
+		{
+			const FStage03Sample Sm = Eval(Raw.TexelDir(Face, X, Y), Base.At(Face, X, Y));
+			Raw.At(Face, X, Y) = Sm.Relief;
+			TrenchAmt.At(Face, X, Y) = Sm.Trench;
+		}
 	}, PF);
 
 	FGeoField2D H;
@@ -202,6 +223,35 @@ void FStage03Terrain::Bake(FPlanetBakeContext& Ctx) const
 				const float Orig = Base.At(Face, X, Y) + Raw.At(Face, X, Y);
 				Out = Orig > 0.f ? FMath::Max(Out, 0.01f) : FMath::Min(Out, 0.f);
 				H.At(Face, X, Y) = Out;
+			}
+		}, PF);
+	}
+
+	// 海沟坍塌：只在海沟带内、用更低的休止角多扩散几遍，两壁削缓成宽浅槽。扩散结果落在邻居最小与最大值之间，
+	// 海沟底不会被抬过周围洋底；再钳到 ≤ 0 保证始终在水下。
+	const int32 SlumpIters = FMath::RoundToInt(FMath::Clamp(T.TrenchSlump, 0.f, 1.f) * 12.f);
+	const float SlumpTalus = FMath::Tan(FMath::DegreesToRadians(8.f));
+	const float SlumpZone = 0.05f * FMath::Max(ATrench, 1.f);
+	for (int32 It = 0; It < SlumpIters; ++It)
+	{
+		const FGeoField2D Src = H;
+		ParallelFor(6 * Res, [&](int32 Row)
+		{
+			const int32 Face = Row / Res, Y = Row % Res;
+			const float V = (float(Y) + 0.5f) / float(Res) * 2.f - 1.f;
+			for (int32 X = 0; X < Res; ++X)
+			{
+				if (TrenchAmt.At(Face, X, Y) < SlumpZone) { continue; }
+				const float U = (float(X) + 0.5f) / float(Res) * 2.f - 1.f;
+				const FVector3f D0 = FGeoField2D::FaceToDir(Face, U, V);
+				const FVector3f Dn = FGeoField2D::FaceToDir(Face, U + Du, V);
+				const float N[4] = { Src.Sample(Dn), Src.Sample(FGeoField2D::FaceToDir(Face, U - Du, V)),
+					Src.Sample(FGeoField2D::FaceToDir(Face, U, V + Du)), Src.Sample(FGeoField2D::FaceToDir(Face, U, V - Du)) };
+				const float Hc = Src.At(Face, X, Y);
+				float Mean = 0.f, MaxDiff = 0.f;
+				for (const float Nv : N) { Mean += 0.25f * Nv; MaxDiff = FMath::Max(MaxDiff, FMath::Abs(Nv - Hc)); }
+				const float Arc = float(R) * FMath::Max((Dn - D0).Size(), 1e-9f);
+				if (MaxDiff / Arc > SlumpTalus) { H.At(Face, X, Y) = FMath::Min(Hc + 0.35f * (Mean - Hc), 0.f); }
 			}
 		}, PF);
 	}

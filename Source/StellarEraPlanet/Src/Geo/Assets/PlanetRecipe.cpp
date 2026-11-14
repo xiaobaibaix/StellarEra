@@ -36,6 +36,9 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 	C.Terrain.ErosionIterations = ErosionIterations;
 	C.Terrain.ErosionStrength = ErosionStrength;
 	C.Terrain.TalusAngleDeg = TalusAngleDeg;
+	C.Terrain.TrenchSedimentFill = TrenchSedimentFill;
+	C.Terrain.TrenchSlump = TrenchSlump;
+	C.Terrain.TrenchWedge = TrenchWedge;
 	if (MineralCatalog)
 	{
 		for (const FGeoMineralDef& D : MineralCatalog->Minerals)

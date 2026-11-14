@@ -65,6 +65,9 @@ struct FPlanetTerrainParams
 	int32 ErosionIterations = 5;          // 热力侵蚀遍数
 	float ErosionStrength = 0.2f;         // 每遍向邻域均值靠拢的比例
 	float TalusAngleDeg = 30.f;           // 只有比它陡的坡才被侵蚀
+	float TrenchSedimentFill = 0.7f;      // 海沟沉积充填：0 不填，1 近岸几乎填平（远洋段不受影响）
+	float TrenchSlump = 0.5f;             // 海沟两壁坍塌平滑强度：0 不塌，1 最缓
+	float TrenchWedge = 0.5f;             // 陆侧增生楔隆起强度
 };
 
 struct FPlanetRecipeConfig
@@ -111,8 +114,8 @@ struct FPlanetRecipeConfig
 		for (const float V : C) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 		const FPlanetTerrainParams& T = Terrain;
 		H = GeoHash::Combine(H, uint64(T.ErosionIterations));
-		const float Tr[9] = { T.MountainHeightRatio, T.TrenchDepthRatio, T.PlainReliefRatio, T.BeltWidthRatio, T.TrenchWidthRatio,
-			T.RidgeWavelengthRatio, T.WarpRatio, T.ErosionStrength, T.TalusAngleDeg };
+		const float Tr[12] = { T.MountainHeightRatio, T.TrenchDepthRatio, T.PlainReliefRatio, T.BeltWidthRatio, T.TrenchWidthRatio,
+			T.RidgeWavelengthRatio, T.WarpRatio, T.ErosionStrength, T.TalusAngleDeg, T.TrenchSedimentFill, T.TrenchSlump, T.TrenchWedge };
 		for (const float V : Tr) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 		for (const TSharedPtr<const IGeoMineralRule>& Rule : MineralRules)
 		{

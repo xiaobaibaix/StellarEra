@@ -116,6 +116,18 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "5", ClampMax = "80"))
 	float TalusAngleDeg = 30.f;
 
+	/** 海沟沉积充填：离大陆越近泥沙越多、海沟越被填浅。0 = 不填，1 = 近岸海沟几乎填平成浅洼地；远洋段始终保持深。 */
+	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0", ClampMax = "1"))
+	float TrenchSedimentFill = 0.7f;
+
+	/** 海沟坍塌：两壁滑塌、被削缓，横断面从 V 形变成宽浅的槽。0 = 不塌，1 = 最缓。 */
+	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0", ClampMax = "1"))
+	float TrenchSlump = 0.5f;
+
+	/** 增生楔：海沟靠陆一侧被刮积起来的低缓隆起，始终在海面以下。0 = 没有。 */
+	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0", ClampMax = "1"))
+	float TrenchWedge = 0.5f;
+
 	/** 矿物目录：编号、中文名、调试色。撒矿器只引用这里的编号。 */
 	UPROPERTY(EditAnywhere, Category = "Minerals")
 	TObjectPtr<UGeoMineralCatalog> MineralCatalog;
