@@ -11,16 +11,14 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoRecipeTest, "StellarEra.Planet.Geo.Recipe",
 bool FGeoRecipeTest::RunTest(const FString& Parameters)
 {
 	UPlanetRecipe* Recipe = NewObject<UPlanetRecipe>();
-	const FPlanetRecipeConfig Default = Recipe->ToConfig();
-	TestEqual(TEXT("默认半径 40000"), Default.Radius, 40000.0);
-	TestEqual(TEXT("默认体素 50 cm"), Default.VoxelSizeCm, 50.f);
+	const FPlanetRecipeConfig Default = Recipe->ToConfig(40000.0);
+	TestEqual(TEXT("半径来自调用方"), Default.Radius, 40000.0);
 
-	Recipe->Radius = 1234.f; Recipe->VoxelSizeCm = 75.f; Recipe->Seed = 77; Recipe->FaceRes = 512;
+	Recipe->Seed = 77; Recipe->FaceRes = 512;
 	Recipe->CrustRatio = 0.2f; Recipe->UpperMantleRatio = 0.3f; Recipe->TransitionRatio = 0.35f;
 	Recipe->MantleOuterRatio = 0.5f; Recipe->OuterCoreRatio = 0.75f; Recipe->MohoWobbleRatio = 0.02f; Recipe->WobbleOctaves = 4;
-	const FPlanetRecipeConfig C = Recipe->ToConfig();
+	const FPlanetRecipeConfig C = Recipe->ToConfig(1234.0);
 	TestEqual(TEXT("Radius"), C.Radius, 1234.0);
-	TestEqual(TEXT("VoxelSizeCm"), C.VoxelSizeCm, 75.f);
 	TestEqual(TEXT("Seed"), C.Seed, uint64(77));
 	TestEqual(TEXT("FaceRes"), C.FaceRes, 512);
 	TestEqual(TEXT("CrustRatio"), C.Sphere.CrustRatio, 0.2f);
@@ -35,7 +33,7 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 	// 阶段 2 暴露项逐项落到 Config；用互不相同的量级，赋值错位会在这里暴露。
 	UPlanetRecipe* R2 = NewObject<UPlanetRecipe>();
 	const FPlanetContinentParams KD;
-	const FPlanetRecipeConfig D2 = R2->ToConfig();
+	const FPlanetRecipeConfig D2 = R2->ToConfig(40000.0);
 	TestEqual(TEXT("默认 PlateCount 7"), D2.Plates.PlateCount, 7);
 	TestEqual(TEXT("默认 FrameDegree"), D2.Continents.FrameDegree, KD.FrameDegree);
 	TestEqual(TEXT("默认 LandFrac"), D2.Continents.LandFrac, KD.LandFrac);
@@ -47,7 +45,7 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 
 	R2->PlateCount = 11; R2->FrameDegree = 6; R2->LandFrac = 0.42f; R2->CoastRoughness = 0.8f;
 	R2->ShelfFrac = 0.21f; R2->LandHeightVoxels = 310.f; R2->OceanDepthVoxels = 520.f;
-	const FPlanetRecipeConfig C2 = R2->ToConfig();
+	const FPlanetRecipeConfig C2 = R2->ToConfig(40000.0);
 	TestEqual(TEXT("PlateCount"), C2.Plates.PlateCount, 11);
 	TestEqual(TEXT("FrameDegree"), C2.Continents.FrameDegree, 6);
 	TestEqual(TEXT("LandFrac"), C2.Continents.LandFrac, 0.42f);

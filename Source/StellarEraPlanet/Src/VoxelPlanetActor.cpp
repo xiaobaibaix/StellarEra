@@ -540,6 +540,37 @@ void AVoxelPlanetActor::BeginPlay()
 }
 
 #if WITH_EDITOR
+void AVoxelPlanetActor::PostInitProperties()
+{
+	Super::PostInitProperties();
+	if (!HasAnyFlags(RF_ClassDefaultObject | RF_ArchetypeObject))
+	{
+		RecipeChangedHandle = FCoreUObjectDelegates::OnObjectPropertyChanged.AddUObject(
+			this, &AVoxelPlanetActor::OnAnyObjectPropertyChanged);
+	}
+}
+
+void AVoxelPlanetActor::BeginDestroy()
+{
+	FCoreUObjectDelegates::OnObjectPropertyChanged.Remove(RecipeChangedHandle);
+	Super::BeginDestroy();
+}
+
+void AVoxelPlanetActor::OnAnyObjectPropertyChanged(UObject* Object, FPropertyChangedEvent& Event)
+{
+	// 拖动滑条时每帧都会来一次：只在松手（ValueSet）时重烘，否则会排起一长串 1–3 s 的烘焙。
+	if (!GeoRecipe || Object != GeoRecipe || !GetWorld() || Event.ChangeType == EPropertyChangeType::Interactive)
+	{
+		return;
+	}
+	if (bGeoBakeInFlight)
+	{
+		bGeoRebakePending = true;
+		return;
+	}
+	InvalidateAndRebuild();
+}
+
 void AVoxelPlanetActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
 	// 基类先跑：它负责自己 meta=(Recreate)/(UpdateLODs) 的属性及其世界重建；
@@ -580,7 +611,7 @@ void AVoxelPlanetActor::RebuildPlanet()
 	// 且必须排在哈希守卫之前，否则修正会被一起吞掉。函数自带已是新树就早退。
 	RepairLegacyRootComponent();
 
-	// 配方是尺寸真源，必须先于 LOD 与哈希同步 —— 两者都由半径派生。
+	// LOD 档位由半径派生，必须先于哈希修正。
 	if (GeoRecipe)
 	{
 		SyncGeoDimensions();
@@ -734,20 +765,6 @@ void AVoxelPlanetActor::SyncGeoDimensions()
 		return;
 	}
 
-	// 面板值当镜像：大气、角色、星图全按 Radius × VoxelSize 换算，分叉就整层错位。
-	if (!FMath::IsNearlyEqual(Radius, GeoRecipe->Radius))
-	{
-		UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor %s: Radius %.0f → 配方 %.0f"),
-			*GetName(), Radius, GeoRecipe->Radius);
-		Radius = GeoRecipe->Radius;
-	}
-	if (!FMath::IsNearlyEqual(VoxelSize, GeoRecipe->VoxelSizeCm))
-	{
-		UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor %s: VoxelSize %.1f → 配方 %.1f"),
-			*GetName(), VoxelSize, GeoRecipe->VoxelSizeCm);
-		VoxelSize = GeoRecipe->VoxelSizeCm;
-	}
-
 	// 半径换量级后，按旧尺度调的 LOD 档位全部失效：MaxLOD 6 配 40000 体素半径会让渲染
 	// 八叉树撞 voxel.renderer.MaxRenderOctreeChunks（100 万，报 "Render octree update
 	// was stopped!"）。MaxLOD 只封顶「最粗」，调大不伤近处细节；比自动档更细的 OrbitLOD
@@ -778,7 +795,7 @@ void AVoxelPlanetActor::StartGeoBake()
 	bGeoBakeInFlight = true;
 
 	// ToConfig 是唯一一次碰 UObject：烘焙线程只拿 POD。
-	const FPlanetRecipeConfig Config = GeoRecipe->ToConfig();
+	const FPlanetRecipeConfig Config = GeoRecipe->ToConfig(double(GetScaledRadiusVoxels()));
 	TWeakObjectPtr<AVoxelPlanetActor> WeakThis(this);
 	Async(EAsyncExecution::ThreadPool, [WeakThis, Config]()
 	{
@@ -803,6 +820,14 @@ void AVoxelPlanetActor::StartGeoBake()
 void AVoxelPlanetActor::OnGeoBakeFinished(TSharedPtr<const FPlanetSnapshot> InSnapshot, double BakeSeconds)
 {
 	bGeoBakeInFlight = false;
+
+	// 烘焙期间配方又被改过：这份结果已过期，丢掉按最新配方重烘。
+	if (bGeoRebakePending)
+	{
+		bGeoRebakePending = false;
+		StartGeoBake();
+		return;
+	}
 
 	// 回调可能晚于 PIE 结束 / 关卡切换，那时再建世界会撞上拆除中的世界。
 	UWorld* const World = GetWorld();
@@ -830,6 +855,12 @@ void AVoxelPlanetActor::OnGeoBakeFinished(TSharedPtr<const FPlanetSnapshot> InSn
 
 void AVoxelPlanetActor::RebuildGeoPlanet()
 {
+	// 行星半径（含缩放）是唯一真源：快照按旧半径烘的就作废重烘。
+	if (GeoSnapshot.IsValid() && !FMath::IsNearlyEqual(GeoSnapshot->R0, double(GetScaledRadiusVoxels()), 0.5))
+	{
+		GeoSnapshot.Reset();
+		bGeoBakeFailed = false;
+	}
 	if (!GeoSnapshot.IsValid())
 	{
 		// 没快照建出来是一颗空气球，白跑一次世界创建。

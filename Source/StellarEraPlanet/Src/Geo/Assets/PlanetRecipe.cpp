@@ -1,12 +1,11 @@
 ﻿// 游戏线程把 UObject 字段拷成 POD，烘焙期不再碰 UObject。
 #include "PlanetRecipe.h"
 
-FPlanetRecipeConfig UPlanetRecipe::ToConfig() const
+FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 {
 	check(IsInGameThread());
 	FPlanetRecipeConfig C;
-	C.Radius = double(Radius);
-	C.VoxelSizeCm = VoxelSizeCm;
+	C.Radius = RadiusVoxels;
 	// 面板是 int32；经 uint32 扩宽，负种子也得到稳定的 64 位值。
 	C.Seed = uint64(uint32(Seed));
 	C.FaceRes = FaceRes;

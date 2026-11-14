@@ -112,8 +112,6 @@ bool FGeoPipelineTest::RunTest(const FString& Parameters)
 		const uint64 H0 = Config.Hash();
 		FPlanetRecipeConfig C = Config; C.Radius += 1.0;
 		TestTrue(TEXT("Radius 变 → 哈希变"), C.Hash() != H0);
-		C = Config; C.VoxelSizeCm += 1.f;
-		TestTrue(TEXT("VoxelSizeCm 变 → 哈希变"), C.Hash() != H0);
 		C = Config; C.FaceRes += 1;
 		TestTrue(TEXT("FaceRes 变 → 哈希变"), C.Hash() != H0);
 		C = Config; C.Sphere.CrustRatio += 0.01f;

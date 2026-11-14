@@ -50,6 +50,8 @@ public:
 	virtual void PostSaveRoot(FObjectPostSaveRootContext ObjectSaveContext) override;
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+	virtual void PostInitProperties() override;
+	virtual void BeginDestroy() override;
 #endif
 	//~ End AActor Interface
 
@@ -174,7 +176,7 @@ public:
 	// 新地质流水线
 
 	/**
-	 * 非空 = 这颗星由新地质流水线生成：半径 / 体素尺寸 / 地形全部取自配方，
+	 * 非空 = 这颗星由新地质流水线生成：地形取自配方；半径用本 Actor 的 Radius、体素尺寸用 VoxelSize（配方不存），
 	 * Terrain、GeologyAsset、水文、biome cubemap 旁路。烘焙在后台线程完成后再建世界。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Geo")
@@ -335,7 +337,7 @@ private:
 	/** 对**我们自己的**、会影响生成器或世界尺寸的设置做 FNV-1a 哈希。 */
 	uint64 ComputeParamsHash() const;
 
-	/** 配方是尺寸的唯一真源：把面板上的 Radius / VoxelSize 同步成配方值。 */
+	/** 按当前半径修正 LOD 档位；半径与体素尺寸以本 Actor 为准，配方不存。 */
 	void SyncGeoDimensions();
 
 	/** 后台烘焙；烘焙中重复调用被忽略。回调只在游戏线程。 */
@@ -350,6 +352,13 @@ private:
 	bool bGeoBakeInFlight = false;
 	/** 烘焙失败过：不自动重试，等 InvalidateAndRebuild 强制。 */
 	bool bGeoBakeFailed = false;
+	/** 烘焙途中配方又改了：当前结果作废，完成后立刻重烘。 */
+	bool bGeoRebakePending = false;
+#if WITH_EDITOR
+	/** 配方是资产，改它不触发本 Actor 的 PostEditChangeProperty，只能听全局事件。 */
+	void OnAnyObjectPropertyChanged(UObject* Object, FPropertyChangedEvent& Event);
+	FDelegateHandle RecipeChangedHandle;
+#endif
 
 	/**
 	 * 烘焙 biome cubemap 并把材质实例装进 VoxelMaterial。bForceBake true = 无条件

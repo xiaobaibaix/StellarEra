@@ -56,7 +56,7 @@ void AGeoTestPlanetActor::StartBake()
 		return;
 	}
 	bBakeInFlight = true;
-	const FPlanetRecipeConfig Config = Recipe->ToConfig();   // 唯一一次碰 UObject
+	const FPlanetRecipeConfig Config = Recipe->ToConfig(double(Radius));   // 唯一一次碰 UObject
 	TWeakObjectPtr<AGeoTestPlanetActor> WeakThis(this);
 	Async(EAsyncExecution::ThreadPool, [WeakThis, Config]()
 	{

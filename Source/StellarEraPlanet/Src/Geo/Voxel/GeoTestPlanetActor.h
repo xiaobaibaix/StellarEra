@@ -19,6 +19,10 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Geo")
 	TObjectPtr<UPlanetRecipe> Recipe;
 
+	/** 半径（体素）。体素厘米尺寸用基类 VoxelSize。 */
+	UPROPERTY(EditAnywhere, Category = "Geo", meta = (ClampMin = "256"))
+	float Radius = 40000.f;
+
 	/** 拷配方 → 后台烘焙 → 回游戏线程建世界。烘焙中再次调用会被忽略。 */
 	void StartBake();
 	bool IsBakeInFlight() const { return bBakeInFlight; }
