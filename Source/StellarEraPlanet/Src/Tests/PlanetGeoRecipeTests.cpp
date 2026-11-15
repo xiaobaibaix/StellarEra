@@ -99,8 +99,8 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("HotspotChainLength 透传"), Cv.Volcano.HotspotChainLength, 3);
 	}
 
-	// 阶段 4b 的 35 项默认值与 FPlanetIntrusionParams 逐项对齐：ToConfig 里 RHS 接错字段照样能编译，
-	// 默认值不同才会露馅（7 开关 + 4 int + 24 float）。
+	// 阶段 4b 的 40 项默认值与 FPlanetIntrusionParams 逐项对齐：ToConfig 里 RHS 接错字段照样能编译，
+	// 默认值不同才会露馅（8 开关 + 4 int + 28 float）。
 	{
 		UPlanetRecipe* Ri = NewObject<UPlanetRecipe>();
 		const FPlanetIntrusionParams ID;
@@ -112,6 +112,7 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("默认 bLayeredIntrusions"), int32(IC.bLayeredIntrusions), int32(ID.bLayeredIntrusions));
 		TestEqual(TEXT("默认 bKimberlites"), int32(IC.bKimberlites), int32(ID.bKimberlites));
 		TestEqual(TEXT("默认 bAlteration"), int32(IC.bAlteration), int32(ID.bAlteration));
+		TestEqual(TEXT("默认 bCarbonatites"), int32(IC.bCarbonatites), int32(ID.bCarbonatites));
 		TestEqual(TEXT("默认 BatholithMinVolcanoes"), IC.BatholithMinVolcanoes, ID.BatholithMinVolcanoes);
 		TestEqual(TEXT("默认 DikePerRift"), IC.DikePerRift, ID.DikePerRift);
 		TestEqual(TEXT("默认 LayeredCount"), IC.LayeredCount, ID.LayeredCount);
@@ -140,14 +141,19 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("默认 AlterKeratiticBand"), IC.AlterKeratiticBand, ID.AlterKeratiticBand, 1e-6f);
 		TestEqual(TEXT("默认 AlterSericiticBand"), IC.AlterSericiticBand, ID.AlterSericiticBand, 1e-6f);
 		TestEqual(TEXT("默认 AlterArgillicBand"), IC.AlterArgillicBand, ID.AlterArgillicBand, 1e-6f);
+		TestEqual(TEXT("默认 CarbonatiteRadiusRatio"), IC.CarbonatiteRadiusRatio, ID.CarbonatiteRadiusRatio, 1e-6f);
+		TestEqual(TEXT("默认 CarbonatiteTopDepthRatio"), IC.CarbonatiteTopDepthRatio, ID.CarbonatiteTopDepthRatio, 1e-6f);
+		TestEqual(TEXT("默认 CarbonatiteChance"), IC.CarbonatiteChance, ID.CarbonatiteChance, 1e-6f);
+		TestEqual(TEXT("默认 CarbonatiteSpacingRatio"), IC.CarbonatiteSpacingRatio, ID.CarbonatiteSpacingRatio, 1e-6f);
 	}
 
 	// 非默认值逐项透传：默认值对比抓不到「RHS 接成同类型字段」。float / int 各给互不相同的值；
-	// 7 个 bool 只能全 false（默认 true），bool 之间互换仍抓不到，这是类型本身的限制。
+	// bool 只能全 false（默认 true），bool 之间互换仍抓不到，这是类型本身的限制。
 	{
 		UPlanetRecipe* Ri = NewObject<UPlanetRecipe>();
 		Ri->bBatholiths = false; Ri->bStocks = false; Ri->bDikes = false; Ri->bSills = false;
 		Ri->bLayeredIntrusions = false; Ri->bKimberlites = false; Ri->bAlteration = false;
+		Ri->bCarbonatites = false;
 		Ri->BatholithMinVolcanoes = 5; Ri->DikePerRift = 3; Ri->LayeredCount = 6; Ri->KimberliteMax = 9;
 		Ri->BatholithLongRatio = 0.081f; Ri->BatholithShortRatio = 0.041f; Ri->BatholithThickRatio = 0.0311f;
 		Ri->BatholithTopDepthRatio = 0.0511f; Ri->StockRadiusRatio = 0.0081f; Ri->StockTopDepthRatio = 0.0312f;
@@ -157,6 +163,8 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 		Ri->LayeredGapRatio = 0.00411f; Ri->LayeredTopDepthRatio = 0.061f; Ri->KimberliteRadiusRatio = 0.00213f;
 		Ri->KimberliteHalfHeightRatio = 0.011f; Ri->KimberliteTopDepthRatio = 0.00412f; Ri->AlterHaloScale = 2.3f;
 		Ri->AlterKeratiticBand = 0.31f; Ri->AlterSericiticBand = 0.56f; Ri->AlterArgillicBand = 0.81f;
+		Ri->CarbonatiteRadiusRatio = 0.0061f; Ri->CarbonatiteTopDepthRatio = 0.0111f;
+		Ri->CarbonatiteChance = 0.36f; Ri->CarbonatiteSpacingRatio = 0.121f;
 		const FPlanetIntrusionParams IC = Ri->ToConfig(40000.0).Intrusion;
 		TestFalse(TEXT("bBatholiths 透传"), IC.bBatholiths);
 		TestFalse(TEXT("bStocks 透传"), IC.bStocks);
@@ -165,6 +173,7 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("bLayeredIntrusions 透传"), IC.bLayeredIntrusions);
 		TestFalse(TEXT("bKimberlites 透传"), IC.bKimberlites);
 		TestFalse(TEXT("bAlteration 透传"), IC.bAlteration);
+		TestFalse(TEXT("bCarbonatites 透传"), IC.bCarbonatites);
 		TestEqual(TEXT("BatholithMinVolcanoes 透传"), IC.BatholithMinVolcanoes, 5);
 		TestEqual(TEXT("DikePerRift 透传"), IC.DikePerRift, 3);
 		TestEqual(TEXT("LayeredCount 透传"), IC.LayeredCount, 6);
@@ -193,6 +202,10 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("AlterKeratiticBand 透传"), IC.AlterKeratiticBand, 0.31f, 1e-6f);
 		TestEqual(TEXT("AlterSericiticBand 透传"), IC.AlterSericiticBand, 0.56f, 1e-6f);
 		TestEqual(TEXT("AlterArgillicBand 透传"), IC.AlterArgillicBand, 0.81f, 1e-6f);
+		TestEqual(TEXT("CarbonatiteRadiusRatio 透传"), IC.CarbonatiteRadiusRatio, 0.0061f, 1e-6f);
+		TestEqual(TEXT("CarbonatiteTopDepthRatio 透传"), IC.CarbonatiteTopDepthRatio, 0.0111f, 1e-6f);
+		TestEqual(TEXT("CarbonatiteChance 透传"), IC.CarbonatiteChance, 0.36f, 1e-6f);
+		TestEqual(TEXT("CarbonatiteSpacingRatio 透传"), IC.CarbonatiteSpacingRatio, 0.121f, 1e-6f);
 	}
 
 	// 每项都必须进 Hash()：漏一项则改它快照哈希不变、存档校验失效。
@@ -227,6 +240,8 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 	Probe = C2; Probe.Intrusion.BatholithLongRatio = 0.081f;  TestTrue(TEXT("岩基长轴进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Intrusion.KimberliteMax = 9;            TestTrue(TEXT("岩管上限进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Intrusion.bAlteration = false;          TestTrue(TEXT("蚀变开关进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Intrusion.bCarbonatites = false;        TestTrue(TEXT("碳酸岩开关进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Intrusion.CarbonatiteChance = 0.41f;    TestTrue(TEXT("碳酸岩概率进哈希"), Probe.Hash() != Base);
 	return true;
 }
 

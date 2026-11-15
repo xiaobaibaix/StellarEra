@@ -453,6 +453,26 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0", ClampMax = "64"))
 	int32 KimberliteMax = 8;
 
+	/** 大陆裂谷的碳酸岩体（4c 稀土宿主）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion")
+	bool bCarbonatites = true;
+
+	/** 碳酸岩半径（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0.0005", ClampMax = "0.1"))
+	float CarbonatiteRadiusRatio = 0.006f;
+
+	/** 碳酸岩顶深（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0", ClampMax = "0.3"))
+	float CarbonatiteTopDepthRatio = 0.01f;
+
+	/** 每段裂谷出现碳酸岩的概率。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0", ClampMax = "1"))
+	float CarbonatiteChance = 0.35f;
+
+	/** 候选去重间距（弦长，单位球）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0.001", ClampMax = "1"))
+	float CarbonatiteSpacingRatio = 0.12f;
+
 	/** 岩株蚀变晕半径倍数（岩基固定 1.25）。 */
 	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "1", ClampMax = "8"))
 	float AlterHaloScale = 2.2f;

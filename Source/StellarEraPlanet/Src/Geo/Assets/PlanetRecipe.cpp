@@ -116,6 +116,11 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 	C.Intrusion.KimberliteHalfHeightRatio = KimberliteHalfHeightRatio;
 	C.Intrusion.KimberliteTopDepthRatio = KimberliteTopDepthRatio;
 	C.Intrusion.KimberliteMax = KimberliteMax;
+	C.Intrusion.bCarbonatites = bCarbonatites;
+	C.Intrusion.CarbonatiteRadiusRatio = CarbonatiteRadiusRatio;
+	C.Intrusion.CarbonatiteTopDepthRatio = CarbonatiteTopDepthRatio;
+	C.Intrusion.CarbonatiteChance = CarbonatiteChance;
+	C.Intrusion.CarbonatiteSpacingRatio = CarbonatiteSpacingRatio;
 	C.Intrusion.AlterHaloScale = AlterHaloScale;
 	C.Intrusion.AlterKeratiticBand = AlterKeratiticBand;
 	C.Intrusion.AlterSericiticBand = AlterSericiticBand;

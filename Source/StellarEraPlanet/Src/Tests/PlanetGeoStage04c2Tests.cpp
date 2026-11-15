@@ -33,7 +33,9 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage04c2CarbonatiteTest, "StellarEra.Plane
 bool FGeoStage04c2CarbonatiteTest::RunTest(const FString& Parameters)
 {
 	TestEqual(TEXT("岩性表多出碳酸岩一位"), int32(GeoLithology::Count), 16);
-	TestTrue(TEXT("碳酸岩有显示名"), FString(GeoLithology::DisplayName(GeoLithology::Carbonatite)).Len() > 0);
+	TestEqual(TEXT("碳酸岩显示名"), FString(GeoLithology::DisplayName(GeoLithology::Carbonatite)), FString(TEXT("碳酸岩")));
+	TestEqual(TEXT("碳酸岩调试色"), uint32(GeoLithology::DebugColor(GeoLithology::Carbonatite).ToPackedARGB()),
+		uint32(FColor(200, 180, 210).ToPackedARGB()));
 
 	FPlanetRecipeConfig C; C.FaceRes = 512;
 	FPlanetBakeFields F; FPlanetBakeReport R;

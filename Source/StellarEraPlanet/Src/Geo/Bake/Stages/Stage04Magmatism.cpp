@@ -24,7 +24,7 @@ namespace
 		GeoPlates::NearestTwo(Frame, GeoPlates::WarpDirection(Frame, D, P), A, B, Da, Db);
 		return A;
 	}
-	/** 侵入体图层的紧凑编号：岩性 Id 9..14 中间有橄榄岩空位，直接当下标会在图例里留黑洞。 */
+	/** 侵入体图层的紧凑编号：岩性 Id 从 9 起中间有橄榄岩空位，直接当下标会在图例里留黑洞。 */
 	uint8 Stage04CompactLitho(uint8 Litho)
 	{
 		switch (Litho)
@@ -429,7 +429,7 @@ void FStage04Magmatism::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const
 		L.Id = TEXT("IntrusionType"); L.DisplayName = TEXT("侵入体类型（地下）"); L.Stage = 4;
 		L.Domain = EGeoDebugDomain::Volume;
 		L.Kind = EGeoDebugKind::Categorical;
-		// 岩性 Id 9..14 中间有橄榄岩空位，直接当下标会留一个黑洞，所以图例改用紧凑编号。
+		// 岩性 Id 从 9 起中间有橄榄岩空位，直接当下标会留一个黑洞，所以图例改用紧凑编号。
 		L.Legend = { { TEXT("无"), FColor(70, 70, 70) },
 			{ TEXT("花岗岩（岩基）"), GeoLithology::DebugColor(GeoLithology::Granite) },
 			{ TEXT("闪长岩（岩株）"), GeoLithology::DebugColor(GeoLithology::Diorite) },
