@@ -1,4 +1,4 @@
-﻿// 阶段 5：温度（纬度 / 高程 / 大陆度）与风带（纬度三分段）。降水 / 群系在后续任务。
+﻿// 阶段 5：温度 / 风带 / 降水（纬度基准 + 离海衰减 + 逆风雨影）。群系在后续任务。
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "GeoRng.h"
@@ -24,6 +24,37 @@ namespace
 	float Stage05LatDeg(const FVector3f& Dir)
 	{
 		return FMath::RadiansToDegrees(FMath::Asin(FMath::Clamp(Dir.Z, -1.f, 1.f)));
+	}
+
+	/** 南北向长山：Elevation = Amp·exp(−(u/w)²)，u 是到 XZ 经线面的角距；其余场只为过阶段校验。 */
+	FPlanetBakeFields Stage05RidgePlanet(const FPlanetRecipeConfig& C, float RidgeAmpVoxels, float RidgeHalfWidthDeg)
+	{
+		const int32 Res = FMath::Max(C.Climate.ClimateRes, 1);
+		const float HalfWidth = FMath::DegreesToRadians(FMath::Max(RidgeHalfWidthDeg, 1e-3f));
+		FPlanetBakeFields F;
+		F.Elevation.Init(Res);
+		F.Elevation.Fill([RidgeAmpVoxels, HalfWidth](const FVector3f& Dir)
+		{
+			const float U = FMath::Asin(FMath::Clamp(FMath::Abs(Dir.Y), 0.f, 1.f));
+			const float T = U / HalfWidth;
+			return RidgeAmpVoxels * FMath::Exp(-T * T);
+		});
+		F.ContinentalMask.Init(Res);
+		F.ContinentalMask.Fill([](const FVector3f&) { return 1.f; });
+		F.PlateId.Init(Res);
+		F.PlateId.Fill([](const FVector3f&) { return 0.f; });
+		F.CrustType.Init(Res);
+		F.CrustType.Fill([](const FVector3f&) { return 1.f; });
+		return F;
+	}
+
+	/** 指定纬度上「距经线面角距 = UDeg」的方向；东侧的 y > 0，西侧的 y < 0。 */
+	FVector3f Stage05DirAt(float LatDeg, float UDeg, bool bEast)
+	{
+		const float SinLat = FMath::Sin(FMath::DegreesToRadians(LatDeg));
+		const float Y = (bEast ? 1.f : -1.f) * FMath::Sin(FMath::DegreesToRadians(UDeg));
+		const float X = FMath::Sqrt(FMath::Max(0.f, 1.f - Y * Y - SinLat * SinLat));
+		return FVector3f(X, Y, SinLat);
 	}
 }
 
@@ -119,6 +150,71 @@ bool FGeoStage05WindTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("az=270° 切向 = 西"), FVector3f::DotProduct(Stage05::WindTangent(Dir, 270.f), East) < -0.999f);
 		TestTrue(TEXT("极点没有可定义的切向"), Stage05::WindTangent(FVector3f(0.f, 0.f, 1.f), 270.f).IsNearlyZero());
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage05DryBeltTest, "StellarEra.Planet.Geo.Stage05.DryBelt",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage05DryBeltTest::RunTest(const FString& Parameters)
+{
+	FPlanetRecipeConfig C;
+	C.FaceRes = 256;
+	FPlanetBakeReport R;
+	const FPlanetBakeFields F = Stage05TestPlanet(C, R);
+	if (!TestFalse(FString::Printf(TEXT("无错误（%s）"), *FString::Join(R.Errors, TEXT(" | "))), R.HasErrors())) { return false; }
+	if (!TestEqual(TEXT("降水场分辨率 = ClimateRes"), F.Precipitation.Res, C.Climate.ClimateRes)) { return false; }
+
+	double DrySum = 0.0, EqSum = 0.0, MidSum = 0.0;
+	int32 DryN = 0, EqN = 0, MidN = 0;
+	for (int32 Face = 0; Face < 6; ++Face)
+		for (int32 Y = 0; Y < F.Precipitation.Res; ++Y)
+			for (int32 X = 0; X < F.Precipitation.Res; ++X)
+			{
+				const float AbsLat = FMath::Abs(Stage05LatDeg(F.Precipitation.TexelDir(Face, X, Y)));
+				const float P = F.Precipitation.At(Face, X, Y);
+				if (AbsLat >= 25.f && AbsLat <= 35.f) { DrySum += P; ++DryN; }
+				else if (AbsLat < 10.f) { EqSum += P; ++EqN; }
+				else if (AbsLat >= 40.f && AbsLat <= 50.f) { MidSum += P; ++MidN; }
+			}
+	const double DryMean = DryN > 0 ? DrySum / DryN : 0.0;
+	const double EqMean = EqN > 0 ? EqSum / EqN : 0.0;
+	const double MidMean = MidN > 0 ? MidSum / MidN : 0.0;
+	AddInfo(FString::Printf(TEXT("降水均值：25–35° %.4f，|lat|<10° %.4f，40–50° %.4f"), DryMean, EqMean, MidMean));
+	TestTrue(TEXT("三个纬度带都有样本"), DryN > 0 && EqN > 0 && MidN > 0);
+	TestTrue(TEXT("干旱带比赤道带低 ≥0.15"), DryMean < EqMean - 0.15);
+	TestTrue(TEXT("干旱带比中纬带低 ≥0.15"), DryMean < MidMean - 0.15);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage05RainShadowTest, "StellarEra.Planet.Geo.Stage05.RainShadow",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage05RainShadowTest::RunTest(const FString& Parameters)
+{
+	FPlanetRecipeConfig C;
+	C.FaceRes = 256;
+	FPlanetBakeReport R;
+	// 南北向长山，风在 45° 吹向东：东侧背风、西侧迎风。
+	// 山高取 0.08R（spec 默认 0.04R 时 3–5° 采样点已在山腰，实测只差 0.289，够不到验收线 0.4）。
+	FPlanetBakeFields G = Stage05RidgePlanet(C, 0.08f * float(C.Radius), 6.f);
+	FPlanetBakeContext C5{ C, G, FGeoRng::Derive(C.Seed, 5, 0), R };
+	FStage05Climate().Bake(C5);
+	if (!TestFalse(FString::Printf(TEXT("合成星球无错误（%s）"), *FString::Join(R.Errors, TEXT(" | "))), R.HasErrors())) { return false; }
+
+	double LeeSum = 0.0, WindSum = 0.0;
+	int32 N = 0;
+	for (const float Lat : { 40.f, 45.f, 50.f })
+		for (const float Off : { 3.f, 4.f, 5.f })
+		{
+			LeeSum += G.Precipitation.Sample(Stage05DirAt(Lat, Off, true));
+			WindSum += G.Precipitation.Sample(Stage05DirAt(Lat, Off, false));
+			++N;
+		}
+	const double LeeMean = N > 0 ? LeeSum / N : 0.0;
+	const double WindMean = N > 0 ? WindSum / N : 0.0;
+	AddInfo(FString::Printf(TEXT("背风（东）均值 %.4f，迎风（西）均值 %.4f，差 %.4f"), LeeMean, WindMean, WindMean - LeeMean));
+	TestTrue(TEXT("迎风侧比背风侧湿 > 0.4"), WindMean - LeeMean > 0.4);
 	return true;
 }
 

@@ -55,6 +55,11 @@ void FStage05Climate::Bake(FPlanetBakeContext& Ctx) const
 	const float R = float(Cfg.Radius);
 	// 高程以 0.08R 为满分：超过它温度不再继续掉，避免最高峰把整块大陆压到冰点。
 	const float LapseScale = 1.f / FMath::Max(0.08f * R, 1e-6f);
+	// 雨影的抬升以 0.02R 为满分；一步跨得再高也只扣一份，防止贴壁的 texel 一步扣光。
+	const float RiseScale = 1.f / FMath::Max(0.02f * R, 1e-6f);
+	// texel 步长换算成角步长：立方体面中心 90°/Res，与气候场分辨率同源。
+	const float StepRad = float(FMath::Max(P.ShadowStride, 1)) * (PI * 0.5f) / float(Res);
+	const float CosStep = FMath::Cos(StepRad), SinStep = FMath::Sin(StepRad);
 	// 方向只取决于网格，不该借某一张数据场的 TexelDir 去问。
 	const auto TexelDir = [Res](int32 Face, int32 X, int32 Y)
 	{
@@ -71,12 +76,52 @@ void FStage05Climate::Bake(FPlanetBakeContext& Ctx) const
 			const float Z = FMath::Clamp(Dir.Z, -1.f, 1.f);
 			const float E = F.Elevation.Sample(Dir);
 			const float M = F.ContinentalMask.Sample(Dir);
+			const float AbsLatDeg = FMath::RadiansToDegrees(FMath::Asin(FMath::Abs(Z)));
 			// Insolation = 1 − sin²(lat)，而 lat = asin(Z)，所以直接用 1 − Z²。
 			const float T = P.PoleTemp + (P.EquatorTemp - P.PoleTemp) * (1.f - Z * Z)
 				- P.LapseRate * FMath::Clamp(E * LapseScale, 0.f, 1.f)
 				+ P.Continentality * (M - 0.5f);
 			F.Temperature.At(Face, X, Y) = FMath::Clamp(T, 0.f, 1.f);
-			F.WindDir.At(Face, X, Y) = Stage05::WindAzimuth(FMath::RadiansToDegrees(FMath::Asin(Z)));
+
+			const float Az = Stage05::WindAzimuth(AbsLatDeg);
+			F.WindDir.At(Face, X, Y) = Az;
+
+			// 四段纬度基准：0° 赤道 → 30° 干旱带 → 45° 中纬 → 90° 极区。
+			float Precip;
+			if (AbsLatDeg < 30.f)
+			{
+				Precip = FMath::Lerp(P.BaseEquator, P.BaseDry, FMath::SmoothStep(0.f, 30.f, AbsLatDeg));
+			}
+			else if (AbsLatDeg < 45.f)
+			{
+				Precip = FMath::Lerp(P.BaseDry, P.BaseMid, FMath::SmoothStep(30.f, 45.f, AbsLatDeg));
+			}
+			else
+			{
+				Precip = FMath::Lerp(P.BaseMid, P.BasePole, FMath::SmoothStep(45.f, 90.f, AbsLatDeg));
+			}
+			Precip *= 1.f - P.OceanFalloff * (1.f - M);
+
+			// 雨影是本阶段唯一的非局部算法：沿逆风方向回溯，翻过一段抬升就扣一份水汽。
+			const FVector3f W = Stage05::WindTangent(Dir, Az);
+			if (P.ShadowSteps > 0 && P.RainShadow > 0.f && !W.IsNearlyZero())
+			{
+				// 绕大圆平面法向逐步旋转，避免用固定切向累加导致轨迹漂出球面直线。
+				const FVector3f Axis = FVector3f::CrossProduct(Dir, -W).GetSafeNormal();
+				FVector3f Q = Dir;
+				float PrevE = E;
+				for (int32 Step = 0; Step < P.ShadowSteps; ++Step)
+				{
+					Q = Q * CosStep + FVector3f::CrossProduct(Axis, Q) * SinStep;
+					const float QE = F.Elevation.Sample(Q);
+					const float Rise = QE - PrevE;
+					if (Rise > 0.f) { Precip *= 1.f - P.RainShadow * FMath::Clamp(Rise * RiseScale, 0.f, 1.f); }
+					// 海上水汽充足：回溯到海面就没有再扣的理由。
+					if (QE <= 0.f) { break; }
+					PrevE = QE;
+				}
+			}
+			F.Precipitation.At(Face, X, Y) = FMath::Clamp(Precip + P.PrecipBias, 0.f, 1.f);
 			F.ClimateLand.At(Face, X, Y) = E > 0.f ? 1.f : 0.f;
 		}
 	}, PF);
@@ -93,6 +138,18 @@ void FStage05Climate::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const
 		L.Colorize = [](const FPlanetSnapshot&, float V)
 		{
 			return FMath::Lerp(FLinearColor(0.10f, 0.25f, 0.90f), FLinearColor(0.90f, 0.12f, 0.05f), FMath::Clamp(V, 0.f, 1.f)).ToFColor(false);
+		};
+		Out.Add(MoveTemp(L));
+	}
+	{
+		FGeoDebugLayer L;
+		L.Id = TEXT("ClimatePrecipitation"); L.DisplayName = TEXT("降水"); L.Stage = 5;
+		L.Unit = TEXT("0 干 … 1 湿");
+		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P) { return Stage05DebugField(S, TEXT("Precipitation"), P, false); };
+		// 默认色带紫→黄不适合表达「干湿」：褐→蓝绿，一眼分出雨影与干旱带。
+		L.Colorize = [](const FPlanetSnapshot&, float V)
+		{
+			return FMath::Lerp(FLinearColor(0.35f, 0.22f, 0.10f), FLinearColor(0.10f, 0.55f, 0.55f), FMath::Clamp(V, 0.f, 1.f)).ToFColor(false);
 		};
 		Out.Add(MoveTemp(L));
 	}
@@ -126,5 +183,6 @@ void FStage05Climate::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const
 void FStage05Climate::ExportDebugFields(const FPlanetBakeFields& Fields, TMap<FName, FGeoField2D>& Out) const
 {
 	if (Fields.Temperature.Res > 0) { Out.Add(TEXT("Temperature"), Fields.Temperature); }
+	if (Fields.Precipitation.Res > 0) { Out.Add(TEXT("Precipitation"), Fields.Precipitation); }
 	if (Fields.WindDir.Res > 0) { Out.Add(TEXT("WindDir"), Fields.WindDir); }
 }

@@ -1,4 +1,4 @@
-﻿// 阶段 5：气候。温度与风带；降水 / 群系在后续任务补。
+﻿// 阶段 5：气候。温度、风带、降水（含逆风雨影）；群系在后续任务补。
 #pragma once
 #include "CoreMinimal.h"
 #include "PlanetStage.h"

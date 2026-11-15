@@ -181,6 +181,15 @@ struct FPlanetClimateParams
 	float PoleTemp = 0.05f;          // 极点归一化温度
 	float LapseRate = 0.35f;         // 高程到 0.08R 时扣掉的温度份额
 	float Continentality = 0.15f;    // 大陆度对温度的影响幅度
+	float BaseEquator = 0.9f;        // 赤道降水基准
+	float BaseDry = 0.15f;           // 30° 干旱带降水基准
+	float BaseMid = 0.7f;            // 中纬（45°）降水基准
+	float BasePole = 0.15f;          // 极区降水基准
+	float OceanFalloff = 0.3f;       // 离海衰减幅度
+	float RainShadow = 0.8f;         // 雨影每单位抬升扣掉的水汽份额
+	int32 ShadowSteps = 32;          // 逆风回溯步数上限
+	int32 ShadowStride = 2;          // 每步跨几个气候 texel
+	float PrecipBias = 0.f;          // 全局降水偏移（调参用）
 };
 
 struct FPlanetRecipeConfig
@@ -265,8 +274,12 @@ struct FPlanetRecipeConfig
 			In.AlterHaloScale, In.AlterKeratiticBand, In.AlterSericiticBand, In.AlterArgillicBand,
 			In.CarbonatiteRadiusRatio, In.CarbonatiteTopDepthRatio, In.CarbonatiteChance, In.CarbonatiteSpacingRatio };
 		for (const float V : InF) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
-		H = GeoHash::Combine(H, uint64(uint32(Climate.ClimateRes)));
-		const float ClF[5] = { Climate.AxialTiltDeg, Climate.EquatorTemp, Climate.PoleTemp, Climate.LapseRate, Climate.Continentality };
+		H = GeoHash::Combine(H, uint64(uint32(Climate.ClimateRes))
+			| (uint64(uint32(Climate.ShadowSteps)) << 32));
+		H = GeoHash::Combine(H, uint64(uint32(Climate.ShadowStride)));
+		const float ClF[12] = { Climate.AxialTiltDeg, Climate.EquatorTemp, Climate.PoleTemp, Climate.LapseRate, Climate.Continentality,
+			Climate.BaseEquator, Climate.BaseDry, Climate.BaseMid, Climate.BasePole, Climate.OceanFalloff,
+			Climate.RainShadow, Climate.PrecipBias };
 		for (const float V : ClF) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 		for (const TSharedPtr<const IGeoMineralRule>& Rule : MineralRules)
 		{
