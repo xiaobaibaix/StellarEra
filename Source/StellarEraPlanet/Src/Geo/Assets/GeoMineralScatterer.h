@@ -224,8 +224,8 @@ public:
 	/** 距离上限（占 R）：PerStock 个浸染体在这段区间里自上而下铺开。 */
 	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "0.2"))
 	float DepthMaxRatio = 0.03f;
-	/** 浸染体半径（占 R）。 */
-	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.001", ClampMax = "0.05"))
+	/** 浸染体半径（占 R）：必须 ≤ 中心下移下限，否则浸染体顶面会抬到岩株顶面之上。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.001", ClampMax = "0.012"))
 	float RadiusRatio = 0.01f;
 	/** 每座岩株几个。 */
 	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1", ClampMax = "8"))
@@ -247,7 +247,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.001", ClampMax = "0.1"))
 	float RadiusRatio = 0.008f;
 	/** 结壳厚度（体素，从地表往下）。 */
-	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.5"))
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "2", ClampMax = "400"))
 	float DepthVoxels = 40.f;
 
 	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;

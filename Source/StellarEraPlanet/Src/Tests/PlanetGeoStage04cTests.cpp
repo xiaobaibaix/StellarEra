@@ -1,11 +1,14 @@
 ﻿// 阶段 4c-1：火山竖向矿柱。跑真实 2→3→4 烘焙再手动跑规则，验证三种矿与火山的空间关系。
 #include "CoreMinimal.h"
+#include "UObject/UObjectGlobals.h"
 #include "Misc/AutomationTest.h"
 #include "GeoField2D.h"
 #include "GeoLithology.h"
 #include "GeoMineral.h"
+#include "GeoMineralCatalog.h"
 #include "GeoMineralRule.h"
 #include "GeoMineralRules.h"
+#include "GeoPrimitiveIndex.h"
 #include "GeoRng.h"
 #include "GeoVolcano.h"
 #include "PlanetBakeTypes.h"
@@ -20,6 +23,16 @@
 
 namespace
 {
+	// 单条规则按管线同样的随机流跑一次撒矿，但不盖章：验「规则吐 0、管线盖号」的分工。
+	void Stage04cScatterOne(const FPlanetRecipeConfig& C, const FPlanetBakeFields& F, TArray<FString>& Errors,
+		const TSharedPtr<const IGeoMineralRule>& Rule, FGeoScatterOutput& Out)
+	{
+		// 随机流与 FPlanetBakePipeline::Bake 逐位一致，测试量的就是生产撒出来的矿体。
+		const uint64 Purpose = GeoHash::Combine(GeoHash::Combine(GeoHash::Str("scatter"), Rule->HashParams()), uint64(Rule->SeedOffset));
+		FGeoScatterContext SC{ C, F, FGeoRng::Derive(C.Seed, Rule->GetStage(), Purpose), Errors };
+		Rule->Scatter(SC, Out);
+	}
+
 	// 跑真实 2→3→4 烘焙再按管线的方式撒矿：测试要拿到撒矿后的场才验得了矿体位置。
 	void Stage04cTestBake(const FPlanetRecipeConfig& C, FPlanetBakeFields& F, FPlanetBakeReport& R)
 	{
@@ -29,14 +42,27 @@ namespace
 		for (const TSharedPtr<const IGeoMineralRule>& Rule : C.MineralRules)
 		{
 			if (!Rule) { continue; }
-			// 随机流与 FPlanetBakePipeline::Bake 逐位一致，测试量的就是生产撒出来的矿体。
-			const uint64 Purpose = GeoHash::Combine(GeoHash::Combine(GeoHash::Str("scatter"), Rule->HashParams()), uint64(Rule->SeedOffset));
-			FGeoScatterContext SC{ C, F, FGeoRng::Derive(C.Seed, Rule->GetStage(), Purpose), R.Errors };
 			FGeoScatterOutput Out;
-			Rule->Scatter(SC, Out);
+			Stage04cScatterOne(C, F, R.Errors, Rule, Out);
 			for (FGeoPrimitive& B : Out.Bodies) { B.MineralId = Rule->MineralId; F.Primitives.Add(B); }
 			for (FGeoMineralOverlay& O : Out.Overlays) { O.MineralId = Rule->MineralId; F.MineralOverlays.Add(MoveTemp(O)); }
 		}
+	}
+
+	// TArray<FGeoPrimitive> 没有 Hash：借快照索引的哈希，它逐字段混入（含 Center/Radii/Rotation）。
+	uint64 Stage04cPrimHash(const TArray<FGeoPrimitive>& P)
+	{
+		FGeoPrimitiveIndex I; I.Build(P); return I.Hash();
+	}
+
+	int32 Stage04cBodyCount(const TArray<FGeoPrimitive>& P, uint8 MineralId)
+	{
+		int32 N = 0; for (const FGeoPrimitive& B : P) { N += B.MineralId == MineralId ? 1 : 0; } return N;
+	}
+
+	int32 Stage04cOverlayCount(const TArray<FGeoMineralOverlay>& O, uint8 MineralId)
+	{
+		int32 N = 0; for (const FGeoMineralOverlay& L : O) { N += L.MineralId == MineralId ? 1 : 0; } return N;
 	}
 
 	// 材质求值核只吃快照：把烘焙出来的场搬进去，测试才能沿矿柱逐点读矿种。
@@ -73,7 +99,13 @@ bool FGeoStage04cSulfurTest::RunTest(const FString& Parameters)
 
 	if (!TestEqual(TEXT("硫磺出一张覆层"), F.MineralOverlays.Num(), 1)) { return false; }
 	const FGeoMineralOverlay& O = F.MineralOverlays[0];
-	TestEqual(TEXT("覆层盖上矿物编号"), int32(O.MineralId), int32(Rule->MineralId));
+	// 规则本身不盖章（契约：管线统一盖章）：直接跑一次原始 Scatter 验它吐 0，
+	// 再确认管线式拷贝把它盖成规则编号——否则这行只是复述 helper 的赋值。
+	FGeoScatterOutput Raw;
+	Stage04cScatterOne(C, F, R.Errors, Rule, Raw);
+	if (!TestEqual(TEXT("原始撒矿吐出一张覆层"), Raw.Overlays.Num(), 1)) { return false; }
+	TestEqual(TEXT("规则本身不填矿物编号（留 0 给管线）"), int32(Raw.Overlays[0].MineralId), 0);
+	TestEqual(TEXT("管线式拷贝把覆层盖成规则编号"), int32(O.MineralId), int32(Rule->MineralId));
 	TestEqual(TEXT("遮罩分辨率 = max(128, FaceRes/2)"), O.Mask.Res, FMath::Max(128, C.FaceRes / 2));
 	TestTrue(FString::Printf(TEXT("结壳厚度 %.1f 体素在 10–200 之间"), O.DepthVoxels), O.DepthVoxels >= 10.f && O.DepthVoxels <= 200.f);
 
@@ -277,6 +309,171 @@ bool FGeoStage04cColumnTest::RunTest(const FString& Parameters)
 	AddInfo(FString::Printf(TEXT("活跃层状火山 %d 座，顺序违规 %d 座；首座实测 %s"), Checked, Violations, *FirstColumn));
 	TestTrue(TEXT("有活跃层状火山"), Checked > 0);
 	TestEqual(TEXT("每座矿柱都是 硫磺→金银→斑岩铜，三段非空且不交叉"), Violations, 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage04cScaleInvarianceTest, "StellarEra.Planet.Geo.Stage04c.ScaleInvariance",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage04cScaleInvarianceTest::RunTest(const FString& Parameters)
+{
+	FPlanetRecipeConfig Full; Full.FaceRes = 512;
+	TSharedPtr<FGeoSulfurRule> Sulfur = MakeShared<FGeoSulfurRule>(); Sulfur->MineralId = 1;
+	TSharedPtr<FGeoEpithermalRule> Epithermal = MakeShared<FGeoEpithermalRule>(); Epithermal->MineralId = 2;
+	TSharedPtr<FGeoPorphyryRule> Porphyry = MakeShared<FGeoPorphyryRule>(); Porphyry->MineralId = 3;
+	Full.MineralRules = { Sulfur, Epithermal, Porphyry };
+	// 规则是共享只读参数：两次烘焙只有半径不同，所有比值都按 R 缩放。
+	FPlanetRecipeConfig Half = Full; Half.Radius = Full.Radius * 0.5;
+
+	FPlanetBakeFields Ff, Fh; FPlanetBakeReport Rf, Rh;
+	Stage04cTestBake(Full, Ff, Rf);
+	Stage04cTestBake(Half, Fh, Rh);
+	TestFalse(FString::Printf(TEXT("全尺度无错误（%s）"), *FString::Join(Rf.Errors, TEXT(" | "))), Rf.HasErrors());
+	TestFalse(FString::Printf(TEXT("半尺度无错误（%s）"), *FString::Join(Rh.Errors, TEXT(" | "))), Rh.HasErrors());
+
+	const int32 OvlF = Stage04cOverlayCount(Ff.MineralOverlays, 1);
+	const int32 VeinF = Stage04cBodyCount(Ff.Primitives, 2);
+	const int32 PorphF = Stage04cBodyCount(Ff.Primitives, 3);
+	TestTrue(TEXT("全尺度有硫磺结壳"), OvlF > 0);
+	TestTrue(TEXT("全尺度有金银脉"), VeinF > 0);
+	TestTrue(TEXT("全尺度有斑岩铜体"), PorphF > 0);
+	TestEqual(TEXT("半径减半后硫磺结壳数量不变"), Stage04cOverlayCount(Fh.MineralOverlays, 1), OvlF);
+	TestEqual(TEXT("半径减半后金银脉数量不变"), Stage04cBodyCount(Fh.Primitives, 2), VeinF);
+	TestEqual(TEXT("半径减半后斑岩铜体数量不变"), Stage04cBodyCount(Fh.Primitives, 3), PorphF);
+
+	// 脉体尺寸按 R 缩放：最大脉半径应减半（相对误差 1e-3；绝对值对 ~160 体素太紧）。
+	float VeinMaxF = 0.f, VeinMaxH = 0.f;
+	for (const FGeoPrimitive& B : Ff.Primitives) { if (B.MineralId == 2) { VeinMaxF = FMath::Max(VeinMaxF, B.Radii.GetMax()); } }
+	for (const FGeoPrimitive& B : Fh.Primitives) { if (B.MineralId == 2) { VeinMaxH = FMath::Max(VeinMaxH, B.Radii.GetMax()); } }
+	TestTrue(FString::Printf(TEXT("最大脉半径减半（%.4f → %.4f）"), VeinMaxF, VeinMaxH),
+		FMath::Abs(VeinMaxF * 0.5f - VeinMaxH) <= FMath::Abs(VeinMaxF * 0.5f) * 1e-3f);
+
+	// 斑岩铜体径向深度 = 地表半径 − 中心半径，同样按 R 缩放；按序号配对（随机流与半径无关）。
+	TArray<const FGeoPrimitive*> PorphFList, PorphHList;
+	for (const FGeoPrimitive& B : Ff.Primitives) { if (B.MineralId == 3) { PorphFList.Add(&B); } }
+	for (const FGeoPrimitive& B : Fh.Primitives) { if (B.MineralId == 3) { PorphHList.Add(&B); } }
+	if (!TestEqual(TEXT("两次烘焙斑岩铜体数量一致，可按序配对"), PorphHList.Num(), PorphFList.Num())) { return false; }
+	int32 DepthMiss = 0;
+	for (int32 i = 0; i < PorphFList.Num(); ++i)
+	{
+		const FVector3f DirF = PorphFList[i]->Center.GetSafeNormal();
+		const FVector3f DirH = PorphHList[i]->Center.GetSafeNormal();
+		const double SurfF = Full.Radius + double(Ff.Elevation.Sample(DirF));
+		const double SurfH = Half.Radius + double(Fh.Elevation.Sample(DirH));
+		const double DepthF = SurfF - double(PorphFList[i]->Center.Size());
+		const double DepthH = SurfH - double(PorphHList[i]->Center.Size());
+		// 深度 ~ (0.03+Shift)·R ≈ 480 体素，float 尾差 1e-3 量级；用相对 1e-3。
+		DepthMiss += FMath::Abs(DepthF * 0.5 - DepthH) <= FMath::Abs(DepthF * 0.5) * 1e-3 ? 0 : 1;
+	}
+	AddInfo(FString::Printf(TEXT("硫磺 %d/%d，脉 %d/%d，斑岩铜 %d/%d，最大脉半径 %.4f/%.4f"),
+		OvlF, Stage04cOverlayCount(Fh.MineralOverlays, 1), VeinF, Stage04cBodyCount(Fh.Primitives, 2),
+		PorphF, Stage04cBodyCount(Fh.Primitives, 3), VeinMaxF, VeinMaxH));
+	TestEqual(TEXT("斑岩铜体径向深度随半径减半"), DepthMiss, 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage04cSwitchesTest, "StellarEra.Planet.Geo.Stage04c.Switches",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage04cSwitchesTest::RunTest(const FString& Parameters)
+{
+	FPlanetRecipeConfig C; C.FaceRes = 512;
+	// 确定性对拍要强制单线程：字段用途见 FPlanetRecipeConfig::bSingleThreadBake。
+	C.bSingleThreadBake = true;
+	TSharedPtr<FGeoSulfurRule> Sulfur = MakeShared<FGeoSulfurRule>(); Sulfur->MineralId = 1;
+	TSharedPtr<FGeoEpithermalRule> Epithermal = MakeShared<FGeoEpithermalRule>(); Epithermal->MineralId = 2;
+	TSharedPtr<FGeoPorphyryRule> Porphyry = MakeShared<FGeoPorphyryRule>(); Porphyry->MineralId = 3;
+
+	auto Bake = [&](bool bS, bool bE, bool bP, FPlanetBakeFields& F, FPlanetBakeReport& R)
+	{
+		C.MineralRules.Empty();
+		if (bS) { C.MineralRules.Add(Sulfur); }
+		if (bE) { C.MineralRules.Add(Epithermal); }
+		if (bP) { C.MineralRules.Add(Porphyry); }
+		Stage04cTestBake(C, F, R);
+	};
+
+	// 全开：三类矿都非零。
+	{
+		FPlanetBakeFields F; FPlanetBakeReport R;
+		Bake(true, true, true, F, R);
+		TestFalse(FString::Printf(TEXT("全开无错误（%s）"), *FString::Join(R.Errors, TEXT(" | "))), R.HasErrors());
+		TestTrue(TEXT("全开有硫磺结壳"), Stage04cOverlayCount(F.MineralOverlays, 1) > 0);
+		TestTrue(TEXT("全开有金银脉"), Stage04cBodyCount(F.Primitives, 2) > 0);
+		TestTrue(TEXT("全开有斑岩铜体"), Stage04cBodyCount(F.Primitives, 3) > 0);
+	}
+
+	// 各自关掉：该矿种的覆层与矿体都为 0，其它两类不受影响。
+	{
+		FPlanetBakeFields F; FPlanetBakeReport R;
+		Bake(false, true, true, F, R);
+		TestEqual(TEXT("关掉硫磺后没有硫磺覆层"), Stage04cOverlayCount(F.MineralOverlays, 1), 0);
+		TestEqual(TEXT("关掉硫磺后没有硫磺矿体"), Stage04cBodyCount(F.Primitives, 1), 0);
+		TestTrue(TEXT("关掉硫磺不影响金银脉"), Stage04cBodyCount(F.Primitives, 2) > 0);
+		TestTrue(TEXT("关掉硫磺不影响斑岩铜"), Stage04cBodyCount(F.Primitives, 3) > 0);
+	}
+	{
+		FPlanetBakeFields F; FPlanetBakeReport R;
+		Bake(true, false, true, F, R);
+		TestEqual(TEXT("关掉金银后没有金银覆层"), Stage04cOverlayCount(F.MineralOverlays, 2), 0);
+		TestEqual(TEXT("关掉金银后没有金银矿体"), Stage04cBodyCount(F.Primitives, 2), 0);
+		TestTrue(TEXT("关掉金银不影响斑岩铜"), Stage04cBodyCount(F.Primitives, 3) > 0);
+	}
+	{
+		FPlanetBakeFields F; FPlanetBakeReport R;
+		Bake(true, true, false, F, R);
+		TestEqual(TEXT("关掉斑岩铜后没有斑岩铜覆层"), Stage04cOverlayCount(F.MineralOverlays, 3), 0);
+		TestEqual(TEXT("关掉斑岩铜后没有斑岩铜矿体"), Stage04cBodyCount(F.Primitives, 3), 0);
+		TestTrue(TEXT("关掉斑岩铜不影响硫磺"), Stage04cOverlayCount(F.MineralOverlays, 1) > 0);
+	}
+
+	// 确定性：同配方两次烘焙，原语哈希与覆层哈希一致。
+	{
+		FPlanetBakeFields F1, F2; FPlanetBakeReport R1, R2;
+		Bake(true, true, true, F1, R1);
+		Bake(true, true, true, F2, R2);
+		TestEqual(TEXT("两次烘焙原语哈希一致"), int64(Stage04cPrimHash(F1.Primitives)), int64(Stage04cPrimHash(F2.Primitives)));
+		uint64 H1 = 0, H2 = 0;
+		for (const FGeoMineralOverlay& O : F1.MineralOverlays) { H1 = GeoHash::Combine(H1, O.Hash()); }
+		for (const FGeoMineralOverlay& O : F2.MineralOverlays) { H2 = GeoHash::Combine(H2, O.Hash()); }
+		TestEqual(TEXT("两次烘焙覆层哈希一致"), int64(H1), int64(H2));
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage04cCatalogTest, "StellarEra.Planet.Geo.Stage04c.Catalog",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage04cCatalogTest::RunTest(const FString& Parameters)
+{
+	// 配方路径：撒矿器只按名字引用目录，编号 = 下标 + 1（PlanetRecipe.cpp ToConfig）。
+	const TCHAR* Ids[] = { TEXT("BIF"), TEXT("VMS"), TEXT("MnNodule"), TEXT("Chromite"),
+		TEXT("Sulfur"), TEXT("EpithermalAuAg"), TEXT("PorphyryCu") };
+	UGeoMineralCatalog* Cat = NewObject<UGeoMineralCatalog>();
+	for (const TCHAR* Id : Ids)
+	{
+		FGeoMineralDef D;
+		D.Id = FName(Id);
+		D.DisplayName = Id;
+		Cat->Minerals.Add(D);
+	}
+	FPlanetRecipeConfig C;
+	for (const FGeoMineralDef& D : Cat->Minerals)
+	{
+		C.Minerals.Add({ D.DisplayName, D.DebugColor.ToFColorSRGB() });
+	}
+	TestEqual(TEXT("目录七个矿种都进了调色板"), C.Minerals.Num(), 7);
+
+	// 三个新矿种必须能在目录里解析出非零编号，否则撒矿器会被配方整条跳过。
+	const TCHAR* NewNames[] = { TEXT("Sulfur"), TEXT("EpithermalAuAg"), TEXT("PorphyryCu") };
+	for (const TCHAR* Name : NewNames)
+	{
+		const int32 Index = Cat->FindIndex(FName(Name));
+		const uint8 MineralId = Index == INDEX_NONE ? 0 : uint8(Index + 1);
+		TestTrue(FString::Printf(TEXT("「%s」能解析出非零矿物编号"), Name), MineralId != 0);
+		TestTrue(FString::Printf(TEXT("「%s」的编号落在调色板范围内"), Name),
+			C.Minerals.IsValidIndex(Index) && !C.Minerals[Index].Name.IsEmpty());
+	}
 	return true;
 }
 
