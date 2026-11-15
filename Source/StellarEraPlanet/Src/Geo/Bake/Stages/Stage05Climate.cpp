@@ -128,7 +128,9 @@ void FStage05Climate::Bake(FPlanetBakeContext& Ctx) const
 				for (int32 Step = 0; Step < P.ShadowSteps; ++Step)
 				{
 					Q = Q * CosStep + FVector3f::CrossProduct(Axis, Q) * SinStep;
-					const float QE = F.Elevation.Sample(Q);
+					// 撞海与否是离散判断：用最近 texel。双线性会把陆/海混出半个 texel 的模糊带，
+					// 海岸线在哪一侧取决于不随半径缩放的上游下限，回溯步数就会整段跳。
+					const float QE = F.Elevation.SampleNearest(Q);
 					const float Rise = QE - PrevE;
 					if (Rise > 0.f) { Precip *= 1.f - P.RainShadow * FMath::Clamp(Rise * RiseScale, 0.f, 1.f); }
 					// 海上水汽充足：回溯到海面就没有再扣的理由。

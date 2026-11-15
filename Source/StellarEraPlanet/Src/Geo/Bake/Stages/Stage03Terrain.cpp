@@ -314,9 +314,8 @@ void FStage03Terrain::Bake(FPlanetBakeContext& Ctx) const
 				const float Arc = float(R) * FMath::Max((Dn - D0).Size(), 1e-9f);
 				float Out = MaxDiff / Arc > Talus ? Hc + Lambda * (Mean - Hc) : Hc;
 				// 保号：侵蚀不许把海岸线推过海平面。
-				// 下限取任意正值而非 0.01：绝对体素下限不随半径缩放，一半径下海岸带就不再严格减半。
 				const float Orig = Base.At(Face, X, Y) + Raw.At(Face, X, Y);
-				Out = Orig > 0.f ? FMath::Max(Out, 1e-30f) : FMath::Min(Out, 0.f);
+				Out = Orig > 0.f ? FMath::Max(Out, 0.01f) : FMath::Min(Out, 0.f);
 				H.At(Face, X, Y) = Out;
 			}
 		}, PF);

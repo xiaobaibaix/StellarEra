@@ -188,8 +188,7 @@ void GeoContinentField::SmoothKeepSign(FGeoField2D& Field, TConstArrayView<int32
 					+ Src.Sample(FGeoField2D::FaceToDir(Face, U, V + Du)) + Src.Sample(FGeoField2D::FaceToDir(Face, U, V - Du));
 				const float Blurred = 0.5f * Src.At(Face, X, Y) + 0.125f * Sum;
 				// 符号钳住：模糊会把海岸两侧互相拉过零点，陆地占比与海岸线就漂了。
-				// 下限必须是「任意正值」而不是 0.01 这类绝对体素值：绝对下限不随半径缩放，海岸带高程就不再与 R 成正比。
-				Field.At(Face, X, Y) = Original.At(Face, X, Y) > 0.f ? FMath::Max(Blurred, 1e-30f) : FMath::Min(Blurred, 0.f);
+				Field.At(Face, X, Y) = Original.At(Face, X, Y) > 0.f ? FMath::Max(Blurred, 0.01f) : FMath::Min(Blurred, 0.f);
 			}
 		}, bSingleThread ? EParallelForFlags::ForceSingleThread : EParallelForFlags::None);
 	}

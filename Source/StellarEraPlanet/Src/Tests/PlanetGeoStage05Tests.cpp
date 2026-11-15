@@ -3,6 +3,7 @@
 #include "Misc/AutomationTest.h"
 #include "GeoRng.h"
 #include "PlanetBakePipeline.h"
+#include "PlanetSnapshot.h"
 #include "Stage02Plates.h"
 #include "Stage03Terrain.h"
 #include "Stage05Climate.h"
@@ -309,6 +310,25 @@ bool FGeoStage05BiomeTableTest::RunTest(const FString& Parameters)
 		TestEqual(FString::Printf(TEXT("%s（T=%.3f，P=%.3f）"), Probe.Name, Probe.T, Probe.P),
 			Stage05::BiomeFor(Probe.T, Probe.P, Q), Probe.Want);
 	}
+
+	// 图层必须与查表同源：查看器按 Id=Biome 读到的编号得是 Biome 场里那一格。
+	const FGeoDebugLayer* BiomeLayer = FPlanetBakePipeline::FindDefaultDebugLayer(TEXT("Biome"));
+	if (!TestNotNull(TEXT("注册了 Biome 图层"), BiomeLayer)) { return false; }
+	TestTrue(TEXT("Biome 是分类图层"), BiomeLayer->Kind == EGeoDebugKind::Categorical);
+	TestEqual(TEXT("图例 8 项"), BiomeLayer->Legend.Num(), 8);
+	FPlanetSnapshot Snap;
+	Snap.R0 = C.Radius;
+	Snap.DebugFields.Add(TEXT("Temperature"), F.Temperature);
+	Snap.DebugFields.Add(TEXT("Precipitation"), F.Precipitation);
+	Snap.DebugFields.Add(TEXT("Biome"), F.Biome);
+	const FIntVector Texels[] = { { 0, 3, 5 }, { 1, 61, 200 }, { 2, 128, 128 }, { 4, 255, 7 }, { 5, 90, 33 } };
+	for (const FIntVector& T : Texels)
+	{
+		const FVector3f Dir = F.Biome.TexelDir(T.X, T.Y, T.Z);
+		const float Got = BiomeLayer->Sample(Snap, FVector3d(Dir) * C.Radius);
+		const int32 Want = Stage05::BiomeFor(F.Temperature.At(T.X, T.Y, T.Z), F.Precipitation.At(T.X, T.Y, T.Z), C.Climate);
+		TestEqual(FString::Printf(TEXT("图层采样 = 查表（面 %d texel %d,%d）"), T.X, T.Y, T.Z), Got, float(Want), 0.f);
+	}
 	return true;
 }
 
@@ -327,29 +347,76 @@ bool FGeoStage05ScaleInvarianceTest::RunTest(const FString& Parameters)
 	if (!TestFalse(FString::Printf(TEXT("全尺度无错误（%s）"), *FString::Join(R1.Errors, TEXT(" | "))), R1.HasErrors())) { return false; }
 	if (!TestFalse(FString::Printf(TEXT("半尺度无错误（%s）"), *FString::Join(R2.Errors, TEXT(" | "))), R2.HasErrors())) { return false; }
 
-	// 气候量全是「方向 + 高程/R」的函数：半径整体缩放不该动任何一位，而不是「差不多」。
-	struct FFieldPair { const TCHAR* Name; const FGeoField2D& A; const FGeoField2D& B; };
-	const FFieldPair Fields[] = {
-		{ TEXT("温度"), Full.Temperature, Fine.Temperature },
-		{ TEXT("降水"), Full.Precipitation, Fine.Precipitation },
-		{ TEXT("风向"), Full.WindDir, Fine.WindDir },
-		{ TEXT("群系"), Full.Biome, Fine.Biome },
-	};
-	for (const FFieldPair& Pair : Fields)
+	// 容差而非逐位：上游地形带 0.01 体素的绝对数值下限，不随半径缩放（实测最多挪 0.022 体素）。
+	if (!TestEqual(TEXT("两次分辨率相同"), Fine.Temperature.Res, Full.Temperature.Res)) { return false; }
+	const int32 Res = Full.Temperature.Res;
+	const int32 Total = 6 * Res * Res;
+
+	const auto AbsStats = [](const FGeoField2D& A, const FGeoField2D& B, float& OutMax, double& OutMean)
 	{
-		if (!TestEqual(FString::Printf(TEXT("%s：两次分辨率相同"), Pair.Name), Pair.B.Res, Pair.A.Res)) { continue; }
-		int32 Diffs = 0;
-		float MaxDiff = 0.f;
+		double Sum = 0.0;
+		int32 N = 0;
+		OutMax = 0.f;
 		for (int32 Face = 0; Face < 6; ++Face)
-			for (int32 Y = 0; Y < Pair.A.Res; ++Y)
-				for (int32 X = 0; X < Pair.A.Res; ++X)
+			for (int32 Y = 0; Y < A.Res; ++Y)
+				for (int32 X = 0; X < A.Res; ++X)
 				{
-					const float VA = Pair.A.At(Face, X, Y), VB = Pair.B.At(Face, X, Y);
-					if (VA != VB) { ++Diffs; MaxDiff = FMath::Max(MaxDiff, FMath::Abs(VA - VB)); }
+					const float D = FMath::Abs(A.At(Face, X, Y) - B.At(Face, X, Y));
+					OutMax = FMath::Max(OutMax, D);
+					Sum += D;
+					++N;
 				}
-		AddInfo(FString::Printf(TEXT("%s 逐位差 %d 处，最大差 %.3e"), Pair.Name, Diffs, MaxDiff));
-		TestEqual(FString::Printf(TEXT("%s：半径减半后逐位相同"), Pair.Name), Diffs, 0);
-	}
+		OutMean = Sum / FMath::Max(N, 1);
+	};
+
+	float TMax = 0.f, PMax = 0.f;
+	double TMean = 0.0, PMean = 0.0;
+	AbsStats(Full.Temperature, Fine.Temperature, TMax, TMean);
+	AbsStats(Full.Precipitation, Fine.Precipitation, PMax, PMean);
+	AddInfo(FString::Printf(TEXT("温度最大差 %.3e，平均 %.3e；降水最大差 %.3e，平均 %.3e"), TMax, TMean, PMax, PMean));
+	TestTrue(FString::Printf(TEXT("温度逐 texel 差 ≤ 2e-3（实测 %.3e）"), TMax), TMax <= 2e-3f);
+	TestTrue(FString::Printf(TEXT("温度平均差 ≤ 5e-4（实测 %.3e）"), TMean), TMean <= 5e-4);
+	TestTrue(FString::Printf(TEXT("降水逐 texel 差 ≤ 2e-3（实测 %.3e）"), PMax), PMax <= 2e-3f);
+	TestTrue(FString::Printf(TEXT("降水平均差 ≤ 5e-4（实测 %.3e）"), PMean), PMean <= 5e-4);
+
+	// 风向只按纬度分段、与高程无关：必须逐位相同。
+	int32 WindDiff = 0;
+	for (int32 Face = 0; Face < 6; ++Face)
+		for (int32 Y = 0; Y < Full.WindDir.Res; ++Y)
+			for (int32 X = 0; X < Full.WindDir.Res; ++X)
+			{
+				WindDiff += Full.WindDir.At(Face, X, Y) == Fine.WindDir.At(Face, X, Y) ? 0 : 1;
+			}
+	TestEqual(TEXT("风向逐位相同"), WindDiff, 0);
+
+	// 群系是查表：只有正好压在阈值上的 texel 会翻，且翻的地方必须紧贴阈值。
+	const FPlanetClimateParams& Q = C.Climate;
+	const float TThr[] = { Q.BiomeIceTemp, Q.BiomeTundraTemp, Q.BiomeForestTemp, Q.BiomeRainTemp, Q.BiomeSavannaTemp };
+	const float PThr[] = { Q.BiomeDesertPrecip, Q.BiomeForestPrecip, Q.BiomeRainPrecip, Q.BiomeTemperatePrecip };
+	const auto NearThreshold = [&TThr, &PThr](float T, float P)
+	{
+		for (const float V : TThr) { if (FMath::Abs(T - V) <= 0.01f) { return true; } }
+		for (const float V : PThr) { if (FMath::Abs(P - V) <= 0.01f) { return true; } }
+		return false;
+	};
+	int32 BiomeDiff = 0, OffThreshold = 0;
+	float MaxDT = 0.f, MaxDP = 0.f;
+	if (!TestEqual(TEXT("群系场分辨率相同"), Fine.Biome.Res, Full.Biome.Res)) { return false; }
+	for (int32 Face = 0; Face < 6; ++Face)
+		for (int32 Y = 0; Y < Full.Biome.Res; ++Y)
+			for (int32 X = 0; X < Full.Biome.Res; ++X)
+			{
+				if (Full.Biome.At(Face, X, Y) == Fine.Biome.At(Face, X, Y)) { continue; }
+				++BiomeDiff;
+				MaxDT = FMath::Max(MaxDT, FMath::Abs(Full.Temperature.At(Face, X, Y) - Fine.Temperature.At(Face, X, Y)));
+				MaxDP = FMath::Max(MaxDP, FMath::Abs(Full.Precipitation.At(Face, X, Y) - Fine.Precipitation.At(Face, X, Y)));
+				OffThreshold += NearThreshold(Full.Temperature.At(Face, X, Y), Full.Precipitation.At(Face, X, Y)) ? 0 : 1;
+			}
+	AddInfo(FString::Printf(TEXT("群系差异 %d/%d texel（%.3f%%），最大 |ΔT| %.3e、|ΔP| %.3e，阈值外 %d 处"),
+		BiomeDiff, Total, 100.0 * double(BiomeDiff) / double(FMath::Max(Total, 1)), MaxDT, MaxDP, OffThreshold));
+	TestTrue(FString::Printf(TEXT("群系差异 ≤ 0.5%% texel（实测 %d）"), BiomeDiff),
+		double(BiomeDiff) <= 0.005 * double(FMath::Max(Total, 1)));
+	TestEqual(TEXT("群系差异全在阈值 0.01 内"), OffThreshold, 0);
 	return true;
 }
 
