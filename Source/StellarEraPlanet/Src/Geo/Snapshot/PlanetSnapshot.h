@@ -5,6 +5,7 @@
 #include "GeoMineral.h"
 #include "GeoPrimitiveIndex.h"
 #include "GeoProfile.h"
+#include "GeoVolcano.h"
 
 struct STELLARERAPLANET_API FPlanetSnapshot
 {
@@ -26,6 +27,8 @@ struct STELLARERAPLANET_API FPlanetSnapshot
 	uint64 ContentHash = 0;
 	/** 只在 bKeepDebugFields 时存在（编辑器调试图层用）：不进 ContentHash、不计入快照预算。 */
 	TMap<FName, FGeoField2D> DebugFields;
+	/** 阶段 4 火山点表：4b/4c 与运行期按它定位火口、矿柱。 */
+	TArray<FGeoVolcano> Volcanoes;
 	/** 撒矿器产出的覆层；矿体在 Primitives 里。 */
 	TArray<FGeoMineralOverlay> MineralOverlays;
 	/** 矿物调色板（编号 − 1 为下标），只供显示。 */

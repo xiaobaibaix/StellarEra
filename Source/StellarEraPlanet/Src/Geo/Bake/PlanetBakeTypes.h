@@ -7,6 +7,7 @@
 #include "GeoPrimitive.h"
 #include "GeoProfile.h"
 #include "GeoRng.h"
+#include "GeoVolcano.h"
 #include "PlanetRecipeConfig.h"
 
 enum class EPlanetField : uint32
@@ -19,6 +20,7 @@ enum class EPlanetField : uint32
 	Continental = 1 << 4,   // ContinentalMask / ContinentalGrad / CrustType / CrustThickness
 	Elevation   = 1 << 5,   // Elevation
 	Relief      = 1 << 6,   // MountainMask / ReliefDelta / ReliefType
+	Volcanoes   = 1 << 7,   // Volcanoes / VolcanoMask / VolcanicType / VolcanicAge
 };
 ENUM_CLASS_FLAGS(EPlanetField);
 
@@ -46,6 +48,10 @@ struct FPlanetBakeFields
 	FGeoField2D MountainMask, ReliefDelta, ReliefType;
 	/** 侵蚀前 / 后地形增量的最大值：侵蚀只削不抬，前者是值域的保守依据。 */
 	float ReliefRawMax = 0.f, ReliefDeltaMax = 0.f;
+
+	// 阶段 4：点表进快照；宏观场（MacroRes）只给调试图层。Elevation 已叠上火山。
+	TArray<FGeoVolcano> Volcanoes;
+	FGeoField2D VolcanoMask, VolcanicType, VolcanicAge, VolcanoActive, VolcanoDelta;
 };
 
 struct FPlanetBakeReport

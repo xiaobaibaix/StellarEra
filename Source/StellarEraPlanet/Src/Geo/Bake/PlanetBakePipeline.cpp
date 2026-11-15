@@ -5,6 +5,7 @@
 #include "Stage01Sphere.h"
 #include "Stage02Plates.h"
 #include "Stage03Terrain.h"
+#include "Stage04Magmatism.h"
 
 FPlanetBakePipeline::FPlanetBakePipeline() = default;
 FPlanetBakePipeline::~FPlanetBakePipeline() = default;
@@ -98,6 +99,7 @@ TSharedPtr<const FPlanetSnapshot> FPlanetBakePipeline::Bake(const FPlanetRecipeC
 	Snap->Primitives.Build(MoveTemp(Fields.Primitives));
 	Snap->MineralOverlays = MoveTemp(Fields.MineralOverlays);
 	Snap->Minerals = Config.Minerals;
+	Snap->Volcanoes = MoveTemp(Fields.Volcanoes);
 	// 只有阶段 1 时没有高程场，地表恒为 R0；有阶段 2 就用实测上下界。
 	const bool bHasElevation = Fields.Elevation.Res > 0;
 	Snap->Elevation = MoveTemp(Fields.Elevation);
@@ -122,6 +124,7 @@ FPlanetBakePipeline FPlanetBakePipeline::MakeDefault()
 	P.AddStage(MakeUnique<FStage01Sphere>());
 	P.AddStage(MakeUnique<FStage02Plates>());
 	P.AddStage(MakeUnique<FStage03Terrain>());
+	P.AddStage(MakeUnique<FStage04Magmatism>());
 	return P;
 }
 

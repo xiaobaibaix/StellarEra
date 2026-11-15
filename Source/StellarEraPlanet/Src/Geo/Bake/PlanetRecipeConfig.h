@@ -97,6 +97,36 @@ struct FPlanetTerrainParams
 	float OldOrogenWidthVariation = 0.5f; // 宽窄收放幅度：0 等宽，1 最窄处只剩三成
 };
 
+struct FPlanetVolcanoParams
+{
+	bool bArcVolcanoes = true;            // 俯冲弧层状火山
+	bool bHotspots = true;                // 热点盾状火山链
+	bool bFloodBasalt = true;             // 大陆裂谷溢流玄武岩台地
+	bool bCalderas = true;                // 大火山顶部塌陷成破火山口
+	bool bCinderCones = true;             // 活火山周围的火山渣锥
+	float StratoBaseRatio = 0.024f;       // 层状火山底半径（方向单位，R=40000 时约 960 体素）
+	float StratoHeightRatio = 0.012f;     // 层状火山高（480 体素）
+	float StratoCraterRatio = 0.004f;     // 火口半径
+	float CraterDepthRatio = 0.002f;      // 火口深（80 体素）
+	float ArcSpacingRatio = 0.04f;        // 沿弧相邻火山间距
+	float ArcOffsetRatio = 0.03f;         // 火山弧离板块边界的距离（上盘一侧）
+	float ArcActiveFraction = 0.5f;       // 弧火山活跃比例（挤得越快越活跃）
+	float ShieldBaseRatio = 0.04f;        // 盾状火山底半径
+	float ShieldHeightRatio = 0.008f;     // 盾状火山高
+	int32 HotspotCount = 4;               // 地幔柱热点数
+	float HotspotSpacingRatio = 0.06f;    // 热点链上相邻火山间距
+	int32 HotspotChainLength = 6;         // 每条链最多几座
+	float FloodBasaltChance = 0.3f;       // 每段裂谷出现溢流玄武岩的概率
+	float FloodBasaltSizeRatio = 0.06f;   // 溢流玄武岩台地半宽
+	float FloodBasaltHeightRatio = 0.003f;// 台地高
+	float CalderaFraction = 0.15f;        // 大火山中塌成破火山口的比例
+	float CalderaRadiusRatio = 0.016f;    // 破火山口半径（不超过底半径的六成）
+	float CalderaDepthRatio = 0.008f;     // 破火山口深
+	int32 CinderPerVolcano = 4;           // 每座活火山周围的渣锥个数
+	float CinderBaseRatio = 0.006f;       // 渣锥底半径
+	float CinderHeightRatio = 0.002f;     // 渣锥高
+};
+
 struct FPlanetRecipeConfig
 {
 	/** 半径（体素），由行星填；烘焙全程以体素为单位，与体素厘米尺寸无关。 */
@@ -113,6 +143,7 @@ struct FPlanetRecipeConfig
 	FPlanetPlateParams Plates;
 	FPlanetContinentParams Continents;
 	FPlanetTerrainParams Terrain;
+	FPlanetVolcanoParams Volcano;
 	/** 撒矿规则（来自配方的撒矿器列表，已过滤掉停用项）。规则不可变，后台线程只读。 */
 	TArray<TSharedPtr<const IGeoMineralRule>> MineralRules;
 	/** 矿物调色板，只供显示，不进哈希。 */
@@ -152,6 +183,16 @@ struct FPlanetRecipeConfig
 			T.MidOceanRidgeHeightRatio, T.MidOceanRidgeWidthRatio, T.RiftDepthRatio, T.RiftWidthRatio, T.OldOrogenHeightRatio, T.OldOrogenDensity,
 			T.OldOrogenWidthRatio, T.OldOrogenSpurStrength, T.OldOrogenCoverage, T.OldOrogenGapFraction, T.OldOrogenWidthVariation };
 		for (const float V : Tr) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
+		const FPlanetVolcanoParams& Vp = Volcano;
+		H = GeoHash::Combine(H, uint64(Vp.bArcVolcanoes) | (uint64(Vp.bHotspots) << 1) | (uint64(Vp.bFloodBasalt) << 2)
+			| (uint64(Vp.bCalderas) << 3) | (uint64(Vp.bCinderCones) << 4));
+		H = GeoHash::Combine(H, uint64(uint32(Vp.HotspotCount)) | (uint64(uint32(Vp.HotspotChainLength)) << 32));
+		H = GeoHash::Combine(H, uint64(uint32(Vp.CinderPerVolcano)));
+		const float Vo[18] = { Vp.StratoBaseRatio, Vp.StratoHeightRatio, Vp.StratoCraterRatio, Vp.CraterDepthRatio, Vp.ArcSpacingRatio,
+			Vp.ArcOffsetRatio, Vp.ArcActiveFraction, Vp.ShieldBaseRatio, Vp.ShieldHeightRatio, Vp.HotspotSpacingRatio, Vp.FloodBasaltChance,
+			Vp.FloodBasaltSizeRatio, Vp.FloodBasaltHeightRatio, Vp.CalderaFraction, Vp.CalderaRadiusRatio, Vp.CalderaDepthRatio,
+			Vp.CinderBaseRatio, Vp.CinderHeightRatio };
+		for (const float V : Vo) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 		for (const TSharedPtr<const IGeoMineralRule>& Rule : MineralRules)
 		{
 			if (Rule) { H = GeoHash::Combine(H, Rule->Hash()); }
