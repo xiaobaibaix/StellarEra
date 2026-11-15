@@ -316,18 +316,33 @@ bool FGeoStage05BiomeTableTest::RunTest(const FString& Parameters)
 	if (!TestNotNull(TEXT("注册了 Biome 图层"), BiomeLayer)) { return false; }
 	TestTrue(TEXT("Biome 是分类图层"), BiomeLayer->Kind == EGeoDebugKind::Categorical);
 	TestEqual(TEXT("图例 8 项"), BiomeLayer->Legend.Num(), 8);
+	// 图例下标即群系编号：首/中/末错位会让整张分类图上错色。
+	if (BiomeLayer->Legend.Num() == 8)
+	{
+		TestEqual(TEXT("图例首项 冰原"), BiomeLayer->Legend[0].Label, FString(TEXT("冰原")));
+		TestEqual(TEXT("图例中项 雨林"), BiomeLayer->Legend[4].Label, FString(TEXT("雨林")));
+		TestEqual(TEXT("图例末项 草原"), BiomeLayer->Legend[7].Label, FString(TEXT("草原")));
+	}
 	FPlanetSnapshot Snap;
 	Snap.R0 = C.Radius;
 	Snap.DebugFields.Add(TEXT("Temperature"), F.Temperature);
 	Snap.DebugFields.Add(TEXT("Precipitation"), F.Precipitation);
 	Snap.DebugFields.Add(TEXT("Biome"), F.Biome);
+	// 在 texel 内偏 0.3 格采样：双线性会把相邻群系编号混成不存在的值，最近邻才该原样返回。
 	const FIntVector Texels[] = { { 0, 3, 5 }, { 1, 61, 200 }, { 2, 128, 128 }, { 4, 255, 7 }, { 5, 90, 33 } };
+	const float ResF = float(F.Biome.Res);
 	for (const FIntVector& T : Texels)
 	{
-		const FVector3f Dir = F.Biome.TexelDir(T.X, T.Y, T.Z);
+		const int32 Face = T.X, X = T.Y, Y = T.Z;
+		const float U0 = (float(X) + 0.5f) / ResF * 2.f - 1.f;
+		const float V0 = (float(Y) + 0.5f) / ResF * 2.f - 1.f;
+		// 朝面中心偏 0.3 texel，最近邻仍落在同一格，也不会越到相邻立方体面。
+		const float dU = (U0 > 0.f ? -0.3f : 0.3f) * 2.f / ResF;
+		const float dV = (V0 > 0.f ? -0.3f : 0.3f) * 2.f / ResF;
+		const FVector3f Dir = FGeoField2D::FaceToDir(Face, U0 + dU, V0 + dV);
 		const float Got = BiomeLayer->Sample(Snap, FVector3d(Dir) * C.Radius);
-		const int32 Want = Stage05::BiomeFor(F.Temperature.At(T.X, T.Y, T.Z), F.Precipitation.At(T.X, T.Y, T.Z), C.Climate);
-		TestEqual(FString::Printf(TEXT("图层采样 = 查表（面 %d texel %d,%d）"), T.X, T.Y, T.Z), Got, float(Want), 0.f);
+		const int32 Want = Stage05::BiomeFor(F.Temperature.Sample(Dir), F.Precipitation.Sample(Dir), C.Climate);
+		TestEqual(FString::Printf(TEXT("图层采样 = 同点重查（面 %d texel %d,%d，偏 0.3 格）"), Face, X, Y), Got, float(Want), 0.f);
 	}
 	return true;
 }

@@ -208,36 +208,44 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("CarbonatiteSpacingRatio 透传"), IC.CarbonatiteSpacingRatio, 0.121f, 1e-6f);
 	}
 
-	// 阶段 5 的 24 项默认值与 FPlanetClimateParams 逐项对齐（3 int + 21 float）：
-	// ToConfig 里 RHS 接错字段照样能编译，默认值不同才会露馅。
+	// 阶段 5 的 24 项（3 int + 21 float）逐项透传：默认值对比抓不到同默认值组内的互换
+	// （BaseDry/BasePole 0.15、BiomeIceTemp/BiomeDesertPrecip 0.2 等），必须全给互不相同的非默认值。
 	{
 		UPlanetRecipe* Rc = NewObject<UPlanetRecipe>();
-		const FPlanetClimateParams CD;
+		Rc->ClimateRes = 300; Rc->ShadowSteps = 21; Rc->ShadowStride = 5;
+		Rc->AxialTiltDeg = 12.5f; Rc->EquatorTemp = 0.93f; Rc->PoleTemp = 0.11f;
+		Rc->LapseRate = 0.42f; Rc->Continentality = 0.22f;
+		Rc->BaseEquator = 0.83f; Rc->BaseDry = 0.12f; Rc->BaseMid = 0.64f; Rc->BasePole = 0.18f;
+		Rc->OceanFalloff = 0.37f; Rc->RainShadow = 0.72f; Rc->PrecipBias = 0.06f;
+		Rc->BiomeIceTemp = 0.16f; Rc->BiomeDesertPrecip = 0.26f;
+		Rc->BiomeTundraTemp = 0.31f; Rc->BiomeForestTemp = 0.48f; Rc->BiomeForestPrecip = 0.41f;
+		Rc->BiomeRainTemp = 0.77f; Rc->BiomeRainPrecip = 0.66f;
+		Rc->BiomeSavannaTemp = 0.81f; Rc->BiomeTemperatePrecip = 0.44f;
 		const FPlanetClimateParams CC = Rc->ToConfig(40000.0).Climate;
-		TestEqual(TEXT("默认 ClimateRes"), CC.ClimateRes, CD.ClimateRes);
-		TestEqual(TEXT("默认 ShadowSteps"), CC.ShadowSteps, CD.ShadowSteps);
-		TestEqual(TEXT("默认 ShadowStride"), CC.ShadowStride, CD.ShadowStride);
-		TestEqual(TEXT("默认 AxialTiltDeg"), CC.AxialTiltDeg, CD.AxialTiltDeg, 1e-6f);
-		TestEqual(TEXT("默认 EquatorTemp"), CC.EquatorTemp, CD.EquatorTemp, 1e-6f);
-		TestEqual(TEXT("默认 PoleTemp"), CC.PoleTemp, CD.PoleTemp, 1e-6f);
-		TestEqual(TEXT("默认 LapseRate"), CC.LapseRate, CD.LapseRate, 1e-6f);
-		TestEqual(TEXT("默认 Continentality"), CC.Continentality, CD.Continentality, 1e-6f);
-		TestEqual(TEXT("默认 BaseEquator"), CC.BaseEquator, CD.BaseEquator, 1e-6f);
-		TestEqual(TEXT("默认 BaseDry"), CC.BaseDry, CD.BaseDry, 1e-6f);
-		TestEqual(TEXT("默认 BaseMid"), CC.BaseMid, CD.BaseMid, 1e-6f);
-		TestEqual(TEXT("默认 BasePole"), CC.BasePole, CD.BasePole, 1e-6f);
-		TestEqual(TEXT("默认 OceanFalloff"), CC.OceanFalloff, CD.OceanFalloff, 1e-6f);
-		TestEqual(TEXT("默认 RainShadow"), CC.RainShadow, CD.RainShadow, 1e-6f);
-		TestEqual(TEXT("默认 PrecipBias"), CC.PrecipBias, CD.PrecipBias, 1e-6f);
-		TestEqual(TEXT("默认 BiomeIceTemp"), CC.BiomeIceTemp, CD.BiomeIceTemp, 1e-6f);
-		TestEqual(TEXT("默认 BiomeDesertPrecip"), CC.BiomeDesertPrecip, CD.BiomeDesertPrecip, 1e-6f);
-		TestEqual(TEXT("默认 BiomeTundraTemp"), CC.BiomeTundraTemp, CD.BiomeTundraTemp, 1e-6f);
-		TestEqual(TEXT("默认 BiomeForestTemp"), CC.BiomeForestTemp, CD.BiomeForestTemp, 1e-6f);
-		TestEqual(TEXT("默认 BiomeForestPrecip"), CC.BiomeForestPrecip, CD.BiomeForestPrecip, 1e-6f);
-		TestEqual(TEXT("默认 BiomeRainTemp"), CC.BiomeRainTemp, CD.BiomeRainTemp, 1e-6f);
-		TestEqual(TEXT("默认 BiomeRainPrecip"), CC.BiomeRainPrecip, CD.BiomeRainPrecip, 1e-6f);
-		TestEqual(TEXT("默认 BiomeSavannaTemp"), CC.BiomeSavannaTemp, CD.BiomeSavannaTemp, 1e-6f);
-		TestEqual(TEXT("默认 BiomeTemperatePrecip"), CC.BiomeTemperatePrecip, CD.BiomeTemperatePrecip, 1e-6f);
+		TestEqual(TEXT("ClimateRes 透传"), CC.ClimateRes, 300);
+		TestEqual(TEXT("ShadowSteps 透传"), CC.ShadowSteps, 21);
+		TestEqual(TEXT("ShadowStride 透传"), CC.ShadowStride, 5);
+		TestEqual(TEXT("AxialTiltDeg 透传"), CC.AxialTiltDeg, 12.5f, 1e-6f);
+		TestEqual(TEXT("EquatorTemp 透传"), CC.EquatorTemp, 0.93f, 1e-6f);
+		TestEqual(TEXT("PoleTemp 透传"), CC.PoleTemp, 0.11f, 1e-6f);
+		TestEqual(TEXT("LapseRate 透传"), CC.LapseRate, 0.42f, 1e-6f);
+		TestEqual(TEXT("Continentality 透传"), CC.Continentality, 0.22f, 1e-6f);
+		TestEqual(TEXT("BaseEquator 透传"), CC.BaseEquator, 0.83f, 1e-6f);
+		TestEqual(TEXT("BaseDry 透传"), CC.BaseDry, 0.12f, 1e-6f);
+		TestEqual(TEXT("BaseMid 透传"), CC.BaseMid, 0.64f, 1e-6f);
+		TestEqual(TEXT("BasePole 透传"), CC.BasePole, 0.18f, 1e-6f);
+		TestEqual(TEXT("OceanFalloff 透传"), CC.OceanFalloff, 0.37f, 1e-6f);
+		TestEqual(TEXT("RainShadow 透传"), CC.RainShadow, 0.72f, 1e-6f);
+		TestEqual(TEXT("PrecipBias 透传"), CC.PrecipBias, 0.06f, 1e-6f);
+		TestEqual(TEXT("BiomeIceTemp 透传"), CC.BiomeIceTemp, 0.16f, 1e-6f);
+		TestEqual(TEXT("BiomeDesertPrecip 透传"), CC.BiomeDesertPrecip, 0.26f, 1e-6f);
+		TestEqual(TEXT("BiomeTundraTemp 透传"), CC.BiomeTundraTemp, 0.31f, 1e-6f);
+		TestEqual(TEXT("BiomeForestTemp 透传"), CC.BiomeForestTemp, 0.48f, 1e-6f);
+		TestEqual(TEXT("BiomeForestPrecip 透传"), CC.BiomeForestPrecip, 0.41f, 1e-6f);
+		TestEqual(TEXT("BiomeRainTemp 透传"), CC.BiomeRainTemp, 0.77f, 1e-6f);
+		TestEqual(TEXT("BiomeRainPrecip 透传"), CC.BiomeRainPrecip, 0.66f, 1e-6f);
+		TestEqual(TEXT("BiomeSavannaTemp 透传"), CC.BiomeSavannaTemp, 0.81f, 1e-6f);
+		TestEqual(TEXT("BiomeTemperatePrecip 透传"), CC.BiomeTemperatePrecip, 0.44f, 1e-6f);
 	}
 
 	// 每项都必须进 Hash()：漏一项则改它快照哈希不变、存档校验失效。

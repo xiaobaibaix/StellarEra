@@ -555,7 +555,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "0", ClampMax = "1"))
 	float BiomeIceTemp = 0.2f;
 
-	/** 沙漠阈值：降水低于它（先于所有温度判据，所以最干的地方不管多冷都是沙漠）。 */
+	/** 沙漠阈值：降水低于它（查表排在冰原之后、其余温度判据之前）。 */
 	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "0", ClampMax = "1"))
 	float BiomeDesertPrecip = 0.2f;
 
