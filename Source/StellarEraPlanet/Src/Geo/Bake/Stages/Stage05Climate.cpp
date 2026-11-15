@@ -70,7 +70,7 @@ void FStage05Climate::Bake(FPlanetBakeContext& Ctx) const
 	const float LapseScale = 1.f / FMath::Max(0.08f * R, 1e-6f);
 	// 雨影的抬升以 0.02R 为满分；一步跨得再高也只扣一份，防止贴壁的 texel 一步扣光。
 	const float RiseScale = 1.f / FMath::Max(0.02f * R, 1e-6f);
-	// texel 步长换算成角步长：面中心每 texel 约 114.6°/Res（2/Res 弧度），与气候场分辨率同源。
+	// texel 步长换算成角步长：取全脸平均 90°/Res（面中心真实约 114.6°），与气候场分辨率同源。
 	const float StepRad = float(FMath::Max(P.ShadowStride, 1)) * (PI * 0.5f) / float(Res);
 	const float CosStep = FMath::Cos(StepRad), SinStep = FMath::Sin(StepRad);
 	// 方向只取决于网格，不该借某一张数据场的 TexelDir 去问。

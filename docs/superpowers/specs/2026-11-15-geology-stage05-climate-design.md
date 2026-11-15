@@ -5,7 +5,7 @@
 ## 1. 目标与非目标
 
 **目标**
-- 新增 `FStage05Climate`（阶段号 5），产出四张 256 分辨率场：`Temperature`、`Precipitation`、`WindDir`、`Biome`。
+- 新增 `FStage05Climate`（阶段号 5），产出四张 256 分辨率主气候场：`Temperature`、`Precipitation`、`WindDir`、`Biome`，另加调试用 `ClimateLand`。
 - 雨影：本阶段唯一的非局部算法（逆风回溯扣水汽）。
 - 注册四个调试图层；参数进配方 `Stage5|Climate`、带中文注释、进哈希。
 
