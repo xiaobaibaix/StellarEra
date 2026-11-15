@@ -84,6 +84,12 @@ struct FPlanetTerrainParams
 	float TrenchWedge = 0.5f;             // 陆侧增生楔隆起强度
 	float SpeedWidthEffect = 0.6f;        // 挤压速度对山带宽度的影响：快 → 窄，慢 → 宽
 	float SpeedHeightEffect = 0.6f;       // 挤压速度对山高 / 海沟深的影响：快 → 高，慢 → 低
+	float MidOceanRidgeHeightRatio = 0.006f; // 洋中脊隆起（R=40000 时 240 体素），始终在水下
+	float MidOceanRidgeWidthRatio = 0.08f;   // 洋中脊宽度（方向单位）
+	float RiftDepthRatio = 0.004f;        // 大陆裂谷地堑下陷（160 体素），谷底不低于海平面
+	float RiftWidthRatio = 0.015f;        // 裂谷宽度
+	float OldOrogenHeightRatio = 0.008f;  // 古老造山带高度（320 体素），低矮圆缓
+	float OldOrogenDensity = 3.f;         // 古老造山带疏密：越大条数越多
 };
 
 struct FPlanetRecipeConfig
@@ -136,8 +142,9 @@ struct FPlanetRecipeConfig
 		for (const float V : C) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 		const FPlanetTerrainParams& T = Terrain;
 		H = GeoHash::Combine(H, uint64(T.ErosionIterations));
-		const float Tr[14] = { T.MountainHeightRatio, T.TrenchDepthRatio, T.PlainReliefRatio, T.BeltWidthRatio, T.TrenchWidthRatio,
-			T.RidgeWavelengthRatio, T.WarpRatio, T.ErosionStrength, T.TalusAngleDeg, T.TrenchSedimentFill, T.TrenchSlump, T.TrenchWedge, T.SpeedWidthEffect, T.SpeedHeightEffect };
+		const float Tr[20] = { T.MountainHeightRatio, T.TrenchDepthRatio, T.PlainReliefRatio, T.BeltWidthRatio, T.TrenchWidthRatio,
+			T.RidgeWavelengthRatio, T.WarpRatio, T.ErosionStrength, T.TalusAngleDeg, T.TrenchSedimentFill, T.TrenchSlump, T.TrenchWedge, T.SpeedWidthEffect, T.SpeedHeightEffect,
+			T.MidOceanRidgeHeightRatio, T.MidOceanRidgeWidthRatio, T.RiftDepthRatio, T.RiftWidthRatio, T.OldOrogenHeightRatio, T.OldOrogenDensity };
 		for (const float V : Tr) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 		for (const TSharedPtr<const IGeoMineralRule>& Rule : MineralRules)
 		{

@@ -48,6 +48,12 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 	C.Terrain.TrenchWedge = TrenchWedge;
 	C.Terrain.SpeedWidthEffect = SpeedWidthEffect;
 	C.Terrain.SpeedHeightEffect = SpeedHeightEffect;
+	C.Terrain.MidOceanRidgeHeightRatio = MidOceanRidgeHeightRatio;
+	C.Terrain.MidOceanRidgeWidthRatio = MidOceanRidgeWidthRatio;
+	C.Terrain.RiftDepthRatio = RiftDepthRatio;
+	C.Terrain.RiftWidthRatio = RiftWidthRatio;
+	C.Terrain.OldOrogenHeightRatio = OldOrogenHeightRatio;
+	C.Terrain.OldOrogenDensity = OldOrogenDensity;
 	if (MineralCatalog)
 	{
 		for (const FGeoMineralDef& D : MineralCatalog->Minerals)

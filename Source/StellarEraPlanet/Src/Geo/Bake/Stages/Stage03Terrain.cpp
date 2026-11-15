@@ -8,7 +8,8 @@
 namespace
 {
 	// 下标 = BoundaryType：哪些边界长山。离散与转换几乎不长，否则 7 块板块长 7 圈山，整颗星像橘子。
-	const float Stage03BeltWeight[6] = { 0.f, 0.8f, 0.5f, 1.f, 0.15f, 0.05f };
+	// 离散边界不走山带：洋中脊与裂谷有自己的剖面（下面单独算）。
+	const float Stage03BeltWeight[6] = { 0.f, 0.8f, 0.5f, 1.f, 0.f, 0.05f };
 
 	void Stage03Tangents(const FVector3f& D, FVector3f& E1, FVector3f& E2)
 	{
@@ -34,6 +35,9 @@ namespace
 		float Relief = 0.f;
 		float Trench = 0.f;
 		float Wedge = 0.f;
+		float Ridge = 0.f;    // 洋中脊抬升
+		float Graben = 0.f;   // 裂谷地堑下陷量（未扣肩部）
+		float Old = 0.f;      // 古老造山带抬升
 	};
 }
 
@@ -54,10 +58,11 @@ void FStage03Terrain::Bake(FPlanetBakeContext& Ctx) const
 	FGeoRng Rng = Ctx.Rng;
 	const uint64 WarpSeed = Rng.NextU64(), RidgeSeed = Rng.NextU64(), SegSeed = Rng.NextU64(), PlainSeed = Rng.NextU64();
 	const uint64 TrenchSeed = Rng.NextU64();
+	const uint64 OldSeed = Rng.NextU64();
 
 	// 宏观带场：与阶段 2 同一个 warp，山带才和板块边界对齐。
-	FGeoField2D BeltDist, BeltWeight, Subduct, BeltSpeed;
-	BeltDist.Init(MacroRes); BeltWeight.Init(MacroRes); Subduct.Init(MacroRes); BeltSpeed.Init(MacroRes);
+	FGeoField2D BeltDist, BeltWeight, Subduct, BeltSpeed, DivSpeed;
+	BeltDist.Init(MacroRes); BeltWeight.Init(MacroRes); Subduct.Init(MacroRes); BeltSpeed.Init(MacroRes); DivSpeed.Init(MacroRes);
 	const float SpeedRef = FMath::Max(Cfg.Plates.SpeedMax, 1e-3f);
 	ParallelFor(6 * MacroRes, [&](int32 Row)
 	{
@@ -76,6 +81,7 @@ void FStage03Terrain::Bake(FPlanetBakeContext& Ctx) const
 			BeltWeight.At(Face, X, Y) = bConvergent ? FMath::SmoothStep(0.f, 0.1f, S) : Stage03BeltWeight[Mot.Type];
 			Subduct.At(Face, X, Y) = bConvergent ? 1.f : 0.f;
 			BeltSpeed.At(Face, X, Y) = S;
+			DivSpeed.At(Face, X, Y) = Mot.Type == 4 ? FMath::Clamp(-Mot.Convergence / SpeedRef, 0.f, 1.f) : 0.f;
 		}
 	}, PF);
 
@@ -83,6 +89,9 @@ void FStage03Terrain::Bake(FPlanetBakeContext& Ctx) const
 	const float AMtn = float(T.MountainHeightRatio * R), ATrench = float(T.TrenchDepthRatio * R), APlain = float(T.PlainReliefRatio * R);
 	const float LandH = FMath::Max(float(Cfg.Continents.LandHeightRatio * R), 1.f);
 	const float OceanD = float(Cfg.Continents.OceanDepthRatio * R);
+	const float ARidge = float(T.MidOceanRidgeHeightRatio * R), RidgeW = FMath::Max(T.MidOceanRidgeWidthRatio, 1e-4f);
+	const float ARift = float(T.RiftDepthRatio * R), RiftW = FMath::Max(T.RiftWidthRatio, 1e-4f);
+	const float AOld = float(T.OldOrogenHeightRatio * R);
 	const float L0 = FMath::Max(T.RidgeWavelengthRatio, 1e-4f);
 	// octave 数由分辨率定、不由半径定：最细一层波长至少 4 个 texel，再细是白算（也保证缩放不变）。
 	const int32 Octaves = FMath::Clamp(1 + FMath::FloorToInt(FMath::Log2(L0 * float(Res) / 6.3f)), 1, 6);
@@ -178,7 +187,44 @@ void FStage03Terrain::Bake(FPlanetBakeContext& Ctx) const
 				Out.Wedge = FMath::Min(Bump, 0.3f * (-E0));
 			}
 		}
-		Out.Relief = Mountain + Plain - Out.Trench + Out.Wedge;
+		// 离散边界：洋侧是宽缓的洋中脊（正中一道轴部裂谷），陆侧是地堑 + 两侧肩部抬升。
+		float RiftRelief = 0.f;
+		const float Dv = DivSpeed.Sample(Dir);
+		if (Dv > 1e-4f)
+		{
+			const float Rate = FMath::SmoothStep(0.f, 0.05f, Dv) * FMath::Lerp(0.5f, 1.f, Dv);
+			const float Ocean = 1.f - FMath::SmoothStep(0.3f, 0.7f, M);
+			if (E0 < 0.f && Ocean > 0.f && ARidge > 0.f)
+			{
+				const float Up = ARidge * Rate * Ocean * FMath::Exp(-Stage03Sq(B / (0.5f * RidgeW)));
+				const float Axial = 0.2f * ARidge * Rate * Ocean * FMath::Exp(-Stage03Sq(B / (0.06f * RidgeW)));
+				// 洋中脊是海底山脉：脊顶最多升到本地水深的四分之三，不出海面。
+				Out.Ridge = FMath::Max(FMath::Min(Up - Axial, 0.75f * (-E0)), 0.f);
+			}
+			const float Land = FMath::SmoothStep(0.4f, 0.7f, M);
+			if (E0 > 0.f && Land > 0.f && ARift > 0.f)
+			{
+				const float Shoulder = 0.5f * ARift * Rate * Land * FMath::Exp(-Stage03Sq((FMath::Abs(B) - RiftW) / (0.4f * RiftW)));
+				Out.Graben = ARift * Rate * Land * FMath::Exp(-Stage03Sq(B / (0.5f * RiftW)));
+				// 谷底不低于海平面：裂谷进海就是阶段 2 的海岸线变了，陆地占比会漂。
+				RiftRelief = Shoulder - FMath::Min(Out.Graben, 0.9f * (E0 + Shoulder + Plain));
+			}
+		}
+		// 古老造山带：古老陆壳内部、远离现今山带处，沿噪声零等值线蜿蜒的低矮圆缓山地（被长期剥蚀的旧碰撞带）。
+		if (AOld > 0.f && E0 > 0.f)
+		{
+			const float Age = F.CrustAge.Sample(Dir);
+			const float Interior = FMath::SmoothStep(0.6f, 0.9f, M) * FMath::SmoothStep(0.8f, 0.95f, Age)
+				* (1.f - FMath::Clamp(3.f * Out.Mask, 0.f, 1.f));
+			if (Interior > 0.f)
+			{
+				const float Nz = GeoNoise::Fbm3(OldSeed, Wp * FMath::Max(T.OldOrogenDensity, 0.1f), 3);
+				const float Line = 1.f - FMath::SmoothStep(0.f, 0.12f, FMath::Abs(Nz));
+				const float Detail = 0.7f + 0.3f * GeoNoise::Fbm3(GeoHash::Combine(OldSeed, 5), Wp * (8.f * T.OldOrogenDensity), 2);
+				Out.Old = AOld * Interior * Line * Line * (3.f - 2.f * Line) * Detail;
+			}
+		}
+		Out.Relief = Mountain + Plain - Out.Trench + Out.Wedge + Out.Ridge + RiftRelief + Out.Old;
 		return Out;
 	};
 
@@ -301,9 +347,11 @@ void FStage03Terrain::Bake(FPlanetBakeContext& Ctx) const
 			const FStage03Sample S = Eval(Dir, E0);
 			const float Delta = E - E0;
 			float Type = 2.f;
-			if (E < CrustSplit) { Type = S.Trench > 0.3f * ATrench ? 5.f : 0.f; }
+			if (E < CrustSplit) { Type = S.Trench > 0.3f * ATrench ? 5.f : (S.Ridge > 0.3f * ARidge ? 7.f : 0.f); }
 			else if (E <= 0.f) { Type = 1.f; }
+			else if (S.Graben > 0.3f * ARift) { Type = 6.f; }
 			else if (S.Mask > 0.3f && Delta > 0.25f * AMtn) { Type = 4.f; }
+			else if (S.Old > 0.3f * AOld) { Type = 8.f; }
 			else if (Delta > FMath::Max(0.05f * AMtn, 2.f * APlain)) { Type = 3.f; }
 			F.MountainMask.At(Face, X, Y) = S.Mask;
 			F.ReliefDelta.At(Face, X, Y) = Delta;
@@ -360,7 +408,7 @@ void FStage03Terrain::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const
 		L.Legend = {
 			{ TEXT("洋盆"), FColor(30, 60, 140) }, { TEXT("陆架"), FColor(110, 180, 220) }, { TEXT("平原"), FColor(110, 170, 80) },
 			{ TEXT("丘陵"), FColor(190, 170, 90) }, { TEXT("高山"), FColor(140, 80, 50) }, { TEXT("海沟"), FColor(10, 15, 60) },
-			{ TEXT("裂谷"), FColor(200, 60, 60) } };
+			{ TEXT("裂谷"), FColor(200, 60, 60) }, { TEXT("洋中脊"), FColor(80, 120, 200) }, { TEXT("古老山地"), FColor(160, 140, 110) } };
 		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P) { return Stage03DebugField(S, TEXT("ReliefType"), P, true); };
 		Out.Add(MoveTemp(L));
 	}

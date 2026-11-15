@@ -263,6 +263,100 @@ bool FGeoPlateSpeedTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+namespace
+{
+	int32 Stage03FeatNeighbor(int32 N, int32 Face, int32 X, int32 Y, int32 DX, int32 DY)
+	{
+		const float U = (float(X + DX) + 0.5f) / float(N) * 2.f - 1.f;
+		const float V = (float(Y + DY) + 0.5f) / float(N) * 2.f - 1.f;
+		int32 F2; float U2, V2;
+		FGeoField2D::DirToFace(FGeoField2D::FaceToDir(Face, U, V), F2, U2, V2);
+		return (F2 * N + FMath::Clamp(int32((V2 + 1.f) * 0.5f * N), 0, N - 1)) * N + FMath::Clamp(int32((U2 + 1.f) * 0.5f * N), 0, N - 1);
+	}
+
+	/** 满足条件的连通块中，面积 ≥ MinArea（占全球）的块数。 */
+	int32 Stage03FeatBlobs(const FGeoField2D& Field, TFunctionRef<bool(float)> Pred, double MinArea)
+	{
+		const int32 N = Field.Res, Total = 6 * N * N;
+		TArray<uint8> In; In.SetNumZeroed(Total);
+		double All = 0.0;
+		for (int32 Face = 0; Face < 6; ++Face) for (int32 Y = 0; Y < N; ++Y) for (int32 X = 0; X < N; ++X)
+		{
+			In[(Face * N + Y) * N + X] = Pred(Field.At(Face, X, Y)) ? 1 : 0;
+			All += GeoContinentField::TexelWeight(Field, X, Y);
+		}
+		TArray<uint8> Seen; Seen.SetNumZeroed(Total);
+		TArray<int32> Stack;
+		int32 Count = 0;
+		for (int32 S = 0; S < Total; ++S)
+		{
+			if (!In[S] || Seen[S]) { continue; }
+			double Area = 0.0;
+			Stack.Reset(); Stack.Add(S); Seen[S] = 1;
+			while (Stack.Num())
+			{
+				const int32 I = Stack.Pop(EAllowShrinking::No);
+				const int32 Fi = I / (N * N), Yi = (I / N) % N, Xi = I % N;
+				Area += GeoContinentField::TexelWeight(Field, Xi, Yi);
+				const int32 Nb[4] = { Stage03FeatNeighbor(N, Fi, Xi, Yi, 1, 0), Stage03FeatNeighbor(N, Fi, Xi, Yi, -1, 0),
+					Stage03FeatNeighbor(N, Fi, Xi, Yi, 0, 1), Stage03FeatNeighbor(N, Fi, Xi, Yi, 0, -1) };
+				for (const int32 J : Nb) { if (In[J] && !Seen[J]) { Seen[J] = 1; Stack.Add(J); } }
+			}
+			Count += Area / All >= MinArea ? 1 : 0;
+		}
+		return Count;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage03FeaturesTest, "StellarEra.Planet.Geo.Stage03.Features",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage03FeaturesTest::RunTest(const FString& Parameters)
+{
+	FPlanetRecipeConfig C;
+	C.FaceRes = 512;
+	FPlanetRecipeConfig None = C;
+	None.Terrain.MidOceanRidgeHeightRatio = 0.f;
+	None.Terrain.RiftDepthRatio = 0.f;
+	None.Terrain.OldOrogenHeightRatio = 0.f;
+	FPlanetBakeFields F, F0;
+	FPlanetBakeReport R, R0;
+	Stage03TestBake(C, F, R);
+	Stage03TestBake(None, F0, R0);
+	TestFalse(TEXT("无错误"), R.HasErrors());
+
+	const auto Area = [&F](float Type) { return Stage03TestArea(F.ReliefType, [&F, Type](int32 Fc, int32 X, int32 Y) { return F.ReliefType.At(Fc, X, Y) == Type; }); };
+	const double Ridge = Area(7.f), Rift = Area(6.f), Old = Area(8.f), High = Area(4.f), Hill = Area(3.f);
+	const int32 Belts = Stage03FeatBlobs(F.MountainMask, [](float V) { return V > 0.1f; }, 0.0005);
+	AddInfo(FString::Printf(TEXT("洋中脊 %.4f，裂谷 %.4f，古老山地 %.4f，高山 %.4f，丘陵 %.4f；主山带 %d 条；陆地 %.4f / 无三项 %.4f"),
+		Ridge, Rift, Old, High, Hill, Belts, F.LandAreaFrac, F0.LandAreaFrac));
+
+	TestTrue(TEXT("有洋中脊"), Ridge > 0.0);
+	TestTrue(TEXT("有古老山地"), Old > 0.0);
+	TestTrue(FString::Printf(TEXT("主山带 %d 条 ∈ [2, 12]"), Belts), Belts >= 2 && Belts <= 12);
+	TestTrue(FString::Printf(TEXT("山地（高山 + 丘陵 + 古老山地）%.3f ∈ [0.03, 0.25]"), High + Hill + Old), High + Hill + Old >= 0.03 && High + Hill + Old <= 0.25);
+	TestTrue(TEXT("三项不改陆地占比（裂谷不进海、洋中脊不出海）"), FMath::Abs(F.LandAreaFrac - F0.LandAreaFrac) < 0.002f);
+
+	// 洋中脊比没有它时高、但始终在水下；裂谷在陆上；古老山地在古老陆壳内部。
+	int32 RidgeN = 0, RidgeUp = 0, RidgeWet = 0, RiftN = 0, RiftDry = 0, OldN = 0, OldInterior = 0;
+	for (int32 Face = 0; Face < 6; ++Face)
+	for (int32 Y = 0; Y < F.ReliefType.Res; ++Y)
+	for (int32 X = 0; X < F.ReliefType.Res; ++X)
+	{
+		const FVector3f Dir = F.ReliefType.TexelDir(Face, X, Y);
+		const float Type = F.ReliefType.At(Face, X, Y);
+		const float E = F.Elevation.Sample(Dir), E0 = F0.Elevation.Sample(Dir);
+		if (Type == 7.f) { ++RidgeN; RidgeUp += E > E0 ? 1 : 0; RidgeWet += E < 0.f ? 1 : 0; }
+		if (Type == 6.f) { ++RiftN; RiftDry += E > 0.f ? 1 : 0; }
+		if (Type == 8.f) { ++OldN; OldInterior += (F.ContinentalMask.At(Face, X, Y) > 0.6f && F.MountainMask.At(Face, X, Y) < 0.34f) ? 1 : 0; }
+	}
+	TestEqual(TEXT("洋中脊处都被抬高"), RidgeUp, RidgeN);
+	TestEqual(TEXT("洋中脊都在水下"), RidgeWet, RidgeN);
+	TestEqual(TEXT("裂谷都在陆上"), RiftDry, RiftN);
+	TestEqual(TEXT("古老山地都在大陆内部、远离现今山带"), OldInterior, OldN);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoChromiteTest, "StellarEra.Planet.Geo.Mineral.Chromite",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 

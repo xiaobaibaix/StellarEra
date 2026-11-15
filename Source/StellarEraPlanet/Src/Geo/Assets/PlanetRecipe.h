@@ -179,6 +179,30 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0", ClampMax = "0.9"))
 	float SpeedHeightEffect = 0.6f;
 
+	/** 洋中脊高度：离散边界（板块分开）在海里形成的宽缓海底山脉，正中有一道轴部裂谷（0.006 ≈ 240 体素）。始终在水下。0 = 没有。 */
+	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0", ClampMax = "0.05"))
+	float MidOceanRidgeHeightRatio = 0.006f;
+
+	/** 洋中脊宽度：越大海底隆起越宽越缓。 */
+	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0.005", ClampMax = "0.3"))
+	float MidOceanRidgeWidthRatio = 0.08f;
+
+	/** 大陆裂谷深度：离散边界在陆上撕开的地堑，两侧肩部抬起（0.004 ≈ 160 体素）。谷底不会低于海平面。0 = 没有。 */
+	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0", ClampMax = "0.05"))
+	float RiftDepthRatio = 0.004f;
+
+	/** 大陆裂谷宽度。 */
+	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0.002", ClampMax = "0.1"))
+	float RiftWidthRatio = 0.015f;
+
+	/** 古老造山带高度：古老大陆内部被长期剥蚀的旧山脉，低矮圆缓（0.008 ≈ 320 体素）。0 = 没有。 */
+	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0", ClampMax = "0.05"))
+	float OldOrogenHeightRatio = 0.008f;
+
+	/** 古老造山带疏密：越大条数越多、间距越小。 */
+	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0.5", ClampMax = "12"))
+	float OldOrogenDensity = 3.f;
+
 	/** 矿物目录：编号、中文名、调试色。撒矿器只引用这里的编号。 */
 	UPROPERTY(EditAnywhere, Category = "Minerals")
 	TObjectPtr<UGeoMineralCatalog> MineralCatalog;

@@ -70,6 +70,9 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 	Probe = C2; Probe.Plates.DetailWarpAmp = 0.09f;        TestTrue(TEXT("BoundaryDetail 进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Plates.SpeedMax = 11.f;              TestTrue(TEXT("PlateSpeedMax 进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Terrain.SpeedWidthEffect = 0.61f;    TestTrue(TEXT("SpeedWidthEffect 进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Terrain.MidOceanRidgeHeightRatio = 0.0061f; TestTrue(TEXT("洋中脊高度进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Terrain.RiftDepthRatio = 0.0041f;    TestTrue(TEXT("裂谷深度进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Terrain.OldOrogenHeightRatio = 0.0081f; TestTrue(TEXT("古老造山带进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Terrain.TrenchSedimentFill = 0.71f;   TestTrue(TEXT("TrenchSedimentFill 进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Terrain.TrenchSlump = 0.51f;         TestTrue(TEXT("TrenchSlump 进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Terrain.MountainHeightRatio = 0.071f;  TestTrue(TEXT("MountainHeightRatio 进哈希"), Probe.Hash() != Base);
