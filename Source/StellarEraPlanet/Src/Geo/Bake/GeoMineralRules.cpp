@@ -30,6 +30,20 @@ namespace
 	}
 
 	/**
+	 * 遍历某岩性的原语当宿主，顺带给出它的朝向：Blob 没有 Rotation，用单位四元数兜底。
+	 * 已撒过矿的原语（MineralId != 0）不能再当宿主，否则矿会长在矿里。
+	 */
+	void GeoMineralRulesForEachHost(const FPlanetBakeFields& F, uint8 Lithology,
+		TFunctionRef<void(const FGeoPrimitive&, const FQuat4f&)> Fn)
+	{
+		for (const FGeoPrimitive& Host : F.Primitives)
+		{
+			if (Host.LithologyId != Lithology || Host.MineralId != 0) { continue; }
+			Fn(Host, Host.Kind == EGeoPrimitiveKind::OrientedBlob ? Host.Rotation : FQuat4f::Identity);
+		}
+	}
+
+	/**
 	 * 在地表下 [DMin, DMax] 的球壳里按体积均匀取矿体中心；DMax ≤ 0 = 一直到地壳底（莫霍面最高处之上）。
 	 * 按 r³ 均匀取：外层球壳体积大，分到的矿就多；按深度均匀取会让矿偏向深处。
 	 */
@@ -307,19 +321,14 @@ uint64 FGeoPorphyryRule::HashParams() const
 
 void FGeoTinTungstenRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const
 {
-	const FPlanetBakeFields& F = Ctx.Fields;
-	// 只依赖岩基原语本身的几何：没有侵入体就没有宿主，不产矿，不是配置错误。
-	if (F.Primitives.IsEmpty()) { return; }
 	const float R = float(Ctx.Config.Radius);
 	const int32 PerHost = FMath::Clamp(P.PerBatholith, 1, 16);
 	const FVector3f Radii(FMath::Max(P.LengthRatio, 1e-4f) * R, FMath::Max(P.RadiusRatio, 1e-4f) * R, FMath::Max(P.ThicknessRatio, 1e-4f) * R);
 	const float TopMin = FMath::Min(P.TopMinRatio, P.TopMaxRatio);
 	const float TopMax = FMath::Max(P.TopMinRatio, P.TopMaxRatio);
-	for (const FGeoPrimitive& Host : F.Primitives)
+	// 只依赖岩基原语本身的几何：没有侵入体就没有宿主，不产矿，不是配置错误。
+	GeoMineralRulesForEachHost(Ctx.Fields, GeoLithology::Granite, [&](const FGeoPrimitive& Host, const FQuat4f& Rot)
 	{
-		// 已撒过矿的原语不能再当宿主，否则矿会长在矿里。
-		if (Host.LithologyId != GeoLithology::Granite || Host.MineralId != 0) { continue; }
-		const FQuat4f Rot = Host.Kind == EGeoPrimitiveKind::OrientedBlob ? Host.Rotation : FQuat4f::Identity;
 		for (int32 k = 0; k < PerHost; ++k)
 		{
 			// 顶面壳层：局部 z 取比例、x/y 在岩基截面里散开；脉的长轴就是宿主局部 X（沿弧走向）。
@@ -329,7 +338,7 @@ void FGeoTinTungstenRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Ou
 			Body.Grade = RandomGrade(Ctx.Rng);
 			Out.Bodies.Add(Body);
 		}
-	}
+	});
 }
 
 uint64 FGeoTinTungstenRule::HashParams() const
@@ -340,17 +349,13 @@ uint64 FGeoTinTungstenRule::HashParams() const
 
 void FGeoPegmatiteRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const
 {
-	const FPlanetBakeFields& F = Ctx.Fields;
-	if (F.Primitives.IsEmpty()) { return; }
 	const float R = float(Ctx.Config.Radius);
 	const int32 PerHost = FMath::Clamp(P.PerBatholith, 1, 16);
 	const float Radius = FMath::Max(P.RadiusRatio, 1e-4f) * R;
 	const float ShellMin = FMath::Min(P.ShellMin, P.ShellMax);
 	const float ShellMax = FMath::Max(P.ShellMin, P.ShellMax);
-	for (const FGeoPrimitive& Host : F.Primitives)
+	GeoMineralRulesForEachHost(Ctx.Fields, GeoLithology::Granite, [&](const FGeoPrimitive& Host, const FQuat4f& Rot)
 	{
-		if (Host.LithologyId != GeoLithology::Granite || Host.MineralId != 0) { continue; }
-		const FQuat4f Rot = Host.Kind == EGeoPrimitiveKind::OrientedBlob ? Host.Rotation : FQuat4f::Identity;
 		for (int32 k = 0; k < PerHost; ++k)
 		{
 			// 边缘壳层：方向随机后按宿主三条半轴缩放，团块才贴着岩基外缘而不是堆在中心。
@@ -360,13 +365,61 @@ void FGeoPegmatiteRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out)
 			Body.Grade = RandomGrade(Ctx.Rng);
 			Out.Bodies.Add(Body);
 		}
-	}
+	});
 }
 
 uint64 FGeoPegmatiteRule::HashParams() const
 {
 	return GeoMineralRulesHashFloats(GeoHash::Combine(GeoHash::Str("pegmatite"), uint64(FMath::Max(P.PerBatholith, 0))),
 		{ P.RadiusRatio, P.ShellMin, P.ShellMax });
+}
+
+void FGeoCopperNickelRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const
+{
+	const int32 PerHost = FMath::Clamp(P.PerHost, 1, 8);
+	const float Width = FMath::Max(P.WidthScale, 1e-3f);
+	const float Thickness = FMath::Max(P.ThicknessScale, 1e-3f);
+	GeoMineralRulesForEachHost(Ctx.Fields, GeoLithology::Gabbro, [&](const FGeoPrimitive& Host, const FQuat4f& Rot)
+	{
+		const FVector3f Radii(Host.Radii.X * Width, Host.Radii.Y * Width, Host.Radii.Z * Thickness);
+		for (int32 k = 0; k < PerHost; ++k)
+		{
+			// 底板附近：硫化物熔体比硅酸盐重，在宿主下半部聚成水平铺开的扁平体。
+			const FVector3f Local(0.f, 0.f, -Host.Radii.Z * Ctx.Rng.Range(0.5f, 0.9f));
+			FGeoPrimitive Body = FGeoPrimitive::MakeOrientedBlob(Host.Center + Rot.RotateVector(Local), Radii, Rot, 0.05f);
+			Body.Grade = RandomGrade(Ctx.Rng);
+			Out.Bodies.Add(Body);
+		}
+	});
+}
+
+uint64 FGeoCopperNickelRule::HashParams() const
+{
+	return GeoMineralRulesHashFloats(GeoHash::Combine(GeoHash::Str("coppernickel"), uint64(FMath::Max(P.PerHost, 0))),
+		{ P.WidthScale, P.ThicknessScale });
+}
+
+void FGeoChromiumPGERule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const
+{
+	const int32 PerSlab = FMath::Clamp(P.PerSlab, 1, 8);
+	const float Thickness = FMath::Max(P.ThicknessScale, 1e-3f);
+	GeoMineralRulesForEachHost(Ctx.Fields, GeoLithology::LayeredMafic, [&](const FGeoPrimitive& Host, const FQuat4f& Rot)
+	{
+		const FVector3f Radii(Host.Radii.X, Host.Radii.Y, Host.Radii.Z * Thickness);
+		for (int32 k = 0; k < PerSlab; ++k)
+		{
+			// 同中心同朝向：铬铁矿在层状岩体里按重力分异成层，横向铺满整片薄板。
+			FGeoPrimitive Body = FGeoPrimitive::MakeOrientedBlob(Host.Center, Radii, Rot, 0.05f);
+			Body.Grade = RandomGrade(Ctx.Rng);
+			Out.Bodies.Add(Body);
+		}
+	});
+}
+
+uint64 FGeoChromiumPGERule::HashParams() const
+{
+	return GeoMineralRulesHashFloats(GeoHash::Combine(GeoHash::Str("chromiumpge"), uint64(FMath::Max(P.PerSlab, 0))),
+		{ P.ThicknessScale });
 }
 
 namespace

@@ -57,13 +57,13 @@ namespace
 		}
 		return Best;
 	}
-	/** 拆成「宿主」与「某种矿体」两列表：宿主只认未撒矿（MineralId == 0）的花岗岩。 */
-	void Stage04c2Split(const TArray<FGeoPrimitive>& P, uint8 MineralId, TArray<const FGeoPrimitive*>& Hosts, TArray<const FGeoPrimitive*>& Bodies)
+	/** 拆成「宿主」与「某种矿体」两列表：宿主只认该岩性且未撒矿（MineralId == 0）的原语。 */
+	void Stage04c2Split(const TArray<FGeoPrimitive>& P, uint8 MineralId, uint8 HostLitho, TArray<const FGeoPrimitive*>& Hosts, TArray<const FGeoPrimitive*>& Bodies)
 	{
 		for (const FGeoPrimitive& Q : P)
 		{
 			if (Q.MineralId == MineralId) { Bodies.Add(&Q); }
-			else if (Q.LithologyId == GeoLithology::Granite && Q.MineralId == 0) { Hosts.Add(&Q); }
+			else if (Q.LithologyId == HostLitho && Q.MineralId == 0) { Hosts.Add(&Q); }
 		}
 	}
 }
@@ -124,7 +124,7 @@ bool FGeoStage04c2TinTungstenTest::RunTest(const FString& Parameters)
 	TestFalse(FString::Printf(TEXT("无错误（%s）"), *FString::Join(R.Errors, TEXT(" | "))), R.HasErrors());
 
 	TArray<const FGeoPrimitive*> Hosts, Bodies;
-	Stage04c2Split(F.Primitives, Rule->MineralId, Hosts, Bodies);
+	Stage04c2Split(F.Primitives, Rule->MineralId, GeoLithology::Granite, Hosts, Bodies);
 	if (!TestTrue(TEXT("有花岗岩岩基"), Hosts.Num() > 0)) { return false; }
 
 	const int32 Expect = Hosts.Num() * Rule->P.PerBatholith;
@@ -182,7 +182,7 @@ bool FGeoStage04c2PegmatiteTest::RunTest(const FString& Parameters)
 	TestFalse(FString::Printf(TEXT("无错误（%s）"), *FString::Join(R.Errors, TEXT(" | "))), R.HasErrors());
 
 	TArray<const FGeoPrimitive*> Hosts, Bodies;
-	Stage04c2Split(F.Primitives, Rule->MineralId, Hosts, Bodies);
+	Stage04c2Split(F.Primitives, Rule->MineralId, GeoLithology::Granite, Hosts, Bodies);
 	if (!TestTrue(TEXT("有花岗岩岩基"), Hosts.Num() > 0)) { return false; }
 
 	const int32 Expect = Hosts.Num() * Rule->P.PerBatholith;
@@ -216,6 +216,114 @@ bool FGeoStage04c2PegmatiteTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("都是 Blob"), BadKind, 0);
 	TestEqual(TEXT("半径 = RadiusRatio × R（各向同性）"), BadRadius, 0);
 	TestTrue(TEXT("方向铺满两半球（不是钉在固定轴上）"), Below > 0 && Above > 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage04c2CopperNickelTest, "StellarEra.Planet.Geo.Stage04c2.CopperNickel",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage04c2CopperNickelTest::RunTest(const FString& Parameters)
+{
+	FPlanetRecipeConfig C; C.FaceRes = 512;
+	TSharedPtr<FGeoCopperNickelRule> Rule = MakeShared<FGeoCopperNickelRule>();
+	Rule->MineralId = 1;
+	C.MineralRules = { Rule };
+	FPlanetBakeFields F; FPlanetBakeReport R;
+	Stage04c2TestBake(C, F, R);
+	TestFalse(FString::Printf(TEXT("无错误（%s）"), *FString::Join(R.Errors, TEXT(" | "))), R.HasErrors());
+
+	TArray<const FGeoPrimitive*> Hosts, Bodies;
+	Stage04c2Split(F.Primitives, Rule->MineralId, GeoLithology::Gabbro, Hosts, Bodies);
+	if (!TestTrue(TEXT("有辉长岩宿主（岩床 / 岩墙）"), Hosts.Num() > 0)) { return false; }
+
+	const int32 Expect = Hosts.Num() * Rule->P.PerHost;
+	AddInfo(FString::Printf(TEXT("辉长岩宿主 %d 个，铜镍矿体 %d 个（期望 %d）"), Hosts.Num(), Bodies.Num(), Expect));
+	TestTrue(TEXT("数量 = 宿主数 × PerHost（±5%）"),
+		FMath::Abs(Bodies.Num() - Expect) <= FMath::Max(1, FMath::CeilToInt(0.05f * float(Expect))));
+
+	int32 NoHost = 0, BadZ = 0, BadXY = 0, BadKind = 0, BadShape = 0, BadPose = 0;
+	float ZLo = TNumericLimits<float>::Max(), ZHi = -ZLo, WorstXY = 0.f;
+	for (const FGeoPrimitive* Body : Bodies)
+	{
+		const FGeoPrimitive* Host = Stage04c2NearestHost(Hosts, Body->Center);
+		if (!Host) { ++NoHost; continue; }
+		const FVector3f L = Stage04c2Local(*Host, Body->Center);
+		const float AXY = FMath::Max(FMath::Abs(L.X), FMath::Abs(L.Y));
+		ZLo = FMath::Min(ZLo, L.Z); ZHi = FMath::Max(ZHi, L.Z); WorstXY = FMath::Max(WorstXY, AXY);
+		BadZ += L.Z >= -1.02f && L.Z <= -0.4f ? 0 : 1;
+		BadXY += AXY <= 1.f ? 0 : 1;
+		BadKind += Body->Kind == EGeoPrimitiveKind::OrientedBlob ? 0 : 1;
+		// 半轴按宿主自己的三条半轴缩放：岩墙（竖直薄板）与岩床（水平薄板）都靠这条跟着宿主变扁。
+		const FVector3f Want(Host->Radii.X * Rule->P.WidthScale, Host->Radii.Y * Rule->P.WidthScale, Host->Radii.Z * Rule->P.ThicknessScale);
+		BadShape += FMath::IsNearlyEqual(Body->Radii.X, Want.X, 1e-4f * Want.X)
+			&& FMath::IsNearlyEqual(Body->Radii.Y, Want.Y, 1e-4f * Want.Y)
+			&& FMath::IsNearlyEqual(Body->Radii.Z, Want.Z, 1e-4f * Want.Z) ? 0 : 1;
+		const FVector3f BX = Body->Rotation.RotateVector(FVector3f::XAxisVector), HX = Host->Rotation.RotateVector(FVector3f::XAxisVector);
+		const FVector3f BZ = Body->Rotation.RotateVector(FVector3f::ZAxisVector), HZ = Host->Rotation.RotateVector(FVector3f::ZAxisVector);
+		BadPose += FVector3f::DotProduct(BX, HX) >= 0.999f && FVector3f::DotProduct(BZ, HZ) >= 0.999f ? 0 : 1;
+	}
+	AddInfo(FString::Printf(TEXT("局部 z %.3f–%.3f，最差 |x|/|y| %.3f；越界 z %d / xy %d / 非 OrientedBlob %d / 尺寸 %d / 朝向 %d"),
+		ZLo, ZHi, WorstXY, BadZ, BadXY, BadKind, BadShape, BadPose));
+	TestEqual(TEXT("没有无宿主的矿体"), NoHost, 0);
+	TestEqual(TEXT("局部 z 都在 [-1.02, -0.4]（宿主底部壳层）"), BadZ, 0);
+	TestEqual(TEXT("局部 |x|,|y| 都 ≤ 1（不出宿主横截面）"), BadXY, 0);
+	TestEqual(TEXT("都是 OrientedBlob（能贴合宿主朝向）"), BadKind, 0);
+	TestEqual(TEXT("半轴 = 宿主半轴 × WidthScale / ThicknessScale"), BadShape, 0);
+	TestEqual(TEXT("朝向与宿主一致"), BadPose, 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage04c2ChromiumPGE, "StellarEra.Planet.Geo.Stage04c2.ChromiumPGE",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage04c2ChromiumPGE::RunTest(const FString& Parameters)
+{
+	FPlanetRecipeConfig C; C.FaceRes = 512;
+	TSharedPtr<FGeoChromiumPGERule> Rule = MakeShared<FGeoChromiumPGERule>();
+	Rule->MineralId = 1;
+	C.MineralRules = { Rule };
+	FPlanetBakeFields F; FPlanetBakeReport R;
+	Stage04c2TestBake(C, F, R);
+	TestFalse(FString::Printf(TEXT("无错误（%s）"), *FString::Join(R.Errors, TEXT(" | "))), R.HasErrors());
+
+	TArray<const FGeoPrimitive*> Hosts, Bodies;
+	Stage04c2Split(F.Primitives, Rule->MineralId, GeoLithology::LayeredMafic, Hosts, Bodies);
+	if (!TestTrue(TEXT("有层状镁铁岩薄板"), Hosts.Num() > 0)) { return false; }
+
+	const int32 Expect = Hosts.Num() * Rule->P.PerSlab;
+	AddInfo(FString::Printf(TEXT("层状镁铁岩薄板 %d 片，铬铂层 %d 个（期望 %d）"), Hosts.Num(), Bodies.Num(), Expect));
+	TestTrue(TEXT("数量 = 薄板数 × PerSlab（±5%）"),
+		FMath::Abs(Bodies.Num() - Expect) <= FMath::Max(1, FMath::CeilToInt(0.05f * float(Expect))));
+
+	const float MaxChord = 0.05f * float(C.Radius);
+	int32 NoHost = 0, BadChord = 0, BadPose = 0, BadThin = 0, BadKind = 0, BadShape = 0;
+	float WorstChord = 0.f, WorstDot = 1.f, WorstThin = 0.f;
+	for (const FGeoPrimitive* Body : Bodies)
+	{
+		const FGeoPrimitive* Host = Stage04c2NearestHost(Hosts, Body->Center);
+		if (!Host) { ++NoHost; continue; }
+		const float Chord = (Host->Center - Body->Center).Size();
+		const FVector3f BZ = Body->Rotation.RotateVector(FVector3f::ZAxisVector), HZ = Host->Rotation.RotateVector(FVector3f::ZAxisVector);
+		const float Dot = FVector3f::DotProduct(BZ, HZ);
+		WorstChord = FMath::Max(WorstChord, Chord); WorstDot = FMath::Min(WorstDot, Dot);
+		WorstThin = FMath::Max(WorstThin, Body->Radii.Z / Host->Radii.Z);
+		BadChord += Chord <= MaxChord ? 0 : 1;
+		BadPose += Dot >= 0.99f ? 0 : 1;
+		BadThin += Body->Radii.Z <= 0.5f * Host->Radii.Z ? 0 : 1;
+		BadKind += Body->Kind == EGeoPrimitiveKind::OrientedBlob ? 0 : 1;
+		const FVector3f Want(Host->Radii.X, Host->Radii.Y, Host->Radii.Z * Rule->P.ThicknessScale);
+		BadShape += FMath::IsNearlyEqual(Body->Radii.X, Want.X, 1e-4f * Want.X)
+			&& FMath::IsNearlyEqual(Body->Radii.Y, Want.Y, 1e-4f * Want.Y)
+			&& FMath::IsNearlyEqual(Body->Radii.Z, Want.Z, 1e-4f * Want.Z) ? 0 : 1;
+	}
+	AddInfo(FString::Printf(TEXT("中心距最差 %.1f（上限 %.1f），Z 轴点积最差 %.4f，半厚比最差 %.2f；越界 中心 %d / 朝向 %d / 厚度 %d / 非 OrientedBlob %d / 尺寸 %d"),
+		WorstChord, MaxChord, WorstDot, WorstThin, BadChord, BadPose, BadThin, BadKind, BadShape));
+	TestEqual(TEXT("没有无宿主的矿体"), NoHost, 0);
+	TestEqual(TEXT("与宿主同中心（≤ 0.05R）"), BadChord, 0);
+	TestEqual(TEXT("朝向与宿主一致（Z 轴点积 ≥ 0.99）"), BadPose, 0);
+	TestEqual(TEXT("半厚 ≤ 0.5 × 宿主 Rz（夹在薄板里）"), BadThin, 0);
+	TestEqual(TEXT("都是 OrientedBlob"), BadKind, 0);
+	TestEqual(TEXT("半轴 = (Rx, Ry, Rz × ThicknessScale)"), BadShape, 0);
 	return true;
 }
 

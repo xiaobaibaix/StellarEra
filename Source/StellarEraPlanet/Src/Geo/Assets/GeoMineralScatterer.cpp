@@ -76,3 +76,17 @@ TSharedPtr<IGeoMineralRule> UGeoPegmatiteScatterer::MakeRule() const
 	R->P = { PerBatholith, RadiusRatio, ShellMin, ShellMax };
 	return R;
 }
+
+TSharedPtr<IGeoMineralRule> UGeoCopperNickelScatterer::MakeRule() const
+{
+	TSharedPtr<FGeoCopperNickelRule> R = MakeShared<FGeoCopperNickelRule>();
+	R->P = { PerHost, WidthScale, ThicknessScale };
+	return R;
+}
+
+TSharedPtr<IGeoMineralRule> UGeoChromiumPGEScatterer::MakeRule() const
+{
+	TSharedPtr<FGeoChromiumPGERule> R = MakeShared<FGeoChromiumPGERule>();
+	R->P = { PerSlab, ThicknessScale };
+	return R;
+}

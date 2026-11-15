@@ -290,6 +290,47 @@ public:
 	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
 };
 
+/** 岩浆铜镍：辉长岩床 / 岩墙底部贴着宿主朝向的扁平硫化物矿体。运行于阶段 4b 之后。 */
+UCLASS(meta = (DisplayName = "岩浆铜镍（阶段 4）"))
+class STELLARERAPLANET_API UGeoCopperNickelScatterer : public UGeoMineralScatterer
+{
+	GENERATED_BODY()
+
+public:
+	UGeoCopperNickelScatterer() { Mineral = TEXT("CopperNickel"); }
+
+	/** 每个辉长岩宿主几个矿体。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1", ClampMax = "8"))
+	int32 PerHost = 1;
+	/** 水平半轴 = 该倍数 × 宿主水平半轴：宿主越宽矿体越大。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.05", ClampMax = "1"))
+	float WidthScale = 0.7f;
+	/** 半厚 = 该倍数 × 宿主竖直半轴：必须 < 1，否则矿体捅出宿主上下表面。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.05", ClampMax = "1"))
+	float ThicknessScale = 0.3f;
+
+	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
+};
+
+/** 层状铬铂：层状镁铁岩每片薄板内、与宿主同中心同朝向的薄层。运行于阶段 4b 之后。 */
+UCLASS(meta = (DisplayName = "层状铬铂（阶段 4）"))
+class STELLARERAPLANET_API UGeoChromiumPGEScatterer : public UGeoMineralScatterer
+{
+	GENERATED_BODY()
+
+public:
+	UGeoChromiumPGEScatterer() { Mineral = TEXT("ChromiumPGE"); }
+
+	/** 每片薄板几层。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1", ClampMax = "8"))
+	int32 PerSlab = 1;
+	/** 半厚 = 该倍数 × 宿主竖直半轴：必须 ≤ 0.5，否则同心的矿层会穿出薄板。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.05", ClampMax = "0.5"))
+	float ThicknessScale = 0.4f;
+
+	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
+};
+
 /** 硫磺结壳：活跃火山火口内的地表覆层（覆层，不是矿体）。运行于阶段 4 之后。 */
 UCLASS(meta = (DisplayName = "硫磺结壳（阶段 4）"))
 class STELLARERAPLANET_API UGeoSulfurScatterer : public UGeoMineralScatterer

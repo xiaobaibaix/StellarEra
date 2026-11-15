@@ -190,6 +190,41 @@ public:
 	virtual uint64 HashParams() const override;
 };
 
+/** 岩浆铜镍：辉长岩床 / 岩墙底部、贴着宿主朝向的扁平硫化物矿体。运行于阶段 4b 之后。 */
+struct FGeoCopperNickelParams
+{
+	int32 PerHost = 1;            // 每个辉长岩宿主几个
+	float WidthScale = 0.7f;      // 水平半轴 = 该倍数 × 宿主水平半轴
+	float ThicknessScale = 0.3f;  // 半厚 = 该倍数 × 宿主竖直半轴
+};
+
+class STELLARERAPLANET_API FGeoCopperNickelRule final : public IGeoMineralRule
+{
+public:
+	FGeoCopperNickelParams P;
+	virtual uint32 GetStage() const override { return 4; }
+	virtual const TCHAR* GetRuleName() const override { return TEXT("CopperNickel"); }
+	virtual void Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const override;
+	virtual uint64 HashParams() const override;
+};
+
+/** 层状铬铂：层状镁铁岩每一片薄板内、与宿主同中心同朝向的薄层。运行于阶段 4b 之后。 */
+struct FGeoChromiumPGEParams
+{
+	int32 PerSlab = 1;            // 每片薄板几层
+	float ThicknessScale = 0.4f;  // 半厚 = 该倍数 × 宿主竖直半轴
+};
+
+class STELLARERAPLANET_API FGeoChromiumPGERule final : public IGeoMineralRule
+{
+public:
+	FGeoChromiumPGEParams P;
+	virtual uint32 GetStage() const override { return 4; }
+	virtual const TCHAR* GetRuleName() const override { return TEXT("ChromiumPGE"); }
+	virtual void Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const override;
+	virtual uint64 HashParams() const override;
+};
+
 namespace GeoMineralRules
 {
 	/** 矿物图层（地下 / 地表矿化），图例来自快照的矿物调色板。不属于某一阶段，Stage = 0。 */
