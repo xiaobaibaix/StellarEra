@@ -87,9 +87,12 @@ bool FGeoMineralScatterTest::RunTest(const FString& Parameters)
 	const FGeoField2D* Type = Snap->DebugFields.Find(TEXT("CrustType"));
 	const FGeoField2D* Boundary = Snap->DebugFields.Find(TEXT("BoundaryType"));
 	if (!TestTrue(TEXT("有调试场"), Type && Boundary)) { return false; }
-	int32 BadPlace = 0, BadMaterial = 0, Buried = 0;
+	int32 BadPlace = 0, BadMaterial = 0, Buried = 0, NOre = 0;
 	for (const FGeoPrimitive& P : Snap->Primitives.GetPrimitives())
 	{
+		// 阶段 4b 会把侵入体（MineralId == 0）追加进同一张原语表：下面全是矿体断言，必须先跳过。
+		if (P.MineralId == 0) { continue; }
+		++NOre;
 		const FVector3f Dir = P.Center.GetSafeNormal();
 		if (P.MineralId == 1) { BadPlace += Type->SampleNearest(Dir) != 1.f ? 1 : 0; }
 		if (P.MineralId == 2) { BadPlace += Boundary->SampleNearest(Dir) != 4.f ? 1 : 0; }
@@ -98,7 +101,7 @@ bool FGeoMineralScatterTest::RunTest(const FString& Parameters)
 	}
 	TestEqual(TEXT("每个矿体都落在自己的成矿环境里"), BadPlace, 0);
 	TestEqual(TEXT("矿体中心的材质是这种矿"), BadMaterial, 0);
-	TestEqual(TEXT("矿体全在地下"), Buried, Snap->Primitives.GetPrimitives().Num());
+	TestEqual(TEXT("矿体全在地下"), Buried, NOre);
 
 	// 体积撒矿：矿体分布在整个地壳厚度里，且不越过莫霍面。
 	{
@@ -107,6 +110,7 @@ bool FGeoMineralScatterTest::RunTest(const FString& Parameters)
 		int32 BelowFloor = 0, Deep = 0;
 		for (const FGeoPrimitive& P : Snap->Primitives.GetPrimitives())
 		{
+			if (P.MineralId == 0) { continue; }   // 侵入体不是矿体，不参与矿体的深度分布
 			const double R = FVector3d(P.Center).Size();
 			MaxDepth = FMath::Max(MaxDepth, C.Radius - R);
 			BelowFloor += R < Floor ? 1 : 0;

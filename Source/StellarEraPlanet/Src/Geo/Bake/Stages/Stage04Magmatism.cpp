@@ -24,6 +24,19 @@ namespace
 		GeoPlates::NearestTwo(Frame, GeoPlates::WarpDirection(Frame, D, P), A, B, Da, Db);
 		return A;
 	}
+	/** 侵入体图层的紧凑编号：岩性 Id 9..14 中间有橄榄岩空位，直接当下标会在图例里留黑洞。 */
+	uint8 Stage04CompactLitho(uint8 Litho)
+	{
+		switch (Litho)
+		{
+		case GeoLithology::Granite:      return 1;
+		case GeoLithology::Diorite:      return 2;
+		case GeoLithology::Gabbro:       return 3;
+		case GeoLithology::Kimberlite:   return 4;
+		case GeoLithology::LayeredMafic: return 5;
+		default:                         return 0;
+		}
+	}
 }
 
 void Stage04::PlaceVolcanoes(const FPlanetRecipeConfig& Cfg, const FPlanetBakeFields& F, TArray<FGeoVolcano>& Out)
@@ -438,14 +451,24 @@ void FStage04Magmatism::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const
 				if (D >= 1.f) { return; }
 				if (D < Best) { Best = D; Litho = Pr.LithologyId; }
 			});
-			switch (Litho)
+			return float(Stage04CompactLitho(Litho));
+		};
+		// 与矿体同病：岩墙 / 岩床只有 ~160 体素，3D 步进步长 200–400 会把它们跨过去，必须解析求交。
+		L.DefaultHidden = { 0 };
+		L.RayHits = [](const FPlanetSnapshot& S, const FVector3d& O, const FVector3d& D, TArray<TPair<double, float>>& Hits)
+		{
+			for (const FGeoPrimitive& Pr : S.Primitives.GetPrimitives())
 			{
-			case GeoLithology::Granite:      return 1.f;
-			case GeoLithology::Diorite:      return 2.f;
-			case GeoLithology::Gabbro:       return 3.f;
-			case GeoLithology::Kimberlite:   return 4.f;
-			case GeoLithology::LayeredMafic: return 5.f;
-			default:                         return 0.f;
+				if (Pr.LithologyId < GeoLithology::Granite) { continue; }
+				const FQuat4d Rot(Pr.Kind == EGeoPrimitiveKind::OrientedBlob ? Pr.Rotation : FQuat4f::Identity);
+				const FVector3d Radii(Pr.Radii);
+				const FVector3d Lo = Rot.UnrotateVector(O - FVector3d(Pr.Center)) / Radii;
+				const FVector3d Ld = Rot.UnrotateVector(D) / Radii;
+				const double A = Ld.SizeSquared(), B = 2.0 * FVector3d::DotProduct(Lo, Ld), C = Lo.SizeSquared() - 1.0;
+				const double Disc = B * B - 4.0 * A * C;
+				if (Disc < 0.0 || A <= 0.0) { continue; }
+				const double T = (-B - FMath::Sqrt(Disc)) / (2.0 * A);
+				if (T > 0.0) { Hits.Emplace(T, float(Stage04CompactLitho(Pr.LithologyId))); }
 			}
 		};
 		Out.Add(MoveTemp(L));

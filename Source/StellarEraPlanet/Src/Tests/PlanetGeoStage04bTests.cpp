@@ -5,6 +5,7 @@
 #include "GeoLithology.h"
 #include "GeoPrimitive.h"
 #include "GeoRng.h"
+#include "PlanetBakePipeline.h"
 #include "PlanetMaterialEval.h"
 #include "PlanetSnapshot.h"
 #include "Stage02Plates.h"
@@ -170,6 +171,61 @@ bool FGeoStage04bPlacementTest::RunTest(const FString& Parameters)
 	const int32 Arc = F.Volcanoes.FilterByPredicate([](const FGeoVolcano& V) { return V.OtherPlate >= 0; }).Num();
 	TestEqual(TEXT("岩株数 = 弧火山数"), NS, Arc);
 
+	// §8.4：岩基数必须等于「合格弧段数」——用与放置完全相同的确定性规则在测试里重算一遍。
+	{
+		struct FArcGroup { int32 Plate; int32 Other; TArray<int32> Idx; };
+		TArray<FArcGroup> Groups;
+		for (int32 i = 0; i < F.Volcanoes.Num(); ++i)
+		{
+			const FGeoVolcano& V = F.Volcanoes[i];
+			if (V.OtherPlate < 0) { continue; }
+			FArcGroup* G = Groups.FindByPredicate([&](const FArcGroup& X) { return X.Plate == V.Plate && X.Other == V.OtherPlate; });
+			if (!G) { G = &Groups.AddDefaulted_GetRef(); G->Plate = V.Plate; G->Other = V.OtherPlate; }
+			G->Idx.Add(i);
+		}
+		const float Link = 2.f * C.Volcano.ArcSpacingRatio;
+		int32 Segments = 0;
+		for (const FArcGroup& G : Groups)
+		{
+			TArray<TArray<int32>> Segs;
+			for (const int32 i : G.Idx)
+			{
+				const FVector3f D = F.Volcanoes[i].Dir;
+				TArray<int32>* Hit = nullptr;
+				for (TArray<int32>& Seg : Segs)
+				{
+					for (const int32 j : Seg) { if ((F.Volcanoes[j].Dir - D).Size() < Link) { Hit = &Seg; break; } }
+					if (Hit) { break; }
+				}
+				if (Hit) { Hit->Add(i); } else { Segs.Add({ i }); }
+			}
+			for (const TArray<int32>& Seg : Segs) { Segments += Seg.Num() >= C.Intrusion.BatholithMinVolcanoes ? 1 : 0; }
+		}
+		AddInfo(FString::Printf(TEXT("合格弧段 %d 段，岩基 %d 个"), Segments, NB));
+		TestEqual(TEXT("岩基数 = 合格弧段数"), NB, Segments);
+	}
+
+	// §8.5：金伯利岩只在古老克拉通内部、远离山带、海平面以上——按放置时同一宏观场采样核对。
+	{
+		int32 BadAge = 0, BadCont = 0, BadMtn = 0, BadElev = 0, NKim = 0;
+		for (const FGeoPrimitive& P : F.Primitives)
+		{
+			if (P.LithologyId != GeoLithology::Kimberlite) { continue; }
+			++NKim;
+			const FVector3f Dir = P.Center.GetSafeNormal();
+			BadAge += F.CrustAge.SampleNearest(Dir) > 0.85f ? 0 : 1;
+			BadCont += F.ContinentalMask.SampleNearest(Dir) > 0.6f ? 0 : 1;
+			BadMtn += F.MountainMask.SampleNearest(Dir) < 0.2f ? 0 : 1;
+			BadElev += F.Elevation.Sample(Dir) > 0.f ? 0 : 1;
+		}
+		AddInfo(FString::Printf(TEXT("金伯利岩 %d 根；越界 年龄 %d / 大陆度 %d / 山带 %d / 海面 %d"), NKim, BadAge, BadCont, BadMtn, BadElev));
+		TestTrue(TEXT("有金伯利岩"), NKim > 0);
+		TestEqual(TEXT("金伯利岩都在古老陆壳（CrustAge>0.85）"), BadAge, 0);
+		TestEqual(TEXT("金伯利岩都在大陆内部（ContinentalMask>0.6）"), BadCont, 0);
+		TestEqual(TEXT("金伯利岩都远离山带（MountainMask<0.2）"), BadMtn, 0);
+		TestEqual(TEXT("金伯利岩都在海平面以上"), BadElev, 0);
+	}
+
 	// 深度：用椭球支撑函数按各自中心方向量真实顶部。Bounds 是 AABB 角点，会高估径向高度，
 	// 漏掉半高偏移写错、或岩体整体偏浅这类 bug。
 	{
@@ -207,14 +263,45 @@ bool FGeoStage04bPlacementTest::RunTest(const FString& Parameters)
 	Stage04bTestBake(C, F2, R2);
 	TestEqual(TEXT("原语哈希可复现"), Stage04bPrimHash(F.Primitives), Stage04bPrimHash(F2.Primitives));
 
-	// 尺度不变
+	// 尺度不变：半径减半后每一类的数量与归一化位置都不变。
 	FPlanetRecipeConfig Half = C; Half.Radius = C.Radius * 0.5;
 	FPlanetBakeFields Fh; FPlanetBakeReport Rh;
 	Stage04bTestBake(Half, Fh, Rh);
 	TestEqual(TEXT("半径减半各类数量不变（岩基）"), Stage04bCount(Fh.Primitives, GeoLithology::Granite), NB);
 	TestEqual(TEXT("半径减半各类数量不变（岩株）"), Stage04bCount(Fh.Primitives, GeoLithology::Diorite), NS);
+	TestEqual(TEXT("半径减半各类数量不变（辉长岩）"), Stage04bCount(Fh.Primitives, GeoLithology::Gabbro), NG);
+	TestEqual(TEXT("半径减半各类数量不变（金伯利岩）"), Stage04bCount(Fh.Primitives, GeoLithology::Kimberlite), NK);
+	TestEqual(TEXT("半径减半各类数量不变（层状）"), Stage04bCount(Fh.Primitives, GeoLithology::LayeredMafic), NL);
 	TestTrue(TEXT("半径减半单个原语半轴减半"), Fh.Primitives.Num() > 0 && F.Primitives.Num() > 0
 		&& FMath::IsNearlyEqual(Fh.Primitives.Last().Bounds.GetExtent().GetMax(), 0.5f * F.Primitives.Last().Bounds.GetExtent().GetMax(), 1e-3f));
+
+	// §8.6：岩基中心深度 (地表 − 中心半径)/R 是纯比例量，应与半径无关。
+	{
+		const auto NormDepth = [](const FGeoPrimitive& P, const FPlanetBakeFields& Fld, double R)
+		{
+			const FVector3f Dir = P.Center.GetSafeNormal();
+			const double Surface = R + double(Fld.Elevation.Sample(Dir));
+			return float((Surface - double(P.Center.Size())) / R);
+		};
+		int32 MatchBad = 0, DepthBad = 0;
+		for (const FGeoPrimitive& P : F.Primitives)
+		{
+			if (P.LithologyId != GeoLithology::Granite) { continue; }
+			const FVector3f Dir = P.Center.GetSafeNormal();
+			const FGeoPrimitive* Q = nullptr; float Best = TNumericLimits<float>::Max();
+			for (const FGeoPrimitive& Qc : Fh.Primitives)
+			{
+				if (Qc.LithologyId != GeoLithology::Granite) { continue; }
+				const float DD = (Qc.Center.GetSafeNormal() - Dir).Size();
+				if (DD < Best) { Best = DD; Q = &Qc; }
+			}
+			MatchBad += (!Q || Best > 1e-4f) ? 1 : 0;
+			if (Q) { DepthBad += FMath::Abs(NormDepth(P, F, C.Radius) - NormDepth(*Q, Fh, Half.Radius)) > 1e-3f ? 1 : 0; }
+		}
+		AddInfo(FString::Printf(TEXT("半径减半岩基配对失败 %d，归一化深度越界 %d"), MatchBad, DepthBad));
+		TestEqual(TEXT("半径减半岩基一一配对"), MatchBad, 0);
+		TestEqual(TEXT("半径减半岩基归一化深度不变"), DepthBad, 0);
+	}
 
 	// 开关
 	const auto Off = [&](TFunctionRef<void(FPlanetIntrusionParams&)> Set, uint8 Litho, const TCHAR* Name)
@@ -240,6 +327,60 @@ bool FGeoStage04bPlacementTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("只关岩墙时辉长岩至少少 DikePerRift 个"), NGNoDike <= NG - C.Intrusion.DikePerRift);
 		TestTrue(TEXT("只关岩墙时岩床仍在"), NGNoDike > 0);
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage04bLayersTest, "StellarEra.Planet.Geo.Stage04b.Layers",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage04bLayersTest::RunTest(const FString& Parameters)
+{
+	// §8.10：直接喂合成原语，验证 4b 的三个调试图层（不跑烘焙）。
+	const FVector3f BathoCenter(0.f, 0.f, float(40000.0 * 0.95));
+	FGeoPrimitive Batho = FGeoPrimitive::MakeBlob(BathoCenter, FVector3f(500.f), 0.02f);
+	Batho.LithologyId = GeoLithology::Granite;
+
+	const FVector3f StockCenter(36000.f, 0.f, 0.f);
+	FGeoPrimitive Stock = FGeoPrimitive::MakeBlob(StockCenter, FVector3f(300.f), 0.02f);
+	Stock.LithologyId = GeoLithology::Diorite;
+	FGeoPrimitive Halo = FGeoPrimitive::MakeBlob(StockCenter, FVector3f(1000.f), 0.02f);
+	Halo.ClueId = 1; Halo.ClueStrength = 15;
+
+	const TSharedPtr<FPlanetSnapshot> S = Stage04bSnap({ Batho, Stock, Halo });
+	const FVector3d Far(0.0, 0.0, -20000.0);
+
+	const FGeoDebugLayer* Type = FPlanetBakePipeline::FindDefaultDebugLayer(TEXT("IntrusionType"));
+	const FGeoDebugLayer* Clue = FPlanetBakePipeline::FindDefaultDebugLayer(TEXT("AlterationClue"));
+	const FGeoDebugLayer* Strength = FPlanetBakePipeline::FindDefaultDebugLayer(TEXT("AlterationStrength"));
+	if (!TestNotNull(TEXT("IntrusionType 图层"), Type) || !TestNotNull(TEXT("AlterationClue 图层"), Clue)
+		|| !TestNotNull(TEXT("AlterationStrength 图层"), Strength)) { return false; }
+
+	// 紧凑编号：岩浆岩 1 花岗岩 / 2 闪长岩 / … / 5 层状；未命中为 0。
+	TestEqual(TEXT("岩基中心 → 花岗岩(1)"), int32(Type->Sample(*S, FVector3d(BathoCenter))), 1);
+	TestEqual(TEXT("岩株中心 → 闪长岩(2)"), int32(Type->Sample(*S, FVector3d(StockCenter))), 2);
+	TestEqual(TEXT("远离侵入体 → 无(0)"), int32(Type->Sample(*S, Far)), 0);
+	TestTrue(TEXT("空区默认隐藏"), Type->DefaultHidden.Contains(0));
+
+	// 解析求交的解必须与 Sample 同值：从岩基正上方射向球心，取入口内侧 1 体素（恰在表面时 D==1，Sample 取不到）。
+	if (TestTrue(TEXT("IntrusionType 有 RayHits"), bool(Type->RayHits)))
+	{
+		const FVector3d O(0.0, 0.0, 45000.0);
+		const FVector3d D = (FVector3d(BathoCenter) - O).GetSafeNormal();
+		TArray<TPair<double, float>> Hits;
+		Type->RayHits(*S, O, D, Hits);
+		const TPair<double, float>* H = Hits.FindByPredicate([](const TPair<double, float>& X) { return X.Value == 1.f; });
+		if (TestNotNull(TEXT("光线命中花岗岩"), H))
+		{
+			const FVector3d E = O + D * (H->Key + 1.0);
+			TestEqual(TEXT("RayHits 入口值 = Sample 入口内侧值"), int32(Type->Sample(*S, E)), int32(H->Value));
+		}
+	}
+
+	// 蚀变：晕中心是钾化、强度 15；远处无线索、强度 0。
+	TestEqual(TEXT("晕中心 → 钾化"), int32(Clue->Sample(*S, FVector3d(StockCenter))), int32(GeoClue::Keratitic));
+	TestEqual(TEXT("晕中心强度 15"), FMath::RoundToInt(Strength->Sample(*S, FVector3d(StockCenter))), 15);
+	TestEqual(TEXT("远处无线索"), int32(Clue->Sample(*S, Far)), 0);
+	TestEqual(TEXT("远处强度 0"), int32(Strength->Sample(*S, Far)), 0);
 	return true;
 }
 
