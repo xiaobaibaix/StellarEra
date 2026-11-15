@@ -434,6 +434,8 @@ void FStage04Magmatism::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const
 				const FGeoPrimitive& Pr = Prims[i];
 				if (Pr.LithologyId < GeoLithology::Granite) { return; }
 				const float D = GeoPrimitiveDistance(Pr, Pf);
+				// BVH 只保证点落在 AABB 里：旋转椭球的盒角在椭球外，不夹 D<1 会画出体外岩性。
+				if (D >= 1.f) { return; }
 				if (D < Best) { Best = D; Litho = Pr.LithologyId; }
 			});
 			switch (Litho)
