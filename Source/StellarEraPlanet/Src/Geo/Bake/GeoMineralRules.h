@@ -225,6 +225,41 @@ public:
 	virtual uint64 HashParams() const override;
 };
 
+/** 金刚石：金伯利岩管内的含矿小团块；只有一部分岩管含矿。运行于阶段 4b 之后。 */
+struct FGeoDiamondParams
+{
+	int32 PerPipe = 1;            // 每根含矿岩管几颗
+	float RadiusRatio = 0.0012f;  // 团块半径（占 R）
+	float FertileChance = 0.15f;  // 每根岩管含矿的概率
+};
+
+class STELLARERAPLANET_API FGeoDiamondRule final : public IGeoMineralRule
+{
+public:
+	FGeoDiamondParams P;
+	virtual uint32 GetStage() const override { return 4; }
+	virtual const TCHAR* GetRuleName() const override { return TEXT("Diamond"); }
+	virtual void Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const override;
+	virtual uint64 HashParams() const override;
+};
+
+/** 碳酸岩稀土：碳酸岩体中心、比宿主小一圈的团块。运行于阶段 4b 之后。 */
+struct FGeoRareEarthParams
+{
+	int32 PerBody = 1;        // 每个碳酸岩体几颗
+	float RadiusScale = 0.6f; // 团块半径 = 该倍数 × 宿主半径
+};
+
+class STELLARERAPLANET_API FGeoRareEarthRule final : public IGeoMineralRule
+{
+public:
+	FGeoRareEarthParams P;
+	virtual uint32 GetStage() const override { return 4; }
+	virtual const TCHAR* GetRuleName() const override { return TEXT("RareEarth"); }
+	virtual void Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const override;
+	virtual uint64 HashParams() const override;
+};
+
 namespace GeoMineralRules
 {
 	/** 矿物图层（地下 / 地表矿化），图例来自快照的矿物调色板。不属于某一阶段，Stage = 0。 */

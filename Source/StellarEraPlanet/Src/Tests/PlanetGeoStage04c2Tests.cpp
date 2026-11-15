@@ -1,10 +1,11 @@
-﻿// 阶段 4c-2：碳酸岩岩性与放置、花岗岩基里的锡钨脉与伟晶岩团。跑真实 2→3→4 烘焙。
+﻿// 阶段 4c-2：碳酸岩与宿主型岩浆矿床（锡钨 / 伟晶岩 / 铜镍 / 铬铂 / 金刚石 / 稀土）。跑真实 2→3→4 烘焙。
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "GeoLithology.h"
 #include "GeoMineralRule.h"
 #include "GeoMineralRules.h"
 #include "GeoPrimitive.h"
+#include "GeoPrimitiveIndex.h"
 #include "GeoRng.h"
 #include "PlanetBakePipeline.h"
 #include "PlanetRecipeConfig.h"
@@ -38,6 +39,10 @@ namespace
 	{
 		int32 N = 0; for (const FGeoPrimitive& Q : P) { N += Q.LithologyId == Litho ? 1 : 0; } return N;
 	}
+	int32 Stage04c2BodyCount(const TArray<FGeoPrimitive>& P, uint8 MineralId)
+	{
+		int32 N = 0; for (const FGeoPrimitive& Q : P) { N += Q.MineralId == MineralId ? 1 : 0; } return N;
+	}
 	/** 宿主局部空间：世界点先绕宿主旋转回局部，再除半轴。与实现的辅助独立重写，形成交叉验证。 */
 	FVector3f Stage04c2Local(const FGeoPrimitive& Host, const FVector3f& P)
 	{
@@ -65,6 +70,11 @@ namespace
 			if (Q.MineralId == MineralId) { Bodies.Add(&Q); }
 			else if (Q.LithologyId == HostLitho && Q.MineralId == 0) { Hosts.Add(&Q); }
 		}
+	}
+	// TArray<FGeoPrimitive> 没有 Hash：借快照索引的哈希，它逐字段混入（含 Center/Radii/Rotation）。
+	uint64 Stage04c2PrimHash(const TArray<FGeoPrimitive>& P)
+	{
+		FGeoPrimitiveIndex I; I.Build(P); return I.Hash();
 	}
 }
 
@@ -333,6 +343,146 @@ bool FGeoStage04c2ChromiumPGE::RunTest(const FString& Parameters)
 	TestEqual(TEXT("半厚 ≤ 0.5 × 宿主 Rz（夹在薄板里）"), BadThin, 0);
 	TestEqual(TEXT("都是 OrientedBlob"), BadKind, 0);
 	TestEqual(TEXT("半轴 = (Rx, Ry, Rz × ThicknessScale)"), BadShape, 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage04c2DiamondTest, "StellarEra.Planet.Geo.Stage04c2.Diamond",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage04c2DiamondTest::RunTest(const FString& Parameters)
+{
+	FPlanetRecipeConfig C; C.FaceRes = 512;
+	TSharedPtr<FGeoDiamondRule> Rule = MakeShared<FGeoDiamondRule>();
+	Rule->MineralId = 1;
+	C.MineralRules = { Rule };
+	FPlanetBakeFields F; FPlanetBakeReport R;
+	Stage04c2TestBake(C, F, R);
+	TestFalse(FString::Printf(TEXT("无错误（%s）"), *FString::Join(R.Errors, TEXT(" | "))), R.HasErrors());
+
+	TArray<const FGeoPrimitive*> Hosts, Bodies;
+	Stage04c2Split(F.Primitives, Rule->MineralId, GeoLithology::Kimberlite, Hosts, Bodies);
+	if (!TestTrue(TEXT("有金伯利岩管"), Hosts.Num() > 0)) { return false; }
+
+	const float WantRadius = Rule->P.RadiusRatio * float(C.Radius);
+	TSet<const FGeoPrimitive*> FertilePipes;
+	int32 BadLocal = 0, BadKind = 0, BadRadii = 0;
+	float WorstLocal = 0.f;
+	for (const FGeoPrimitive* Body : Bodies)
+	{
+		const FGeoPrimitive* Host = Stage04c2NearestHost(Hosts, Body->Center);
+		if (!Host) { ++BadLocal; continue; }
+		FertilePipes.Add(Host);
+		// 宿主局部空间里的中心距：> 1.05 就是长到管外了，也算「这一颗没有宿主」。
+		const float Local = Stage04c2Local(*Host, Body->Center).Size();
+		WorstLocal = FMath::Max(WorstLocal, Local);
+		BadLocal += Local <= 1.05f ? 0 : 1;
+		BadKind += Body->Kind == EGeoPrimitiveKind::Blob ? 0 : 1;
+		BadRadii += FMath::IsNearlyEqual(Body->Radii.X, WantRadius, 1e-4f * WantRadius)
+			&& FMath::IsNearlyEqual(Body->Radii.Y, WantRadius, 1e-4f * WantRadius)
+			&& FMath::IsNearlyEqual(Body->Radii.Z, WantRadius, 1e-4f * WantRadius) ? 0 : 1;
+	}
+	const float FertileRate = Hosts.Num() > 0 ? float(FertilePipes.Num()) / float(Hosts.Num()) : 0.f;
+	AddInfo(FString::Printf(TEXT("金伯利岩管 %d 根，含矿 %d 根，金刚石 %d 颗；含矿率 %.3f，最差局部半径 %.3f；越界 %d / 非 Blob %d / 半径 %d"),
+		Hosts.Num(), FertilePipes.Num(), Bodies.Num(), FertileRate, WorstLocal, BadLocal, BadKind, BadRadii));
+	TestTrue(TEXT("有金刚石矿体"), Bodies.Num() > 0);
+	TestEqual(TEXT("数量 = 含矿管数 × PerPipe"), Bodies.Num(), FertilePipes.Num() * Rule->P.PerPipe);
+	TestTrue(FString::Printf(TEXT("含矿率 %.3f 在 [0.05, 0.3]"), FertileRate), FertileRate >= 0.05f && FertileRate <= 0.3f);
+	TestEqual(TEXT("没有无宿主的矿体（管内局部半径 ≤ 1.05）"), BadLocal, 0);
+	TestEqual(TEXT("都是 Blob"), BadKind, 0);
+	TestEqual(TEXT("半径 = RadiusRatio × R（各向同性）"), BadRadii, 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage04c2RareEarthTest, "StellarEra.Planet.Geo.Stage04c2.RareEarth",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage04c2RareEarthTest::RunTest(const FString& Parameters)
+{
+	FPlanetRecipeConfig C; C.FaceRes = 512;
+	TSharedPtr<FGeoRareEarthRule> Rule = MakeShared<FGeoRareEarthRule>();
+	Rule->MineralId = 1;
+	C.MineralRules = { Rule };
+	FPlanetBakeFields F; FPlanetBakeReport R;
+	Stage04c2TestBake(C, F, R);
+	TestFalse(FString::Printf(TEXT("无错误（%s）"), *FString::Join(R.Errors, TEXT(" | "))), R.HasErrors());
+
+	TArray<const FGeoPrimitive*> Hosts, Bodies;
+	Stage04c2Split(F.Primitives, Rule->MineralId, GeoLithology::Carbonatite, Hosts, Bodies);
+	if (!TestTrue(TEXT("有碳酸岩体"), Hosts.Num() > 0)) { return false; }
+
+	const int32 Expect = Hosts.Num() * Rule->P.PerBody;
+	AddInfo(FString::Printf(TEXT("碳酸岩 %d 个，稀土矿体 %d 个（期望 %d）"), Hosts.Num(), Bodies.Num(), Expect));
+	TestTrue(TEXT("数量 = 碳酸岩数 × PerBody（±5%）"),
+		FMath::Abs(Bodies.Num() - Expect) <= FMath::Max(1, FMath::CeilToInt(0.05f * float(Expect))));
+
+	int32 BadLocal = 0, BadKind = 0, BadScale = 0;
+	float WorstLocal = 0.f;
+	for (const FGeoPrimitive* Body : Bodies)
+	{
+		const FGeoPrimitive* Host = Stage04c2NearestHost(Hosts, Body->Center);
+		if (!Host) { ++BadLocal; continue; }
+		const float Local = Stage04c2Local(*Host, Body->Center).Size();
+		WorstLocal = FMath::Max(WorstLocal, Local);
+		BadLocal += Local <= 1.05f ? 0 : 1;
+		BadKind += Body->Kind == EGeoPrimitiveKind::Blob ? 0 : 1;
+		// 半径按宿主三条半轴等比缩小：碳酸岩是各向同性球，改形状也不会再把矿体戳出岩体。
+		const FVector3f Want = Host->Radii * Rule->P.RadiusScale;
+		BadScale += FMath::IsNearlyEqual(Body->Radii.X, Want.X, 1e-4f * Want.X)
+			&& FMath::IsNearlyEqual(Body->Radii.Y, Want.Y, 1e-4f * Want.Y)
+			&& FMath::IsNearlyEqual(Body->Radii.Z, Want.Z, 1e-4f * Want.Z) ? 0 : 1;
+	}
+	AddInfo(FString::Printf(TEXT("最差局部半径 %.3f；越界 %d / 非 Blob %d / 缩放 %d"), WorstLocal, BadLocal, BadKind, BadScale));
+	TestEqual(TEXT("没有无宿主的矿体（碳酸岩内局部半径 ≤ 1.05）"), BadLocal, 0);
+	TestEqual(TEXT("都是 Blob"), BadKind, 0);
+	TestEqual(TEXT("半径 = RadiusScale × 宿主半径"), BadScale, 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage04c2SwitchesTest, "StellarEra.Planet.Geo.Stage04c2.Switches",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage04c2SwitchesTest::RunTest(const FString& Parameters)
+{
+	FPlanetRecipeConfig C; C.FaceRes = 512;
+	// 确定性对拍要强制单线程：字段用途见 FPlanetRecipeConfig::bSingleThreadBake。
+	C.bSingleThreadBake = true;
+	TSharedPtr<FGeoDiamondRule> Diamond = MakeShared<FGeoDiamondRule>(); Diamond->MineralId = 1;
+	TSharedPtr<FGeoRareEarthRule> RareEarth = MakeShared<FGeoRareEarthRule>(); RareEarth->MineralId = 2;
+
+	auto Bake = [&](bool bDiamond, bool bRareEarth, FPlanetBakeFields& F, FPlanetBakeReport& R)
+	{
+		C.MineralRules.Empty();
+		if (bDiamond) { C.MineralRules.Add(Diamond); }
+		if (bRareEarth) { C.MineralRules.Add(RareEarth); }
+		Stage04c2TestBake(C, F, R);
+	};
+
+	{
+		FPlanetBakeFields F; FPlanetBakeReport R;
+		Bake(true, true, F, R);
+		TestFalse(FString::Printf(TEXT("全开无错误（%s）"), *FString::Join(R.Errors, TEXT(" | "))), R.HasErrors());
+		TestTrue(TEXT("全开有金刚石"), Stage04c2BodyCount(F.Primitives, 1) > 0);
+		TestTrue(TEXT("全开有稀土"), Stage04c2BodyCount(F.Primitives, 2) > 0);
+	}
+	{
+		FPlanetBakeFields F; FPlanetBakeReport R;
+		Bake(false, true, F, R);
+		TestEqual(TEXT("去掉金刚石规则后金刚石为 0"), Stage04c2BodyCount(F.Primitives, 1), 0);
+		TestTrue(TEXT("去掉金刚石不影响稀土"), Stage04c2BodyCount(F.Primitives, 2) > 0);
+	}
+	{
+		FPlanetBakeFields F; FPlanetBakeReport R;
+		Bake(true, false, F, R);
+		TestEqual(TEXT("去掉稀土规则后稀土为 0"), Stage04c2BodyCount(F.Primitives, 2), 0);
+		TestTrue(TEXT("去掉稀土不影响金刚石"), Stage04c2BodyCount(F.Primitives, 1) > 0);
+	}
+	// 确定性：同配方两次烘焙，原语哈希一致。
+	{
+		FPlanetBakeFields F1, F2; FPlanetBakeReport R1, R2;
+		Bake(true, true, F1, R1);
+		Bake(true, true, F2, R2);
+		TestEqual(TEXT("两次烘焙原语哈希一致"), int64(Stage04c2PrimHash(F1.Primitives)), int64(Stage04c2PrimHash(F2.Primitives)));
+	}
 	return true;
 }
 

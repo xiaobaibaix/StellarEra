@@ -425,6 +425,55 @@ uint64 FGeoChromiumPGERule::HashParams() const
 		{ P.ThicknessScale });
 }
 
+void FGeoDiamondRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const
+{
+	const float R = float(Ctx.Config.Radius);
+	const int32 PerPipe = FMath::Clamp(P.PerPipe, 1, 8);
+	const float Radius = FMath::Max(P.RadiusRatio, 1e-5f) * R;
+	const float Chance = FMath::Clamp(P.FertileChance, 0.f, 1.f);
+	GeoMineralRulesForEachHost(Ctx.Fields, GeoLithology::Kimberlite, [&](const FGeoPrimitive& Host, const FQuat4f& Rot)
+	{
+		// 每根管都掷一次（含不含矿的）：含矿率一变不能搬动后面所有管的随机流。
+		if (Ctx.Rng.NextFloat() >= Chance) { return; }
+		for (int32 k = 0; k < PerPipe; ++k)
+		{
+			// 管心附近偏 0–0.3 倍宿主半轴：PerPipe > 1 时几颗不会完全重合。
+			const FVector3f Local = GeoMineralRulesRandomDir(Ctx.Rng) * Host.Radii * Ctx.Rng.Range(0.f, 0.3f);
+			FGeoPrimitive Body = FGeoPrimitive::MakeBlob(Host.Center + Rot.RotateVector(Local), FVector3f(Radius), 0.1f);
+			Body.Grade = RandomGrade(Ctx.Rng);
+			Out.Bodies.Add(Body);
+		}
+	});
+}
+
+uint64 FGeoDiamondRule::HashParams() const
+{
+	return GeoMineralRulesHashFloats(GeoHash::Combine(GeoHash::Str("diamond"), uint64(FMath::Max(P.PerPipe, 0))),
+		{ P.RadiusRatio, P.FertileChance });
+}
+
+void FGeoRareEarthRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const
+{
+	const int32 PerBody = FMath::Clamp(P.PerBody, 1, 8);
+	const float Scale = FMath::Clamp(P.RadiusScale, 1e-3f, 1.f);
+	// 碳酸岩是稀土的母体：矿体与宿主同心、只缩小一圈，整颗压在岩体内，不需要宿主朝向。
+	GeoMineralRulesForEachHost(Ctx.Fields, GeoLithology::Carbonatite, [&](const FGeoPrimitive& Host, const FQuat4f&)
+	{
+		for (int32 k = 0; k < PerBody; ++k)
+		{
+			FGeoPrimitive Body = FGeoPrimitive::MakeBlob(Host.Center, Host.Radii * Scale, 0.1f);
+			Body.Grade = RandomGrade(Ctx.Rng);
+			Out.Bodies.Add(Body);
+		}
+	});
+}
+
+uint64 FGeoRareEarthRule::HashParams() const
+{
+	return GeoMineralRulesHashFloats(GeoHash::Combine(GeoHash::Str("rareearth"), uint64(FMath::Max(P.PerBody, 0))),
+		{ P.RadiusScale });
+}
+
 namespace
 {
 	TArray<FGeoDebugLegendEntry> GeoMineralRulesLegend(const FPlanetSnapshot& S)

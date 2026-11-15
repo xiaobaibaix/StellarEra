@@ -331,6 +331,47 @@ public:
 	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
 };
 
+/** 金刚石：金伯利岩管内的含矿小团块，只有一部分岩管含矿。运行于阶段 4b 之后。 */
+UCLASS(meta = (DisplayName = "金刚石（阶段 4）"))
+class STELLARERAPLANET_API UGeoDiamondScatterer : public UGeoMineralScatterer
+{
+	GENERATED_BODY()
+
+public:
+	UGeoDiamondScatterer() { Mineral = TEXT("Diamond"); }
+
+	/** 每根含矿岩管几颗。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1", ClampMax = "8"))
+	int32 PerPipe = 1;
+	/** 团块半径（占 R）：别超过岩管半径（默认 0.002R），否则会戳出管壁。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.0002", ClampMax = "0.002"))
+	float RadiusRatio = 0.0012f;
+	/** 每根岩管含矿的概率：越小越稀有（默认 0.15）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "1"))
+	float FertileChance = 0.15f;
+
+	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
+};
+
+/** 碳酸岩稀土：碳酸岩体中心、比宿主小一圈的团块。运行于阶段 4b 之后。 */
+UCLASS(meta = (DisplayName = "碳酸岩稀土（阶段 4）"))
+class STELLARERAPLANET_API UGeoRareEarthScatterer : public UGeoMineralScatterer
+{
+	GENERATED_BODY()
+
+public:
+	UGeoRareEarthScatterer() { Mineral = TEXT("RareEarth"); }
+
+	/** 每个碳酸岩体几颗。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1", ClampMax = "8"))
+	int32 PerBody = 1;
+	/** 团块半径 = 该倍数 × 宿主半径：必须 ≤ 1，否则矿体冒出碳酸岩。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.05", ClampMax = "1"))
+	float RadiusScale = 0.6f;
+
+	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
+};
+
 /** 硫磺结壳：活跃火山火口内的地表覆层（覆层，不是矿体）。运行于阶段 4 之后。 */
 UCLASS(meta = (DisplayName = "硫磺结壳（阶段 4）"))
 class STELLARERAPLANET_API UGeoSulfurScatterer : public UGeoMineralScatterer

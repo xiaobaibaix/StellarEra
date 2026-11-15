@@ -90,3 +90,17 @@ TSharedPtr<IGeoMineralRule> UGeoChromiumPGEScatterer::MakeRule() const
 	R->P = { PerSlab, ThicknessScale };
 	return R;
 }
+
+TSharedPtr<IGeoMineralRule> UGeoDiamondScatterer::MakeRule() const
+{
+	TSharedPtr<FGeoDiamondRule> R = MakeShared<FGeoDiamondRule>();
+	R->P = { PerPipe, RadiusRatio, FertileChance };
+	return R;
+}
+
+TSharedPtr<IGeoMineralRule> UGeoRareEarthScatterer::MakeRule() const
+{
+	TSharedPtr<FGeoRareEarthRule> R = MakeShared<FGeoRareEarthRule>();
+	R->P = { PerBody, RadiusScale };
+	return R;
+}
