@@ -2,15 +2,27 @@
 #include "Async/ParallelFor.h"
 #include "PlanetSnapshot.h"
 
+float Stage05::WindAzimuth(float AbsLatDeg)
+{
+	// 信风与极地东风都向西，共用一个方位角：只存角度就必须靠纬度才能区分这两带。
+	return AbsLatDeg < 30.f ? 270.f : (AbsLatDeg < 60.f ? 90.f : 270.f);
+}
+
+FVector3f Stage05::WindTangent(const FVector3f& Dir, float AzimuthDeg)
+{
+	const FVector3f D = Dir.GetSafeNormal();
+	if (D.IsNearlyZero()) { return FVector3f::ZeroVector; }
+	// 极点附近北向切线退化，没有可定义的风向。
+	if (1.f - FMath::Abs(D.Z) < 1e-4f) { return FVector3f::ZeroVector; }
+	const FVector3f North = (FVector3f::UpVector - D * D.Z).GetSafeNormal();
+	// 东 = N × dir，与 GeoPlates 的板块方位角同一套；写成 dir × N 会把整张风带镜像。
+	const FVector3f East = FVector3f::CrossProduct(North, D);
+	const float Az = FMath::DegreesToRadians(AzimuthDeg);
+	return North * FMath::Cos(Az) + East * FMath::Sin(Az);
+}
+
 namespace
 {
-	/** 风吹向的方位角（度，0 = 北，90 = 东）：按 |lat| 三分带。 */
-	float Stage05WindAzimuth(float AbsLatDeg)
-	{
-		// 信风与极地东风都向西，共用一个方位角：只存角度就必须靠纬度才能区分这两带。
-		return AbsLatDeg < 30.f ? 270.f : (AbsLatDeg < 60.f ? 90.f : 270.f);
-	}
-
 	/** 调试图层读烘焙期的中间场；缺了返回「无数据」，不崩。 */
 	float Stage05DebugField(const FPlanetSnapshot& S, const TCHAR* Name, const FVector3d& P, bool bNearest)
 	{
@@ -43,12 +55,19 @@ void FStage05Climate::Bake(FPlanetBakeContext& Ctx) const
 	const float R = float(Cfg.Radius);
 	// 高程以 0.08R 为满分：超过它温度不再继续掉，避免最高峰把整块大陆压到冰点。
 	const float LapseScale = 1.f / FMath::Max(0.08f * R, 1e-6f);
+	// 方向只取决于网格，不该借某一张数据场的 TexelDir 去问。
+	const auto TexelDir = [Res](int32 Face, int32 X, int32 Y)
+	{
+		const float U = (float(X) + 0.5f) / float(Res) * 2.f - 1.f;
+		const float V = (float(Y) + 0.5f) / float(Res) * 2.f - 1.f;
+		return FGeoField2D::FaceToDir(Face, U, V);
+	};
 	ParallelFor(6 * Res, [&](int32 Row)
 	{
 		const int32 Face = Row / Res, Y = Row % Res;
 		for (int32 X = 0; X < Res; ++X)
 		{
-			const FVector3f Dir = F.WindDir.TexelDir(Face, X, Y);
+			const FVector3f Dir = TexelDir(Face, X, Y);
 			const float Z = FMath::Clamp(Dir.Z, -1.f, 1.f);
 			const float E = F.Elevation.Sample(Dir);
 			const float M = F.ContinentalMask.Sample(Dir);
@@ -57,7 +76,7 @@ void FStage05Climate::Bake(FPlanetBakeContext& Ctx) const
 				- P.LapseRate * FMath::Clamp(E * LapseScale, 0.f, 1.f)
 				+ P.Continentality * (M - 0.5f);
 			F.Temperature.At(Face, X, Y) = FMath::Clamp(T, 0.f, 1.f);
-			F.WindDir.At(Face, X, Y) = Stage05WindAzimuth(FMath::RadiansToDegrees(FMath::Asin(Z)));
+			F.WindDir.At(Face, X, Y) = Stage05::WindAzimuth(FMath::RadiansToDegrees(FMath::Asin(Z)));
 			F.ClimateLand.At(Face, X, Y) = E > 0.f ? 1.f : 0.f;
 		}
 	}, PF);
@@ -90,7 +109,9 @@ void FStage05Climate::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const
 			if (!Fd || Fd->Res <= 0) { return FGeoDebugLayer::NoData(); }
 			const FVector3f Dir(P.GetSafeNormal());
 			if (Dir.IsNearlyZero()) { return FGeoDebugLayer::NoData(); }
-			const float Az = Fd->Sample(Dir);
+			// 风带是分段常数：双线性在 30°/60° 接缝会混出 180°，被读成「无风」。
+			const float Az = Fd->SampleNearest(Dir);
+			if (Stage05::WindTangent(Dir, Az).IsNearlyZero()) { return 0.f; }
 			const float AbsLat = FMath::RadiansToDegrees(FMath::Abs(FMath::Asin(FMath::Clamp(Dir.Z, -1.f, 1.f))));
 			const bool bWest = FMath::Abs(FMath::FindDeltaAngleDegrees(Az, 270.f)) <= 10.f;
 			const bool bEast = FMath::Abs(FMath::FindDeltaAngleDegrees(Az, 90.f)) <= 10.f;

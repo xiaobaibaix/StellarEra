@@ -14,3 +14,11 @@ public:
 	virtual void DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const override;
 	virtual void ExportDebugFields(const FPlanetBakeFields& Fields, TMap<FName, FGeoField2D>& Out) const override;
 };
+
+namespace Stage05
+{
+	/** 风吹向的方位角（度，0 = 北，90 = 东）。信风与极地东风都是 270°。 */
+	STELLARERAPLANET_API float WindAzimuth(float AbsLatDeg);
+	/** 方位角 → 球面切向单位向量（风实际吹向）；极点处切向退化，返回零向量。 */
+	STELLARERAPLANET_API FVector3f WindTangent(const FVector3f& Dir, float AzimuthDeg);
+}

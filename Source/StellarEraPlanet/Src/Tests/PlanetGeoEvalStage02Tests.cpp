@@ -27,7 +27,7 @@ bool FGeoEvalStage02Test::RunTest(const FString& Parameters)
 	Config.FaceRes = 256;   // 测速度；全尺寸在 Task 5
 	FPlanetBakeReport Report;
 	const TSharedPtr<const FPlanetSnapshot> Snap = FPlanetBakePipeline::MakeDefault().Bake(Config, Report);
-	if (!TestTrue(TEXT("默认管线（阶段 1+2）烘焙成功"), Snap.IsValid())) { return false; }
+	if (!TestTrue(TEXT("默认管线（阶段 1–5）烘焙成功"), Snap.IsValid())) { return false; }
 	TestEqual(TEXT("默认管线含五个阶段"), FPlanetBakePipeline::MakeDefault().Sorted().Num(), 5);
 
 	FGeoRng Rng = FGeoRng::Derive(21, 0, 0);

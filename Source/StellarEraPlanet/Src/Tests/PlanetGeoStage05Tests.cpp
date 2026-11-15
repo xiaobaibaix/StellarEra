@@ -108,6 +108,17 @@ bool FGeoStage05WindTest::RunTest(const FString& Parameters)
 		const float Delta = FMath::Abs(FMath::FindDeltaAngleDegrees(Az, Wants[i]));
 		TestTrue(FString::Printf(TEXT("lat %.0f° 吹向 %.0f°（实测 %.1f°）"), Lats[i], Wants[i], Az), Delta <= 2.f);
 	}
+
+	// 方位角 → 切向：90° 必须指向经度增加方向（东），写成 dir × N 会把整张风带镜像。
+	{
+		const float Lat = FMath::DegreesToRadians(45.f), Lon = FMath::DegreesToRadians(30.f);
+		const FVector3f Dir(FMath::Cos(Lat) * FMath::Cos(Lon), FMath::Cos(Lat) * FMath::Sin(Lon), FMath::Sin(Lat));
+		const FVector3f East(-FMath::Sin(Lon), FMath::Cos(Lon), 0.f);
+		const FVector3f W = Stage05::WindTangent(Dir, 90.f);
+		TestTrue(FString::Printf(TEXT("az=90° 切向 = 东（dot %.4f）"), FVector3f::DotProduct(W, East)), FVector3f::DotProduct(W, East) > 0.999f);
+		TestTrue(TEXT("az=270° 切向 = 西"), FVector3f::DotProduct(Stage05::WindTangent(Dir, 270.f), East) < -0.999f);
+		TestTrue(TEXT("极点没有可定义的切向"), Stage05::WindTangent(FVector3f(0.f, 0.f, 1.f), 270.f).IsNearlyZero());
+	}
 	return true;
 }
 
