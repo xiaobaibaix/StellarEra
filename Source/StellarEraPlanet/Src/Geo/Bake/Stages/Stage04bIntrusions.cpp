@@ -1,6 +1,7 @@
 ﻿// 阶段 4b：地下侵入体。六类岩体都是原语，几何由快照与材质求值消费；这里只管摆在哪、多大。
 #include "Stage04bIntrusions.h"
 #include "GeoLithology.h"
+#include "GeoRng.h"
 
 namespace
 {

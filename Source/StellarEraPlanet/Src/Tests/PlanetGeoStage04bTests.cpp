@@ -104,19 +104,42 @@ bool FGeoStage04bPlacementTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("有岩株"), NS > 0);
 	TestTrue(TEXT("有岩墙 / 岩床"), NG > 0);
 	TestTrue(TEXT("有金伯利岩"), NK > 0 && NK <= C.Intrusion.KimberliteMax);
+	TestTrue(TEXT("有层状侵入体"), NL > 0);
 
 	const int32 Arc = F.Volcanoes.FilterByPredicate([](const FGeoVolcano& V) { return V.OtherPlate >= 0; }).Num();
 	TestEqual(TEXT("岩株数 = 弧火山数"), NS, Arc);
 
-	// 深度：每个岩体顶都在地表下 ≥ 0.01R（顶深参数最小的金伯利岩除外，它按自己的 0.004 检）。
-	int32 TooHigh = 0;
-	for (const FGeoPrimitive& P : F.Primitives)
+	// 深度：用椭球支撑函数按各自中心方向量真实顶部。Bounds 是 AABB 角点，会高估径向高度，
+	// 漏掉半高偏移写错、或岩体整体偏浅这类 bug。
 	{
-		if (P.LithologyId < GeoLithology::Granite) { continue; }
-		const float TopDepth = float((C.Radius + double(F.Elevation.Sample(FVector3f(P.Center.GetSafeNormal()))) - double(P.Bounds.Max.GetMax())) / C.Radius);
-		TooHigh += TopDepth >= 0.003f ? 0 : 1;
+		struct FDepthFloor { uint8 Litho; float Floor; const TCHAR* Name; };
+		const FDepthFloor Floors[] = {
+			{ GeoLithology::Granite, 0.01f, TEXT("岩基") },
+			{ GeoLithology::Diorite, 0.01f, TEXT("岩株") },
+			{ GeoLithology::Gabbro, 0.01f, TEXT("岩墙 / 岩床") },
+			{ GeoLithology::LayeredMafic, 0.01f, TEXT("层状") },
+			{ GeoLithology::Kimberlite, 0.004f, TEXT("金伯利") },
+		};
+		const float Eps = 1e-4f;   // 顶深由 float 中心与双精度半径拼出来，留一位余量
+		for (const FDepthFloor& Df : Floors)
+		{
+			float MinDepth = TNumericLimits<float>::Max();
+			int32 TooHigh = 0;
+			for (const FGeoPrimitive& P : F.Primitives)
+			{
+				if (P.LithologyId != Df.Litho) { continue; }
+				const FVector3f Dir = P.Center.GetSafeNormal();
+				const FVector3f Local = P.Kind == EGeoPrimitiveKind::OrientedBlob ? P.Rotation.UnrotateVector(Dir) : Dir;
+				const float Support = (Local * P.Radii).Size();
+				const float TopDepth = float((C.Radius + double(F.Elevation.Sample(Dir)) - double(P.Center.Size() + Support)) / C.Radius);
+				MinDepth = FMath::Min(MinDepth, TopDepth);
+				TooHigh += TopDepth >= Df.Floor - Eps ? 0 : 1;
+			}
+			AddInfo(FString::Printf(TEXT("%s 最浅顶深 %.4f（下限 %.4f）"), Df.Name,
+				MinDepth == TNumericLimits<float>::Max() ? -1.f : MinDepth, Df.Floor));
+			TestEqual(FString::Printf(TEXT("%s 不露头"), Df.Name), TooHigh, 0);
+		}
 	}
-	TestEqual(TEXT("没有侵入体露头"), TooHigh, 0);
 
 	// 确定性
 	FPlanetBakeFields F2; FPlanetBakeReport R2;
@@ -143,6 +166,19 @@ bool FGeoStage04bPlacementTest::RunTest(const FString& Parameters)
 	Off([](FPlanetIntrusionParams& P) { P.bStocks = false; }, GeoLithology::Diorite, TEXT("岩株"));
 	Off([](FPlanetIntrusionParams& P) { P.bLayeredIntrusions = false; }, GeoLithology::LayeredMafic, TEXT("层状侵入体"));
 	Off([](FPlanetIntrusionParams& P) { P.bKimberlites = false; }, GeoLithology::Kimberlite, TEXT("金伯利岩"));
+
+	// 岩墙与岩床共用辉长岩编号：只关一类它可能悄悄消失，两个方向都要查。
+	{
+		FPlanetRecipeConfig Both = C; Both.Intrusion.bDikes = false; Both.Intrusion.bSills = false;
+		FPlanetBakeFields Fb; FPlanetBakeReport Rb; Stage04bTestBake(Both, Fb, Rb);
+		TestEqual(TEXT("岩墙与岩床都关掉后没有辉长岩"), Stage04bCount(Fb.Primitives, GeoLithology::Gabbro), 0);
+
+		FPlanetRecipeConfig NoDike = C; NoDike.Intrusion.bDikes = false;
+		FPlanetBakeFields Fd; FPlanetBakeReport Rd; Stage04bTestBake(NoDike, Fd, Rd);
+		const int32 NGNoDike = Stage04bCount(Fd.Primitives, GeoLithology::Gabbro);
+		TestTrue(TEXT("只关岩墙时辉长岩至少少 DikePerRift 个"), NGNoDike <= NG - C.Intrusion.DikePerRift);
+		TestTrue(TEXT("只关岩墙时岩床仍在"), NGNoDike > 0);
+	}
 	return true;
 }
 
