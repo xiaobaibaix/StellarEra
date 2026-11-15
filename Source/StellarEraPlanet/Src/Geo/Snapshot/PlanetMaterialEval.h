@@ -21,19 +21,37 @@ namespace PlanetMaterialEval
 			Out.Lithology = E < S.CrustSplitElevation ? GeoLithology::OceanicCrust : GeoLithology::ContinentalCrust;
 		}
 
-		// 矿体：取强度最高的那个；> 0.5 才算在矿体里，软边外的浸染留给以后的品位渐变。
+		// 矿体现在同时携带岩性与蚀变：一次查询按 矿 > 岩性 > 蚀变 的优先级落地，量级不同不互斥。
 		if (!S.Primitives.IsEmpty())
 		{
 			const FVector3f Pf(P);
-			float Best = 0.5f;
+			float BestMineral = 0.5f, BestLitho = TNumericLimits<float>::Max();
+			uint8 LithoId = 0, ClueId = 0, ClueStr = 0;
 			const TArray<FGeoPrimitive>& Prims = S.Primitives.GetPrimitives();
 			S.Primitives.QueryPoint(Pf, [&](int32 i)
 			{
 				const FGeoPrimitive& Pr = Prims[i];
-				if (Pr.MineralId == 0) { return; }
-				const float V = GeoPrimitiveEvaluate(Pr, Pf);
-				if (V > Best) { Best = V; Out.Mineral = Pr.MineralId; Out.Grade = Pr.Grade; }
+				const float D = GeoPrimitiveDistance(Pr, Pf);
+				if (D >= 1.f) { return; }
+				if (Pr.MineralId != 0)
+				{
+					const float V = GeoBlobFalloff(D, Pr.Hard);
+					if (V > BestMineral) { BestMineral = V; Out.Mineral = Pr.MineralId; Out.Grade = Pr.Grade; }
+				}
+				if (Pr.LithologyId != 0 && D < BestLitho) { BestLitho = D; LithoId = Pr.LithologyId; }
+				if (Pr.ClueId != 0)
+				{
+					// 晕原语只带「有一圈蚀变」，具体是哪一圈由归一化距离决定，强度按圈递减。
+					const int32 Band = D < S.AlterBands[0] ? 0 : D < S.AlterBands[1] ? 1 : D < S.AlterBands[2] ? 2 : 3;
+					static const uint8 BandId[4] = { GeoClue::Keratitic, GeoClue::Sericitic, GeoClue::Argillic, GeoClue::Propylitic };
+					static const uint8 BandStr[4] = { 15, 11, 7, 3 };
+					const uint8 Str = uint8(FMath::Max(1, FMath::RoundToInt(float(BandStr[Band]) * float(Pr.ClueStrength) / 15.f)));
+					if (Str > ClueStr) { ClueStr = Str; ClueId = BandId[Band]; }
+				}
 			});
+			if (LithoId != 0) { Out.Lithology = LithoId; }
+			Out.Clue = ClueId;
+			Out.ClueStrength = ClueStr;
 		}
 		// 覆层：地表下一薄层。下限放到地表上方 2 体素：网格顶点可能落在地表外一点点。
 		if (Out.Mineral == 0 && S.MineralOverlays.Num() > 0)

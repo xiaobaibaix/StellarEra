@@ -22,6 +22,7 @@ void FPlanetSnapshot::FinalizeHash()
 	H = GeoHash::Combine(H, Elevation.Hash());
 	for (const FGeoVolcano& V : Volcanoes) { H = GeoHash::Combine(H, V.Hash()); }
 	H = GeoHash::Combine(H, GeoHash::Float(CrustSplitElevation));
+	for (const float B : AlterBands) { H = GeoHash::Combine(H, GeoHash::Float(B)); }
 	H = GeoHash::Combine(H, HashDouble(MinSurfaceRadius));
 	H = GeoHash::Combine(H, HashDouble(MaxSurfaceRadius));
 	ContentHash = H;

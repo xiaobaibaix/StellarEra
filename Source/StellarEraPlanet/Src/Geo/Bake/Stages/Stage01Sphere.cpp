@@ -73,7 +73,7 @@ void FStage01Sphere::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const
 		{
 			if (PlanetShapeEval::Value(S, P) > 0.f) { return FGeoDebugLayer::NoData(); }
 			const uint8 Id = PlanetMaterialEval::Sample(S, P).Lithology;
-			return float(Id == GeoLithology::ContinentalCrust || Id == GeoLithology::OceanicCrust ? GeoLithology::Crust : Id);
+			return float(Id >= GeoLithology::ContinentalCrust ? GeoLithology::Crust : Id);
 		};
 		Out.Add(MoveTemp(L));
 	}

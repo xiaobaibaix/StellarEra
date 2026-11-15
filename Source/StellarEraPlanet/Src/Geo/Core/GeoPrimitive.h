@@ -23,6 +23,8 @@ struct FGeoPrimitive
 	EGeoPrimitiveKind Kind = EGeoPrimitiveKind::Blob;
 	uint8 MineralId = 0;
 	uint8 LithologyId = 0;
+	uint8 ClueId = 0;        // GeoClue，0 = 无
+	uint8 ClueStrength = 0;  // 0..15，晕原语给满，材质按圈衰减
 	uint8 Grade = 0;
 	uint8 Priority = 0;
 	FVector3f Center = FVector3f::ZeroVector;
@@ -69,16 +71,37 @@ FORCEINLINE float GeoBlobFalloff(float D, float Hard)
 	return 1.f - FMath::SmoothStep(1.f - Hard, 1.f, D);
 }
 
-FORCEINLINE float GeoPrimitiveEvaluate(const FGeoPrimitive& P, const FVector3f& X)
+namespace GeoClue
+{
+	constexpr uint8 None = 0, Keratitic = 1, Sericitic = 2, Argillic = 3, Propylitic = 4, Count = 5;
+
+	inline const TCHAR* DisplayName(uint8 Id)
+	{
+		static const TCHAR* Names[Count] = { TEXT("无"), TEXT("钾化"), TEXT("绢英岩化"), TEXT("泥化"), TEXT("青磐岩化") };
+		return Id < Count ? Names[Id] : Names[0];
+	}
+
+	inline FColor DebugColor(uint8 Id)
+	{
+		static const FColor Colors[Count] = { FColor(255, 0, 255), FColor(230, 90, 90), FColor(230, 190, 70), FColor(120, 200, 120), FColor(90, 140, 210) };
+		return Id < Count ? Colors[Id] : Colors[0];
+	}
+}
+
+/** 归一化椭球距离：体内 < 1，中心 0。蚀变按它分圈，所以必须与 Evaluate 的分母同源。 */
+FORCEINLINE float GeoPrimitiveDistance(const FGeoPrimitive& P, const FVector3f& X)
 {
 	switch (P.Kind)
 	{
-	case EGeoPrimitiveKind::Blob:
-		return GeoBlobFalloff(((X - P.Center) / P.Radii).Size(), P.Hard);
-	case EGeoPrimitiveKind::OrientedBlob:
-		return GeoBlobFalloff((P.Rotation.UnrotateVector(X - P.Center) / P.Radii).Size(), P.Hard);
+	case EGeoPrimitiveKind::Blob:         return ((X - P.Center) / P.Radii).Size();
+	case EGeoPrimitiveKind::OrientedBlob: return (P.Rotation.UnrotateVector(X - P.Center) / P.Radii).Size();
 	}
-	return 0.f;
+	return TNumericLimits<float>::Max();
+}
+
+FORCEINLINE float GeoPrimitiveEvaluate(const FGeoPrimitive& P, const FVector3f& X)
+{
+	return GeoBlobFalloff(GeoPrimitiveDistance(P, X), P.Hard);
 }
 
 FORCEINLINE FGeoRange GeoPrimitiveRange(const FGeoPrimitive& P, const FBox3f& Box)

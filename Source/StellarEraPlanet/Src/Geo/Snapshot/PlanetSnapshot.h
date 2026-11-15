@@ -21,6 +21,8 @@ struct STELLARERAPLANET_API FPlanetSnapshot
 	FGeoField2D Elevation;
 	/** 低于它算洋壳岩性；取洋盆深度的一半，与烘焙期 CrustType 的分界一致。 */
 	float CrustSplitElevation = -240.f;
+	/** 蚀变四圈的归一化距离内边界：钾化 / 绢英岩化 / 泥化，第四圈到晕边界。 */
+	float AlterBands[3] = { 0.3f, 0.55f, 0.8f };
 	/** 地表半径的保守上下界，值域与早退都以它为准。 */
 	double MinSurfaceRadius = 0.0;
 	double MaxSurfaceRadius = 0.0;
