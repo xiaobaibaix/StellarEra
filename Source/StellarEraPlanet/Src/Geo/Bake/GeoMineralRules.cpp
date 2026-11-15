@@ -332,8 +332,14 @@ void FGeoTinTungstenRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Ou
 		for (int32 k = 0; k < PerHost; ++k)
 		{
 			// 顶面壳层：局部 z 取比例、x/y 在岩基截面里散开；脉的长轴就是宿主局部 X（沿弧走向）。
-			const FVector3f Local(Host.Radii.X * Ctx.Rng.Range(-0.5f, 0.5f), Host.Radii.Y * Ctx.Rng.Range(-0.5f, 0.5f),
-				Host.Radii.Z * Ctx.Rng.Range(TopMin, TopMax));
+			const float U = Ctx.Rng.Range(-0.5f, 0.5f);
+			const float V = Ctx.Rng.Range(-0.5f, 0.5f);
+			const float W = Ctx.Rng.Range(TopMin, TopMax);
+			// u,v 取到角落时 |(u,v,w)| 可到 1.18，越出宿主；按该 z 的椭圆截面把水平分量收回来。
+			const float H2 = U * U + V * V;
+			const float MaxH2 = FMath::Max(0.98f * 0.98f - W * W, 0.f);
+			const float Scale = H2 > MaxH2 && H2 > 1e-8f ? FMath::Sqrt(MaxH2 / H2) : 1.f;
+			const FVector3f Local(Host.Radii.X * U * Scale, Host.Radii.Y * V * Scale, Host.Radii.Z * W);
 			FGeoPrimitive Body = FGeoPrimitive::MakeOrientedBlob(Host.Center + Rot.RotateVector(Local), Radii, Rot, 0.06f);
 			Body.Grade = RandomGrade(Ctx.Rng);
 			Out.Bodies.Add(Body);
@@ -377,7 +383,7 @@ uint64 FGeoPegmatiteRule::HashParams() const
 void FGeoCopperNickelRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const
 {
 	const int32 PerHost = FMath::Clamp(P.PerHost, 1, 8);
-	const float Width = FMath::Max(P.WidthScale, 1e-3f);
+	const float Width = FMath::Clamp(P.WidthScale, 1e-3f, 1.f);
 	const float Thickness = FMath::Clamp(P.ThicknessScale, 1e-3f, 0.5f);
 	GeoMineralRulesForEachHost(Ctx.Fields, GeoLithology::Gabbro, [&](const FGeoPrimitive& Host, const FQuat4f& Rot)
 	{
@@ -405,7 +411,7 @@ uint64 FGeoCopperNickelRule::HashParams() const
 void FGeoChromiumPGERule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const
 {
 	const int32 PerSlab = FMath::Clamp(P.PerSlab, 1, 8);
-	const float Thickness = FMath::Max(P.ThicknessScale, 1e-3f);
+	const float Thickness = FMath::Clamp(P.ThicknessScale, 1e-3f, 0.5f);
 	GeoMineralRulesForEachHost(Ctx.Fields, GeoLithology::LayeredMafic, [&](const FGeoPrimitive& Host, const FQuat4f& Rot)
 	{
 		const FVector3f Radii(Host.Radii.X, Host.Radii.Y, Host.Radii.Z * Thickness);
@@ -433,7 +439,8 @@ void FGeoDiamondRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) c
 	const float Chance = FMath::Clamp(P.FertileChance, 0.f, 1.f);
 	GeoMineralRulesForEachHost(Ctx.Fields, GeoLithology::Kimberlite, [&](const FGeoPrimitive& Host, const FQuat4f& Rot)
 	{
-		// 每根管都掷一次（含不含矿的）：含矿率一变不能搬动后面所有管的随机流。
+		// 每根管都先掷一次含矿骰，骰子流按管对齐；但含矿管还要多取 3 个随机数，
+		// 所以改含矿率会让后面的管整体移位，保不住矿体位置。
 		if (Ctx.Rng.NextFloat() >= Chance) { return; }
 		for (int32 k = 0; k < PerPipe; ++k)
 		{

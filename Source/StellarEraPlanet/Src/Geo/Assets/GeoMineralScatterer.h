@@ -258,7 +258,7 @@ public:
 	/** 脉中心在岩基局部 z 的比例下限（0 = 中心，1 = 顶面）。 */
 	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "1"))
 	float TopMinRatio = 0.6f;
-	/** 比例上限：必须 < 1，否则脉顶冒出岩基顶面。 */
+	/** 比例上限：取 1 时脉心落在岩基顶面，上半截冒出宿主。 */
 	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "1"))
 	float TopMaxRatio = 0.95f;
 
@@ -283,7 +283,7 @@ public:
 	/** 团块中心到岩基中心的局部半径比例下限。 */
 	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "1"))
 	float ShellMin = 0.88f;
-	/** 比例上限：贴着岩基外缘。 */
+	/** 比例上限：1 = 团块中心落在岩基表面，半径有一半在宿主外。 */
 	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "1"))
 	float ShellMax = 1.f;
 
@@ -305,7 +305,7 @@ public:
 	/** 水平半轴 = 该倍数 × 宿主水平半轴：宿主越宽矿体越大。 */
 	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.05", ClampMax = "1"))
 	float WidthScale = 0.7f;
-	/** 半厚 = 该倍数 × 宿主竖直半轴；必须 ≤ 0.5，否则矿体顶面越过宿主中线（下移量 1−该倍数 会变负）。 */
+	/** 半厚 = 该倍数 × 宿主竖直半轴；> 0.5 时矿体底戳出宿主底（< −1）、顶越过宿主中线（> 0）。 */
 	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.05", ClampMax = "0.5"))
 	float ThicknessScale = 0.3f;
 

@@ -158,7 +158,7 @@ struct FGeoTinTungstenParams
 	float RadiusRatio = 0.004f;     // 脉横向半轴
 	float ThicknessRatio = 0.0015f; // 脉半厚（局部 Z）
 	float TopMinRatio = 0.6f;       // 中心在宿主局部 z 的比例下限
-	float TopMaxRatio = 0.95f;      // 上限：脉顶压在岩基顶面之下，否则整株被包住
+	float TopMaxRatio = 0.95f;      // 上限：取 1 时脉心落在岩基顶面，上半截戳出宿主
 };
 
 class STELLARERAPLANET_API FGeoTinTungstenRule final : public IGeoMineralRule

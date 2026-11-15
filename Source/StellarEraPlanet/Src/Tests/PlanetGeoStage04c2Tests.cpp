@@ -2,6 +2,7 @@
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "GeoLithology.h"
+#include "GeoMineralCatalog.h"
 #include "GeoMineralRule.h"
 #include "GeoMineralRules.h"
 #include "GeoPrimitive.h"
@@ -144,8 +145,8 @@ bool FGeoStage04c2TinTungstenTest::RunTest(const FString& Parameters)
 
 	const float Rx = float(C.Radius);
 	const FVector3f Want(Rule->P.LengthRatio * Rx, Rule->P.RadiusRatio * Rx, Rule->P.ThicknessRatio * Rx);
-	int32 NoHost = 0, BadZ = 0, BadXY = 0, BadKind = 0, BadShape = 0, BadPose = 0;
-	float ZLo = TNumericLimits<float>::Max(), ZHi = -ZLo, WorstXY = 0.f;
+	int32 NoHost = 0, BadZ = 0, BadXY = 0, BadKind = 0, BadShape = 0, BadPose = 0, BadNorm = 0;
+	float ZLo = TNumericLimits<float>::Max(), ZHi = -ZLo, WorstXY = 0.f, WorstNorm = 0.f;
 	for (const FGeoPrimitive* Body : Bodies)
 	{
 		const FGeoPrimitive* Host = Stage04c2NearestHost(Hosts, Body->Center);
@@ -153,9 +154,13 @@ bool FGeoStage04c2TinTungstenTest::RunTest(const FString& Parameters)
 		const FVector3f L = Stage04c2Local(*Host, Body->Center);
 		const float AZ = FMath::Abs(L.Z);
 		const float AXY = FMath::Max(FMath::Abs(L.X), FMath::Abs(L.Y));
+		const float Norm = L.Size();
 		ZLo = FMath::Min(ZLo, AZ); ZHi = FMath::Max(ZHi, AZ); WorstXY = FMath::Max(WorstXY, AXY);
+		WorstNorm = FMath::Max(WorstNorm, Norm);
 		BadZ += AZ >= 0.5f && AZ <= 1.02f ? 0 : 1;
 		BadXY += AXY <= 0.6f ? 0 : 1;
+		// 宿主局部归一化距离 ≤ 1：角落的脉若不按椭圆截面收回，u,v,w 取满可到 1.18。
+		BadNorm += Norm <= 1.f ? 0 : 1;
 		BadKind += Body->Kind == EGeoPrimitiveKind::OrientedBlob ? 0 : 1;
 		// 局部 X 长、Z 厚的细脉：三条半轴必须各按自己的比例，别把长轴与厚度装反。
 		BadShape += Body->Radii.X > Body->Radii.Y && Body->Radii.Y > Body->Radii.Z
@@ -167,11 +172,12 @@ bool FGeoStage04c2TinTungstenTest::RunTest(const FString& Parameters)
 		const FVector3f BZ = Body->Rotation.RotateVector(FVector3f::ZAxisVector), HZ = Host->Rotation.RotateVector(FVector3f::ZAxisVector);
 		BadPose += FVector3f::DotProduct(BX, HX) >= 0.999f && FVector3f::DotProduct(BZ, HZ) >= 0.999f ? 0 : 1;
 	}
-	AddInfo(FString::Printf(TEXT("局部 |z| %.3f–%.3f，最差 |x|/|y| %.3f；越界 z %d / xy %d / 非 OrientedBlob %d / 尺寸 %d / 朝向 %d"),
-		ZLo, ZHi, WorstXY, BadZ, BadXY, BadKind, BadShape, BadPose));
+	AddInfo(FString::Printf(TEXT("局部 |z| %.3f–%.3f，最差 |x|/|y| %.3f，最差局部距离 %.3f；越界 z %d / xy %d / 距离 %d / 非 OrientedBlob %d / 尺寸 %d / 朝向 %d"),
+		ZLo, ZHi, WorstXY, WorstNorm, BadZ, BadXY, BadNorm, BadKind, BadShape, BadPose));
 	TestEqual(TEXT("没有无宿主的矿体"), NoHost, 0);
 	TestEqual(TEXT("局部 |z| 都在 [0.5, 1.02]（岩基顶面壳层）"), BadZ, 0);
 	TestEqual(TEXT("局部 |x|,|y| 都 ≤ 0.6"), BadXY, 0);
+	TestEqual(FString::Printf(TEXT("脉心到最近岩基的局部归一化距离 ≤ 1（实测最大 %.3f）"), WorstNorm), BadNorm, 0);
 	TestEqual(TEXT("都是 OrientedBlob（能沿长轴拉伸）"), BadKind, 0);
 	TestEqual(TEXT("半轴 = 比例 × R，X 最长 Z 最薄"), BadShape, 0);
 	TestEqual(TEXT("朝向与宿主一致"), BadPose, 0);
@@ -292,10 +298,10 @@ bool FGeoStage04c2CopperNickelTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage04c2ChromiumPGE, "StellarEra.Planet.Geo.Stage04c2.ChromiumPGE",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage04c2ChromiumPGETest, "StellarEra.Planet.Geo.Stage04c2.ChromiumPGE",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FGeoStage04c2ChromiumPGE::RunTest(const FString& Parameters)
+bool FGeoStage04c2ChromiumPGETest::RunTest(const FString& Parameters)
 {
 	FPlanetRecipeConfig C; C.FaceRes = 512;
 	TSharedPtr<FGeoChromiumPGERule> Rule = MakeShared<FGeoChromiumPGERule>();
@@ -456,43 +462,86 @@ bool FGeoStage04c2SwitchesTest::RunTest(const FString& Parameters)
 	FPlanetRecipeConfig C; C.FaceRes = 512;
 	// 确定性对拍要强制单线程：字段用途见 FPlanetRecipeConfig::bSingleThreadBake。
 	C.bSingleThreadBake = true;
-	TSharedPtr<FGeoDiamondRule> Diamond = MakeShared<FGeoDiamondRule>(); Diamond->MineralId = 1;
-	TSharedPtr<FGeoRareEarthRule> RareEarth = MakeShared<FGeoRareEarthRule>(); RareEarth->MineralId = 2;
+	TSharedPtr<FGeoTinTungstenRule> TinTungsten = MakeShared<FGeoTinTungstenRule>(); TinTungsten->MineralId = 1;
+	TSharedPtr<FGeoPegmatiteRule> Pegmatite = MakeShared<FGeoPegmatiteRule>(); Pegmatite->MineralId = 2;
+	TSharedPtr<FGeoCopperNickelRule> CopperNickel = MakeShared<FGeoCopperNickelRule>(); CopperNickel->MineralId = 3;
+	TSharedPtr<FGeoChromiumPGERule> ChromiumPGE = MakeShared<FGeoChromiumPGERule>(); ChromiumPGE->MineralId = 4;
+	TSharedPtr<FGeoDiamondRule> Diamond = MakeShared<FGeoDiamondRule>(); Diamond->MineralId = 5;
+	TSharedPtr<FGeoRareEarthRule> RareEarth = MakeShared<FGeoRareEarthRule>(); RareEarth->MineralId = 6;
 
-	auto Bake = [&](bool bDiamond, bool bRareEarth, FPlanetBakeFields& F, FPlanetBakeReport& R)
+	const TArray<FString> Names = { TEXT("锡钨"), TEXT("伟晶岩"), TEXT("铜镍"), TEXT("铬铂"), TEXT("金刚石"), TEXT("稀土") };
+	const TArray<uint8> Ids = { 1, 2, 3, 4, 5, 6 };
+	const TArray<TSharedPtr<const IGeoMineralRule>> Rules = { TinTungsten, Pegmatite, CopperNickel, ChromiumPGE, Diamond, RareEarth };
+
+	// Omit < 0 = 全开；否则只去掉这一条，其余照旧。
+	auto Bake = [&](int32 Omit, FPlanetBakeFields& F, FPlanetBakeReport& R)
 	{
 		C.MineralRules.Empty();
-		if (bDiamond) { C.MineralRules.Add(Diamond); }
-		if (bRareEarth) { C.MineralRules.Add(RareEarth); }
+		for (int32 i = 0; i < Rules.Num(); ++i) { if (i != Omit) { C.MineralRules.Add(Rules[i]); } }
 		Stage04c2TestBake(C, F, R);
 	};
 
+	FPlanetBakeFields Full; FPlanetBakeReport RF;
+	Bake(INDEX_NONE, Full, RF);
+	TestFalse(FString::Printf(TEXT("全开无错误（%s）"), *FString::Join(RF.Errors, TEXT(" | "))), RF.HasErrors());
+	TArray<int32> FullCounts;
+	for (int32 i = 0; i < Rules.Num(); ++i)
 	{
-		FPlanetBakeFields F; FPlanetBakeReport R;
-		Bake(true, true, F, R);
-		TestFalse(FString::Printf(TEXT("全开无错误（%s）"), *FString::Join(R.Errors, TEXT(" | "))), R.HasErrors());
-		TestTrue(TEXT("全开有金刚石"), Stage04c2BodyCount(F.Primitives, 1) > 0);
-		TestTrue(TEXT("全开有稀土"), Stage04c2BodyCount(F.Primitives, 2) > 0);
+		FullCounts.Add(Stage04c2BodyCount(Full.Primitives, Ids[i]));
+		TestTrue(FString::Printf(TEXT("全开有%s"), *Names[i]), FullCounts[i] > 0);
 	}
+	// 每条规则各用独立随机流（种子由 HashParams 派生），去掉一条后其余五种的矿体数必须逐位不变。
+	for (int32 Omit = 0; Omit < Rules.Num(); ++Omit)
 	{
 		FPlanetBakeFields F; FPlanetBakeReport R;
-		Bake(false, true, F, R);
-		TestEqual(TEXT("去掉金刚石规则后金刚石为 0"), Stage04c2BodyCount(F.Primitives, 1), 0);
-		TestTrue(TEXT("去掉金刚石不影响稀土"), Stage04c2BodyCount(F.Primitives, 2) > 0);
-	}
-	{
-		FPlanetBakeFields F; FPlanetBakeReport R;
-		Bake(true, false, F, R);
-		TestEqual(TEXT("去掉稀土规则后稀土为 0"), Stage04c2BodyCount(F.Primitives, 2), 0);
-		TestTrue(TEXT("去掉稀土不影响金刚石"), Stage04c2BodyCount(F.Primitives, 1) > 0);
+		Bake(Omit, F, R);
+		TestEqual(FString::Printf(TEXT("去掉%s规则后%s为 0"), *Names[Omit], *Names[Omit]),
+			Stage04c2BodyCount(F.Primitives, Ids[Omit]), 0);
+		for (int32 i = 0; i < Rules.Num(); ++i)
+		{
+			if (i == Omit) { continue; }
+			TestEqual(FString::Printf(TEXT("去掉%s不影响%s"), *Names[Omit], *Names[i]),
+				Stage04c2BodyCount(F.Primitives, Ids[i]), FullCounts[i]);
+		}
 	}
 	// 确定性：同配方两次烘焙，原语哈希一致。
 	{
-		FPlanetBakeFields F1, F2; FPlanetBakeReport R1, R2;
-		Bake(true, true, F1, R1);
-		Bake(true, true, F2, R2);
-		TestEqual(TEXT("两次烘焙原语哈希一致"), int64(Stage04c2PrimHash(F1.Primitives)), int64(Stage04c2PrimHash(F2.Primitives)));
+		FPlanetBakeFields F2; FPlanetBakeReport R2;
+		Bake(INDEX_NONE, F2, R2);
+		TestEqual(TEXT("两次烘焙原语哈希一致"), int64(Stage04c2PrimHash(Full.Primitives)), int64(Stage04c2PrimHash(F2.Primitives)));
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage04c2CatalogTest, "StellarEra.Planet.Geo.Stage04c2.Catalog",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage04c2CatalogTest::RunTest(const FString& Parameters)
+{
+	// 全部 13 种矿：撒矿器只按名字引用目录，编号 = 下标 + 1（PlanetRecipe.cpp ToConfig）。
+	const TCHAR* Ids[] = { TEXT("BIF"), TEXT("VMS"), TEXT("MnNodule"), TEXT("Chromite"), TEXT("Sulfur"),
+		TEXT("EpithermalAuAg"), TEXT("PorphyryCu"), TEXT("TinTungsten"), TEXT("PegmatiteLi"),
+		TEXT("CopperNickel"), TEXT("ChromiumPGE"), TEXT("Diamond"), TEXT("RareEarth") };
+	UGeoMineralCatalog* Cat = NewObject<UGeoMineralCatalog>();
+	for (const TCHAR* Id : Ids)
+	{
+		FGeoMineralDef D;
+		D.Id = FName(Id);
+		D.DisplayName = Id;
+		Cat->Minerals.Add(D);
+	}
+	TestEqual(TEXT("目录 13 个矿种"), Cat->Minerals.Num(), 13);
+
+	TSet<uint8> Seen;
+	for (const TCHAR* Id : Ids)
+	{
+		const int32 Index = Cat->FindIndex(FName(Id));
+		const uint8 MineralId = Index == INDEX_NONE ? 0 : uint8(Index + 1);
+		TestTrue(FString::Printf(TEXT("「%s」能解析出非零矿物编号"), Id), MineralId != 0);
+		TestTrue(FString::Printf(TEXT("「%s」的编号落在调色板范围内"), Id), Cat->Minerals.IsValidIndex(Index));
+		if (MineralId != 0) { Seen.Add(MineralId); }
+	}
+	TestEqual(TEXT("13 个矿物编号两两不同且非零"), Seen.Num(), 13);
 	return true;
 }
 
