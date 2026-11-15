@@ -60,9 +60,9 @@ FPlanetBakeFields Stage05RidgePlanet(const FPlanetRecipeConfig& C, float RidgeAm
 
 - [ ] **Step 1: 失败测试**
   - `Stage05.DryBelt`：真实星球 |lat| ∈ [25°,35°] 的平均降水比 |lat|<10° 与 [40°,50°] 都低 ≥ 0.15。
-  - `Stage05.RainShadow`：`Stage05RidgePlanet` 造一条南北向长山（`Elevation = Amp * exp(-(u/w)²)`，u 为到目标经线的角距，`Amp` 取 0.04R、`w` 取 6°），在 45° 纬度带取背风侧（东侧 3–5°）与迎风侧（西侧 3–5°），平均降水差 > 0.4。
+  - `Stage05.RainShadow`：`Stage05RidgePlanet` 造一条南北向长山（`Elevation = Amp * exp(-(u/w)²)`，u 为到目标经线的角距，`Amp` 取 **0.08R**、`w` 取 6°），在 45° 纬度带取背风侧（东侧 3–5°）与迎风侧（西侧 3–5°），平均降水差 > 0.4。0.04R 时采样点仍在山腰、实测只差约 0.29，够不到验收线，故加高山体。
 - [ ] **Step 2: RED。**
-- [ ] **Step 3: 实现**：四段纬度基准用 `SmoothStep`；离海衰减 `P *= 1 - OceanFalloff·(1-M)`；雨影按 spec §3.3（沿 `-W` 回溯 stride 2 texel、最多 32 步，撞海提前停）；最后加 `PrecipBias` 并 clamp。
+- [ ] **Step 3: 实现**：四段纬度基准用 `SmoothStep`；离海衰减 `P *= 1 - OceanFalloff·M`（内陆更干）；雨影按 spec §3.3（沿 `-W` 回溯 stride 2 texel、最多 32 步，撞海提前停）；最后加 `PrecipBias` 并 clamp。
   图层 `ClimatePrecipitation`（连续 0–1，褐→蓝绿）。
 - [ ] **Step 4: 绿；提交。**
 

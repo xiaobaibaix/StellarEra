@@ -100,7 +100,8 @@ void FStage05Climate::Bake(FPlanetBakeContext& Ctx) const
 			{
 				Precip = FMath::Lerp(P.BaseMid, P.BasePole, FMath::SmoothStep(45.f, 90.f, AbsLatDeg));
 			}
-			Precip *= 1.f - P.OceanFalloff * (1.f - M);
+			// 大陆度越高离海越远、水汽越少：M=1 的内陆扣满，海岸与海洋（M≈0）不扣。
+			Precip *= 1.f - P.OceanFalloff * M;
 
 			// 雨影是本阶段唯一的非局部算法：沿逆风方向回溯，翻过一段抬升就扣一份水汽。
 			const FVector3f W = Stage05::WindTangent(Dir, Az);

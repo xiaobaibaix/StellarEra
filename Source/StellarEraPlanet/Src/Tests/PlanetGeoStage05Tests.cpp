@@ -184,6 +184,36 @@ bool FGeoStage05DryBeltTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("三个纬度带都有样本"), DryN > 0 && EqN > 0 && MidN > 0);
 	TestTrue(TEXT("干旱带比赤道带低 ≥0.15"), DryMean < EqMean - 0.15);
 	TestTrue(TEXT("干旱带比中纬带低 ≥0.15"), DryMean < MidMean - 0.15);
+
+	// 离海衰减：逐 10° 纬度档比「高大陆度 vs 低大陆度」，消掉纬度基准的干扰。
+	double FalloffSum = 0.0;
+	int32 FalloffBins = 0;
+	for (int32 Bin = 0; Bin < 6; ++Bin)
+	{
+		double HiSum = 0.0, LoSum = 0.0;
+		int32 HiN = 0, LoN = 0;
+		for (int32 Face = 0; Face < 6; ++Face)
+			for (int32 Y = 0; Y < F.Precipitation.Res; ++Y)
+				for (int32 X = 0; X < F.Precipitation.Res; ++X)
+				{
+					const FVector3f Dir = F.Precipitation.TexelDir(Face, X, Y);
+					const float AbsLat = FMath::Abs(Stage05LatDeg(Dir));
+					if (AbsLat < float(Bin * 10) || AbsLat >= float(Bin * 10 + 10)) { continue; }
+					const float M = F.ContinentalMask.Sample(Dir);
+					const float P = F.Precipitation.At(Face, X, Y);
+					if (M > 0.8f) { HiSum += P; ++HiN; }
+					else if (M < 0.2f) { LoSum += P; ++LoN; }
+				}
+		if (HiN > 0 && LoN > 0)
+		{
+			FalloffSum += LoSum / LoN - HiSum / HiN;
+			++FalloffBins;
+		}
+	}
+	const double FalloffGap = FalloffBins > 0 ? FalloffSum / FalloffBins : 0.0;
+	AddInfo(FString::Printf(TEXT("同纬度带低大陆度减高大陆度均值差 %.4f（%d 档）"), FalloffGap, FalloffBins));
+	TestTrue(TEXT("至少三个纬度档同时有高/低大陆度样本"), FalloffBins >= 3);
+	TestTrue(TEXT("同纬度带高大陆度更干"), FalloffGap > 0.05);
 	return true;
 }
 
@@ -194,6 +224,8 @@ bool FGeoStage05RainShadowTest::RunTest(const FString& Parameters)
 {
 	FPlanetRecipeConfig C;
 	C.FaceRes = 256;
+	// 合成山整颗都是内陆（M=1）：离海衰减给两侧乘同一个常数、只把差值等比缩小，本测试只验雨影。
+	C.Climate.OceanFalloff = 0.f;
 	FPlanetBakeReport R;
 	// 南北向长山，风在 45° 吹向东：东侧背风、西侧迎风。
 	// 山高取 0.08R（spec 默认 0.04R 时 3–5° 采样点已在山腰，实测只差 0.289，够不到验收线 0.4）。
