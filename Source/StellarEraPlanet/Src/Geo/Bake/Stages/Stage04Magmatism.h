@@ -12,7 +12,7 @@ public:
 	{
 		return EPlanetField::Plates | EPlanetField::Continental | EPlanetField::Elevation | EPlanetField::Relief;
 	}
-	virtual EPlanetField GetWrites() const override { return EPlanetField::Elevation | EPlanetField::Volcanoes; }
+	virtual EPlanetField GetWrites() const override { return EPlanetField::Elevation | EPlanetField::Volcanoes | EPlanetField::Primitives; }
 	virtual void Bake(FPlanetBakeContext& Ctx) const override;
 	virtual void DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const override;
 	virtual void ExportDebugFields(const FPlanetBakeFields& Fields, TMap<FName, FGeoField2D>& Out) const override;

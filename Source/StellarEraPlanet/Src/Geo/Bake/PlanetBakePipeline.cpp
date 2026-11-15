@@ -99,6 +99,8 @@ TSharedPtr<const FPlanetSnapshot> FPlanetBakePipeline::Bake(const FPlanetRecipeC
 	Snap->Primitives.Build(MoveTemp(Fields.Primitives));
 	Snap->MineralOverlays = MoveTemp(Fields.MineralOverlays);
 	Snap->Minerals = Config.Minerals;
+	// 必须在 FinalizeHash 之前：AlterBands 进内容哈希。
+	for (int32 i = 0; i < 3; ++i) { Snap->AlterBands[i] = Fields.AlterBands[i]; }
 	Snap->Volcanoes = MoveTemp(Fields.Volcanoes);
 	// 只有阶段 1 时没有高程场，地表恒为 R0；有阶段 2 就用实测上下界。
 	const bool bHasElevation = Fields.Elevation.Res > 0;

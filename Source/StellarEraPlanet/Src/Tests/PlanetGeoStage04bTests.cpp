@@ -1,15 +1,40 @@
-﻿// 阶段 4b：合成原语直喂材质求值，不跑烘焙 —— 只验岩性 / 蚀变圈在单次查询里怎么落地。
+﻿// 阶段 4b：合成原语直喂材质求值，不跑烘焙 —— 只验岩性 / 蚀变圈在单次查询里怎么落地；
+// 放置侧跑真实 2→3→4 烘焙，验六类侵入体的数量、深度、确定性与尺度不变。
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "GeoLithology.h"
 #include "GeoPrimitive.h"
+#include "GeoRng.h"
 #include "PlanetMaterialEval.h"
 #include "PlanetSnapshot.h"
+#include "Stage02Plates.h"
+#include "Stage03Terrain.h"
+#include "Stage04Magmatism.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
 namespace
 {
+	// 跑阶段 2→3→4（阶段 4 内含 4b 放置）：与生产管线同一入口，避免测试自己拼一个近似的场。
+	void Stage04bTestBake(const FPlanetRecipeConfig& C, FPlanetBakeFields& F, FPlanetBakeReport& R)
+	{
+		FPlanetBakeContext C2{ C, F, FGeoRng::Derive(C.Seed, 2, 0), R }; FStage02Plates().Bake(C2);
+		FPlanetBakeContext C3{ C, F, FGeoRng::Derive(C.Seed, 3, 0), R }; FStage03Terrain().Bake(C3);
+		FPlanetBakeContext C4{ C, F, FGeoRng::Derive(C.Seed, 4, 0), R }; FStage04Magmatism().Bake(C4);
+	}
+	int32 Stage04bCount(const TArray<FGeoPrimitive>& P, uint8 Litho)
+	{
+		int32 N = 0; for (const FGeoPrimitive& Q : P) { N += Q.LithologyId == Litho ? 1 : 0; } return N;
+	}
+	int32 Stage04bClueCount(const TArray<FGeoPrimitive>& P)
+	{
+		int32 N = 0; for (const FGeoPrimitive& Q : P) { N += Q.ClueId != 0 ? 1 : 0; } return N;
+	}
+	// TArray<FGeoPrimitive> 没有 Hash：借快照索引的哈希，它逐字段混入（含 Center/Radii/Rotation）。
+	uint64 Stage04bPrimHash(const TArray<FGeoPrimitive>& P)
+	{
+		FGeoPrimitiveIndex I; I.Build(P); return I.Hash();
+	}
 	TSharedPtr<FPlanetSnapshot> Stage04bSnap(const TArray<FGeoPrimitive>& Prims)
 	{
 		TSharedPtr<FPlanetSnapshot> S = MakeShared<FPlanetSnapshot>();
@@ -57,6 +82,67 @@ bool FGeoStage04bMaterialTest::RunTest(const FString& Parameters)
 	const FGeoSample Ms = PlanetMaterialEval::Sample(*M, FVector3d(Center));
 	TestEqual(TEXT("矿仍被写出"), int32(Ms.Mineral), 7);
 	TestEqual(TEXT("岩性同时被覆盖"), int32(Ms.Lithology), int32(GeoLithology::Granite));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage04bPlacementTest, "StellarEra.Planet.Geo.Stage04b.Placement",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage04bPlacementTest::RunTest(const FString& Parameters)
+{
+	FPlanetRecipeConfig C; C.FaceRes = 512;
+	FPlanetBakeFields F; FPlanetBakeReport R;
+	Stage04bTestBake(C, F, R);
+	TestFalse(TEXT("无错误"), R.HasErrors());
+	const int32 NB = Stage04bCount(F.Primitives, GeoLithology::Granite);
+	const int32 NS = Stage04bCount(F.Primitives, GeoLithology::Diorite);
+	const int32 NG = Stage04bCount(F.Primitives, GeoLithology::Gabbro);
+	const int32 NL = Stage04bCount(F.Primitives, GeoLithology::LayeredMafic);
+	const int32 NK = Stage04bCount(F.Primitives, GeoLithology::Kimberlite);
+	AddInfo(FString::Printf(TEXT("岩基 %d，岩株 %d，辉长岩（岩墙+岩床）%d，层状 %d，金伯利 %d"), NB, NS, NG, NL, NK));
+	TestTrue(TEXT("有岩基"), NB > 0);
+	TestTrue(TEXT("有岩株"), NS > 0);
+	TestTrue(TEXT("有岩墙 / 岩床"), NG > 0);
+	TestTrue(TEXT("有金伯利岩"), NK > 0 && NK <= C.Intrusion.KimberliteMax);
+
+	const int32 Arc = F.Volcanoes.FilterByPredicate([](const FGeoVolcano& V) { return V.OtherPlate >= 0; }).Num();
+	TestEqual(TEXT("岩株数 = 弧火山数"), NS, Arc);
+
+	// 深度：每个岩体顶都在地表下 ≥ 0.01R（顶深参数最小的金伯利岩除外，它按自己的 0.004 检）。
+	int32 TooHigh = 0;
+	for (const FGeoPrimitive& P : F.Primitives)
+	{
+		if (P.LithologyId < GeoLithology::Granite) { continue; }
+		const float TopDepth = float((C.Radius + double(F.Elevation.Sample(FVector3f(P.Center.GetSafeNormal()))) - double(P.Bounds.Max.GetMax())) / C.Radius);
+		TooHigh += TopDepth >= 0.003f ? 0 : 1;
+	}
+	TestEqual(TEXT("没有侵入体露头"), TooHigh, 0);
+
+	// 确定性
+	FPlanetBakeFields F2; FPlanetBakeReport R2;
+	Stage04bTestBake(C, F2, R2);
+	TestEqual(TEXT("原语哈希可复现"), Stage04bPrimHash(F.Primitives), Stage04bPrimHash(F2.Primitives));
+
+	// 尺度不变
+	FPlanetRecipeConfig Half = C; Half.Radius = C.Radius * 0.5;
+	FPlanetBakeFields Fh; FPlanetBakeReport Rh;
+	Stage04bTestBake(Half, Fh, Rh);
+	TestEqual(TEXT("半径减半各类数量不变（岩基）"), Stage04bCount(Fh.Primitives, GeoLithology::Granite), NB);
+	TestEqual(TEXT("半径减半各类数量不变（岩株）"), Stage04bCount(Fh.Primitives, GeoLithology::Diorite), NS);
+	TestTrue(TEXT("半径减半单个原语半轴减半"), Fh.Primitives.Num() > 0 && F.Primitives.Num() > 0
+		&& FMath::IsNearlyEqual(Fh.Primitives.Last().Bounds.GetExtent().GetMax(), 0.5f * F.Primitives.Last().Bounds.GetExtent().GetMax(), 1e-3f));
+
+	// 开关
+	const auto Off = [&](TFunctionRef<void(FPlanetIntrusionParams&)> Set, uint8 Litho, const TCHAR* Name)
+	{
+		FPlanetRecipeConfig X = C; Set(X.Intrusion);
+		FPlanetBakeFields Fx; FPlanetBakeReport Rx; Stage04bTestBake(X, Fx, Rx);
+		TestEqual(FString::Printf(TEXT("关闭%s"), Name), Stage04bCount(Fx.Primitives, Litho), 0);
+	};
+	Off([](FPlanetIntrusionParams& P) { P.bBatholiths = false; }, GeoLithology::Granite, TEXT("岩基"));
+	Off([](FPlanetIntrusionParams& P) { P.bStocks = false; }, GeoLithology::Diorite, TEXT("岩株"));
+	Off([](FPlanetIntrusionParams& P) { P.bLayeredIntrusions = false; }, GeoLithology::LayeredMafic, TEXT("层状侵入体"));
+	Off([](FPlanetIntrusionParams& P) { P.bKimberlites = false; }, GeoLithology::Kimberlite, TEXT("金伯利岩"));
 	return true;
 }
 

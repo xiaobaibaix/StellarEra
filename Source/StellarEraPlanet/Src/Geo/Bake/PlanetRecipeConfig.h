@@ -127,6 +127,46 @@ struct FPlanetVolcanoParams
 	float CinderHeightRatio = 0.002f;     // 渣锥高
 };
 
+/** 阶段 4b 地下侵入体：尺度同样是占半径的比例，深度 = 比例 × Radius 体素。 */
+struct FPlanetIntrusionParams
+{
+	bool bBatholiths = true;              // 岩基：弧火山段下方的大花岗岩体
+	bool bStocks = true;                  // 岩株：每座弧火山正下方的小侵入体（4c 斑岩铜宿主）
+	bool bDikes = true;                   // 岩墙：裂谷处近垂直的薄板
+	bool bSills = true;                   // 岩床：溢流玄武岩台地与克拉通下的近水平薄板
+	bool bLayeredIntrusions = true;       // 层状侵入体：古老克拉通的叠层（4c 铬铂宿主）
+	bool bKimberlites = true;             // 金伯利岩管（4c 金刚石宿主）
+	bool bAlteration = true;              // 岩体周围的蚀变晕（只写材质线索）
+	float BatholithLongRatio = 0.08f;     // 岩基长半径（占 R）
+	float BatholithShortRatio = 0.04f;    // 岩基短半径
+	float BatholithThickRatio = 0.03f;    // 岩基竖直半径
+	float BatholithTopDepthRatio = 0.05f; // 岩基顶深
+	int32 BatholithMinVolcanoes = 3;      // 段内至少几座弧火山才长岩基
+	float StockRadiusRatio = 0.008f;      // 岩株半径
+	float StockTopDepthRatio = 0.03f;     // 岩株顶深
+	int32 DikePerRift = 2;                // 每条裂谷的岩墙数
+	float DikeThicknessRatio = 0.002f;    // 岩墙厚（半径）
+	float DikeLengthRatio = 0.02f;        // 岩墙半高
+	float DikeTopDepthRatio = 0.02f;      // 岩墙顶深
+	float SillRadiusRatio = 0.05f;        // 岩床半径
+	float SillThicknessRatio = 0.002f;    // 岩床厚（半）
+	float SillTopDepthRatio = 0.02f;      // 岩床顶深
+	float CratonSillDensity = 0.4f;       // 克拉通内岩床撒布密度
+	int32 LayeredCount = 4;               // 层状侵入体每组的层数
+	float LayeredRadiusRatio = 0.03f;     // 单层半径
+	float LayeredThicknessRatio = 0.0025f;// 单层半厚
+	float LayeredGapRatio = 0.004f;       // 层间距
+	float LayeredTopDepthRatio = 0.06f;   // 整组顶深
+	float KimberliteRadiusRatio = 0.002f; // 岩管半径
+	float KimberliteHalfHeightRatio = 0.01f; // 岩管半高
+	float KimberliteTopDepthRatio = 0.004f;  // 岩管顶深
+	int32 KimberliteMax = 8;              // 全局最多几根
+	float AlterHaloScale = 2.2f;          // 岩株晕半径倍数（岩基固定 1.25）
+	float AlterKeratiticBand = 0.3f;      // 钾化外边界（归一化距离）
+	float AlterSericiticBand = 0.55f;     // 绢英岩化外边界
+	float AlterArgillicBand = 0.8f;       // 泥化外边界
+};
+
 struct FPlanetRecipeConfig
 {
 	/** 半径（体素），由行星填；烘焙全程以体素为单位，与体素厘米尺寸无关。 */
@@ -144,6 +184,7 @@ struct FPlanetRecipeConfig
 	FPlanetContinentParams Continents;
 	FPlanetTerrainParams Terrain;
 	FPlanetVolcanoParams Volcano;
+	FPlanetIntrusionParams Intrusion;
 	/** 撒矿规则（来自配方的撒矿器列表，已过滤掉停用项）。规则不可变，后台线程只读。 */
 	TArray<TSharedPtr<const IGeoMineralRule>> MineralRules;
 	/** 矿物调色板，只供显示，不进哈希。 */
@@ -193,6 +234,18 @@ struct FPlanetRecipeConfig
 			Vp.FloodBasaltSizeRatio, Vp.FloodBasaltHeightRatio, Vp.CalderaFraction, Vp.CalderaRadiusRatio, Vp.CalderaDepthRatio,
 			Vp.CinderBaseRatio, Vp.CinderHeightRatio };
 		for (const float V : Vo) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
+		const FPlanetIntrusionParams& In = Intrusion;
+		H = GeoHash::Combine(H, uint64(In.bBatholiths) | (uint64(In.bStocks) << 1) | (uint64(In.bDikes) << 2)
+			| (uint64(In.bSills) << 3) | (uint64(In.bLayeredIntrusions) << 4) | (uint64(In.bKimberlites) << 5) | (uint64(In.bAlteration) << 6));
+		H = GeoHash::Combine(H, uint64(uint32(In.BatholithMinVolcanoes)) | (uint64(uint32(In.DikePerRift)) << 32));
+		H = GeoHash::Combine(H, uint64(uint32(In.LayeredCount)) | (uint64(uint32(In.KimberliteMax)) << 32));
+		const float InF[24] = { In.BatholithLongRatio, In.BatholithShortRatio, In.BatholithThickRatio, In.BatholithTopDepthRatio,
+			In.StockRadiusRatio, In.StockTopDepthRatio, In.DikeThicknessRatio, In.DikeLengthRatio, In.DikeTopDepthRatio,
+			In.SillRadiusRatio, In.SillThicknessRatio, In.SillTopDepthRatio, In.CratonSillDensity,
+			In.LayeredRadiusRatio, In.LayeredThicknessRatio, In.LayeredGapRatio, In.LayeredTopDepthRatio,
+			In.KimberliteRadiusRatio, In.KimberliteHalfHeightRatio, In.KimberliteTopDepthRatio,
+			In.AlterHaloScale, In.AlterKeratiticBand, In.AlterSericiticBand, In.AlterArgillicBand };
+		for (const float V : InF) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 		for (const TSharedPtr<const IGeoMineralRule>& Rule : MineralRules)
 		{
 			if (Rule) { H = GeoHash::Combine(H, Rule->Hash()); }

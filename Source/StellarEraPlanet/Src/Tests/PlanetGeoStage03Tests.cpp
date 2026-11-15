@@ -396,6 +396,8 @@ bool FGeoChromiteTest::RunTest(const FString& Parameters)
 	int32 N = 0, Bad = 0;
 	for (const FGeoPrimitive& P : Snap->Primitives.GetPrimitives())
 	{
+		// 快照原语表还装着 4b 的侵入体：这条只查铬铁矿自己撒的豆荚体。
+		if (P.MineralId != Rule->MineralId) { continue; }
 		++N;
 		Bad += Belt->Sample(P.Center.GetSafeNormal()) < 0.3f ? 1 : 0;
 	}

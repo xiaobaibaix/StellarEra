@@ -52,6 +52,8 @@ struct FPlanetBakeFields
 	// 阶段 4：点表进快照；宏观场（MacroRes）只给调试图层。Elevation 已叠上火山。
 	TArray<FGeoVolcano> Volcanoes;
 	FGeoField2D VolcanoMask, VolcanicType, VolcanicAge, VolcanoActive, VolcanoDelta;
+	/** 4b 的蚀变分圈阈值，原样搬进快照：材质求值与烘焙参数必须同源。 */
+	float AlterBands[3] = { 0.3f, 0.55f, 0.8f };
 };
 
 struct FPlanetBakeReport

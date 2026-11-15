@@ -1,4 +1,5 @@
 ﻿#include "Stage04Magmatism.h"
+#include "Stage04bIntrusions.h"
 #include "Async/ParallelFor.h"
 #include "GeoContinentField.h"
 #include "GeoNoise.h"
@@ -351,6 +352,13 @@ void FStage04Magmatism::Bake(FPlanetBakeContext& Ctx) const
 			}
 		}, PF);
 	}
+
+	// 4b 读的是叠完火山的最终高程：侵入体顶深要相对真实地表量，否则弧下的岩株会埋在锥里。
+	// 阈值无条件写：关掉蚀变时没有晕原语，阈值不影响任何求值。
+	Stage04b::PlaceIntrusions(Cfg, F, F.Primitives);
+	F.AlterBands[0] = Cfg.Intrusion.AlterKeratiticBand;
+	F.AlterBands[1] = Cfg.Intrusion.AlterSericiticBand;
+	F.AlterBands[2] = Cfg.Intrusion.AlterArgillicBand;
 }
 namespace
 {
