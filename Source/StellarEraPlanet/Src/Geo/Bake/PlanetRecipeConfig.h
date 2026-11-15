@@ -190,6 +190,16 @@ struct FPlanetClimateParams
 	int32 ShadowSteps = 32;          // 逆风回溯步数上限
 	int32 ShadowStride = 2;          // 每步跨几个气候 texel
 	float PrecipBias = 0.f;          // 全局降水偏移（调参用）
+	// 群系阈值：查表顺序固定（见 Stage05::BiomeFor），首个命中即返回。
+	float BiomeIceTemp = 0.2f;          // 冰原：温度低于它
+	float BiomeDesertPrecip = 0.2f;     // 沙漠：降水低于它
+	float BiomeTundraTemp = 0.35f;      // 苔原：温度低于它
+	float BiomeForestTemp = 0.55f;      // 针叶林：温度低于它
+	float BiomeForestPrecip = 0.35f;    // 针叶林：降水高于它
+	float BiomeRainTemp = 0.7f;         // 雨林：温度高于它
+	float BiomeRainPrecip = 0.6f;       // 雨林：降水高于它
+	float BiomeSavannaTemp = 0.75f;     // 稀树草原：温度高于它
+	float BiomeTemperatePrecip = 0.5f;  // 温带林：降水高于它
 };
 
 struct FPlanetRecipeConfig
@@ -277,9 +287,12 @@ struct FPlanetRecipeConfig
 		H = GeoHash::Combine(H, uint64(uint32(Climate.ClimateRes))
 			| (uint64(uint32(Climate.ShadowSteps)) << 32));
 		H = GeoHash::Combine(H, uint64(uint32(Climate.ShadowStride)));
-		const float ClF[12] = { Climate.AxialTiltDeg, Climate.EquatorTemp, Climate.PoleTemp, Climate.LapseRate, Climate.Continentality,
+		const float ClF[21] = { Climate.AxialTiltDeg, Climate.EquatorTemp, Climate.PoleTemp, Climate.LapseRate, Climate.Continentality,
 			Climate.BaseEquator, Climate.BaseDry, Climate.BaseMid, Climate.BasePole, Climate.OceanFalloff,
-			Climate.RainShadow, Climate.PrecipBias };
+			Climate.RainShadow, Climate.PrecipBias,
+			Climate.BiomeIceTemp, Climate.BiomeDesertPrecip, Climate.BiomeTundraTemp, Climate.BiomeForestTemp,
+			Climate.BiomeForestPrecip, Climate.BiomeRainTemp, Climate.BiomeRainPrecip, Climate.BiomeSavannaTemp,
+			Climate.BiomeTemperatePrecip };
 		for (const float V : ClF) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 		for (const TSharedPtr<const IGeoMineralRule>& Rule : MineralRules)
 		{

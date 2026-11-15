@@ -21,6 +21,19 @@ FVector3f Stage05::WindTangent(const FVector3f& Dir, float AzimuthDeg)
 	return North * FMath::Cos(Az) + East * FMath::Sin(Az);
 }
 
+int32 Stage05::BiomeFor(float T, float P, const FPlanetClimateParams& Params)
+{
+	// 顺序是契约：同一对温/降水只许落到一个群系，重排一行就会改掉整张图。
+	if (T < Params.BiomeIceTemp) { return 0; }
+	if (P < Params.BiomeDesertPrecip) { return 1; }
+	if (T < Params.BiomeTundraTemp) { return 2; }
+	if (T < Params.BiomeForestTemp && P > Params.BiomeForestPrecip) { return 3; }
+	if (T > Params.BiomeRainTemp && P > Params.BiomeRainPrecip) { return 4; }
+	if (T > Params.BiomeSavannaTemp) { return 5; }
+	if (P > Params.BiomeTemperatePrecip) { return 6; }
+	return 7;
+}
+
 namespace
 {
 	/** 调试图层读烘焙期的中间场；缺了返回「无数据」，不崩。 */
@@ -81,7 +94,8 @@ void FStage05Climate::Bake(FPlanetBakeContext& Ctx) const
 			const float T = P.PoleTemp + (P.EquatorTemp - P.PoleTemp) * (1.f - Z * Z)
 				- P.LapseRate * FMath::Clamp(E * LapseScale, 0.f, 1.f)
 				+ P.Continentality * (M - 0.5f);
-			F.Temperature.At(Face, X, Y) = FMath::Clamp(T, 0.f, 1.f);
+			const float TStore = FMath::Clamp(T, 0.f, 1.f);
+			F.Temperature.At(Face, X, Y) = TStore;
 
 			const float Az = Stage05::WindAzimuth(AbsLatDeg);
 			F.WindDir.At(Face, X, Y) = Az;
@@ -122,7 +136,10 @@ void FStage05Climate::Bake(FPlanetBakeContext& Ctx) const
 					PrevE = QE;
 				}
 			}
-			F.Precipitation.At(Face, X, Y) = FMath::Clamp(Precip + P.PrecipBias, 0.f, 1.f);
+			const float PStore = FMath::Clamp(Precip + P.PrecipBias, 0.f, 1.f);
+			F.Precipitation.At(Face, X, Y) = PStore;
+			// 群系只用存下来的 T/P 判：图层、测试与阶段 6 读到的必须是同一对输入。
+			F.Biome.At(Face, X, Y) = float(Stage05::BiomeFor(TStore, PStore, P));
 			F.ClimateLand.At(Face, X, Y) = E > 0.f ? 1.f : 0.f;
 		}
 	}, PF);
@@ -179,6 +196,19 @@ void FStage05Climate::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const
 		};
 		Out.Add(MoveTemp(L));
 	}
+	{
+		FGeoDebugLayer L;
+		L.Id = TEXT("Biome"); L.DisplayName = TEXT("生物群系"); L.Stage = 5;
+		L.Kind = EGeoDebugKind::Categorical;
+		L.Legend = {
+			{ TEXT("冰原"), FColor(240, 246, 255) }, { TEXT("沙漠"), FColor(226, 202, 130) },
+			{ TEXT("苔原"), FColor(150, 160, 150) }, { TEXT("针叶林"), FColor(28, 84, 58) },
+			{ TEXT("雨林"), FColor(12, 168, 92) }, { TEXT("稀树草原"), FColor(196, 186, 74) },
+			{ TEXT("温带林"), FColor(92, 148, 70) }, { TEXT("草原"), FColor(184, 214, 118) } };
+		// 分类必须最近邻：双线性会把两个相邻群系的编号混成不存在的第三个。
+		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P) { return Stage05DebugField(S, TEXT("Biome"), P, true); };
+		Out.Add(MoveTemp(L));
+	}
 }
 
 void FStage05Climate::ExportDebugFields(const FPlanetBakeFields& Fields, TMap<FName, FGeoField2D>& Out) const
@@ -186,4 +216,5 @@ void FStage05Climate::ExportDebugFields(const FPlanetBakeFields& Fields, TMap<FN
 	if (Fields.Temperature.Res > 0) { Out.Add(TEXT("Temperature"), Fields.Temperature); }
 	if (Fields.Precipitation.Res > 0) { Out.Add(TEXT("Precipitation"), Fields.Precipitation); }
 	if (Fields.WindDir.Res > 0) { Out.Add(TEXT("WindDir"), Fields.WindDir); }
+	if (Fields.Biome.Res > 0) { Out.Add(TEXT("Biome"), Fields.Biome); }
 }

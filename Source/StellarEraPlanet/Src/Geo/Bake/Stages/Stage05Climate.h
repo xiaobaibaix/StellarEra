@@ -1,4 +1,4 @@
-﻿// 阶段 5：气候。温度、风带、降水（含逆风雨影）；群系在后续任务补。
+﻿// 阶段 5：气候。温度、风带、降水（含逆风雨影）、群系。
 #pragma once
 #include "CoreMinimal.h"
 #include "PlanetStage.h"
@@ -21,4 +21,6 @@ namespace Stage05
 	STELLARERAPLANET_API float WindAzimuth(float AbsLatDeg);
 	/** 方位角 → 球面切向单位向量（风实际吹向）；极点处切向退化，返回零向量。 */
 	STELLARERAPLANET_API FVector3f WindTangent(const FVector3f& Dir, float AzimuthDeg);
+	/** 按固定顺序查群系表，返回编号 0–7（与 Biome 场存的 float 编号一致）。 */
+	STELLARERAPLANET_API int32 BiomeFor(float T, float P, const FPlanetClimateParams& Params);
 }

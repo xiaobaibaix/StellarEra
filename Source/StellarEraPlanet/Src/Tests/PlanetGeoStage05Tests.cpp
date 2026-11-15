@@ -250,4 +250,152 @@ bool FGeoStage05RainShadowTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage05BiomeTableTest, "StellarEra.Planet.Geo.Stage05.BiomeTable",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage05BiomeTableTest::RunTest(const FString& Parameters)
+{
+	FPlanetRecipeConfig C;
+	C.FaceRes = 256;
+	FPlanetBakeReport R;
+	const FPlanetBakeFields F = Stage05TestPlanet(C, R);
+	if (!TestFalse(FString::Printf(TEXT("无错误（%s）"), *FString::Join(R.Errors, TEXT(" | "))), R.HasErrors())) { return false; }
+	if (!TestEqual(TEXT("群系场分辨率 = ClimateRes"), F.Biome.Res, C.Climate.ClimateRes)) { return false; }
+
+	int32 Mismatch = 0, BadValue = 0;
+	int32 Counts[8] = { 0 };
+	for (int32 Face = 0; Face < 6; ++Face)
+		for (int32 Y = 0; Y < F.Biome.Res; ++Y)
+			for (int32 X = 0; X < F.Biome.Res; ++X)
+			{
+				const float T = F.Temperature.At(Face, X, Y);
+				const float P = F.Precipitation.At(Face, X, Y);
+				const float Recorded = F.Biome.At(Face, X, Y);
+				const int32 Re = Stage05::BiomeFor(T, P, C.Climate);
+				// 场里存 float 编号：用记录下来的 T/P 重查必须逐位落在同一编号，漏写一格这里就会暴露。
+				Mismatch += Recorded == float(Re) ? 0 : 1;
+				if (Recorded < 0.f || Recorded > 7.f || Recorded != float(int32(Recorded))) { ++BadValue; }
+				else { ++Counts[int32(Recorded)]; }
+			}
+	static const TCHAR* Names[8] = { TEXT("冰原"), TEXT("沙漠"), TEXT("苔原"), TEXT("针叶林"),
+		TEXT("雨林"), TEXT("稀树草原"), TEXT("温带林"), TEXT("草原") };
+	FString Hist;
+	int32 Distinct = 0;
+	for (int32 i = 0; i < 8; ++i)
+	{
+		Distinct += Counts[i] > 0 ? 1 : 0;
+		Hist += FString::Printf(TEXT("%s %d  "), Names[i], Counts[i]);
+	}
+	AddInfo(FString::Printf(TEXT("群系分布：%s"), *Hist));
+	TestEqual(TEXT("逐 texel 重查与记录一致"), Mismatch, 0);
+	TestEqual(TEXT("编号都是 0–7 的整数"), BadValue, 0);
+	TestTrue(FString::Printf(TEXT("至少四种群系（实测 %d）"), Distinct), Distinct >= 4);
+
+	// 顺序敏感探针：同一对温/降水常同时满足多行条件，只有按表序查才给出正确群系。
+	const FPlanetClimateParams& Q = C.Climate;
+	struct FBiomeProbe { float T, P; int32 Want; const TCHAR* Name; };
+	const FBiomeProbe Probes[] = {
+		{ Q.BiomeIceTemp - 0.05f, 0.95f, 0, TEXT("冰原优先于其他") },
+		{ 0.5f * (Q.BiomeIceTemp + Q.BiomeTundraTemp), Q.BiomeDesertPrecip - 0.05f, 1, TEXT("沙漠优先于苔原") },
+		{ 0.5f * (Q.BiomeIceTemp + Q.BiomeTundraTemp), 0.95f, 2, TEXT("苔原") },
+		{ 0.5f * (Q.BiomeTundraTemp + Q.BiomeForestTemp), Q.BiomeForestPrecip + 0.2f, 3, TEXT("针叶林优先于温带林") },
+		{ Q.BiomeRainTemp + 0.05f, Q.BiomeRainPrecip + 0.05f, 4, TEXT("雨林优先于稀树草原") },
+		{ Q.BiomeSavannaTemp + 0.05f, Q.BiomeDesertPrecip + 0.1f, 5, TEXT("稀树草原") },
+		{ Q.BiomeForestTemp + 0.05f, Q.BiomeTemperatePrecip + 0.1f, 6, TEXT("温带林") },
+		{ Q.BiomeTundraTemp + 0.1f, Q.BiomeDesertPrecip + 0.1f, 7, TEXT("草原兜底") },
+	};
+	for (const FBiomeProbe& Probe : Probes)
+	{
+		TestEqual(FString::Printf(TEXT("%s（T=%.3f，P=%.3f）"), Probe.Name, Probe.T, Probe.P),
+			Stage05::BiomeFor(Probe.T, Probe.P, Q), Probe.Want);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage05ScaleInvarianceTest, "StellarEra.Planet.Geo.Stage05.ScaleInvariance",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage05ScaleInvarianceTest::RunTest(const FString& Parameters)
+{
+	FPlanetRecipeConfig C;
+	C.FaceRes = 256;
+	FPlanetRecipeConfig Half = C;
+	Half.Radius = C.Radius * 0.5;
+	FPlanetBakeReport R1, R2;
+	const FPlanetBakeFields Full = Stage05TestPlanet(C, R1);
+	const FPlanetBakeFields Fine = Stage05TestPlanet(Half, R2);
+	if (!TestFalse(FString::Printf(TEXT("全尺度无错误（%s）"), *FString::Join(R1.Errors, TEXT(" | "))), R1.HasErrors())) { return false; }
+	if (!TestFalse(FString::Printf(TEXT("半尺度无错误（%s）"), *FString::Join(R2.Errors, TEXT(" | "))), R2.HasErrors())) { return false; }
+
+	// 气候量全是「方向 + 高程/R」的函数：半径整体缩放不该动任何一位，而不是「差不多」。
+	struct FFieldPair { const TCHAR* Name; const FGeoField2D& A; const FGeoField2D& B; };
+	const FFieldPair Fields[] = {
+		{ TEXT("温度"), Full.Temperature, Fine.Temperature },
+		{ TEXT("降水"), Full.Precipitation, Fine.Precipitation },
+		{ TEXT("风向"), Full.WindDir, Fine.WindDir },
+		{ TEXT("群系"), Full.Biome, Fine.Biome },
+	};
+	for (const FFieldPair& Pair : Fields)
+	{
+		if (!TestEqual(FString::Printf(TEXT("%s：两次分辨率相同"), Pair.Name), Pair.B.Res, Pair.A.Res)) { continue; }
+		int32 Diffs = 0;
+		float MaxDiff = 0.f;
+		for (int32 Face = 0; Face < 6; ++Face)
+			for (int32 Y = 0; Y < Pair.A.Res; ++Y)
+				for (int32 X = 0; X < Pair.A.Res; ++X)
+				{
+					const float VA = Pair.A.At(Face, X, Y), VB = Pair.B.At(Face, X, Y);
+					if (VA != VB) { ++Diffs; MaxDiff = FMath::Max(MaxDiff, FMath::Abs(VA - VB)); }
+				}
+		AddInfo(FString::Printf(TEXT("%s 逐位差 %d 处，最大差 %.3e"), Pair.Name, Diffs, MaxDiff));
+		TestEqual(FString::Printf(TEXT("%s：半径减半后逐位相同"), Pair.Name), Diffs, 0);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage05DeterminismTest, "StellarEra.Planet.Geo.Stage05.Determinism",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage05DeterminismTest::RunTest(const FString& Parameters)
+{
+	FPlanetRecipeConfig C;
+	C.FaceRes = 256;
+	FPlanetBakeReport R1, R2;
+	const FPlanetBakeFields A = Stage05TestPlanet(C, R1);
+	const FPlanetBakeFields B = Stage05TestPlanet(C, R2);
+	if (!TestFalse(FString::Printf(TEXT("两次烘焙无错误（%s | %s）"),
+		*FString::Join(R1.Errors, TEXT(" | ")), *FString::Join(R2.Errors, TEXT(" | "))), R1.HasErrors() || R2.HasErrors())) { return false; }
+
+	struct FFieldPair { const TCHAR* Name; const FGeoField2D& X; const FGeoField2D& Y; };
+	const FFieldPair Same[] = {
+		{ TEXT("温度"), A.Temperature, B.Temperature },
+		{ TEXT("降水"), A.Precipitation, B.Precipitation },
+		{ TEXT("风向"), A.WindDir, B.WindDir },
+		{ TEXT("群系"), A.Biome, B.Biome },
+	};
+	for (const FFieldPair& Pair : Same)
+	{
+		AddInfo(FString::Printf(TEXT("%s 哈希 %llu / %llu"), Pair.Name, Pair.X.Hash(), Pair.Y.Hash()));
+		TestTrue(FString::Printf(TEXT("%s：同配方两次烘焙哈希一致"), Pair.Name), Pair.X.Hash() == Pair.Y.Hash());
+	}
+
+	// 并行写入与单线程对拍：每个 texel 只写自己，两条路径必须给出同一份场。
+	FPlanetRecipeConfig Single = C;
+	Single.bSingleThreadBake = true;
+	FPlanetBakeReport R3;
+	const FPlanetBakeFields S = Stage05TestPlanet(Single, R3);
+	if (!TestFalse(FString::Printf(TEXT("单线程烘焙无错误（%s）"), *FString::Join(R3.Errors, TEXT(" | "))), R3.HasErrors())) { return false; }
+	const FFieldPair SinglePairs[] = {
+		{ TEXT("温度"), A.Temperature, S.Temperature },
+		{ TEXT("降水"), A.Precipitation, S.Precipitation },
+		{ TEXT("风向"), A.WindDir, S.WindDir },
+		{ TEXT("群系"), A.Biome, S.Biome },
+	};
+	for (const FFieldPair& Pair : SinglePairs)
+	{
+		TestTrue(FString::Printf(TEXT("%s：单线程与并行哈希一致"), Pair.Name), Pair.X.Hash() == Pair.Y.Hash());
+	}
+	return true;
+}
+
 #endif
