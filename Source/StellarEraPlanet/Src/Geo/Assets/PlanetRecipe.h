@@ -328,6 +328,147 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano", meta = (ClampMin = "0", ClampMax = "0.05"))
 	float CinderHeightRatio = 0.002f;
 
+	// 阶段 4b：地下侵入体。字段与 FPlanetIntrusionParams 一一对应，尺度同样占半径比例。
+	/** 岩基：弧火山段下方的大花岗岩体。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion")
+	bool bBatholiths = true;
+
+	/** 岩株：每座弧火山正下方的小侵入体（4c 斑岩铜宿主）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion")
+	bool bStocks = true;
+
+	/** 岩墙：裂谷处近垂直的薄板。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion")
+	bool bDikes = true;
+
+	/** 岩床：溢流玄武岩台地与克拉通下的近水平薄板。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion")
+	bool bSills = true;
+
+	/** 层状侵入体：古老克拉通的叠层（4c 铬铂宿主）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion")
+	bool bLayeredIntrusions = true;
+
+	/** 金伯利岩管（4c 金刚石宿主）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion")
+	bool bKimberlites = true;
+
+	/** 岩体周围的蚀变晕（只写材质线索）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion")
+	bool bAlteration = true;
+
+	/** 岩基长半径（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0.001", ClampMax = "0.5"))
+	float BatholithLongRatio = 0.08f;
+
+	/** 岩基短半径（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0.001", ClampMax = "0.5"))
+	float BatholithShortRatio = 0.04f;
+
+	/** 岩基竖直半径（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0.001", ClampMax = "0.5"))
+	float BatholithThickRatio = 0.03f;
+
+	/** 岩基顶深（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0", ClampMax = "0.5"))
+	float BatholithTopDepthRatio = 0.05f;
+
+	/** 段内至少几座弧火山才长岩基。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "1", ClampMax = "32"))
+	int32 BatholithMinVolcanoes = 3;
+
+	/** 岩株半径（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0.0005", ClampMax = "0.1"))
+	float StockRadiusRatio = 0.008f;
+
+	/** 岩株顶深（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0", ClampMax = "0.3"))
+	float StockTopDepthRatio = 0.03f;
+
+	/** 每条裂谷的岩墙数。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0", ClampMax = "32"))
+	int32 DikePerRift = 2;
+
+	/** 岩墙厚（半宽，占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0.0002", ClampMax = "0.05"))
+	float DikeThicknessRatio = 0.002f;
+
+	/** 岩墙半高（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0.001", ClampMax = "0.2"))
+	float DikeLengthRatio = 0.02f;
+
+	/** 岩墙顶深（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0", ClampMax = "0.3"))
+	float DikeTopDepthRatio = 0.02f;
+
+	/** 岩床半径（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0.001", ClampMax = "0.3"))
+	float SillRadiusRatio = 0.05f;
+
+	/** 岩床半厚（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0.0002", ClampMax = "0.05"))
+	float SillThicknessRatio = 0.002f;
+
+	/** 岩床顶深（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0", ClampMax = "0.3"))
+	float SillTopDepthRatio = 0.02f;
+
+	/** 克拉通内岩床撒布密度。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0", ClampMax = "1"))
+	float CratonSillDensity = 0.4f;
+
+	/** 层状侵入体每组的层数。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "1", ClampMax = "20"))
+	int32 LayeredCount = 4;
+
+	/** 单层半径（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0.001", ClampMax = "0.2"))
+	float LayeredRadiusRatio = 0.03f;
+
+	/** 单层半厚（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0.0002", ClampMax = "0.05"))
+	float LayeredThicknessRatio = 0.0025f;
+
+	/** 层间距（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0.0002", ClampMax = "0.05"))
+	float LayeredGapRatio = 0.004f;
+
+	/** 整组顶深（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0", ClampMax = "0.3"))
+	float LayeredTopDepthRatio = 0.06f;
+
+	/** 岩管半径（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0.0002", ClampMax = "0.05"))
+	float KimberliteRadiusRatio = 0.002f;
+
+	/** 岩管半高（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0.001", ClampMax = "0.1"))
+	float KimberliteHalfHeightRatio = 0.01f;
+
+	/** 岩管顶深（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0", ClampMax = "0.3"))
+	float KimberliteTopDepthRatio = 0.004f;
+
+	/** 全局最多几根岩管。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0", ClampMax = "64"))
+	int32 KimberliteMax = 8;
+
+	/** 岩株蚀变晕半径倍数（岩基固定 1.25）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "1", ClampMax = "8"))
+	float AlterHaloScale = 2.2f;
+
+	/** 钾化外边界（归一化距离）。三项必须一项比一项大，否则中间那圈消失。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0", ClampMax = "1"))
+	float AlterKeratiticBand = 0.3f;
+
+	/** 绢英岩化外边界（归一化距离）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0", ClampMax = "1"))
+	float AlterSericiticBand = 0.55f;
+
+	/** 泥化外边界（归一化距离）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0", ClampMax = "1"))
+	float AlterArgillicBand = 0.8f;
+
 	/** 矿物目录：编号、中文名、调试色。撒矿器只引用这里的编号。 */
 	UPROPERTY(EditAnywhere, Category = "Minerals")
 	TObjectPtr<UGeoMineralCatalog> MineralCatalog;

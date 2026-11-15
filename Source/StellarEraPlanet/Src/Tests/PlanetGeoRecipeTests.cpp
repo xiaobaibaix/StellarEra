@@ -99,6 +99,101 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("HotspotChainLength 透传"), Cv.Volcano.HotspotChainLength, 3);
 	}
 
+	// 阶段 4b 的 35 项默认值与 FPlanetIntrusionParams 逐项对齐：ToConfig 里 RHS 接错字段照样能编译，
+	// 默认值不同才会露馅（7 开关 + 4 int + 24 float）。
+	{
+		UPlanetRecipe* Ri = NewObject<UPlanetRecipe>();
+		const FPlanetIntrusionParams ID;
+		const FPlanetIntrusionParams IC = Ri->ToConfig(40000.0).Intrusion;
+		TestEqual(TEXT("默认 bBatholiths"), int32(IC.bBatholiths), int32(ID.bBatholiths));
+		TestEqual(TEXT("默认 bStocks"), int32(IC.bStocks), int32(ID.bStocks));
+		TestEqual(TEXT("默认 bDikes"), int32(IC.bDikes), int32(ID.bDikes));
+		TestEqual(TEXT("默认 bSills"), int32(IC.bSills), int32(ID.bSills));
+		TestEqual(TEXT("默认 bLayeredIntrusions"), int32(IC.bLayeredIntrusions), int32(ID.bLayeredIntrusions));
+		TestEqual(TEXT("默认 bKimberlites"), int32(IC.bKimberlites), int32(ID.bKimberlites));
+		TestEqual(TEXT("默认 bAlteration"), int32(IC.bAlteration), int32(ID.bAlteration));
+		TestEqual(TEXT("默认 BatholithMinVolcanoes"), IC.BatholithMinVolcanoes, ID.BatholithMinVolcanoes);
+		TestEqual(TEXT("默认 DikePerRift"), IC.DikePerRift, ID.DikePerRift);
+		TestEqual(TEXT("默认 LayeredCount"), IC.LayeredCount, ID.LayeredCount);
+		TestEqual(TEXT("默认 KimberliteMax"), IC.KimberliteMax, ID.KimberliteMax);
+		TestEqual(TEXT("默认 BatholithLongRatio"), IC.BatholithLongRatio, ID.BatholithLongRatio, 1e-6f);
+		TestEqual(TEXT("默认 BatholithShortRatio"), IC.BatholithShortRatio, ID.BatholithShortRatio, 1e-6f);
+		TestEqual(TEXT("默认 BatholithThickRatio"), IC.BatholithThickRatio, ID.BatholithThickRatio, 1e-6f);
+		TestEqual(TEXT("默认 BatholithTopDepthRatio"), IC.BatholithTopDepthRatio, ID.BatholithTopDepthRatio, 1e-6f);
+		TestEqual(TEXT("默认 StockRadiusRatio"), IC.StockRadiusRatio, ID.StockRadiusRatio, 1e-6f);
+		TestEqual(TEXT("默认 StockTopDepthRatio"), IC.StockTopDepthRatio, ID.StockTopDepthRatio, 1e-6f);
+		TestEqual(TEXT("默认 DikeThicknessRatio"), IC.DikeThicknessRatio, ID.DikeThicknessRatio, 1e-6f);
+		TestEqual(TEXT("默认 DikeLengthRatio"), IC.DikeLengthRatio, ID.DikeLengthRatio, 1e-6f);
+		TestEqual(TEXT("默认 DikeTopDepthRatio"), IC.DikeTopDepthRatio, ID.DikeTopDepthRatio, 1e-6f);
+		TestEqual(TEXT("默认 SillRadiusRatio"), IC.SillRadiusRatio, ID.SillRadiusRatio, 1e-6f);
+		TestEqual(TEXT("默认 SillThicknessRatio"), IC.SillThicknessRatio, ID.SillThicknessRatio, 1e-6f);
+		TestEqual(TEXT("默认 SillTopDepthRatio"), IC.SillTopDepthRatio, ID.SillTopDepthRatio, 1e-6f);
+		TestEqual(TEXT("默认 CratonSillDensity"), IC.CratonSillDensity, ID.CratonSillDensity, 1e-6f);
+		TestEqual(TEXT("默认 LayeredRadiusRatio"), IC.LayeredRadiusRatio, ID.LayeredRadiusRatio, 1e-6f);
+		TestEqual(TEXT("默认 LayeredThicknessRatio"), IC.LayeredThicknessRatio, ID.LayeredThicknessRatio, 1e-6f);
+		TestEqual(TEXT("默认 LayeredGapRatio"), IC.LayeredGapRatio, ID.LayeredGapRatio, 1e-6f);
+		TestEqual(TEXT("默认 LayeredTopDepthRatio"), IC.LayeredTopDepthRatio, ID.LayeredTopDepthRatio, 1e-6f);
+		TestEqual(TEXT("默认 KimberliteRadiusRatio"), IC.KimberliteRadiusRatio, ID.KimberliteRadiusRatio, 1e-6f);
+		TestEqual(TEXT("默认 KimberliteHalfHeightRatio"), IC.KimberliteHalfHeightRatio, ID.KimberliteHalfHeightRatio, 1e-6f);
+		TestEqual(TEXT("默认 KimberliteTopDepthRatio"), IC.KimberliteTopDepthRatio, ID.KimberliteTopDepthRatio, 1e-6f);
+		TestEqual(TEXT("默认 AlterHaloScale"), IC.AlterHaloScale, ID.AlterHaloScale, 1e-6f);
+		TestEqual(TEXT("默认 AlterKeratiticBand"), IC.AlterKeratiticBand, ID.AlterKeratiticBand, 1e-6f);
+		TestEqual(TEXT("默认 AlterSericiticBand"), IC.AlterSericiticBand, ID.AlterSericiticBand, 1e-6f);
+		TestEqual(TEXT("默认 AlterArgillicBand"), IC.AlterArgillicBand, ID.AlterArgillicBand, 1e-6f);
+	}
+
+	// 非默认值逐项透传：默认值对比抓不到「RHS 接成同类型字段」，这里每项给互不相同的值。
+	{
+		UPlanetRecipe* Ri = NewObject<UPlanetRecipe>();
+		Ri->bBatholiths = false; Ri->bStocks = false; Ri->bDikes = false; Ri->bSills = false;
+		Ri->bLayeredIntrusions = false; Ri->bKimberlites = false; Ri->bAlteration = false;
+		Ri->BatholithMinVolcanoes = 5; Ri->DikePerRift = 3; Ri->LayeredCount = 6; Ri->KimberliteMax = 9;
+		Ri->BatholithLongRatio = 0.081f; Ri->BatholithShortRatio = 0.041f; Ri->BatholithThickRatio = 0.031f;
+		Ri->BatholithTopDepthRatio = 0.051f; Ri->StockRadiusRatio = 0.0081f; Ri->StockTopDepthRatio = 0.031f;
+		Ri->DikeThicknessRatio = 0.0021f; Ri->DikeLengthRatio = 0.021f; Ri->DikeTopDepthRatio = 0.021f;
+		Ri->SillRadiusRatio = 0.051f; Ri->SillThicknessRatio = 0.0021f; Ri->SillTopDepthRatio = 0.021f;
+		Ri->CratonSillDensity = 0.41f; Ri->LayeredRadiusRatio = 0.031f; Ri->LayeredThicknessRatio = 0.0026f;
+		Ri->LayeredGapRatio = 0.0041f; Ri->LayeredTopDepthRatio = 0.061f; Ri->KimberliteRadiusRatio = 0.0021f;
+		Ri->KimberliteHalfHeightRatio = 0.011f; Ri->KimberliteTopDepthRatio = 0.0041f; Ri->AlterHaloScale = 2.3f;
+		Ri->AlterKeratiticBand = 0.31f; Ri->AlterSericiticBand = 0.56f; Ri->AlterArgillicBand = 0.81f;
+		const FPlanetIntrusionParams IC = Ri->ToConfig(40000.0).Intrusion;
+		TestFalse(TEXT("bBatholiths 透传"), IC.bBatholiths);
+		TestFalse(TEXT("bStocks 透传"), IC.bStocks);
+		TestFalse(TEXT("bDikes 透传"), IC.bDikes);
+		TestFalse(TEXT("bSills 透传"), IC.bSills);
+		TestFalse(TEXT("bLayeredIntrusions 透传"), IC.bLayeredIntrusions);
+		TestFalse(TEXT("bKimberlites 透传"), IC.bKimberlites);
+		TestFalse(TEXT("bAlteration 透传"), IC.bAlteration);
+		TestEqual(TEXT("BatholithMinVolcanoes 透传"), IC.BatholithMinVolcanoes, 5);
+		TestEqual(TEXT("DikePerRift 透传"), IC.DikePerRift, 3);
+		TestEqual(TEXT("LayeredCount 透传"), IC.LayeredCount, 6);
+		TestEqual(TEXT("KimberliteMax 透传"), IC.KimberliteMax, 9);
+		TestEqual(TEXT("BatholithLongRatio 透传"), IC.BatholithLongRatio, 0.081f, 1e-6f);
+		TestEqual(TEXT("BatholithShortRatio 透传"), IC.BatholithShortRatio, 0.041f, 1e-6f);
+		TestEqual(TEXT("BatholithThickRatio 透传"), IC.BatholithThickRatio, 0.031f, 1e-6f);
+		TestEqual(TEXT("BatholithTopDepthRatio 透传"), IC.BatholithTopDepthRatio, 0.051f, 1e-6f);
+		TestEqual(TEXT("StockRadiusRatio 透传"), IC.StockRadiusRatio, 0.0081f, 1e-6f);
+		TestEqual(TEXT("StockTopDepthRatio 透传"), IC.StockTopDepthRatio, 0.031f, 1e-6f);
+		TestEqual(TEXT("DikeThicknessRatio 透传"), IC.DikeThicknessRatio, 0.0021f, 1e-6f);
+		TestEqual(TEXT("DikeLengthRatio 透传"), IC.DikeLengthRatio, 0.021f, 1e-6f);
+		TestEqual(TEXT("DikeTopDepthRatio 透传"), IC.DikeTopDepthRatio, 0.021f, 1e-6f);
+		TestEqual(TEXT("SillRadiusRatio 透传"), IC.SillRadiusRatio, 0.051f, 1e-6f);
+		TestEqual(TEXT("SillThicknessRatio 透传"), IC.SillThicknessRatio, 0.0021f, 1e-6f);
+		TestEqual(TEXT("SillTopDepthRatio 透传"), IC.SillTopDepthRatio, 0.021f, 1e-6f);
+		TestEqual(TEXT("CratonSillDensity 透传"), IC.CratonSillDensity, 0.41f, 1e-6f);
+		TestEqual(TEXT("LayeredRadiusRatio 透传"), IC.LayeredRadiusRatio, 0.031f, 1e-6f);
+		TestEqual(TEXT("LayeredThicknessRatio 透传"), IC.LayeredThicknessRatio, 0.0026f, 1e-6f);
+		TestEqual(TEXT("LayeredGapRatio 透传"), IC.LayeredGapRatio, 0.0041f, 1e-6f);
+		TestEqual(TEXT("LayeredTopDepthRatio 透传"), IC.LayeredTopDepthRatio, 0.061f, 1e-6f);
+		TestEqual(TEXT("KimberliteRadiusRatio 透传"), IC.KimberliteRadiusRatio, 0.0021f, 1e-6f);
+		TestEqual(TEXT("KimberliteHalfHeightRatio 透传"), IC.KimberliteHalfHeightRatio, 0.011f, 1e-6f);
+		TestEqual(TEXT("KimberliteTopDepthRatio 透传"), IC.KimberliteTopDepthRatio, 0.0041f, 1e-6f);
+		TestEqual(TEXT("AlterHaloScale 透传"), IC.AlterHaloScale, 2.3f, 1e-6f);
+		TestEqual(TEXT("AlterKeratiticBand 透传"), IC.AlterKeratiticBand, 0.31f, 1e-6f);
+		TestEqual(TEXT("AlterSericiticBand 透传"), IC.AlterSericiticBand, 0.56f, 1e-6f);
+		TestEqual(TEXT("AlterArgillicBand 透传"), IC.AlterArgillicBand, 0.81f, 1e-6f);
+	}
+
 	// 每项都必须进 Hash()：漏一项则改它快照哈希不变、存档校验失效。
 	const uint64 Base = C2.Hash();
 	FPlanetRecipeConfig Probe;
@@ -128,6 +223,9 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 	Probe = C2; Probe.Volcano.HotspotCount = 5;              TestTrue(TEXT("热点数进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Volcano.bCalderas = false;             TestTrue(TEXT("破火山口开关进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Volcano.CinderHeightRatio = 0.0021f;   TestTrue(TEXT("渣锥高进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Intrusion.BatholithLongRatio = 0.081f;  TestTrue(TEXT("岩基长轴进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Intrusion.KimberliteMax = 9;            TestTrue(TEXT("岩管上限进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Intrusion.bAlteration = false;          TestTrue(TEXT("蚀变开关进哈希"), Probe.Hash() != Base);
 	return true;
 }
 

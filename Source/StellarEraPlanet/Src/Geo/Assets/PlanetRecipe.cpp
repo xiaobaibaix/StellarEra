@@ -85,6 +85,41 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 	C.Volcano.CinderPerVolcano = CinderPerVolcano;
 	C.Volcano.CinderBaseRatio = CinderBaseRatio;
 	C.Volcano.CinderHeightRatio = CinderHeightRatio;
+	C.Intrusion.bBatholiths = bBatholiths;
+	C.Intrusion.bStocks = bStocks;
+	C.Intrusion.bDikes = bDikes;
+	C.Intrusion.bSills = bSills;
+	C.Intrusion.bLayeredIntrusions = bLayeredIntrusions;
+	C.Intrusion.bKimberlites = bKimberlites;
+	C.Intrusion.bAlteration = bAlteration;
+	C.Intrusion.BatholithLongRatio = BatholithLongRatio;
+	C.Intrusion.BatholithShortRatio = BatholithShortRatio;
+	C.Intrusion.BatholithThickRatio = BatholithThickRatio;
+	C.Intrusion.BatholithTopDepthRatio = BatholithTopDepthRatio;
+	C.Intrusion.BatholithMinVolcanoes = BatholithMinVolcanoes;
+	C.Intrusion.StockRadiusRatio = StockRadiusRatio;
+	C.Intrusion.StockTopDepthRatio = StockTopDepthRatio;
+	C.Intrusion.DikePerRift = DikePerRift;
+	C.Intrusion.DikeThicknessRatio = DikeThicknessRatio;
+	C.Intrusion.DikeLengthRatio = DikeLengthRatio;
+	C.Intrusion.DikeTopDepthRatio = DikeTopDepthRatio;
+	C.Intrusion.SillRadiusRatio = SillRadiusRatio;
+	C.Intrusion.SillThicknessRatio = SillThicknessRatio;
+	C.Intrusion.SillTopDepthRatio = SillTopDepthRatio;
+	C.Intrusion.CratonSillDensity = CratonSillDensity;
+	C.Intrusion.LayeredCount = LayeredCount;
+	C.Intrusion.LayeredRadiusRatio = LayeredRadiusRatio;
+	C.Intrusion.LayeredThicknessRatio = LayeredThicknessRatio;
+	C.Intrusion.LayeredGapRatio = LayeredGapRatio;
+	C.Intrusion.LayeredTopDepthRatio = LayeredTopDepthRatio;
+	C.Intrusion.KimberliteRadiusRatio = KimberliteRadiusRatio;
+	C.Intrusion.KimberliteHalfHeightRatio = KimberliteHalfHeightRatio;
+	C.Intrusion.KimberliteTopDepthRatio = KimberliteTopDepthRatio;
+	C.Intrusion.KimberliteMax = KimberliteMax;
+	C.Intrusion.AlterHaloScale = AlterHaloScale;
+	C.Intrusion.AlterKeratiticBand = AlterKeratiticBand;
+	C.Intrusion.AlterSericiticBand = AlterSericiticBand;
+	C.Intrusion.AlterArgillicBand = AlterArgillicBand;
 	if (MineralCatalog)
 	{
 		for (const FGeoMineralDef& D : MineralCatalog->Minerals)

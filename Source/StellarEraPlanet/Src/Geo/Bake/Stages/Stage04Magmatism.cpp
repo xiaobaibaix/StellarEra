@@ -2,8 +2,10 @@
 #include "Stage04bIntrusions.h"
 #include "Async/ParallelFor.h"
 #include "GeoContinentField.h"
+#include "GeoLithology.h"
 #include "GeoNoise.h"
 #include "GeoPlates.h"
+#include "PlanetMaterialEval.h"
 #include "PlanetSnapshot.h"
 
 namespace
@@ -406,6 +408,65 @@ void FStage04Magmatism::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const
 		// 相对各自锥底 BaseElevation 的厚度，不是相对阶段 3 地面的净抬升。
 		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P) { return Stage04DebugField(S, TEXT("VolcanoDelta"), P, false); };
 		L.Range = [](const FPlanetSnapshot& S) { return FVector2f(float(-0.01 * S.R0), float(0.015 * S.R0)); };
+		Out.Add(MoveTemp(L));
+	}
+	{
+		FGeoDebugLayer L;
+		L.Id = TEXT("IntrusionType"); L.DisplayName = TEXT("侵入体类型（地下）"); L.Stage = 4;
+		L.Domain = EGeoDebugDomain::Volume;
+		L.Kind = EGeoDebugKind::Categorical;
+		// 岩性 Id 9..14 中间有橄榄岩空位，直接当下标会留一个黑洞，所以图例改用紧凑编号。
+		L.Legend = { { TEXT("无"), FColor(70, 70, 70) },
+			{ TEXT("花岗岩（岩基）"), GeoLithology::DebugColor(GeoLithology::Granite) },
+			{ TEXT("闪长岩（岩株）"), GeoLithology::DebugColor(GeoLithology::Diorite) },
+			{ TEXT("辉长岩（岩墙 / 岩床）"), GeoLithology::DebugColor(GeoLithology::Gabbro) },
+			{ TEXT("金伯利岩"), GeoLithology::DebugColor(GeoLithology::Kimberlite) },
+			{ TEXT("层状镁铁岩"), GeoLithology::DebugColor(GeoLithology::LayeredMafic) } };
+		// 只读快照原语：剖面与 3D 步进都走 Sample，不需要宏观调试场。
+		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P)
+		{
+			if (S.Primitives.IsEmpty()) { return 0.f; }
+			const FVector3f Pf(P);
+			float Best = TNumericLimits<float>::Max(); uint8 Litho = 0;
+			const TArray<FGeoPrimitive>& Prims = S.Primitives.GetPrimitives();
+			S.Primitives.QueryPoint(Pf, [&](int32 i)
+			{
+				const FGeoPrimitive& Pr = Prims[i];
+				if (Pr.LithologyId < GeoLithology::Granite) { return; }
+				const float D = GeoPrimitiveDistance(Pr, Pf);
+				if (D < Best) { Best = D; Litho = Pr.LithologyId; }
+			});
+			switch (Litho)
+			{
+			case GeoLithology::Granite:      return 1.f;
+			case GeoLithology::Diorite:      return 2.f;
+			case GeoLithology::Gabbro:       return 3.f;
+			case GeoLithology::Kimberlite:   return 4.f;
+			case GeoLithology::LayeredMafic: return 5.f;
+			default:                         return 0.f;
+			}
+		};
+		Out.Add(MoveTemp(L));
+	}
+	{
+		FGeoDebugLayer L;
+		L.Id = TEXT("AlterationClue"); L.DisplayName = TEXT("蚀变分带（地下）"); L.Stage = 4;
+		L.Domain = EGeoDebugDomain::Volume;
+		L.Kind = EGeoDebugKind::Categorical;
+		for (uint8 Id = 0; Id < GeoClue::Count; ++Id)
+		{
+			L.Legend.Add({ FString(GeoClue::DisplayName(Id)), GeoClue::DebugColor(Id) });
+		}
+		// 与体素材质走同一条求值路径：查看器看到的分带就是挖下去会遇到的。
+		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P) { return float(PlanetMaterialEval::Sample(S, P).Clue); };
+		Out.Add(MoveTemp(L));
+	}
+	{
+		FGeoDebugLayer L;
+		L.Id = TEXT("AlterationStrength"); L.DisplayName = TEXT("蚀变强度（地下）"); L.Stage = 4;
+		L.Domain = EGeoDebugDomain::Volume;
+		L.Min = 0.f; L.Max = 15.f;
+		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P) { return float(PlanetMaterialEval::Sample(S, P).ClueStrength); };
 		Out.Add(MoveTemp(L));
 	}
 }
