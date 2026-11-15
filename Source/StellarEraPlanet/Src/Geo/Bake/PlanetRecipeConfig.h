@@ -161,6 +161,11 @@ struct FPlanetIntrusionParams
 	float KimberliteHalfHeightRatio = 0.01f; // 岩管半高
 	float KimberliteTopDepthRatio = 0.004f;  // 岩管顶深
 	int32 KimberliteMax = 8;              // 全局最多几根
+	bool bCarbonatites = true;            // 大陆裂谷的碳酸岩体（4c 稀土的宿主）
+	float CarbonatiteRadiusRatio = 0.006f;     // 碳酸岩半径
+	float CarbonatiteTopDepthRatio = 0.01f;    // 碳酸岩顶深
+	float CarbonatiteChance = 0.35f;           // 每段裂谷出现概率
+	float CarbonatiteSpacingRatio = 0.12f;     // 候选去重间距
 	float AlterHaloScale = 2.2f;          // 岩株晕半径倍数（岩基固定 1.25）
 	float AlterKeratiticBand = 0.3f;      // 钾化外边界（归一化距离）
 	float AlterSericiticBand = 0.55f;     // 绢英岩化外边界
@@ -236,15 +241,17 @@ struct FPlanetRecipeConfig
 		for (const float V : Vo) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 		const FPlanetIntrusionParams& In = Intrusion;
 		H = GeoHash::Combine(H, uint64(In.bBatholiths) | (uint64(In.bStocks) << 1) | (uint64(In.bDikes) << 2)
-			| (uint64(In.bSills) << 3) | (uint64(In.bLayeredIntrusions) << 4) | (uint64(In.bKimberlites) << 5) | (uint64(In.bAlteration) << 6));
+			| (uint64(In.bSills) << 3) | (uint64(In.bLayeredIntrusions) << 4) | (uint64(In.bKimberlites) << 5)
+			| (uint64(In.bAlteration) << 6) | (uint64(In.bCarbonatites) << 7));
 		H = GeoHash::Combine(H, uint64(uint32(In.BatholithMinVolcanoes)) | (uint64(uint32(In.DikePerRift)) << 32));
 		H = GeoHash::Combine(H, uint64(uint32(In.LayeredCount)) | (uint64(uint32(In.KimberliteMax)) << 32));
-		const float InF[24] = { In.BatholithLongRatio, In.BatholithShortRatio, In.BatholithThickRatio, In.BatholithTopDepthRatio,
+		const float InF[28] = { In.BatholithLongRatio, In.BatholithShortRatio, In.BatholithThickRatio, In.BatholithTopDepthRatio,
 			In.StockRadiusRatio, In.StockTopDepthRatio, In.DikeThicknessRatio, In.DikeLengthRatio, In.DikeTopDepthRatio,
 			In.SillRadiusRatio, In.SillThicknessRatio, In.SillTopDepthRatio, In.CratonSillDensity,
 			In.LayeredRadiusRatio, In.LayeredThicknessRatio, In.LayeredGapRatio, In.LayeredTopDepthRatio,
 			In.KimberliteRadiusRatio, In.KimberliteHalfHeightRatio, In.KimberliteTopDepthRatio,
-			In.AlterHaloScale, In.AlterKeratiticBand, In.AlterSericiticBand, In.AlterArgillicBand };
+			In.AlterHaloScale, In.AlterKeratiticBand, In.AlterSericiticBand, In.AlterArgillicBand,
+			In.CarbonatiteRadiusRatio, In.CarbonatiteTopDepthRatio, In.CarbonatiteChance, In.CarbonatiteSpacingRatio };
 		for (const float V : InF) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 		for (const TSharedPtr<const IGeoMineralRule>& Rule : MineralRules)
 		{

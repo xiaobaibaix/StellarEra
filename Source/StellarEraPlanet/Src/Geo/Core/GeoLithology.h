@@ -16,13 +16,15 @@ namespace GeoLithology
 	constexpr uint8 OceanicCrust = 8;
 	// 侵入体岩性：只在地壳内有意义，深度剖面里不会出现。
 	constexpr uint8 Granite = 9, Diorite = 10, Gabbro = 11, Peridotite = 12, Kimberlite = 13, LayeredMafic = 14;
-	constexpr uint8 Count = 15;
+	constexpr uint8 Carbonatite = 15;
+	constexpr uint8 Count = 16;
 
 	inline const TCHAR* DisplayName(uint8 Id)
 	{
 		static const TCHAR* Names[Count] = { TEXT("无"), TEXT("地壳"), TEXT("上地幔"), TEXT("过渡带"),
 			TEXT("下地幔"), TEXT("外核"), TEXT("内核"), TEXT("陆壳"), TEXT("洋壳"),
-			TEXT("花岗岩"), TEXT("闪长岩"), TEXT("辉长岩"), TEXT("橄榄岩"), TEXT("金伯利岩"), TEXT("层状镁铁岩") };
+			TEXT("花岗岩"), TEXT("闪长岩"), TEXT("辉长岩"), TEXT("橄榄岩"), TEXT("金伯利岩"), TEXT("层状镁铁岩"),
+			TEXT("碳酸岩") };
 		return Id < Count ? Names[Id] : Names[0];
 	}
 
@@ -35,7 +37,8 @@ namespace GeoLithology
 			// 陆壳 / 洋壳都是岩石，调试色与地壳相同；海陆差别只在地表着色上体现。
 			FColor(150, 130, 110), FColor(150, 130, 110),
 			FColor(190, 120, 140), FColor(150, 140, 150), FColor(90, 100, 110),
-			FColor(60, 110, 80), FColor(110, 60, 130), FColor(70, 80, 90) };
+			FColor(60, 110, 80), FColor(110, 60, 130), FColor(70, 80, 90),
+			FColor(200, 180, 210) };
 		return Id < Count ? Colors[Id] : Colors[0];
 	}
 }

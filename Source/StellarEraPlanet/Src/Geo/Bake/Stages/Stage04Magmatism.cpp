@@ -34,6 +34,7 @@ namespace
 		case GeoLithology::Gabbro:       return 3;
 		case GeoLithology::Kimberlite:   return 4;
 		case GeoLithology::LayeredMafic: return 5;
+		case GeoLithology::Carbonatite:  return 6;
 		default:                         return 0;
 		}
 	}
@@ -434,7 +435,8 @@ void FStage04Magmatism::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const
 			{ TEXT("闪长岩（岩株）"), GeoLithology::DebugColor(GeoLithology::Diorite) },
 			{ TEXT("辉长岩（岩墙 / 岩床）"), GeoLithology::DebugColor(GeoLithology::Gabbro) },
 			{ TEXT("金伯利岩"), GeoLithology::DebugColor(GeoLithology::Kimberlite) },
-			{ TEXT("层状镁铁岩"), GeoLithology::DebugColor(GeoLithology::LayeredMafic) } };
+			{ TEXT("层状镁铁岩"), GeoLithology::DebugColor(GeoLithology::LayeredMafic) },
+			{ TEXT("碳酸岩"), GeoLithology::DebugColor(GeoLithology::Carbonatite) } };
 		// 只读快照原语：剖面与 3D 步进都走 Sample，不需要宏观调试场。
 		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P)
 		{

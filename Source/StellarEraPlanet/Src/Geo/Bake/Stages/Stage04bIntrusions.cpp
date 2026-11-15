@@ -219,6 +219,30 @@ void Stage04b::PlaceIntrusions(const FPlanetRecipeConfig& Cfg, const FPlanetBake
 		}
 	}
 
+	// —— 碳酸岩：大陆裂谷里的孤立小岩体，是 4c 稀土的宿主 ——
+	if (P.bCarbonatites)
+	{
+		// 独立随机流：开关它不会搬动岩墙 / 岩床 / 金伯利岩的随机数。
+		FGeoRng Rng = FGeoRng::Derive(Cfg.Seed, 4, GeoHash::Str("carbonatite"));
+		TArray<FVector3f> Cands;
+		for (int32 Face = 0; Face < 6; ++Face)
+		for (int32 Y = 0; Y < MacroRes; ++Y)
+		for (int32 X = 0; X < MacroRes; ++X)
+		{
+			if (F.ReliefType.At(Face, X, Y) != 6.f) { continue; }   // 6 = 大陆裂谷
+			const FVector3f D = F.ReliefType.TexelDir(Face, X, Y);
+			if (F.Elevation.Sample(D) <= 0.f) { continue; }
+			if (Stage04bFarFrom(Cands, D, P.CarbonatiteSpacingRatio)) { Cands.Add(D); }
+		}
+		for (const FVector3f& D : Cands)
+		{
+			if (Rng.NextFloat() >= P.CarbonatiteChance) { continue; }
+			const FVector3f Radii(P.CarbonatiteRadiusRatio * R);
+			Out.Add(Stage04bBody(Stage04bCenter(Cfg, F, D, P.CarbonatiteTopDepthRatio, P.CarbonatiteRadiusRatio), Radii,
+				FQuat4f::Identity, GeoLithology::Carbonatite, false));
+		}
+	}
+
 	// —— 蚀变晕：岩株 / 岩基同形状放大一圈，只带线索不带岩性 ——
 	// 遍历副本：晕自身不能被再当岩体挂晕。Bounds 必须按放大后的椭球重算，否则查询盒剪掉它。
 	if (P.bAlteration)
