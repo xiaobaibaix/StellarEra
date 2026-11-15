@@ -220,7 +220,7 @@ void GeoMineralRules::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out)
 		L.DefaultHidden = { 0 };
 		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P)
 		{
-			return PlanetShapeEval::Value(S, P) > 0.f ? FGeoDebugLayer::NoData() : float(PlanetMaterialEval::Sample(S, P).Mineral);
+			return (PlanetShapeEval::Value(S, P) > 0.f || S.IsTooDeepForPrimitives(P)) ? FGeoDebugLayer::NoData() : float(PlanetMaterialEval::Sample(S, P).Mineral);
 		};
 		// 矿体只有几十到几百体素，整颗星的步进步长约 200 体素，必漏：逐个解析求光线与椭球的交点。
 		L.RayHits = [](const FPlanetSnapshot& S, const FVector3d& O, const FVector3d& D, TArray<TPair<double, float>>& Hits)
@@ -228,6 +228,12 @@ void GeoMineralRules::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out)
 			for (const FGeoPrimitive& Pr : S.Primitives.GetPrimitives())
 			{
 				if (Pr.MineralId == 0) { continue; }
+				// 先过包围球：矿体几百个，绝大多数不在这条光线上，省一次二次方程。
+				const FVector3d OC = FVector3d(Pr.Center) - O;
+				const double Rs = double(Pr.Radii.GetMax());
+				const double Proj = FVector3d::DotProduct(OC, D);
+				if (Proj < -Rs) { continue; }
+				if (OC.SizeSquared() - Proj * Proj > Rs * Rs) { continue; }
 				const FQuat4d Rot(Pr.Kind == EGeoPrimitiveKind::OrientedBlob ? Pr.Rotation : FQuat4f::Identity);
 				const FVector3d Radii(Pr.Radii);
 				const FVector3d Lo = Rot.UnrotateVector(O - FVector3d(Pr.Center)) / Radii;

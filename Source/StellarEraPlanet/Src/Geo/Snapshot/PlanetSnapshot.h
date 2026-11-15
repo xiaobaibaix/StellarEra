@@ -21,6 +21,13 @@ struct STELLARERAPLANET_API FPlanetSnapshot
 	FGeoField2D Elevation;
 	/** 低于它算洋壳岩性；取洋盆深度的一半，与烘焙期 CrustType 的分界一致。 */
 	float CrustSplitElevation = -240.f;
+	/** 原语最深点 / R0。矿与岩体都只在地壳上部，调试图层据此跳过深处的 BVH 查询（不进哈希）。 */
+	/** 1 = 未计算、不剔除：手工搭的快照没有走 FinalizeHash 时不能把数据静默藏掉。 */
+	float PrimitiveDepthMaxRatio = 1.f;
+	bool IsTooDeepForPrimitives(const FVector3d& P) const
+	{
+		return (R0 - P.Size()) / FMath::Max(R0, 1.0) > double(PrimitiveDepthMaxRatio) + 0.01;
+	}
 	/** 蚀变四圈的归一化距离内边界：钾化 / 绢英岩化 / 泥化，第四圈到晕边界。 */
 	float AlterBands[3] = { 0.3f, 0.55f, 0.8f };
 	/** 地表半径的保守上下界，值域与早退都以它为准。 */

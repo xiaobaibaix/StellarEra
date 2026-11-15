@@ -22,6 +22,13 @@ void FPlanetSnapshot::FinalizeHash()
 	H = GeoHash::Combine(H, Elevation.Hash());
 	for (const FGeoVolcano& V : Volcanoes) { H = GeoHash::Combine(H, V.Hash()); }
 	H = GeoHash::Combine(H, GeoHash::Float(CrustSplitElevation));
+	// 全部原语的最深点：按包围球算，宁大勿小，避免剔掉真实数据。
+	PrimitiveDepthMaxRatio = 0.f;
+	for (const FGeoPrimitive& P : Primitives.GetPrimitives())
+	{
+		const double Deepest = double(P.Center.Size()) - double(P.Radii.GetMax());
+		PrimitiveDepthMaxRatio = FMath::Max(PrimitiveDepthMaxRatio, float((R0 - Deepest) / FMath::Max(R0, 1.0)));
+	}
 	for (const float B : AlterBands) { H = GeoHash::Combine(H, GeoHash::Float(B)); }
 	H = GeoHash::Combine(H, HashDouble(MinSurfaceRadius));
 	H = GeoHash::Combine(H, HashDouble(MaxSurfaceRadius));

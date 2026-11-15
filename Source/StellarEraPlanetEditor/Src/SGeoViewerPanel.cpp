@@ -24,7 +24,8 @@ namespace
 {
 	constexpr int32 GeoViewerMapW = 1024, GeoViewerMapH = 512, GeoViewerSection = 512;
 	// 拖动时用低分辨率保证跟手，松手 0.25 s 后补一张高分辨率。
-	constexpr int32 GeoViewer3DFast = 200, GeoViewer3DFull = 640;
+	// 交互期只求手感，静止后再出全分辨率：3D 成本 ∝ 像素 × 步数，两者都按此调低。
+	constexpr int32 GeoViewer3DFast = 128, GeoViewer3DFull = 512;
 	constexpr double GeoViewerSettleSeconds = 0.25;
 
 	/** 悬停读数用：鼠标在图片上的归一化位置交给回调。 */
@@ -431,7 +432,7 @@ void SGeoViewerPanel::Render3D(bool bFull)
 	const double T0 = FPlatformTime::Seconds();
 	const int32 Res = bFull ? GeoViewer3DFull : GeoViewer3DFast;
 	PlanetGeoDebugView3D::FView V = View;
-	V.Steps = bFull ? 384 : 96;
+	V.Steps = bFull ? 320 : 48;
 	V.MineralScale = bShowMinerals && !Layer->RayHits ? MineralScale : 0.f;
 	TArray<FColor> Colors;
 	PlanetGeoDebugView3D::Render(*Snap, *Layer, OuterLayer(), V, Res, Res, Colors, &HitPos, &HitValues);

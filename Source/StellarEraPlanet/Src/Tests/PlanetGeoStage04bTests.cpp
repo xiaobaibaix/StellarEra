@@ -330,6 +330,26 @@ bool FGeoStage04bPlacementTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage04bDepthCullTest, "StellarEra.Planet.Geo.Stage04b.DepthCull",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage04bDepthCullTest::RunTest(const FString& Parameters)
+{
+	// 深度剔除是调试图层的性能开关：算错会静默藏掉真实的矿或岩体，所以单测它。
+	FGeoPrimitive Body = FGeoPrimitive::MakeBlob(FVector3f(0.f, 0.f, 38000.f), FVector3f(500.f), 0.02f);
+	Body.LithologyId = GeoLithology::Granite;
+	TSharedPtr<FPlanetSnapshot> S = MakeShared<FPlanetSnapshot>();
+	S->R0 = 40000.0;
+	S->Radial.Layers = { { 1.f, GeoLithology::Crust, 0.f } };
+	S->Primitives.Build({ Body });
+	S->FinalizeHash();
+	const float Want = float((40000.0 - (38000.0 - 500.0)) / 40000.0);
+	TestTrue(FString::Printf(TEXT("最深点 %.4f ≈ %.4f"), S->PrimitiveDepthMaxRatio, Want),
+		FMath::IsNearlyEqual(S->PrimitiveDepthMaxRatio, Want, 1e-4f));
+	TestFalse(TEXT("原语所在深度不被剔除"), S->IsTooDeepForPrimitives(FVector3d(0.0, 0.0, 38000.0)));
+	TestTrue(TEXT("球心被剔除"), S->IsTooDeepForPrimitives(FVector3d::ZeroVector));
+	return true;
+}
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage04bLayersTest, "StellarEra.Planet.Geo.Stage04b.Layers",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 

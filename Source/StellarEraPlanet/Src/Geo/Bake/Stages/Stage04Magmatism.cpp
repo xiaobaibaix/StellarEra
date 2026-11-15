@@ -438,7 +438,7 @@ void FStage04Magmatism::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const
 		// 只读快照原语：剖面与 3D 步进都走 Sample，不需要宏观调试场。
 		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P)
 		{
-			if (S.Primitives.IsEmpty()) { return 0.f; }
+			if (S.Primitives.IsEmpty() || S.IsTooDeepForPrimitives(P)) { return 0.f; }
 			const FVector3f Pf(P);
 			float Best = TNumericLimits<float>::Max(); uint8 Litho = 0;
 			const TArray<FGeoPrimitive>& Prims = S.Primitives.GetPrimitives();
@@ -460,6 +460,12 @@ void FStage04Magmatism::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const
 			for (const FGeoPrimitive& Pr : S.Primitives.GetPrimitives())
 			{
 				if (Pr.LithologyId < GeoLithology::Granite) { continue; }
+				// 先过包围球：绝大多数岩体不在这条光线上，省一次二次方程。
+				const FVector3d OC = FVector3d(Pr.Center) - O;
+				const double Rs = double(Pr.Radii.GetMax());
+				const double Proj = FVector3d::DotProduct(OC, D);
+				if (Proj < -Rs) { continue; }
+				if (OC.SizeSquared() - Proj * Proj > Rs * Rs) { continue; }
 				const FQuat4d Rot(Pr.Kind == EGeoPrimitiveKind::OrientedBlob ? Pr.Rotation : FQuat4f::Identity);
 				const FVector3d Radii(Pr.Radii);
 				const FVector3d Lo = Rot.UnrotateVector(O - FVector3d(Pr.Center)) / Radii;
@@ -485,7 +491,7 @@ void FStage04Magmatism::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const
 			{ FString(GeoClue::DisplayName(GeoClue::Argillic)), GeoClue::DebugColor(GeoClue::Argillic) },
 			{ FString(GeoClue::DisplayName(GeoClue::Propylitic)), GeoClue::DebugColor(GeoClue::Propylitic) } };
 		// 与体素材质走同一条求值路径：查看器看到的分带就是挖下去会遇到的。
-		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P) { return float(PlanetMaterialEval::Sample(S, P).Clue); };
+		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P) { return S.IsTooDeepForPrimitives(P) ? 0.f : float(PlanetMaterialEval::Sample(S, P).Clue); };
 		Out.Add(MoveTemp(L));
 	}
 	{
@@ -493,7 +499,7 @@ void FStage04Magmatism::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const
 		L.Id = TEXT("AlterationStrength"); L.DisplayName = TEXT("蚀变强度（地下）"); L.Stage = 4;
 		L.Domain = EGeoDebugDomain::Volume;
 		L.Min = 0.f; L.Max = 15.f;
-		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P) { return float(PlanetMaterialEval::Sample(S, P).ClueStrength); };
+		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P) { return S.IsTooDeepForPrimitives(P) ? 0.f : float(PlanetMaterialEval::Sample(S, P).ClueStrength); };
 		Out.Add(MoveTemp(L));
 	}
 }
