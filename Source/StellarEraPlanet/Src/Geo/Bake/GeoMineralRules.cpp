@@ -189,6 +189,45 @@ uint64 FGeoChromiteRule::HashParams() const
 		{ P.SpacingVoxels, P.PodRadiusVoxels, P.PodThicknessVoxels, P.DepthMinVoxels, P.DepthMaxVoxels });
 }
 
+void FGeoSulfurRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const
+{
+	const FPlanetBakeFields& F = Ctx.Fields;
+	if (F.Elevation.Res <= 0)
+	{
+		Ctx.Errors.Add(FString::Printf(TEXT("[地质] 撒矿器「%s」需要阶段 3 的高程场"), GetRuleName()));
+		return;
+	}
+	// 只有活火山喷气：死火山与溢流玄武岩台地没有火口，也没有硫磺结壳。
+	TArray<TPair<FVector3f, float>> Craters;
+	for (const FGeoVolcano& V : F.Volcanoes)
+	{
+		if (V.bActive && V.CraterRadius > 0.f) { Craters.Emplace(V.Dir, FMath::Max(V.CraterRadius, P.RadiusRatio)); }
+	}
+	if (Craters.IsEmpty()) { return; }   // 一颗没有活火山的星球 = 不产硫磺，不是配置错误
+
+	FGeoMineralOverlay O;
+	O.DepthVoxels = FMath::Clamp(P.DepthVoxels, 2.f, 400.f);
+	O.Grade = RandomGrade(Ctx.Rng);
+	O.Mask.Init(FMath::Max(128, F.Elevation.Res / 2));
+	O.Mask.Fill([&Craters](const FVector3f& Dir)
+	{
+		float Chord = TNumericLimits<float>::Max(), Radius = 0.f;
+		for (const TPair<FVector3f, float>& Cr : Craters)
+		{
+			const float D = (Cr.Key - Dir).Size();
+			if (D < Chord) { Chord = D; Radius = Cr.Value; }
+		}
+		// 0.8–1.2 倍平滑：遮罩在这个分辨率下每座火口只有一两格，硬边会切成一圈方块。
+		return 1.f - FMath::SmoothStep(Radius * 0.8f, Radius * 1.2f, Chord);
+	}, Ctx.Config.bSingleThreadBake);
+	Out.Overlays.Add(MoveTemp(O));
+}
+
+uint64 FGeoSulfurRule::HashParams() const
+{
+	return GeoMineralRulesHashFloats(GeoHash::Str("sulfur"), { P.RadiusRatio, P.DepthVoxels });
+}
+
 namespace
 {
 	TArray<FGeoDebugLegendEntry> GeoMineralRulesLegend(const FPlanetSnapshot& S)

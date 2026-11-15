@@ -1,4 +1,4 @@
-﻿// 阶段 2 的三条成矿规律（条带状铁矿 / 洋中脊块状硫化物 / 锰结核）与矿物调试图层。
+﻿// 各阶段的内置成矿规律与矿物调试图层。
 #pragma once
 #include "CoreMinimal.h"
 #include "GeoMineralRule.h"
@@ -89,6 +89,23 @@ public:
 	FGeoChromiteParams P;
 	virtual uint32 GetStage() const override { return 3; }
 	virtual const TCHAR* GetRuleName() const override { return TEXT("蛇绿岩铬铁矿"); }
+	virtual void Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const override;
+	virtual uint64 HashParams() const override;
+};
+
+/** 硫磺结壳：活跃火山火口内的地表覆层（覆层，不是矿体）。运行于阶段 4 之后。 */
+struct FGeoSulfurParams
+{
+	float RadiusRatio = 0.008f;   // 结壳半径下限（占 R）：火口比它小时用它
+	float DepthVoxels = 40.f;     // 结壳厚度
+};
+
+class STELLARERAPLANET_API FGeoSulfurRule final : public IGeoMineralRule
+{
+public:
+	FGeoSulfurParams P;
+	virtual uint32 GetStage() const override { return 4; }
+	virtual const TCHAR* GetRuleName() const override { return TEXT("Sulfur"); }
 	virtual void Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const override;
 	virtual uint64 HashParams() const override;
 };

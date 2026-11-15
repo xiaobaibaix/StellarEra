@@ -177,3 +177,22 @@ public:
 
 	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
 };
+
+/** 硫磺结壳：活跃火山火口内的地表覆层（覆层，不是矿体）。运行于阶段 4 之后。 */
+UCLASS(meta = (DisplayName = "硫磺结壳（阶段 4）"))
+class STELLARERAPLANET_API UGeoSulfurScatterer : public UGeoMineralScatterer
+{
+	GENERATED_BODY()
+
+public:
+	UGeoSulfurScatterer() { Mineral = TEXT("Sulfur"); }
+
+	/** 结壳半径下限（占 R）：火口半径比它小时按它算，否则遮罩上不足一格。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.001", ClampMax = "0.1"))
+	float RadiusRatio = 0.008f;
+	/** 结壳厚度（体素，从地表往下）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.5"))
+	float DepthVoxels = 40.f;
+
+	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
+};

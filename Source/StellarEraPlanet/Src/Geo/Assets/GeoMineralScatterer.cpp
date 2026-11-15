@@ -41,3 +41,10 @@ TSharedPtr<IGeoMineralRule> UGeoChromiteScatterer::MakeRule() const
 	R->P = { Chains, PodMin, PodMax, SpacingVoxels, PodRadiusVoxels, PodThicknessVoxels, DepthMinVoxels, DepthMaxVoxels };
 	return R;
 }
+
+TSharedPtr<IGeoMineralRule> UGeoSulfurScatterer::MakeRule() const
+{
+	TSharedPtr<FGeoSulfurRule> R = MakeShared<FGeoSulfurRule>();
+	R->P = { RadiusRatio, DepthVoxels };
+	return R;
+}
