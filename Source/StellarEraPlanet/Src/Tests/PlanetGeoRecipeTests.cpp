@@ -142,19 +142,20 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("默认 AlterArgillicBand"), IC.AlterArgillicBand, ID.AlterArgillicBand, 1e-6f);
 	}
 
-	// 非默认值逐项透传：默认值对比抓不到「RHS 接成同类型字段」，这里每项给互不相同的值。
+	// 非默认值逐项透传：默认值对比抓不到「RHS 接成同类型字段」。float / int 各给互不相同的值；
+	// 7 个 bool 只能全 false（默认 true），bool 之间互换仍抓不到，这是类型本身的限制。
 	{
 		UPlanetRecipe* Ri = NewObject<UPlanetRecipe>();
 		Ri->bBatholiths = false; Ri->bStocks = false; Ri->bDikes = false; Ri->bSills = false;
 		Ri->bLayeredIntrusions = false; Ri->bKimberlites = false; Ri->bAlteration = false;
 		Ri->BatholithMinVolcanoes = 5; Ri->DikePerRift = 3; Ri->LayeredCount = 6; Ri->KimberliteMax = 9;
-		Ri->BatholithLongRatio = 0.081f; Ri->BatholithShortRatio = 0.041f; Ri->BatholithThickRatio = 0.031f;
-		Ri->BatholithTopDepthRatio = 0.051f; Ri->StockRadiusRatio = 0.0081f; Ri->StockTopDepthRatio = 0.031f;
-		Ri->DikeThicknessRatio = 0.0021f; Ri->DikeLengthRatio = 0.021f; Ri->DikeTopDepthRatio = 0.021f;
-		Ri->SillRadiusRatio = 0.051f; Ri->SillThicknessRatio = 0.0021f; Ri->SillTopDepthRatio = 0.021f;
-		Ri->CratonSillDensity = 0.41f; Ri->LayeredRadiusRatio = 0.031f; Ri->LayeredThicknessRatio = 0.0026f;
-		Ri->LayeredGapRatio = 0.0041f; Ri->LayeredTopDepthRatio = 0.061f; Ri->KimberliteRadiusRatio = 0.0021f;
-		Ri->KimberliteHalfHeightRatio = 0.011f; Ri->KimberliteTopDepthRatio = 0.0041f; Ri->AlterHaloScale = 2.3f;
+		Ri->BatholithLongRatio = 0.081f; Ri->BatholithShortRatio = 0.041f; Ri->BatholithThickRatio = 0.0311f;
+		Ri->BatholithTopDepthRatio = 0.0511f; Ri->StockRadiusRatio = 0.0081f; Ri->StockTopDepthRatio = 0.0312f;
+		Ri->DikeThicknessRatio = 0.00211f; Ri->DikeLengthRatio = 0.0211f; Ri->DikeTopDepthRatio = 0.0212f;
+		Ri->SillRadiusRatio = 0.0512f; Ri->SillThicknessRatio = 0.00212f; Ri->SillTopDepthRatio = 0.0213f;
+		Ri->CratonSillDensity = 0.41f; Ri->LayeredRadiusRatio = 0.0313f; Ri->LayeredThicknessRatio = 0.0026f;
+		Ri->LayeredGapRatio = 0.00411f; Ri->LayeredTopDepthRatio = 0.061f; Ri->KimberliteRadiusRatio = 0.00213f;
+		Ri->KimberliteHalfHeightRatio = 0.011f; Ri->KimberliteTopDepthRatio = 0.00412f; Ri->AlterHaloScale = 2.3f;
 		Ri->AlterKeratiticBand = 0.31f; Ri->AlterSericiticBand = 0.56f; Ri->AlterArgillicBand = 0.81f;
 		const FPlanetIntrusionParams IC = Ri->ToConfig(40000.0).Intrusion;
 		TestFalse(TEXT("bBatholiths 透传"), IC.bBatholiths);
@@ -170,24 +171,24 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("KimberliteMax 透传"), IC.KimberliteMax, 9);
 		TestEqual(TEXT("BatholithLongRatio 透传"), IC.BatholithLongRatio, 0.081f, 1e-6f);
 		TestEqual(TEXT("BatholithShortRatio 透传"), IC.BatholithShortRatio, 0.041f, 1e-6f);
-		TestEqual(TEXT("BatholithThickRatio 透传"), IC.BatholithThickRatio, 0.031f, 1e-6f);
-		TestEqual(TEXT("BatholithTopDepthRatio 透传"), IC.BatholithTopDepthRatio, 0.051f, 1e-6f);
+		TestEqual(TEXT("BatholithThickRatio 透传"), IC.BatholithThickRatio, 0.0311f, 1e-6f);
+		TestEqual(TEXT("BatholithTopDepthRatio 透传"), IC.BatholithTopDepthRatio, 0.0511f, 1e-6f);
 		TestEqual(TEXT("StockRadiusRatio 透传"), IC.StockRadiusRatio, 0.0081f, 1e-6f);
-		TestEqual(TEXT("StockTopDepthRatio 透传"), IC.StockTopDepthRatio, 0.031f, 1e-6f);
-		TestEqual(TEXT("DikeThicknessRatio 透传"), IC.DikeThicknessRatio, 0.0021f, 1e-6f);
-		TestEqual(TEXT("DikeLengthRatio 透传"), IC.DikeLengthRatio, 0.021f, 1e-6f);
-		TestEqual(TEXT("DikeTopDepthRatio 透传"), IC.DikeTopDepthRatio, 0.021f, 1e-6f);
-		TestEqual(TEXT("SillRadiusRatio 透传"), IC.SillRadiusRatio, 0.051f, 1e-6f);
-		TestEqual(TEXT("SillThicknessRatio 透传"), IC.SillThicknessRatio, 0.0021f, 1e-6f);
-		TestEqual(TEXT("SillTopDepthRatio 透传"), IC.SillTopDepthRatio, 0.021f, 1e-6f);
+		TestEqual(TEXT("StockTopDepthRatio 透传"), IC.StockTopDepthRatio, 0.0312f, 1e-6f);
+		TestEqual(TEXT("DikeThicknessRatio 透传"), IC.DikeThicknessRatio, 0.00211f, 1e-6f);
+		TestEqual(TEXT("DikeLengthRatio 透传"), IC.DikeLengthRatio, 0.0211f, 1e-6f);
+		TestEqual(TEXT("DikeTopDepthRatio 透传"), IC.DikeTopDepthRatio, 0.0212f, 1e-6f);
+		TestEqual(TEXT("SillRadiusRatio 透传"), IC.SillRadiusRatio, 0.0512f, 1e-6f);
+		TestEqual(TEXT("SillThicknessRatio 透传"), IC.SillThicknessRatio, 0.00212f, 1e-6f);
+		TestEqual(TEXT("SillTopDepthRatio 透传"), IC.SillTopDepthRatio, 0.0213f, 1e-6f);
 		TestEqual(TEXT("CratonSillDensity 透传"), IC.CratonSillDensity, 0.41f, 1e-6f);
-		TestEqual(TEXT("LayeredRadiusRatio 透传"), IC.LayeredRadiusRatio, 0.031f, 1e-6f);
+		TestEqual(TEXT("LayeredRadiusRatio 透传"), IC.LayeredRadiusRatio, 0.0313f, 1e-6f);
 		TestEqual(TEXT("LayeredThicknessRatio 透传"), IC.LayeredThicknessRatio, 0.0026f, 1e-6f);
-		TestEqual(TEXT("LayeredGapRatio 透传"), IC.LayeredGapRatio, 0.0041f, 1e-6f);
+		TestEqual(TEXT("LayeredGapRatio 透传"), IC.LayeredGapRatio, 0.00411f, 1e-6f);
 		TestEqual(TEXT("LayeredTopDepthRatio 透传"), IC.LayeredTopDepthRatio, 0.061f, 1e-6f);
-		TestEqual(TEXT("KimberliteRadiusRatio 透传"), IC.KimberliteRadiusRatio, 0.0021f, 1e-6f);
+		TestEqual(TEXT("KimberliteRadiusRatio 透传"), IC.KimberliteRadiusRatio, 0.00213f, 1e-6f);
 		TestEqual(TEXT("KimberliteHalfHeightRatio 透传"), IC.KimberliteHalfHeightRatio, 0.011f, 1e-6f);
-		TestEqual(TEXT("KimberliteTopDepthRatio 透传"), IC.KimberliteTopDepthRatio, 0.0041f, 1e-6f);
+		TestEqual(TEXT("KimberliteTopDepthRatio 透传"), IC.KimberliteTopDepthRatio, 0.00412f, 1e-6f);
 		TestEqual(TEXT("AlterHaloScale 透传"), IC.AlterHaloScale, 2.3f, 1e-6f);
 		TestEqual(TEXT("AlterKeratiticBand 透传"), IC.AlterKeratiticBand, 0.31f, 1e-6f);
 		TestEqual(TEXT("AlterSericiticBand 透传"), IC.AlterSericiticBand, 0.56f, 1e-6f);

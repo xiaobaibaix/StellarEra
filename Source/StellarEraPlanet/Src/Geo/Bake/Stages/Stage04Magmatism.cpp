@@ -455,10 +455,12 @@ void FStage04Magmatism::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const
 		L.Id = TEXT("AlterationClue"); L.DisplayName = TEXT("蚀变分带（地下）"); L.Stage = 4;
 		L.Domain = EGeoDebugDomain::Volume;
 		L.Kind = EGeoDebugKind::Categorical;
-		for (uint8 Id = 0; Id < GeoClue::Count; ++Id)
-		{
-			L.Legend.Add({ FString(GeoClue::DisplayName(Id)), GeoClue::DebugColor(Id) });
-		}
+		// 「无」用中性灰：GeoClue::DebugColor(0) 是品红，会把整片未蚀变内部糊成一片。
+		L.Legend = { { TEXT("无"), FColor(70, 70, 70) },
+			{ FString(GeoClue::DisplayName(GeoClue::Keratitic)), GeoClue::DebugColor(GeoClue::Keratitic) },
+			{ FString(GeoClue::DisplayName(GeoClue::Sericitic)), GeoClue::DebugColor(GeoClue::Sericitic) },
+			{ FString(GeoClue::DisplayName(GeoClue::Argillic)), GeoClue::DebugColor(GeoClue::Argillic) },
+			{ FString(GeoClue::DisplayName(GeoClue::Propylitic)), GeoClue::DebugColor(GeoClue::Propylitic) } };
 		// 与体素材质走同一条求值路径：查看器看到的分带就是挖下去会遇到的。
 		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P) { return float(PlanetMaterialEval::Sample(S, P).Clue); };
 		Out.Add(MoveTemp(L));
