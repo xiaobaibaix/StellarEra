@@ -125,6 +125,30 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 	C.Intrusion.AlterKeratiticBand = AlterKeratiticBand;
 	C.Intrusion.AlterSericiticBand = AlterSericiticBand;
 	C.Intrusion.AlterArgillicBand = AlterArgillicBand;
+	C.Climate.ClimateRes = ClimateRes;
+	C.Climate.AxialTiltDeg = AxialTiltDeg;
+	C.Climate.EquatorTemp = EquatorTemp;
+	C.Climate.PoleTemp = PoleTemp;
+	C.Climate.LapseRate = LapseRate;
+	C.Climate.Continentality = Continentality;
+	C.Climate.BaseEquator = BaseEquator;
+	C.Climate.BaseDry = BaseDry;
+	C.Climate.BaseMid = BaseMid;
+	C.Climate.BasePole = BasePole;
+	C.Climate.OceanFalloff = OceanFalloff;
+	C.Climate.RainShadow = RainShadow;
+	C.Climate.ShadowSteps = ShadowSteps;
+	C.Climate.ShadowStride = ShadowStride;
+	C.Climate.PrecipBias = PrecipBias;
+	C.Climate.BiomeIceTemp = BiomeIceTemp;
+	C.Climate.BiomeDesertPrecip = BiomeDesertPrecip;
+	C.Climate.BiomeTundraTemp = BiomeTundraTemp;
+	C.Climate.BiomeForestTemp = BiomeForestTemp;
+	C.Climate.BiomeForestPrecip = BiomeForestPrecip;
+	C.Climate.BiomeRainTemp = BiomeRainTemp;
+	C.Climate.BiomeRainPrecip = BiomeRainPrecip;
+	C.Climate.BiomeSavannaTemp = BiomeSavannaTemp;
+	C.Climate.BiomeTemperatePrecip = BiomeTemperatePrecip;
 	if (MineralCatalog)
 	{
 		for (const FGeoMineralDef& D : MineralCatalog->Minerals)

@@ -489,6 +489,104 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Stage4|Intrusion", meta = (ClampMin = "0", ClampMax = "1"))
 	float AlterArgillicBand = 0.8f;
 
+	// 阶段 5：气候。温度、降水都是 0–1 归一化（温度不是摄氏度），全部进 Hash()。
+	/** 气候场每面分辨率。与贴图 FaceRes 解耦：调细气候网格不用重烘贴图。 */
+	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "32", ClampMax = "512"))
+	int32 ClimateRes = 256;
+
+	/** 自转轴倾角（度）。本轮只记录、不模拟季节，存下来是为了将来季节化时不用改配方格式。 */
+	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "0", ClampMax = "90"))
+	float AxialTiltDeg = 23.4f;
+
+	/** 赤道归一化温度：1 表示整个赤道带满值，配合 PoleTemp 决定南北温差。 */
+	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "0", ClampMax = "1"))
+	float EquatorTemp = 1.f;
+
+	/** 极点归一化温度：越低极区越冷、冰原面积越大。 */
+	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "0", ClampMax = "1"))
+	float PoleTemp = 0.05f;
+
+	/** 高程升到 0.08R 时扣掉的温度份额（比例）；超过 0.08R 不再继续扣，避免高峰把整块大陆压到冰点。 */
+	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "0", ClampMax = "1"))
+	float LapseRate = 0.35f;
+
+	/** 大陆度对温度的影响幅度（比例）：以大陆度 0.5 为基准，内陆更热、海岸更凉。 */
+	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "0", ClampMax = "1"))
+	float Continentality = 0.15f;
+
+	/** 赤道带降水基准（0–1 归一化）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "0", ClampMax = "1"))
+	float BaseEquator = 0.9f;
+
+	/** 30° 干旱带降水基准：比赤道低才出得了沙漠带。 */
+	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "0", ClampMax = "1"))
+	float BaseDry = 0.15f;
+
+	/** 45° 中纬降水基准。 */
+	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "0", ClampMax = "1"))
+	float BaseMid = 0.7f;
+
+	/** 极区降水基准：冷但通常不干，两极形成冰原而非沙漠。 */
+	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "0", ClampMax = "1"))
+	float BasePole = 0.15f;
+
+	/** 离海衰减幅度（比例）：大陆度 1 的内陆扣掉它，海岸与海洋不扣。 */
+	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "0", ClampMax = "1"))
+	float OceanFalloff = 0.3f;
+
+	/** 雨影强度（比例）：逆风回溯每翻过 0.02R 抬升就扣掉它，一步只扣一份。 */
+	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "0", ClampMax = "1"))
+	float RainShadow = 0.8f;
+
+	/** 逆风回溯步数上限。成本随它线性增长（texels × steps），调大要留意烘焙时间。 */
+	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "0", ClampMax = "256"))
+	int32 ShadowSteps = 32;
+
+	/** 每步跨几个气候 texel：步长越大越省时间，但会跳过窄山脊。 */
+	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "1", ClampMax = "16"))
+	int32 ShadowStride = 2;
+
+	/** 全局降水偏移，调参用：不动任何纬度基准，只整体加减。 */
+	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "-1", ClampMax = "1"))
+	float PrecipBias = 0.f;
+
+	// 群系阈值：查表顺序固定，首个命中即返回，重排会改掉整张图。
+	/** 冰原阈值：温度低于它。 */
+	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "0", ClampMax = "1"))
+	float BiomeIceTemp = 0.2f;
+
+	/** 沙漠阈值：降水低于它（先于所有温度判据，所以最干的地方不管多冷都是沙漠）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "0", ClampMax = "1"))
+	float BiomeDesertPrecip = 0.2f;
+
+	/** 苔原阈值：温度低于它。 */
+	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "0", ClampMax = "1"))
+	float BiomeTundraTemp = 0.35f;
+
+	/** 针叶林温度上限。 */
+	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "0", ClampMax = "1"))
+	float BiomeForestTemp = 0.55f;
+
+	/** 针叶林降水下限：太干会落到草原。 */
+	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "0", ClampMax = "1"))
+	float BiomeForestPrecip = 0.35f;
+
+	/** 雨林温度下限。 */
+	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "0", ClampMax = "1"))
+	float BiomeRainTemp = 0.7f;
+
+	/** 雨林降水下限。 */
+	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "0", ClampMax = "1"))
+	float BiomeRainPrecip = 0.6f;
+
+	/** 稀树草原温度下限：够热但不够湿的落这里。 */
+	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "0", ClampMax = "1"))
+	float BiomeSavannaTemp = 0.75f;
+
+	/** 温带林降水下限：排在草原前，是最后一个有条件的群系。 */
+	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "0", ClampMax = "1"))
+	float BiomeTemperatePrecip = 0.5f;
+
 	/** 矿物目录：编号、中文名、调试色。撒矿器只引用这里的编号。 */
 	UPROPERTY(EditAnywhere, Category = "Minerals")
 	TObjectPtr<UGeoMineralCatalog> MineralCatalog;

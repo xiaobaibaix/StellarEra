@@ -208,6 +208,38 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("CarbonatiteSpacingRatio 透传"), IC.CarbonatiteSpacingRatio, 0.121f, 1e-6f);
 	}
 
+	// 阶段 5 的 24 项默认值与 FPlanetClimateParams 逐项对齐（3 int + 21 float）：
+	// ToConfig 里 RHS 接错字段照样能编译，默认值不同才会露馅。
+	{
+		UPlanetRecipe* Rc = NewObject<UPlanetRecipe>();
+		const FPlanetClimateParams CD;
+		const FPlanetClimateParams CC = Rc->ToConfig(40000.0).Climate;
+		TestEqual(TEXT("默认 ClimateRes"), CC.ClimateRes, CD.ClimateRes);
+		TestEqual(TEXT("默认 ShadowSteps"), CC.ShadowSteps, CD.ShadowSteps);
+		TestEqual(TEXT("默认 ShadowStride"), CC.ShadowStride, CD.ShadowStride);
+		TestEqual(TEXT("默认 AxialTiltDeg"), CC.AxialTiltDeg, CD.AxialTiltDeg, 1e-6f);
+		TestEqual(TEXT("默认 EquatorTemp"), CC.EquatorTemp, CD.EquatorTemp, 1e-6f);
+		TestEqual(TEXT("默认 PoleTemp"), CC.PoleTemp, CD.PoleTemp, 1e-6f);
+		TestEqual(TEXT("默认 LapseRate"), CC.LapseRate, CD.LapseRate, 1e-6f);
+		TestEqual(TEXT("默认 Continentality"), CC.Continentality, CD.Continentality, 1e-6f);
+		TestEqual(TEXT("默认 BaseEquator"), CC.BaseEquator, CD.BaseEquator, 1e-6f);
+		TestEqual(TEXT("默认 BaseDry"), CC.BaseDry, CD.BaseDry, 1e-6f);
+		TestEqual(TEXT("默认 BaseMid"), CC.BaseMid, CD.BaseMid, 1e-6f);
+		TestEqual(TEXT("默认 BasePole"), CC.BasePole, CD.BasePole, 1e-6f);
+		TestEqual(TEXT("默认 OceanFalloff"), CC.OceanFalloff, CD.OceanFalloff, 1e-6f);
+		TestEqual(TEXT("默认 RainShadow"), CC.RainShadow, CD.RainShadow, 1e-6f);
+		TestEqual(TEXT("默认 PrecipBias"), CC.PrecipBias, CD.PrecipBias, 1e-6f);
+		TestEqual(TEXT("默认 BiomeIceTemp"), CC.BiomeIceTemp, CD.BiomeIceTemp, 1e-6f);
+		TestEqual(TEXT("默认 BiomeDesertPrecip"), CC.BiomeDesertPrecip, CD.BiomeDesertPrecip, 1e-6f);
+		TestEqual(TEXT("默认 BiomeTundraTemp"), CC.BiomeTundraTemp, CD.BiomeTundraTemp, 1e-6f);
+		TestEqual(TEXT("默认 BiomeForestTemp"), CC.BiomeForestTemp, CD.BiomeForestTemp, 1e-6f);
+		TestEqual(TEXT("默认 BiomeForestPrecip"), CC.BiomeForestPrecip, CD.BiomeForestPrecip, 1e-6f);
+		TestEqual(TEXT("默认 BiomeRainTemp"), CC.BiomeRainTemp, CD.BiomeRainTemp, 1e-6f);
+		TestEqual(TEXT("默认 BiomeRainPrecip"), CC.BiomeRainPrecip, CD.BiomeRainPrecip, 1e-6f);
+		TestEqual(TEXT("默认 BiomeSavannaTemp"), CC.BiomeSavannaTemp, CD.BiomeSavannaTemp, 1e-6f);
+		TestEqual(TEXT("默认 BiomeTemperatePrecip"), CC.BiomeTemperatePrecip, CD.BiomeTemperatePrecip, 1e-6f);
+	}
+
 	// 每项都必须进 Hash()：漏一项则改它快照哈希不变、存档校验失效。
 	const uint64 Base = C2.Hash();
 	FPlanetRecipeConfig Probe;
@@ -242,6 +274,10 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 	Probe = C2; Probe.Intrusion.bAlteration = false;          TestTrue(TEXT("蚀变开关进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Intrusion.bCarbonatites = false;        TestTrue(TEXT("碳酸岩开关进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Intrusion.CarbonatiteChance = 0.41f;    TestTrue(TEXT("碳酸岩概率进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Climate.EquatorTemp = 0.99f;           TestTrue(TEXT("EquatorTemp 进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Climate.RainShadow = 0.79f;            TestTrue(TEXT("RainShadow 进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Climate.ShadowSteps = 31;              TestTrue(TEXT("ShadowSteps 进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Climate.BiomeDesertPrecip = 0.21f;     TestTrue(TEXT("BiomeDesertPrecip 进哈希"), Probe.Hash() != Base);
 	return true;
 }
 

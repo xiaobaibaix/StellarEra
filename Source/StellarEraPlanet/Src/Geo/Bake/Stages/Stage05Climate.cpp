@@ -124,7 +124,8 @@ void FStage05Climate::Bake(FPlanetBakeContext& Ctx) const
 				// 绕大圆平面法向逐步旋转，避免用固定切向累加导致轨迹漂出球面直线。
 				const FVector3f Axis = FVector3f::CrossProduct(Dir, -W).GetSafeNormal();
 				FVector3f Q = Dir;
-				float PrevE = E;
+				// 起点也必须走最近邻：整条回溯用一个采样器，否则首步的陆/海判断与后续不一致。
+				float PrevE = F.Elevation.SampleNearest(Dir);
 				for (int32 Step = 0; Step < P.ShadowSteps; ++Step)
 				{
 					Q = Q * CosStep + FVector3f::CrossProduct(Axis, Q) * SinStep;

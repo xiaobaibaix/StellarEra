@@ -1,4 +1,4 @@
-﻿// 阶段 5：温度 / 风带 / 降水（纬度基准 + 离海衰减 + 逆风雨影）。群系在后续任务。
+﻿// 阶段 5：温度、风带、降水（纬度基准 + 离海衰减 + 逆风雨影）、群系查表与图层、尺度不变与确定性。
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "GeoRng.h"
