@@ -172,6 +172,17 @@ struct FPlanetIntrusionParams
 	float AlterArgillicBand = 0.8f;       // 泥化外边界
 };
 
+/** 阶段 5 气候：温度归一化 0–1；风只按纬度分带存方位角。 */
+struct FPlanetClimateParams
+{
+	int32 ClimateRes = 256;          // 气候场每面分辨率，与 FaceRes 解耦
+	float AxialTiltDeg = 23.4f;      // 自转轴倾角：只记录，本轮不模拟季节
+	float EquatorTemp = 1.f;         // 赤道归一化温度
+	float PoleTemp = 0.05f;          // 极点归一化温度
+	float LapseRate = 0.35f;         // 高程到 0.08R 时扣掉的温度份额
+	float Continentality = 0.15f;    // 大陆度对温度的影响幅度
+};
+
 struct FPlanetRecipeConfig
 {
 	/** 半径（体素），由行星填；烘焙全程以体素为单位，与体素厘米尺寸无关。 */
@@ -190,6 +201,7 @@ struct FPlanetRecipeConfig
 	FPlanetTerrainParams Terrain;
 	FPlanetVolcanoParams Volcano;
 	FPlanetIntrusionParams Intrusion;
+	FPlanetClimateParams Climate;
 	/** 撒矿规则（来自配方的撒矿器列表，已过滤掉停用项）。规则不可变，后台线程只读。 */
 	TArray<TSharedPtr<const IGeoMineralRule>> MineralRules;
 	/** 矿物调色板，只供显示，不进哈希。 */
@@ -253,6 +265,9 @@ struct FPlanetRecipeConfig
 			In.AlterHaloScale, In.AlterKeratiticBand, In.AlterSericiticBand, In.AlterArgillicBand,
 			In.CarbonatiteRadiusRatio, In.CarbonatiteTopDepthRatio, In.CarbonatiteChance, In.CarbonatiteSpacingRatio };
 		for (const float V : InF) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
+		H = GeoHash::Combine(H, uint64(uint32(Climate.ClimateRes)));
+		const float ClF[5] = { Climate.AxialTiltDeg, Climate.EquatorTemp, Climate.PoleTemp, Climate.LapseRate, Climate.Continentality };
+		for (const float V : ClF) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 		for (const TSharedPtr<const IGeoMineralRule>& Rule : MineralRules)
 		{
 			if (Rule) { H = GeoHash::Combine(H, Rule->Hash()); }

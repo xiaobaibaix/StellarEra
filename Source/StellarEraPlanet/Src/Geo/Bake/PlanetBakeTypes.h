@@ -21,6 +21,7 @@ enum class EPlanetField : uint32
 	Elevation   = 1 << 5,   // Elevation
 	Relief      = 1 << 6,   // MountainMask / ReliefDelta / ReliefType
 	Volcanoes   = 1 << 7,   // Volcanoes / VolcanoMask / VolcanicType / VolcanicAge / VolcanoActive / VolcanoDelta
+	Climate     = 1 << 8,   // Temperature / Precipitation / WindDir / Biome / ClimateLand
 };
 ENUM_CLASS_FLAGS(EPlanetField);
 
@@ -54,6 +55,9 @@ struct FPlanetBakeFields
 	FGeoField2D VolcanoMask, VolcanicType, VolcanicAge, VolcanoActive, VolcanoDelta;
 	/** 4b 的蚀变分圈阈值，原样搬进快照：材质求值与烘焙参数必须同源。 */
 	float AlterBands[3] = { 0.3f, 0.55f, 0.8f };
+
+	// 阶段 5：气候场一律 ClimateRes；只给阶段 6/7 与调试图层，不进快照。
+	FGeoField2D Temperature, Precipitation, WindDir, Biome, ClimateLand;
 };
 
 struct FPlanetBakeReport
