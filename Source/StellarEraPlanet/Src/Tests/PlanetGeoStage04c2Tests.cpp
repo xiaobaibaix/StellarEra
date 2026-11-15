@@ -386,7 +386,17 @@ bool FGeoStage04c2DiamondTest::RunTest(const FString& Parameters)
 		Hosts.Num(), FertilePipes.Num(), Bodies.Num(), FertileRate, WorstLocal, BadLocal, BadKind, BadRadii));
 	TestTrue(TEXT("有金刚石矿体"), Bodies.Num() > 0);
 	TestEqual(TEXT("数量 = 含矿管数 × PerPipe"), Bodies.Num(), FertilePipes.Num() * Rule->P.PerPipe);
-	TestTrue(FString::Printf(TEXT("含矿率 %.3f 在 [0.05, 0.3]"), FertileRate), FertileRate >= 0.05f && FertileRate <= 0.3f);
+	// 管数少时下限没统计意义：p=0.15 在 8 根管里约四成概率一颗都不含矿，spec §5.3 允许放宽。
+	if (Hosts.Num() < 20)
+	{
+		TestTrue(FString::Printf(TEXT("含矿 %d / 总管 %d ≤ 0.3"), FertilePipes.Num(), Hosts.Num()),
+			float(FertilePipes.Num()) <= 0.3f * float(Hosts.Num()));
+	}
+	else
+	{
+		TestTrue(FString::Printf(TEXT("含矿率 %.3f 在 [0.05, 0.3]（总管 %d）"), FertileRate, Hosts.Num()),
+			FertileRate >= 0.05f && FertileRate <= 0.3f);
+	}
 	TestEqual(TEXT("没有无宿主的矿体（管内局部半径 ≤ 1.05）"), BadLocal, 0);
 	TestEqual(TEXT("都是 Blob"), BadKind, 0);
 	TestEqual(TEXT("半径 = RadiusRatio × R（各向同性）"), BadRadii, 0);

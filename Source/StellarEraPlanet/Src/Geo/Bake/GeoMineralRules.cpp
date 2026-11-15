@@ -456,7 +456,8 @@ void FGeoRareEarthRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out)
 {
 	const int32 PerBody = FMath::Clamp(P.PerBody, 1, 8);
 	const float Scale = FMath::Clamp(P.RadiusScale, 1e-3f, 1.f);
-	// 碳酸岩是稀土的母体：矿体与宿主同心、只缩小一圈，整颗压在岩体内，不需要宿主朝向。
+	// 碳酸岩是稀土的母体：与宿主同心、按宿主半轴等比缩小。碳酸岩当前是各向同性 Blob，所以不读朝向；
+	// 若它以后变成 OrientedBlob，这里必须改用宿主 Rotation 建 OrientedBlob，否则会静默错位。
 	GeoMineralRulesForEachHost(Ctx.Fields, GeoLithology::Carbonatite, [&](const FGeoPrimitive& Host, const FQuat4f&)
 	{
 		for (int32 k = 0; k < PerBody; ++k)
