@@ -48,3 +48,17 @@ TSharedPtr<IGeoMineralRule> UGeoSulfurScatterer::MakeRule() const
 	R->P = { RadiusRatio, DepthVoxels };
 	return R;
 }
+
+TSharedPtr<IGeoMineralRule> UGeoEpithermalScatterer::MakeRule() const
+{
+	TSharedPtr<FGeoEpithermalRule> R = MakeShared<FGeoEpithermalRule>();
+	R->P = { DepthMinRatio, DepthMaxRatio, VeinCount, VeinRadiusRatio, VeinThicknessRatio, SpreadRatio };
+	return R;
+}
+
+TSharedPtr<IGeoMineralRule> UGeoPorphyryScatterer::MakeRule() const
+{
+	TSharedPtr<FGeoPorphyryRule> R = MakeShared<FGeoPorphyryRule>();
+	R->P = { DepthMinRatio, DepthMaxRatio, RadiusRatio, PerStock };
+	return R;
+}

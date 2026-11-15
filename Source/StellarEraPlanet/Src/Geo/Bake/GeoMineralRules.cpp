@@ -1,4 +1,5 @@
 ﻿#include "GeoMineralRules.h"
+#include "GeoLithology.h"
 #include "GeoNoise.h"
 #include "PlanetBakeTypes.h"
 #include "PlanetMaterialEval.h"
@@ -226,6 +227,82 @@ void FGeoSulfurRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) co
 uint64 FGeoSulfurRule::HashParams() const
 {
 	return GeoMineralRulesHashFloats(GeoHash::Str("sulfur"), { P.RadiusRatio, P.DepthVoxels });
+}
+
+void FGeoEpithermalRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const
+{
+	const FPlanetBakeFields& F = Ctx.Fields;
+	if (F.Elevation.Res <= 0)
+	{
+		Ctx.Errors.Add(FString::Printf(TEXT("[地质] 撒矿器「%s」需要阶段 3 的高程场"), GetRuleName()));
+		return;
+	}
+	const double R = Ctx.Config.Radius;
+	const int32 Veins = FMath::Clamp(P.VeinCount, 1, 16);
+	const float Radius = FMath::Max(P.VeinRadiusRatio, 1e-4f) * float(R);
+	const float Thickness = FMath::Max(P.VeinThicknessRatio, 1e-4f) * float(R);
+	for (const FGeoVolcano& V : F.Volcanoes)
+	{
+		// 同一批活火山：死火山没有热液系统，没有火口的溢流玄武岩没有上升通道。
+		if (!V.bActive || V.CraterRadius <= 0.f) { continue; }
+		const FVector3f Dir = V.Dir.GetSafeNormal();
+		const double Surf = R + double(F.Elevation.Sample(Dir));
+		const FQuat4f Frame = GeoMineralRules::TangentFrame(Dir, Ctx.Rng.Range(0.f, 2.f * PI));
+		const FVector3f Along = Frame.RotateVector(FVector3f::XAxisVector);
+		// 水平散布是整簇脉体的总宽：沿走向均分，最外侧两条各占半个间距。
+		const float Spacing = Veins > 1 ? P.SpreadRatio * V.CraterRadius / float(Veins - 1) : 0.f;
+		for (int32 k = 0; k < Veins; ++k)
+		{
+			const FVector3f Q = (Dir + Along * (float(k) - 0.5f * float(Veins - 1)) * Spacing).GetSafeNormal();
+			// 每条脉各自掷深度：脉群是斜列的一簇，不是一层平板。
+			const double Center = Surf - double(Ctx.Rng.Range(P.DepthMinRatio, P.DepthMaxRatio)) * R;
+			FGeoPrimitive Body = FGeoPrimitive::MakeOrientedBlob(FVector3f(FVector3d(Q) * Center),
+				FVector3f(Radius, Radius, Thickness), Frame, 0.06f);
+			Body.Grade = RandomGrade(Ctx.Rng);
+			Out.Bodies.Add(Body);
+		}
+	}
+}
+
+uint64 FGeoEpithermalRule::HashParams() const
+{
+	return GeoMineralRulesHashFloats(GeoHash::Combine(GeoHash::Str("epithermal"), uint64(FMath::Max(P.VeinCount, 0))),
+		{ P.DepthMinRatio, P.DepthMaxRatio, P.VeinRadiusRatio, P.VeinThicknessRatio, P.SpreadRatio });
+}
+
+void FGeoPorphyryRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const
+{
+	const FPlanetBakeFields& F = Ctx.Fields;
+	// 只依赖岩株原语本身的几何：没有侵入体就没有宿主，不产矿，不是配置错误。
+	if (F.Primitives.IsEmpty()) { return; }
+	const double R = Ctx.Config.Radius;
+	const float Radius = FMath::Max(P.RadiusRatio, 1e-4f) * float(R);
+	const int32 PerStock = FMath::Clamp(P.PerStock, 1, 8);
+	const float ShiftMin = FMath::Min(P.DepthMinRatio, P.DepthMaxRatio);
+	const float ShiftMax = FMath::Max(P.DepthMinRatio, P.DepthMaxRatio);
+	for (const FGeoPrimitive& Stock : F.Primitives)
+	{
+		if (Stock.LithologyId != GeoLithology::Diorite) { continue; }
+		const FVector3f Dir = FVector3f(Stock.Center).GetSafeNormal();
+		// 岩株顶面由原语自身算出：这里的规则只认识几何，不重复读阶段 4b 的配置。
+		const double StockTop = double(Stock.Center.Size()) + double(Stock.Radii.GetMax());
+		for (int32 k = 0; k < PerStock; ++k)
+		{
+			// 下移量从区间下限起、按个数铺到上限。默认下限(0.012) > 半径(0.01)，
+			// 顶面自然压在岩株顶面之下，岩株顶不会整颗被浸染体包住。
+			const float Shift = PerStock > 1 ? FMath::Lerp(ShiftMin, ShiftMax, float(k) / float(PerStock - 1)) : ShiftMin;
+			FGeoPrimitive Body = FGeoPrimitive::MakeBlob(FVector3f(FVector3d(Dir) * (StockTop - double(Shift) * R)),
+				FVector3f(Radius), 0.25f);
+			Body.Grade = RandomGrade(Ctx.Rng);
+			Out.Bodies.Add(Body);
+		}
+	}
+}
+
+uint64 FGeoPorphyryRule::HashParams() const
+{
+	return GeoMineralRulesHashFloats(GeoHash::Combine(GeoHash::Str("porphyry"), uint64(FMath::Max(P.PerStock, 0))),
+		{ P.DepthMinRatio, P.DepthMaxRatio, P.RadiusRatio });
 }
 
 namespace

@@ -110,6 +110,46 @@ public:
 	virtual uint64 HashParams() const override;
 };
 
+/** 浅成低温金银：活跃火山锥顶下方的脉群，火山竖向矿柱的中间一层。运行于阶段 4 之后。 */
+struct FGeoEpithermalParams
+{
+	float DepthMinRatio = 0.004f;        // 脉体中心深度下限（占 R）
+	float DepthMaxRatio = 0.012f;        // 脉体中心深度上限；每条脉在这段区间里取一个深度
+	int32 VeinCount = 3;                 // 每座火山的脉体条数
+	float VeinRadiusRatio = 0.004f;      // 单条脉水平半径
+	float VeinThicknessRatio = 0.0015f;  // 单条脉半厚（局部 Z，贴着球面躺平）
+	float SpreadRatio = 2.0f;            // 整簇脉体的水平总宽 = 该倍数 × 火口半径
+};
+
+class STELLARERAPLANET_API FGeoEpithermalRule final : public IGeoMineralRule
+{
+public:
+	FGeoEpithermalParams P;
+	virtual uint32 GetStage() const override { return 4; }
+	virtual const TCHAR* GetRuleName() const override { return TEXT("Epithermal"); }
+	virtual void Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const override;
+	virtual uint64 HashParams() const override;
+};
+
+/** 斑岩铜：闪长岩岩株顶面下方的浸染体，火山竖向矿柱最深的一层。运行于阶段 4b 之后。 */
+struct FGeoPorphyryParams
+{
+	float DepthMinRatio = 0.012f;  // 浸染体中心到岩株顶面的距离下限（占 R）
+	float DepthMaxRatio = 0.03f;   // 上限；PerStock 个浸染体在这段区间里自上而下铺开
+	float RadiusRatio = 0.01f;     // 浸染体半径
+	int32 PerStock = 1;            // 每座岩株几个
+};
+
+class STELLARERAPLANET_API FGeoPorphyryRule final : public IGeoMineralRule
+{
+public:
+	FGeoPorphyryParams P;
+	virtual uint32 GetStage() const override { return 4; }
+	virtual const TCHAR* GetRuleName() const override { return TEXT("Porphyry"); }
+	virtual void Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const override;
+	virtual uint64 HashParams() const override;
+};
+
 namespace GeoMineralRules
 {
 	/** 矿物图层（地下 / 地表矿化），图例来自快照的矿物调色板。不属于某一阶段，Stage = 0。 */

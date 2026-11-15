@@ -178,6 +178,62 @@ public:
 	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
 };
 
+/** 浅成低温金银：活跃火山锥顶下方的脉群，火山竖向矿柱的中间一层。运行于阶段 4 之后。 */
+UCLASS(meta = (DisplayName = "浅成低温金银脉（阶段 4）"))
+class STELLARERAPLANET_API UGeoEpithermalScatterer : public UGeoMineralScatterer
+{
+	GENERATED_BODY()
+
+public:
+	UGeoEpithermalScatterer() { Mineral = TEXT("EpithermalAuAg"); }
+
+	/** 脉体中心深度下限（占 R，从地表往下）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "0.2"))
+	float DepthMinRatio = 0.004f;
+	/** 脉体中心深度上限（占 R）：每条脉在这段区间里各取一个深度。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "0.2"))
+	float DepthMaxRatio = 0.012f;
+	/** 每座火山的脉体条数。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1", ClampMax = "16"))
+	int32 VeinCount = 3;
+	/** 单条脉水平半径（占 R）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.0005", ClampMax = "0.05"))
+	float VeinRadiusRatio = 0.004f;
+	/** 单条脉半厚（占 R），贴着球面躺平的那个方向。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.0002", ClampMax = "0.02"))
+	float VeinThicknessRatio = 0.0015f;
+	/** 整簇脉体的水平总宽 = 该倍数 × 火口半径。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "16"))
+	float SpreadRatio = 2.f;
+
+	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
+};
+
+/** 斑岩铜：闪长岩岩株顶面下方的浸染体，火山竖向矿柱最深的一层。运行于阶段 4b 之后。 */
+UCLASS(meta = (DisplayName = "斑岩铜浸染体（阶段 4）"))
+class STELLARERAPLANET_API UGeoPorphyryScatterer : public UGeoMineralScatterer
+{
+	GENERATED_BODY()
+
+public:
+	UGeoPorphyryScatterer() { Mineral = TEXT("PorphyryCu"); }
+
+	/** 浸染体中心到岩株顶面的距离下限（占 R）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "0.2"))
+	float DepthMinRatio = 0.012f;
+	/** 距离上限（占 R）：PerStock 个浸染体在这段区间里自上而下铺开。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "0.2"))
+	float DepthMaxRatio = 0.03f;
+	/** 浸染体半径（占 R）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.001", ClampMax = "0.05"))
+	float RadiusRatio = 0.01f;
+	/** 每座岩株几个。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1", ClampMax = "8"))
+	int32 PerStock = 1;
+
+	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
+};
+
 /** 硫磺结壳：活跃火山火口内的地表覆层（覆层，不是矿体）。运行于阶段 4 之后。 */
 UCLASS(meta = (DisplayName = "硫磺结壳（阶段 4）"))
 class STELLARERAPLANET_API UGeoSulfurScatterer : public UGeoMineralScatterer
