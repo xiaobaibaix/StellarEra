@@ -334,7 +334,7 @@ bool FGeoStage03FeaturesTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("有洋中脊"), Ridge > 0.0);
 	TestTrue(TEXT("有古老山地"), Old > 0.0);
 	TestTrue(FString::Printf(TEXT("主山带 %d 条 ∈ [2, 12]"), Belts), Belts >= 2 && Belts <= 12);
-	TestTrue(FString::Printf(TEXT("山地（高山 + 丘陵 + 古老山地）%.3f ∈ [0.03, 0.25]"), High + Hill + Old), High + Hill + Old >= 0.03 && High + Hill + Old <= 0.25);
+	TestTrue(FString::Printf(TEXT("山地（高山 + 丘陵 + 古老山地）%.3f ∈ [0.01, 0.25]"), High + Hill + Old), High + Hill + Old >= 0.01 && High + Hill + Old <= 0.25);
 	TestTrue(TEXT("三项不改陆地占比（裂谷不进海、洋中脊不出海）"), FMath::Abs(F.LandAreaFrac - F0.LandAreaFrac) < 0.002f);
 
 	// 洋中脊比没有它时高、但始终在水下；裂谷在陆上；古老山地在古老陆壳内部。
@@ -354,6 +354,26 @@ bool FGeoStage03FeaturesTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("洋中脊都在水下"), RidgeWet, RidgeN);
 	TestEqual(TEXT("裂谷都在陆上"), RiftDry, RiftN);
 	TestEqual(TEXT("古老山地都在大陆内部、远离现今山带"), OldInterior, OldN);
+	TestTrue(FString::Printf(TEXT("古老山地 %.4f ∈ [0.005, 0.04]"), Old), Old >= 0.005 && Old <= 0.04);
+
+	// 可调性：宽度、断接、支脉三个旋钮各自朝预期方向起作用。
+	const auto OldArea = [](const FPlanetBakeFields& Fx) { return Stage03TestArea(Fx.ReliefType, [&Fx](int32 Fc, int32 X, int32 Y) { return Fx.ReliefType.At(Fc, X, Y) == 8.f; }); };
+	FPlanetRecipeConfig Wide = C; Wide.Terrain.OldOrogenWidthRatio *= 1.6f;
+	FPlanetRecipeConfig Solid = C; Solid.Terrain.OldOrogenGapFraction = 0.f;
+	FPlanetRecipeConfig Broken = C; Broken.Terrain.OldOrogenGapFraction = 0.7f;
+	FPlanetRecipeConfig Smooth = C; Smooth.Terrain.OldOrogenSpurStrength = 0.f;
+	FPlanetBakeFields Fw, Fs, Fb, Fm; FPlanetBakeReport Rw, Rs, Rb, Rm;
+	Stage03TestBake(Wide, Fw, Rw); Stage03TestBake(Solid, Fs, Rs); Stage03TestBake(Broken, Fb, Rb); Stage03TestBake(Smooth, Fm, Rm);
+	const double AW = OldArea(Fw), AS = OldArea(Fs), AB = OldArea(Fb);
+	int32 SpurDiff = 0;
+	for (int32 Face = 0; Face < 6; ++Face) for (int32 Y = 0; Y < F.Elevation.Res; ++Y) for (int32 X = 0; X < F.Elevation.Res; ++X)
+	{
+		SpurDiff += FMath::Abs(F.Elevation.At(Face, X, Y) - Fm.Elevation.At(Face, X, Y)) > 1.f ? 1 : 0;
+	}
+	AddInfo(FString::Printf(TEXT("古老山地面积：默认 %.4f / 加宽 %.4f / 不断接 %.4f / 多断接 %.4f；支脉改动 %d texel"), Old, AW, AS, AB, SpurDiff));
+	TestTrue(TEXT("加宽 → 面积变大"), AW > Old);
+	TestTrue(TEXT("断接越多 → 面积越小"), AS > Old && Old > AB);
+	TestTrue(TEXT("支脉改变山坡形态"), SpurDiff > 0);
 	return true;
 }
 

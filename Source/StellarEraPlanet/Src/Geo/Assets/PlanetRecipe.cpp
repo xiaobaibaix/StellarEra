@@ -54,6 +54,11 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 	C.Terrain.RiftWidthRatio = RiftWidthRatio;
 	C.Terrain.OldOrogenHeightRatio = OldOrogenHeightRatio;
 	C.Terrain.OldOrogenDensity = OldOrogenDensity;
+	C.Terrain.OldOrogenWidthRatio = OldOrogenWidthRatio;
+	C.Terrain.OldOrogenSpurStrength = OldOrogenSpurStrength;
+	C.Terrain.OldOrogenCoverage = OldOrogenCoverage;
+	C.Terrain.OldOrogenGapFraction = OldOrogenGapFraction;
+	C.Terrain.OldOrogenWidthVariation = OldOrogenWidthVariation;
 	if (MineralCatalog)
 	{
 		for (const FGeoMineralDef& D : MineralCatalog->Minerals)

@@ -89,7 +89,12 @@ struct FPlanetTerrainParams
 	float RiftDepthRatio = 0.004f;        // 大陆裂谷地堑下陷（160 体素），谷底不低于海平面
 	float RiftWidthRatio = 0.015f;        // 裂谷宽度
 	float OldOrogenHeightRatio = 0.008f;  // 古老造山带高度（320 体素），低矮圆缓
-	float OldOrogenDensity = 3.f;         // 古老造山带疏密：越大条数越多
+	float OldOrogenDensity = 3.f;         // 古老造山带主脊疏密：越大主脊间距越小
+	float OldOrogenWidthRatio = 0.045f;   // 主脊到山脚的辐射距离（方向单位，R=40000 时约 1800 体素）
+	float OldOrogenSpurStrength = 0.6f;   // 支脉强度：0 只有主脊 + 平滑山坡，1 山坡全是垂直主脊伸出的支脉
+	float OldOrogenCoverage = 0.4f;       // 保留多少条主脊：0 没有，1 全部
+	float OldOrogenGapFraction = 0.3f;    // 沿走向断开 / 压成垭口的比例
+	float OldOrogenWidthVariation = 0.5f; // 宽窄收放幅度：0 等宽，1 最窄处只剩三成
 };
 
 struct FPlanetRecipeConfig
@@ -142,9 +147,10 @@ struct FPlanetRecipeConfig
 		for (const float V : C) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 		const FPlanetTerrainParams& T = Terrain;
 		H = GeoHash::Combine(H, uint64(T.ErosionIterations));
-		const float Tr[20] = { T.MountainHeightRatio, T.TrenchDepthRatio, T.PlainReliefRatio, T.BeltWidthRatio, T.TrenchWidthRatio,
+		const float Tr[25] = { T.MountainHeightRatio, T.TrenchDepthRatio, T.PlainReliefRatio, T.BeltWidthRatio, T.TrenchWidthRatio,
 			T.RidgeWavelengthRatio, T.WarpRatio, T.ErosionStrength, T.TalusAngleDeg, T.TrenchSedimentFill, T.TrenchSlump, T.TrenchWedge, T.SpeedWidthEffect, T.SpeedHeightEffect,
-			T.MidOceanRidgeHeightRatio, T.MidOceanRidgeWidthRatio, T.RiftDepthRatio, T.RiftWidthRatio, T.OldOrogenHeightRatio, T.OldOrogenDensity };
+			T.MidOceanRidgeHeightRatio, T.MidOceanRidgeWidthRatio, T.RiftDepthRatio, T.RiftWidthRatio, T.OldOrogenHeightRatio, T.OldOrogenDensity,
+			T.OldOrogenWidthRatio, T.OldOrogenSpurStrength, T.OldOrogenCoverage, T.OldOrogenGapFraction, T.OldOrogenWidthVariation };
 		for (const float V : Tr) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 		for (const TSharedPtr<const IGeoMineralRule>& Rule : MineralRules)
 		{

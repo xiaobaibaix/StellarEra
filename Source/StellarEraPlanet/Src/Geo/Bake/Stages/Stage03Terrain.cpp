@@ -210,18 +210,55 @@ void FStage03Terrain::Bake(FPlanetBakeContext& Ctx) const
 				RiftRelief = Shoulder - FMath::Min(Out.Graben, 0.9f * (E0 + Shoulder + Plain));
 			}
 		}
-		// 古老造山带：古老陆壳内部、远离现今山带处，沿噪声零等值线蜿蜒的低矮圆缓山地（被长期剥蚀的旧碰撞带）。
+		// 古老造山带：古老陆壳内部、远离现今山带处。噪声零等值线是主脊轴，山体按到轴的距离向两侧辐射到山脚，
+		// 山坡上是垂直主脊伸出的支脉；沿走向有断接与垭口、宽窄收放。
 		if (AOld > 0.f && E0 > 0.f)
 		{
 			const float Age = F.CrustAge.Sample(Dir);
 			const float Interior = FMath::SmoothStep(0.6f, 0.9f, M) * FMath::SmoothStep(0.8f, 0.95f, Age)
 				* (1.f - FMath::Clamp(3.f * Out.Mask, 0.f, 1.f));
-			if (Interior > 0.f)
+			const float Freq = FMath::Max(T.OldOrogenDensity, 0.1f);
+			// 低频挑选：只留一部分主脊，否则每条零等值线都长山，满地花纹。
+			const float Cov = FMath::Clamp(T.OldOrogenCoverage, 0.f, 1.f);
+			const float CovT = FMath::Lerp(0.45f, -0.45f, Cov);
+			const float Keep = Cov <= 0.f ? 0.f
+				: FMath::SmoothStep(CovT, CovT + 0.1f, GeoNoise::Fbm3(GeoHash::Combine(OldSeed, 7), Wp * (0.5f * Freq), 2));
+			if (Interior * Keep > 0.f)
 			{
-				const float Nz = GeoNoise::Fbm3(OldSeed, Wp * FMath::Max(T.OldOrogenDensity, 0.1f), 3);
-				const float Line = 1.f - FMath::SmoothStep(0.f, 0.12f, FMath::Abs(Nz));
-				const float Detail = 0.7f + 0.3f * GeoNoise::Fbm3(GeoHash::Combine(OldSeed, 5), Wp * (8.f * T.OldOrogenDensity), 2);
-				Out.Old = AOld * Interior * Line * Line * (3.f - 2.f * Line) * Detail;
+				const float W = FMath::Max(T.OldOrogenWidthRatio, 1e-4f);
+				const float SegF = 1.f / (3.f * W);
+				// 宽窄收放：同一条山系有的段胖、有的段瘦。
+				const float Wv = FMath::Clamp(T.OldOrogenWidthVariation, 0.f, 1.f);
+				const float Wloc = W * FMath::Max(1.f + Wv * 1.4f * GeoNoise::Fbm3(GeoHash::Combine(OldSeed, 8), Wp * (0.7f * SegF), 2), 0.3f);
+				// 到主脊的距离 ≈ |n| / |∇n|：宽度这才按半径比例可控，不随噪声陡缓忽宽忽窄。
+				FVector3f E1, E2;
+				Stage03Tangents(Dir, E1, E2);
+				const float Hs = 0.05f / Freq;
+				const auto Axis = [&](const FVector3f& Q) { return GeoNoise::Fbm3(OldSeed, Q * Freq, 3); };
+				const float Nz = Axis(Wp);
+				const float G1 = (Axis(Wp + E1 * Hs) - Axis(Wp - E1 * Hs)) / (2.f * Hs);
+				const float G2 = (Axis(Wp + E2 * Hs) - Axis(Wp - E2 * Hs)) / (2.f * Hs);
+				const FVector3f Grad = E1 * G1 + E2 * G2;
+				const float Dn = FMath::Abs(Nz) / FMath::Max(Grad.Size(), 1e-4f) / Wloc;
+				if (Dn < 1.f)
+				{
+					const float Core = FMath::Exp(-Stage03Sq(Dn / 0.3f));
+					const float Flank = Stage03Sq(1.f - FMath::SmoothStep(0.f, 1.f, Dn));
+					// 支脉：沿主脊法向拉长的脊状噪声，离主脊越远越矮，到山脚淡成丘陵。
+					const FVector3f Nrm = Grad.GetSafeNormal();
+					const FVector3f Qs = Wp - Nrm * ((2.f / 3.f) * FVector3f::DotProduct(Wp, Nrm));
+					const float Sr = 1.f - FMath::Abs(GeoNoise::Fbm3(GeoHash::Combine(OldSeed, 9), Qs * (1.f / (0.6f * Wloc)), 2));
+					const float Spur = FMath::Lerp(0.55f, Sr * Sr, FMath::Clamp(T.OldOrogenSpurStrength, 0.f, 1.f));
+					const float Shape = FMath::Max(Core, Flank * Spur);
+					// 断接与垭口：沿走向的低频噪声低于阈值处整段断开，阈值附近压成鞍部。
+					const float Gap = FMath::Clamp(T.OldOrogenGapFraction, 0.f, 1.f);
+					const float GapT = FMath::Lerp(-0.5f, 0.4f, Gap);
+					const float Sg = GeoNoise::Fbm3(GeoHash::Combine(OldSeed, 10), Wp * SegF, 2);
+					const float Along = (Gap <= 0.f ? 1.f : FMath::SmoothStep(GapT - 0.05f, GapT + 0.2f, Sg))
+						* (0.6f + 0.4f * FMath::Clamp(0.5f + Sg, 0.f, 1.f));
+					const float Detail = 0.8f + 0.2f * GeoNoise::Fbm3(GeoHash::Combine(OldSeed, 5), Wp * (3.f / Wloc), 2);
+					Out.Old = AOld * Interior * Keep * Shape * Along * Detail;
+				}
 			}
 		}
 		Out.Relief = Mountain + Plain - Out.Trench + Out.Wedge + Out.Ridge + RiftRelief + Out.Old;

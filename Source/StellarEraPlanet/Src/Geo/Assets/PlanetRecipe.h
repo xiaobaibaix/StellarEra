@@ -199,9 +199,29 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0", ClampMax = "0.05"))
 	float OldOrogenHeightRatio = 0.008f;
 
-	/** 古老造山带疏密：越大条数越多、间距越小。 */
+	/** 古老造山带主脊疏密：越大主脊越多、间距越小。 */
 	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0.5", ClampMax = "12"))
 	float OldOrogenDensity = 3.f;
+
+	/** 古老造山带辐射范围：主脊到山脚的距离（0.045 ≈ 现今山带半宽的 1.5 倍）。越大山体越宽越缓。 */
+	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0.005", ClampMax = "0.2"))
+	float OldOrogenWidthRatio = 0.045f;
+
+	/** 支脉强度：山坡上垂直主脊伸出的支脉有多明显。0 = 只有主脊和平滑山坡。 */
+	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0", ClampMax = "1"))
+	float OldOrogenSpurStrength = 0.6f;
+
+	/** 覆盖度：古老山系保留多少条。0 = 没有，1 = 所有主脊都长山。 */
+	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0", ClampMax = "1"))
+	float OldOrogenCoverage = 0.4f;
+
+	/** 断接比例：沿走向有多少段断开或压成垭口。0 = 连续不断，1 = 大部分断开成孤立山块。 */
+	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0", ClampMax = "1"))
+	float OldOrogenGapFraction = 0.3f;
+
+	/** 宽窄收放：同一条山系沿走向变宽变窄的幅度。0 = 等宽，1 = 最窄处只剩三成。 */
+	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0", ClampMax = "1"))
+	float OldOrogenWidthVariation = 0.5f;
 
 	/** 矿物目录：编号、中文名、调试色。撒矿器只引用这里的编号。 */
 	UPROPERTY(EditAnywhere, Category = "Minerals")
