@@ -241,8 +241,9 @@ bool FGeoStage04c2CopperNickelTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("数量 = 宿主数 × PerHost（±5%）"),
 		FMath::Abs(Bodies.Num() - Expect) <= FMath::Max(1, FMath::CeilToInt(0.05f * float(Expect))));
 
-	int32 NoHost = 0, BadZ = 0, BadXY = 0, BadKind = 0, BadShape = 0, BadPose = 0;
+	int32 NoHost = 0, BadZ = 0, BadXY = 0, BadBottom = 0, BadTop = 0, BadKind = 0, BadShape = 0, BadPose = 0;
 	float ZLo = TNumericLimits<float>::Max(), ZHi = -ZLo, WorstXY = 0.f;
+	float BottomLo = TNumericLimits<float>::Max(), TopHi = -TNumericLimits<float>::Max();
 	for (const FGeoPrimitive* Body : Bodies)
 	{
 		const FGeoPrimitive* Host = Stage04c2NearestHost(Hosts, Body->Center);
@@ -252,6 +253,12 @@ bool FGeoStage04c2CopperNickelTest::RunTest(const FString& Parameters)
 		ZLo = FMath::Min(ZLo, L.Z); ZHi = FMath::Max(ZHi, L.Z); WorstXY = FMath::Max(WorstXY, AXY);
 		BadZ += L.Z >= -1.02f && L.Z <= -0.4f ? 0 : 1;
 		BadXY += AXY <= 1.f ? 0 : 1;
+		// 竖直跨度按宿主局部 Z 算：朝向断言已证明矿体与宿主同朝向，直接除宿主 Rz 即可。
+		const float HalfZ = Body->Radii.Z / Host->Radii.Z;
+		const float Bottom = L.Z - HalfZ, Top = L.Z + HalfZ;
+		BottomLo = FMath::Min(BottomLo, Bottom); TopHi = FMath::Max(TopHi, Top);
+		BadBottom += Bottom >= -1.02f ? 0 : 1;
+		BadTop += Top <= -0.2f + 1e-4f ? 0 : 1;
 		BadKind += Body->Kind == EGeoPrimitiveKind::OrientedBlob ? 0 : 1;
 		// 半轴按宿主自己的三条半轴缩放：岩墙（竖直薄板）与岩床（水平薄板）都靠这条跟着宿主变扁。
 		const FVector3f Want(Host->Radii.X * Rule->P.WidthScale, Host->Radii.Y * Rule->P.WidthScale, Host->Radii.Z * Rule->P.ThicknessScale);
@@ -262,11 +269,13 @@ bool FGeoStage04c2CopperNickelTest::RunTest(const FString& Parameters)
 		const FVector3f BZ = Body->Rotation.RotateVector(FVector3f::ZAxisVector), HZ = Host->Rotation.RotateVector(FVector3f::ZAxisVector);
 		BadPose += FVector3f::DotProduct(BX, HX) >= 0.999f && FVector3f::DotProduct(BZ, HZ) >= 0.999f ? 0 : 1;
 	}
-	AddInfo(FString::Printf(TEXT("局部 z %.3f–%.3f，最差 |x|/|y| %.3f；越界 z %d / xy %d / 非 OrientedBlob %d / 尺寸 %d / 朝向 %d"),
-		ZLo, ZHi, WorstXY, BadZ, BadXY, BadKind, BadShape, BadPose));
+	AddInfo(FString::Printf(TEXT("中心局部 z %.3f–%.3f，最差 |x|/|y| %.3f；竖直跨度 底 %.3f / 顶 %.3f；越界 z %d / xy %d / 底 %d / 顶 %d / 非 OrientedBlob %d / 尺寸 %d / 朝向 %d"),
+		ZLo, ZHi, WorstXY, BottomLo, TopHi, BadZ, BadXY, BadBottom, BadTop, BadKind, BadShape, BadPose));
 	TestEqual(TEXT("没有无宿主的矿体"), NoHost, 0);
-	TestEqual(TEXT("局部 z 都在 [-1.02, -0.4]（宿主底部壳层）"), BadZ, 0);
-	TestEqual(TEXT("局部 |x|,|y| 都 ≤ 1（不出宿主横截面）"), BadXY, 0);
+	TestEqual(TEXT("中心在 [-1.02, -0.4]（宿主底部壳层）"), BadZ, 0);
+	TestEqual(TEXT("中心 |x|,|y| ≤ 1（不出宿主横截面）"), BadXY, 0);
+	TestEqual(TEXT("矿体底不越出宿主底（≥ -1.02）"), BadBottom, 0);
+	TestEqual(TEXT("矿体顶在宿主中线以下（≤ -0.2）"), BadTop, 0);
 	TestEqual(TEXT("都是 OrientedBlob（能贴合宿主朝向）"), BadKind, 0);
 	TestEqual(TEXT("半轴 = 宿主半轴 × WidthScale / ThicknessScale"), BadShape, 0);
 	TestEqual(TEXT("朝向与宿主一致"), BadPose, 0);

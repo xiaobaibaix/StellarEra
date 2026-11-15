@@ -305,8 +305,8 @@ public:
 	/** 水平半轴 = 该倍数 × 宿主水平半轴：宿主越宽矿体越大。 */
 	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.05", ClampMax = "1"))
 	float WidthScale = 0.7f;
-	/** 半厚 = 该倍数 × 宿主竖直半轴：必须 < 1，否则矿体捅出宿主上下表面。 */
-	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.05", ClampMax = "1"))
+	/** 半厚 = 该倍数 × 宿主竖直半轴；必须 ≤ 0.5，否则矿体顶面越过宿主中线（下移量 1−该倍数 会变负）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.05", ClampMax = "0.5"))
 	float ThicknessScale = 0.3f;
 
 	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
@@ -324,7 +324,7 @@ public:
 	/** 每片薄板几层。 */
 	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1", ClampMax = "8"))
 	int32 PerSlab = 1;
-	/** 半厚 = 该倍数 × 宿主竖直半轴：必须 ≤ 0.5，否则同心的矿层会穿出薄板。 */
+	/** 半厚 = 该倍数 × 宿主竖直半轴；≤ 0.5 才是夹在薄板里的一层，取 1 就成了宿主副本。 */
 	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.05", ClampMax = "0.5"))
 	float ThicknessScale = 0.4f;
 

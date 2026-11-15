@@ -378,14 +378,17 @@ void FGeoCopperNickelRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& O
 {
 	const int32 PerHost = FMath::Clamp(P.PerHost, 1, 8);
 	const float Width = FMath::Max(P.WidthScale, 1e-3f);
-	const float Thickness = FMath::Max(P.ThicknessScale, 1e-3f);
+	const float Thickness = FMath::Clamp(P.ThicknessScale, 1e-3f, 0.5f);
 	GeoMineralRulesForEachHost(Ctx.Fields, GeoLithology::Gabbro, [&](const FGeoPrimitive& Host, const FQuat4f& Rot)
 	{
 		const FVector3f Radii(Host.Radii.X * Width, Host.Radii.Y * Width, Host.Radii.Z * Thickness);
+		// 中心下移最深 1−Thickness：矿体底正好压住宿主底板，整体不越出宿主。
+		const float InsetLo = FMath::Min(0.5f, 1.f - Thickness);
+		const float InsetHi = FMath::Max(0.5f, 1.f - Thickness);
 		for (int32 k = 0; k < PerHost; ++k)
 		{
 			// 底板附近：硫化物熔体比硅酸盐重，在宿主下半部聚成水平铺开的扁平体。
-			const FVector3f Local(0.f, 0.f, -Host.Radii.Z * Ctx.Rng.Range(0.5f, 0.9f));
+			const FVector3f Local(0.f, 0.f, -Host.Radii.Z * Ctx.Rng.Range(InsetLo, InsetHi));
 			FGeoPrimitive Body = FGeoPrimitive::MakeOrientedBlob(Host.Center + Rot.RotateVector(Local), Radii, Rot, 0.05f);
 			Body.Grade = RandomGrade(Ctx.Rng);
 			Out.Bodies.Add(Body);
