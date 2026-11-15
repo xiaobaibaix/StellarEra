@@ -263,7 +263,7 @@ void FStage04Magmatism::Bake(FPlanetBakeContext& Ctx) const
 	// 火山之间取 max 再与地形取 max：相邻锥不叠出双倍高，山高过锥顶时锥被埋。
 	// Height 从 BaseElevation 起算（见 GeoVolcano.h），锥体不随局部地形倾斜——
 	// 否则陡坡上坡下的地面比火口底还高，火口不成其为火口。
-	const auto Eval = [&](const FVector3f& D, float& OutUp, float& OutPit, int32& OutTop, float& OutMask, float& OutSurface)
+	const auto Eval = [&](const FVector3f& D, float E0, float& OutUp, float& OutPit, int32& OutTop, float& OutMask, float& OutSurface)
 	{
 		OutUp = 0.f; OutPit = 0.f; OutTop = -1; OutMask = 0.f; OutSurface = -TNumericLimits<float>::Max();
 		for (const int32 i : BucketOf(D))
@@ -283,7 +283,10 @@ void FStage04Magmatism::Bake(FPlanetBakeContext& Ctx) const
 			if (Mask > OutMask) { OutMask = Mask; OutTop = i; }
 			OutUp = FMath::Max(OutUp, Up);
 			OutPit = FMath::Max(OutPit, Pit);
-			OutSurface = FMath::Max(OutSurface, Vo.BaseElevation + Up);
+			// 只在外圈把基面过渡回地形：否则下坡侧留下基面平台，足印边界是一道 1 texel 断崖。
+			// 过渡带要宽：山高 0.05R，火山中心与足印边缘的高差可达上千体素，窄带会把台阶留到足印内部。
+			const float Skirt = FMath::SmoothStep(0.65f, 1.f, Chord / Vo.BaseRadius);
+			OutSurface = FMath::Max(OutSurface, FMath::Lerp(Vo.BaseElevation + Up, E0, Skirt));
 		}
 	};
 
@@ -293,10 +296,10 @@ void FStage04Magmatism::Bake(FPlanetBakeContext& Ctx) const
 		const int32 Face = Row / Res, Y = Row % Res;
 		for (int32 X = 0; X < Res; ++X)
 		{
-			float Up, Pit, Mask, Surface; int32 Top;
-			Eval(H.TexelDir(Face, X, Y), Up, Pit, Top, Mask, Surface);
-			if (Top < 0) { continue; }
 			const float E0 = H.At(Face, X, Y);
+			float Up, Pit, Mask, Surface; int32 Top;
+			Eval(H.TexelDir(Face, X, Y), E0, Up, Pit, Top, Mask, Surface);
+			if (Top < 0) { continue; }
 			float E = FMath::Max(E0, Surface) - Pit;
 			// 只有洋底火山能改海岸线；陆上火口挖不穿海平面。
 			if (E0 > 0.f) { E = FMath::Max(E, FMath::Min(E0, 1.f)); }
@@ -324,8 +327,9 @@ void FStage04Magmatism::Bake(FPlanetBakeContext& Ctx) const
 		const int32 Face = Row / MacroRes, Y = Row % MacroRes;
 		for (int32 X = 0; X < MacroRes; ++X)
 		{
+			const FVector3f Dir = F.VolcanoMask.TexelDir(Face, X, Y);
 			float Up, Pit, Mask, Surface; int32 Top;
-			Eval(F.VolcanoMask.TexelDir(Face, X, Y), Up, Pit, Top, Mask, Surface);
+			Eval(Dir, H.Sample(Dir), Up, Pit, Top, Mask, Surface);
 			const FGeoVolcano* Vo = Top >= 0 ? &F.Volcanoes[Top] : nullptr;
 			F.VolcanoMask.At(Face, X, Y) = Mask;
 			F.VolcanicType.At(Face, X, Y) = Vo ? float(uint8(Vo->Kind)) : 0.f;

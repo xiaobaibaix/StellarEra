@@ -209,6 +209,54 @@ bool FGeoStage04ReliefTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("有可检查的火口"), Checked > 0);
 	TestEqual(TEXT("火口底都低于火口边缘"), Pit, Checked);
 
+	// 足印边缘不能出现断崖：锥底若钉在中心点的阶段 3 高程，下坡侧会留下平台 + 1 texel 断崖。
+	// 先用阶段 3 的同比高差扣掉地形本身（山脊噪声 0.04×底半径内可差上百体素），
+	// 再跳过被邻锥覆盖的方位（那里量到的是邻锥边坡，不是本锥的边缘）。
+	int32 EdgeChecked = 0;
+	float WorstJump = 0.f;
+	for (int32 vi = 0; vi < F.Volcanoes.Num(); ++vi)
+	{
+		const FGeoVolcano& V = F.Volcanoes[vi];
+		if (V.BaseRadius < 8.f * Texel) { continue; }
+		const FVector3f T1 = FVector3f::CrossProduct(FMath::Abs(V.Dir.Z) < 0.9f ? FVector3f::UpVector : FVector3f::ForwardVector, V.Dir).GetSafeNormal();
+		const FVector3f T2 = FVector3f::CrossProduct(V.Dir, T1);
+		float Jump = 0.f, RawJump = 0.f;
+		int32 CleanAz = 0;
+		for (int32 k = 0; k < 16; ++k)
+		{
+			const float A = 2.f * PI * float(k) / 16.f;
+			const FVector3f T = T1 * FMath::Cos(A) + T2 * FMath::Sin(A);
+			const FVector3f InD = (V.Dir + T * (0.98f * V.BaseRadius)).GetSafeNormal();
+			const FVector3f OutD = (V.Dir + T * (1.02f * V.BaseRadius)).GetSafeNormal();
+			bool bClean = true;
+			for (int32 j = 0; j < F.Volcanoes.Num() && bClean; ++j)
+			{
+				if (j == vi) { continue; }
+				const FGeoVolcano& W = F.Volcanoes[j];
+				bClean = (InD - W.Dir).Size() >= W.BaseRadius && (OutD - W.Dir).Size() >= W.BaseRadius;
+			}
+			if (!bClean) { continue; }
+			++CleanAz;
+			// 阶段 4 增量在边界两侧的差 = 本锥自己造成的断崖。
+			const float DIn = F.Elevation.Sample(InD) - Before.Sample(InD);
+			const float DOut = F.Elevation.Sample(OutD) - Before.Sample(OutD);
+			Jump = FMath::Max(Jump, FMath::Abs(DIn - DOut));
+			RawJump = FMath::Max(RawJump, FMath::Abs(F.Elevation.Sample(InD) - F.Elevation.Sample(OutD)));
+		}
+		if (CleanAz < 4) { continue; }   // 四周都被邻锥盖住：量不到自己的边缘
+		++EdgeChecked;
+		WorstJump = FMath::Max(WorstJump, Jump);
+		if (Jump >= 0.05f * V.Height)
+		{
+			AddInfo(FString::Printf(TEXT("断崖：类型 %d 底半径 %.4f 高 %.0f 基面 %.0f 增量跳变 %.0f 高程跳变 %.0f 干净方位 %d 上限 %.0f"),
+				int32(V.Kind), V.BaseRadius, V.Height, V.BaseElevation, Jump, RawJump, CleanAz, 0.05f * V.Height));
+		}
+		TestTrue(FString::Printf(TEXT("足印边缘无断崖（类型 %d，跳变 %.0f，上限 %.0f）"), int32(V.Kind), Jump, 0.05f * V.Height),
+			Jump < 0.05f * V.Height);
+	}
+	AddInfo(FString::Printf(TEXT("足印边缘最大跳变 %.0f（检查 %d 座）"), WorstJump, EdgeChecked));
+	TestTrue(TEXT("有可检查的足印边缘"), EdgeChecked > 0);
+
 	// 陆地占比与「只抬不挖穿」。
 	FPlanetBakeFields F3; FPlanetBakeReport R3;
 	Stage04TestBake(C, F3, R3, false);
