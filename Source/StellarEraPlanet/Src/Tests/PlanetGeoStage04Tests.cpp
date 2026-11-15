@@ -1,5 +1,5 @@
-﻿// 阶段 4：管线接线（点表进快照、配方哈希对火山参数敏感）+ 放点（间距 / 上盘 / 热点链 / 活性 / 确定性 / 尺度不变 / 开关）
-// + 剖面叠加（火口 / 陆地占比 / 宏观场）。
+﻿// 阶段 4：管线接线（点表进快照、同配置两次烘焙哈希一致、宏观场按需构建）+ 放点（间距 / 上盘 / 热点链 / 活性 /
+// 确定性 / 尺度不变 / 开关）+ 剖面叠加（火口 / 陆地占比 / 宏观场）。
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "GeoContinentField.h"
@@ -40,6 +40,16 @@ bool FGeoStage04PipelineTest::RunTest(const FString& Parameters)
 	const TSharedPtr<const FPlanetSnapshot> Snap = FPlanetBakePipeline::MakeDefault().Bake(C, R);
 	TestTrue(FString::Printf(TEXT("烘焙成功（%s）"), *FString::Join(R.Errors, TEXT(" | "))), Snap.IsValid());
 	TestTrue(TEXT("阶段 4 在管线里"), R.StageSeconds.ContainsByPredicate([](const TPair<FName, double>& P) { return P.Key == TEXT("Stage04Magmatism"); }));
+	TestTrue(TEXT("点表进快照"), Snap.IsValid() && Snap->Volcanoes.Num() > 0);
+
+	// 同配置两次烘焙必须给出同一内容哈希：漏进哈希的字段或并行归约不确定都会在这里暴露。
+	FPlanetBakeReport R2;
+	const TSharedPtr<const FPlanetSnapshot> Snap2 = FPlanetBakePipeline::MakeDefault().Bake(C, R2);
+	TestTrue(TEXT("第二次烘焙成功"), Snap2.IsValid());
+	if (Snap.IsValid() && Snap2.IsValid())
+	{
+		TestTrue(TEXT("同配置烘焙内容哈希一致"), Snap2->ContentHash == Snap->ContentHash);
+	}
 	return true;
 }
 
@@ -59,10 +69,12 @@ bool FGeoStage04PlacementTest::RunTest(const FString& Parameters)
 	AddInfo(FString::Printf(TEXT("层状 %d，盾状 %d，溢流 %d，破火山口 %d，渣锥 %d"), NS, NH, NF, NC, NK));
 	TestTrue(TEXT("有层状火山"), NS > 0);
 	TestTrue(TEXT("有盾状火山"), NH > 0);
+	TestTrue(TEXT("有溢流玄武岩"), NF > 0);
 	TestTrue(TEXT("有破火山口"), NC > 0);
 	TestTrue(TEXT("有渣锥"), NK > 0);
 
-	// 弧火山间距：同一俯冲对上的层状火山（含塌成破火山口的弧火山），最近邻距离。
+	// 弧火山间距：所有俯冲弧火山（含塌成破火山口的）的最近邻距离。不按俯冲对分组——
+	// 跨对邻居也计入，是更严的间距检查。
 	TArray<float> Nearest;
 	for (int32 i = 0; i < F.Volcanoes.Num(); ++i)
 	{
@@ -75,7 +87,7 @@ bool FGeoStage04PlacementTest::RunTest(const FString& Parameters)
 			if (i == j || B.OtherPlate < 0) { continue; }
 			Best = FMath::Min(Best, (A.Dir - B.Dir).Size());
 		}
-		if (Best < 10.f) { Nearest.Add(Best); }
+		if (Best < TNumericLimits<float>::Max()) { Nearest.Add(Best); }   // 没有同侪时 Best 仍是初值，跳过
 	}
 	Nearest.Sort();
 	if (Nearest.Num() > 0)
@@ -167,6 +179,7 @@ bool FGeoStage04ReliefTest::RunTest(const FString& Parameters)
 {
 	FPlanetRecipeConfig C;
 	C.FaceRes = 1024;   // 层状火口半径约 2.6 texel，512 下只有 1.3 个
+	C.bKeepDebugFields = true;   // 宏观场只在保留调试场时构建
 	FPlanetBakeFields F; FPlanetBakeReport R;
 	const FGeoField2D Before = Stage04TestBake(C, F, R);
 	TestFalse(TEXT("无错误"), R.HasErrors());
@@ -274,6 +287,33 @@ bool FGeoStage04ReliefTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("没有 texel 被挖得比火口还深"), Below, 0);
 	TestEqual(TEXT("陆上火山不把陆地压到海面下"), LandLost, 0);
 	TestTrue(TEXT("宏观场已写"), F.VolcanoMask.Res == F.PlateId.Res && F.VolcanicType.Res == F.PlateId.Res);
+
+	// 反过来：不保留调试场时宏观场不该构建（运行时烘焙不付这份开销）。
+	FPlanetRecipeConfig Bare = C; Bare.bKeepDebugFields = false; Bare.FaceRes = 64;
+	FPlanetBakeFields Fb; FPlanetBakeReport Rb;
+	Stage04TestBake(Bare, Fb, Rb);
+	TestEqual(TEXT("不保留调试场时宏观场不构建"), Fb.VolcanoMask.Res, 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage04DeterminismTest, "StellarEra.Planet.Geo.Stage04.Determinism",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage04DeterminismTest::RunTest(const FString& Parameters)
+{
+	// 单线程与并行必须逐位一致：任一阶段把「谁先写」带进结果，哈希就会分叉。
+	FPlanetRecipeConfig C;
+	C.FaceRes = 256;
+	FPlanetRecipeConfig Single = C;
+	Single.bSingleThreadBake = true;
+	FPlanetBakeReport Rs, Rp;
+	const TSharedPtr<const FPlanetSnapshot> A = FPlanetBakePipeline::MakeDefault().Bake(Single, Rs);
+	const TSharedPtr<const FPlanetSnapshot> B = FPlanetBakePipeline::MakeDefault().Bake(C, Rp);
+	TestTrue(FString::Printf(TEXT("单线程烘焙成功（%s）"), *FString::Join(Rs.Errors, TEXT(" | "))), A.IsValid());
+	TestTrue(FString::Printf(TEXT("并行烘焙成功（%s）"), *FString::Join(Rp.Errors, TEXT(" | "))), B.IsValid());
+	if (!A.IsValid() || !B.IsValid()) { return false; }
+	TestEqual(TEXT("火山数一致"), A->Volcanoes.Num(), B->Volcanoes.Num());
+	TestTrue(TEXT("单线程与并行内容哈希相等"), A->ContentHash == B->ContentHash);
 	return true;
 }
 

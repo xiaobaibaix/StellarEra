@@ -56,6 +56,40 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("MountainHeightRatio"), C2.Terrain.MountainHeightRatio, 0.07f);
 	TestEqual(TEXT("ErosionIterations"), C2.Terrain.ErosionIterations, 9);
 
+	// 阶段 4 的 26 项默认值与 FPlanetVolcanoParams 逐项对齐：ToConfig 里 RHS 接错字段照样能编译，
+	// 默认值不同才会露馅（5 开关 + 3 int + 18 float）。
+	{
+		UPlanetRecipe* Rv = NewObject<UPlanetRecipe>();
+		const FPlanetVolcanoParams VD;
+		const FPlanetVolcanoParams VC = Rv->ToConfig(40000.0).Volcano;
+		TestEqual(TEXT("默认 bArcVolcanoes"), int32(VC.bArcVolcanoes), int32(VD.bArcVolcanoes));
+		TestEqual(TEXT("默认 bHotspots"), int32(VC.bHotspots), int32(VD.bHotspots));
+		TestEqual(TEXT("默认 bFloodBasalt"), int32(VC.bFloodBasalt), int32(VD.bFloodBasalt));
+		TestEqual(TEXT("默认 bCalderas"), int32(VC.bCalderas), int32(VD.bCalderas));
+		TestEqual(TEXT("默认 bCinderCones"), int32(VC.bCinderCones), int32(VD.bCinderCones));
+		TestEqual(TEXT("默认 HotspotCount"), VC.HotspotCount, VD.HotspotCount);
+		TestEqual(TEXT("默认 HotspotChainLength"), VC.HotspotChainLength, VD.HotspotChainLength);
+		TestEqual(TEXT("默认 CinderPerVolcano"), VC.CinderPerVolcano, VD.CinderPerVolcano);
+		TestEqual(TEXT("默认 StratoBaseRatio"), VC.StratoBaseRatio, VD.StratoBaseRatio, 1e-6f);
+		TestEqual(TEXT("默认 StratoHeightRatio"), VC.StratoHeightRatio, VD.StratoHeightRatio, 1e-6f);
+		TestEqual(TEXT("默认 StratoCraterRatio"), VC.StratoCraterRatio, VD.StratoCraterRatio, 1e-6f);
+		TestEqual(TEXT("默认 CraterDepthRatio"), VC.CraterDepthRatio, VD.CraterDepthRatio, 1e-6f);
+		TestEqual(TEXT("默认 ArcSpacingRatio"), VC.ArcSpacingRatio, VD.ArcSpacingRatio, 1e-6f);
+		TestEqual(TEXT("默认 ArcOffsetRatio"), VC.ArcOffsetRatio, VD.ArcOffsetRatio, 1e-6f);
+		TestEqual(TEXT("默认 ArcActiveFraction"), VC.ArcActiveFraction, VD.ArcActiveFraction, 1e-6f);
+		TestEqual(TEXT("默认 ShieldBaseRatio"), VC.ShieldBaseRatio, VD.ShieldBaseRatio, 1e-6f);
+		TestEqual(TEXT("默认 ShieldHeightRatio"), VC.ShieldHeightRatio, VD.ShieldHeightRatio, 1e-6f);
+		TestEqual(TEXT("默认 HotspotSpacingRatio"), VC.HotspotSpacingRatio, VD.HotspotSpacingRatio, 1e-6f);
+		TestEqual(TEXT("默认 FloodBasaltChance"), VC.FloodBasaltChance, VD.FloodBasaltChance, 1e-6f);
+		TestEqual(TEXT("默认 FloodBasaltSizeRatio"), VC.FloodBasaltSizeRatio, VD.FloodBasaltSizeRatio, 1e-6f);
+		TestEqual(TEXT("默认 FloodBasaltHeightRatio"), VC.FloodBasaltHeightRatio, VD.FloodBasaltHeightRatio, 1e-6f);
+		TestEqual(TEXT("默认 CalderaFraction"), VC.CalderaFraction, VD.CalderaFraction, 1e-6f);
+		TestEqual(TEXT("默认 CalderaRadiusRatio"), VC.CalderaRadiusRatio, VD.CalderaRadiusRatio, 1e-6f);
+		TestEqual(TEXT("默认 CalderaDepthRatio"), VC.CalderaDepthRatio, VD.CalderaDepthRatio, 1e-6f);
+		TestEqual(TEXT("默认 CinderBaseRatio"), VC.CinderBaseRatio, VD.CinderBaseRatio, 1e-6f);
+		TestEqual(TEXT("默认 CinderHeightRatio"), VC.CinderHeightRatio, VD.CinderHeightRatio, 1e-6f);
+	}
+
 	{
 		UPlanetRecipe* Rp = NewObject<UPlanetRecipe>();
 		Rp->ArcSpacingRatio = 0.05f; Rp->bHotspots = false; Rp->HotspotChainLength = 3;

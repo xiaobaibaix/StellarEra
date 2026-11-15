@@ -245,14 +245,20 @@ void FStage04Magmatism::Bake(FPlanetBakeContext& Ctx) const
 
 	// 每个宏观 texel 记下可能影响它的火山：逐 texel 遍历全部火山在 1024² 下太慢。
 	TArray<TArray<int32>> Buckets; Buckets.SetNum(6 * MacroRes * MacroRes);
+	// 方向只算一次：按火山逐个重算是 V×393k 次 normalize，这里只付 393k 次。
+	TArray<FVector3f> MacroDirs; MacroDirs.SetNum(6 * MacroRes * MacroRes);
+	for (int32 Face = 0; Face < 6; ++Face) for (int32 Y = 0; Y < MacroRes; ++Y) for (int32 X = 0; X < MacroRes; ++X)
+	{
+		MacroDirs[(Face * MacroRes + Y) * MacroRes + X] = F.PlateId.TexelDir(Face, X, Y);
+	}
 	const float MacroTexel = 2.f / float(MacroRes) * 1.5f;   // 半个对角线有余
 	for (int32 i = 0; i < F.Volcanoes.Num(); ++i)
 	{
 		const FGeoVolcano& Vo = F.Volcanoes[i];
 		const float Reach = Vo.BaseRadius * 1.2f + MacroTexel;   // 1.2：外环壁与噪声余量
-		for (int32 Face = 0; Face < 6; ++Face) for (int32 Y = 0; Y < MacroRes; ++Y) for (int32 X = 0; X < MacroRes; ++X)
+		for (int32 T = 0; T < MacroDirs.Num(); ++T)
 		{
-			if ((F.PlateId.TexelDir(Face, X, Y) - Vo.Dir).Size() < Reach) { Buckets[(Face * MacroRes + Y) * MacroRes + X].Add(i); }
+			if ((MacroDirs[T] - Vo.Dir).Size() < Reach) { Buckets[T].Add(i); }
 		}
 	}
 	const auto BucketOf = [&](const FVector3f& D) -> const TArray<int32>&
@@ -274,7 +280,8 @@ void FStage04Magmatism::Bake(FPlanetBakeContext& Ctx) const
 			float Pit;
 			float Up = Stage04::Profile(Vo, Chord, Pit);
 			if (Up <= 0.f && Pit <= 0.f) { continue; }
-			// 坡面不规整 + 放射状沟；火口附近不加，免得噪声盖过火口深度。
+			// 沟谷用的是各向同性 Value3 噪声；规格里的放射状沟没实现（实施期漂移）。火口附近不加，
+			// 免得噪声盖过火口深度。
 			const float Near = FMath::SmoothStep(Vo.CraterRadius, 2.f * Vo.CraterRadius + 1e-5f, Chord);
 			const FVector3f Q = D * (1.f / FMath::Max(Vo.BaseRadius, 1e-4f));
 			const float Nz = GeoNoise::Fbm3(GeoHash::Combine(NoiseSeed, uint64(i)), Q * 1.5f, 2);
@@ -321,25 +328,29 @@ void FStage04Magmatism::Bake(FPlanetBakeContext& Ctx) const
 	F.MinElevation = MinE; F.MaxElevation = MaxE;
 	F.LandAreaFrac = float(LandW / FMath::Max(TotalW, 1e-30));
 
-	F.VolcanoMask.Init(MacroRes); F.VolcanicType.Init(MacroRes); F.VolcanicAge.Init(MacroRes);
-	F.VolcanoActive.Init(MacroRes); F.VolcanoDelta.Init(MacroRes);
-	ParallelFor(6 * MacroRes, [&](int32 Row)
+	// 宏观场只喂调试图层：ExportDebugFields 仅在 bKeepDebugFields 时被调用，运行时烘焙不必付这份钱。
+	if (Cfg.bKeepDebugFields)
 	{
-		const int32 Face = Row / MacroRes, Y = Row % MacroRes;
-		for (int32 X = 0; X < MacroRes; ++X)
+		F.VolcanoMask.Init(MacroRes); F.VolcanicType.Init(MacroRes); F.VolcanicAge.Init(MacroRes);
+		F.VolcanoActive.Init(MacroRes); F.VolcanoDelta.Init(MacroRes);
+		ParallelFor(6 * MacroRes, [&](int32 Row)
 		{
-			const FVector3f Dir = F.VolcanoMask.TexelDir(Face, X, Y);
-			float Up, Pit, Mask, Surface; int32 Top;
-			// 宏观图层只用 Mask/Up/Pit，Surface 被丢弃：基面 E0 不必采样。
-			Eval(Dir, 0.f, Up, Pit, Top, Mask, Surface);
-			const FGeoVolcano* Vo = Top >= 0 ? &F.Volcanoes[Top] : nullptr;
-			F.VolcanoMask.At(Face, X, Y) = Mask;
-			F.VolcanicType.At(Face, X, Y) = Vo ? float(uint8(Vo->Kind)) : 0.f;
-			F.VolcanicAge.At(Face, X, Y) = Vo ? Vo->Age : 0.f;
-			F.VolcanoActive.At(Face, X, Y) = Vo && Vo->bActive ? 1.f : 0.f;
-			F.VolcanoDelta.At(Face, X, Y) = Up - Pit;
-		}
-	}, PF);
+			const int32 Face = Row / MacroRes, Y = Row % MacroRes;
+			for (int32 X = 0; X < MacroRes; ++X)
+			{
+				const FVector3f Dir = F.VolcanoMask.TexelDir(Face, X, Y);
+				float Up, Pit, Mask, Surface; int32 Top;
+				// 宏观图层只用 Mask/Up/Pit，Surface 被丢弃：基面 E0 不必采样。
+				Eval(Dir, 0.f, Up, Pit, Top, Mask, Surface);
+				const FGeoVolcano* Vo = Top >= 0 ? &F.Volcanoes[Top] : nullptr;
+				F.VolcanoMask.At(Face, X, Y) = Mask;
+				F.VolcanicType.At(Face, X, Y) = Vo ? float(uint8(Vo->Kind)) : 0.f;
+				F.VolcanicAge.At(Face, X, Y) = Vo ? Vo->Age : 0.f;
+				F.VolcanoActive.At(Face, X, Y) = Vo && Vo->bActive ? 1.f : 0.f;
+				F.VolcanoDelta.At(Face, X, Y) = Up - Pit;
+			}
+		}, PF);
+	}
 }
 namespace
 {
