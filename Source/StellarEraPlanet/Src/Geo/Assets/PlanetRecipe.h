@@ -223,6 +223,111 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Stage3|Terrain", meta = (ClampMin = "0", ClampMax = "1"))
 	float OldOrogenWidthVariation = 0.5f;
 
+	// 阶段 4：火山。尺度同样占半径比例。
+	/** 俯冲弧火山：大洋板块俯冲到另一板块下方时，上盘一侧排成一串的陡峭层状火山。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano")
+	bool bArcVolcanoes = true;
+
+	/** 热点火山链：地幔柱在板块下方不动，板块漂过时留下一串越来越老、越来越矮的盾状火山。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano")
+	bool bHotspots = true;
+
+	/** 溢流玄武岩：大陆裂谷处大面积喷出的熔岩，形成平顶、边缘陡坎的台地。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano")
+	bool bFloodBasalt = true;
+
+	/** 破火山口：部分大火山顶部塌陷，变成环形洼地加外环壁。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano")
+	bool bCalderas = true;
+
+	/** 火山渣锥：活火山周围成簇的小锥。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano")
+	bool bCinderCones = true;
+
+	/** 层状火山底半径（占半径，0.024 ≈ 960 体素）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano", meta = (ClampMin = "0.002", ClampMax = "0.2"))
+	float StratoBaseRatio = 0.024f;
+
+	/** 层状火山高（占半径，0.012 ≈ 480 体素）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano", meta = (ClampMin = "0", ClampMax = "0.1"))
+	float StratoHeightRatio = 0.012f;
+
+	/** 层状火山火口半径（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano", meta = (ClampMin = "0", ClampMax = "0.05"))
+	float StratoCraterRatio = 0.004f;
+
+	/** 火口深（占半径，0.002 ≈ 80 体素）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano", meta = (ClampMin = "0", ClampMax = "0.05"))
+	float CraterDepthRatio = 0.002f;
+
+	/** 沿火山弧相邻两座火山的间距（占半径）。越小火山越密。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano", meta = (ClampMin = "0.005", ClampMax = "0.5"))
+	float ArcSpacingRatio = 0.04f;
+
+	/** 火山弧离板块边界的距离（占半径），总在上盘一侧。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano", meta = (ClampMin = "0", ClampMax = "0.2"))
+	float ArcOffsetRatio = 0.03f;
+
+	/** 弧火山中活火山的比例：挤压越快的段越容易活跃。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano", meta = (ClampMin = "0", ClampMax = "1"))
+	float ArcActiveFraction = 0.5f;
+
+	/** 盾状火山底半径（占半径），宽而缓。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano", meta = (ClampMin = "0.002", ClampMax = "0.3"))
+	float ShieldBaseRatio = 0.04f;
+
+	/** 盾状火山高（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano", meta = (ClampMin = "0", ClampMax = "0.1"))
+	float ShieldHeightRatio = 0.008f;
+
+	/** 地幔柱热点个数，每个热点一条火山链。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano", meta = (ClampMin = "0", ClampMax = "32"))
+	int32 HotspotCount = 4;
+
+	/** 热点链上相邻火山的间距（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano", meta = (ClampMin = "0.005", ClampMax = "0.5"))
+	float HotspotSpacingRatio = 0.06f;
+
+	/** 每条热点链最多几座火山；漂进别的板块会提前截断。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano", meta = (ClampMin = "1", ClampMax = "30"))
+	int32 HotspotChainLength = 6;
+
+	/** 每段大陆裂谷出现溢流玄武岩台地的概率。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano", meta = (ClampMin = "0", ClampMax = "1"))
+	float FloodBasaltChance = 0.3f;
+
+	/** 溢流玄武岩台地半宽（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano", meta = (ClampMin = "0.005", ClampMax = "0.5"))
+	float FloodBasaltSizeRatio = 0.06f;
+
+	/** 溢流玄武岩台地高（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano", meta = (ClampMin = "0", ClampMax = "0.05"))
+	float FloodBasaltHeightRatio = 0.003f;
+
+	/** 大火山塌成破火山口的比例（只在底半径大于中位数的火山里抽）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano", meta = (ClampMin = "0", ClampMax = "0.5"))
+	float CalderaFraction = 0.15f;
+
+	/** 破火山口半径（占半径），最多到火山底半径的六成。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano", meta = (ClampMin = "0.002", ClampMax = "0.2"))
+	float CalderaRadiusRatio = 0.016f;
+
+	/** 破火山口深（占半径）。陆上不会挖到海平面以下。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano", meta = (ClampMin = "0", ClampMax = "0.05"))
+	float CalderaDepthRatio = 0.008f;
+
+	/** 每座活火山周围的火山渣锥个数。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano", meta = (ClampMin = "0", ClampMax = "20"))
+	int32 CinderPerVolcano = 4;
+
+	/** 火山渣锥底半径（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano", meta = (ClampMin = "0.001", ClampMax = "0.05"))
+	float CinderBaseRatio = 0.006f;
+
+	/** 火山渣锥高（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage4|Volcano", meta = (ClampMin = "0", ClampMax = "0.05"))
+	float CinderHeightRatio = 0.002f;
+
 	/** 矿物目录：编号、中文名、调试色。撒矿器只引用这里的编号。 */
 	UPROPERTY(EditAnywhere, Category = "Minerals")
 	TObjectPtr<UGeoMineralCatalog> MineralCatalog;

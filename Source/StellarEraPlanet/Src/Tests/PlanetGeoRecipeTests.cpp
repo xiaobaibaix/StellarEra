@@ -56,6 +56,15 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("MountainHeightRatio"), C2.Terrain.MountainHeightRatio, 0.07f);
 	TestEqual(TEXT("ErosionIterations"), C2.Terrain.ErosionIterations, 9);
 
+	{
+		UPlanetRecipe* Rp = NewObject<UPlanetRecipe>();
+		Rp->ArcSpacingRatio = 0.05f; Rp->bHotspots = false; Rp->HotspotChainLength = 3;
+		const FPlanetRecipeConfig Cv = Rp->ToConfig(40000.0);
+		TestEqual(TEXT("ArcSpacingRatio 透传"), Cv.Volcano.ArcSpacingRatio, 0.05f);
+		TestFalse(TEXT("bHotspots 透传"), Cv.Volcano.bHotspots);
+		TestEqual(TEXT("HotspotChainLength 透传"), Cv.Volcano.HotspotChainLength, 3);
+	}
+
 	// 每项都必须进 Hash()：漏一项则改它快照哈希不变、存档校验失效。
 	const uint64 Base = C2.Hash();
 	FPlanetRecipeConfig Probe;
@@ -81,6 +90,10 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 	Probe = C2; Probe.Terrain.ErosionIterations = 10;      TestTrue(TEXT("ErosionIterations 进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Continents.DetailOctaves = 6;         TestTrue(TEXT("DetailOctaves 进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Continents.AbyssRatio = 0.8f;         TestTrue(TEXT("AbyssRatio 进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Volcano.StratoHeightRatio = 0.0121f;  TestTrue(TEXT("层状火山高进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Volcano.HotspotCount = 5;              TestTrue(TEXT("热点数进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Volcano.bCalderas = false;             TestTrue(TEXT("破火山口开关进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Volcano.CinderHeightRatio = 0.0021f;   TestTrue(TEXT("渣锥高进哈希"), Probe.Hash() != Base);
 	return true;
 }
 

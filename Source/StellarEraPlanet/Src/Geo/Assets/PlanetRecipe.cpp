@@ -59,6 +59,32 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 	C.Terrain.OldOrogenCoverage = OldOrogenCoverage;
 	C.Terrain.OldOrogenGapFraction = OldOrogenGapFraction;
 	C.Terrain.OldOrogenWidthVariation = OldOrogenWidthVariation;
+	C.Volcano.bArcVolcanoes = bArcVolcanoes;
+	C.Volcano.bHotspots = bHotspots;
+	C.Volcano.bFloodBasalt = bFloodBasalt;
+	C.Volcano.bCalderas = bCalderas;
+	C.Volcano.bCinderCones = bCinderCones;
+	C.Volcano.StratoBaseRatio = StratoBaseRatio;
+	C.Volcano.StratoHeightRatio = StratoHeightRatio;
+	C.Volcano.StratoCraterRatio = StratoCraterRatio;
+	C.Volcano.CraterDepthRatio = CraterDepthRatio;
+	C.Volcano.ArcSpacingRatio = ArcSpacingRatio;
+	C.Volcano.ArcOffsetRatio = ArcOffsetRatio;
+	C.Volcano.ArcActiveFraction = ArcActiveFraction;
+	C.Volcano.ShieldBaseRatio = ShieldBaseRatio;
+	C.Volcano.ShieldHeightRatio = ShieldHeightRatio;
+	C.Volcano.HotspotCount = HotspotCount;
+	C.Volcano.HotspotSpacingRatio = HotspotSpacingRatio;
+	C.Volcano.HotspotChainLength = HotspotChainLength;
+	C.Volcano.FloodBasaltChance = FloodBasaltChance;
+	C.Volcano.FloodBasaltSizeRatio = FloodBasaltSizeRatio;
+	C.Volcano.FloodBasaltHeightRatio = FloodBasaltHeightRatio;
+	C.Volcano.CalderaFraction = CalderaFraction;
+	C.Volcano.CalderaRadiusRatio = CalderaRadiusRatio;
+	C.Volcano.CalderaDepthRatio = CalderaDepthRatio;
+	C.Volcano.CinderPerVolcano = CinderPerVolcano;
+	C.Volcano.CinderBaseRatio = CinderBaseRatio;
+	C.Volcano.CinderHeightRatio = CinderHeightRatio;
 	if (MineralCatalog)
 	{
 		for (const FGeoMineralDef& D : MineralCatalog->Minerals)
