@@ -305,6 +305,70 @@ uint64 FGeoPorphyryRule::HashParams() const
 		{ P.DepthMinRatio, P.DepthMaxRatio, P.RadiusRatio });
 }
 
+void FGeoTinTungstenRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const
+{
+	const FPlanetBakeFields& F = Ctx.Fields;
+	// 只依赖岩基原语本身的几何：没有侵入体就没有宿主，不产矿，不是配置错误。
+	if (F.Primitives.IsEmpty()) { return; }
+	const float R = float(Ctx.Config.Radius);
+	const int32 PerHost = FMath::Clamp(P.PerBatholith, 1, 16);
+	const FVector3f Radii(FMath::Max(P.LengthRatio, 1e-4f) * R, FMath::Max(P.RadiusRatio, 1e-4f) * R, FMath::Max(P.ThicknessRatio, 1e-4f) * R);
+	const float TopMin = FMath::Min(P.TopMinRatio, P.TopMaxRatio);
+	const float TopMax = FMath::Max(P.TopMinRatio, P.TopMaxRatio);
+	for (const FGeoPrimitive& Host : F.Primitives)
+	{
+		// 已撒过矿的原语不能再当宿主，否则矿会长在矿里。
+		if (Host.LithologyId != GeoLithology::Granite || Host.MineralId != 0) { continue; }
+		const FQuat4f Rot = Host.Kind == EGeoPrimitiveKind::OrientedBlob ? Host.Rotation : FQuat4f::Identity;
+		for (int32 k = 0; k < PerHost; ++k)
+		{
+			// 顶面壳层：局部 z 取比例、x/y 在岩基截面里散开；脉的长轴就是宿主局部 X（沿弧走向）。
+			const FVector3f Local(Host.Radii.X * Ctx.Rng.Range(-0.5f, 0.5f), Host.Radii.Y * Ctx.Rng.Range(-0.5f, 0.5f),
+				Host.Radii.Z * Ctx.Rng.Range(TopMin, TopMax));
+			FGeoPrimitive Body = FGeoPrimitive::MakeOrientedBlob(Host.Center + Rot.RotateVector(Local), Radii, Rot, 0.06f);
+			Body.Grade = RandomGrade(Ctx.Rng);
+			Out.Bodies.Add(Body);
+		}
+	}
+}
+
+uint64 FGeoTinTungstenRule::HashParams() const
+{
+	return GeoMineralRulesHashFloats(GeoHash::Combine(GeoHash::Str("tintungsten"), uint64(FMath::Max(P.PerBatholith, 0))),
+		{ P.LengthRatio, P.RadiusRatio, P.ThicknessRatio, P.TopMinRatio, P.TopMaxRatio });
+}
+
+void FGeoPegmatiteRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const
+{
+	const FPlanetBakeFields& F = Ctx.Fields;
+	if (F.Primitives.IsEmpty()) { return; }
+	const float R = float(Ctx.Config.Radius);
+	const int32 PerHost = FMath::Clamp(P.PerBatholith, 1, 16);
+	const float Radius = FMath::Max(P.RadiusRatio, 1e-4f) * R;
+	const float ShellMin = FMath::Min(P.ShellMin, P.ShellMax);
+	const float ShellMax = FMath::Max(P.ShellMin, P.ShellMax);
+	for (const FGeoPrimitive& Host : F.Primitives)
+	{
+		if (Host.LithologyId != GeoLithology::Granite || Host.MineralId != 0) { continue; }
+		const FQuat4f Rot = Host.Kind == EGeoPrimitiveKind::OrientedBlob ? Host.Rotation : FQuat4f::Identity;
+		for (int32 k = 0; k < PerHost; ++k)
+		{
+			// 边缘壳层：方向随机后按宿主三条半轴缩放，团块才贴着岩基外缘而不是堆在中心。
+			const FVector3f Dir = GeoMineralRulesRandomDir(Ctx.Rng);
+			const FVector3f Local = Dir * Host.Radii * Ctx.Rng.Range(ShellMin, ShellMax);
+			FGeoPrimitive Body = FGeoPrimitive::MakeBlob(Host.Center + Rot.RotateVector(Local), FVector3f(Radius), 0.1f);
+			Body.Grade = RandomGrade(Ctx.Rng);
+			Out.Bodies.Add(Body);
+		}
+	}
+}
+
+uint64 FGeoPegmatiteRule::HashParams() const
+{
+	return GeoMineralRulesHashFloats(GeoHash::Combine(GeoHash::Str("pegmatite"), uint64(FMath::Max(P.PerBatholith, 0))),
+		{ P.RadiusRatio, P.ShellMin, P.ShellMax });
+}
+
 namespace
 {
 	TArray<FGeoDebugLegendEntry> GeoMineralRulesLegend(const FPlanetSnapshot& S)

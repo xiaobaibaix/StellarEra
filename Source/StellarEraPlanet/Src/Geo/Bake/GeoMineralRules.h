@@ -150,6 +150,46 @@ public:
 	virtual uint64 HashParams() const override;
 };
 
+/** 锡钨：花岗岩基顶面壳层里沿长轴拉长的细脉。运行于阶段 4b 之后。 */
+struct FGeoTinTungstenParams
+{
+	int32 PerBatholith = 4;         // 每座岩基几条
+	float LengthRatio = 0.02f;      // 脉长半轴（占 R，沿宿主局部 X）
+	float RadiusRatio = 0.004f;     // 脉横向半轴
+	float ThicknessRatio = 0.0015f; // 脉半厚（局部 Z）
+	float TopMinRatio = 0.6f;       // 中心在宿主局部 z 的比例下限
+	float TopMaxRatio = 0.95f;      // 上限：脉顶压在岩基顶面之下，否则整株被包住
+};
+
+class STELLARERAPLANET_API FGeoTinTungstenRule final : public IGeoMineralRule
+{
+public:
+	FGeoTinTungstenParams P;
+	virtual uint32 GetStage() const override { return 4; }
+	virtual const TCHAR* GetRuleName() const override { return TEXT("TinTungsten"); }
+	virtual void Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const override;
+	virtual uint64 HashParams() const override;
+};
+
+/** 伟晶岩锂钽铍：花岗岩基边缘壳层里的团块。运行于阶段 4b 之后。 */
+struct FGeoPegmatiteParams
+{
+	int32 PerBatholith = 6;      // 每座岩基几个
+	float RadiusRatio = 0.003f;  // 团块半径（占 R）
+	float ShellMin = 0.88f;      // 到宿主中心的局部半径比例下限
+	float ShellMax = 1.f;        // 上限：贴着岩基外缘
+};
+
+class STELLARERAPLANET_API FGeoPegmatiteRule final : public IGeoMineralRule
+{
+public:
+	FGeoPegmatiteParams P;
+	virtual uint32 GetStage() const override { return 4; }
+	virtual const TCHAR* GetRuleName() const override { return TEXT("Pegmatite"); }
+	virtual void Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const override;
+	virtual uint64 HashParams() const override;
+};
+
 namespace GeoMineralRules
 {
 	/** 矿物图层（地下 / 地表矿化），图例来自快照的矿物调色板。不属于某一阶段，Stage = 0。 */

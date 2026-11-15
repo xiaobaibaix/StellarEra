@@ -1,7 +1,9 @@
-﻿// 阶段 4c-2：碳酸岩岩性与放置。跑真实 2→3→4 烘焙，验证裂谷里的碳酸岩体。
+﻿// 阶段 4c-2：碳酸岩岩性与放置、花岗岩基里的锡钨脉与伟晶岩团。跑真实 2→3→4 烘焙。
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "GeoLithology.h"
+#include "GeoMineralRule.h"
+#include "GeoMineralRules.h"
 #include "GeoPrimitive.h"
 #include "GeoRng.h"
 #include "PlanetBakePipeline.h"
@@ -14,16 +16,55 @@
 
 namespace
 {
-	// 跑阶段 2→3→4（阶段 4 内含 4b 放置）：与生产管线同一入口，避免测试自己拼一个近似的场。
+	// 跑阶段 2→3→4（阶段 4 内含 4b 放置）再按管线的方式撒矿：测试要拿到撒矿后的场才验得了矿体位置。
 	void Stage04c2TestBake(const FPlanetRecipeConfig& C, FPlanetBakeFields& F, FPlanetBakeReport& R)
 	{
 		FPlanetBakeContext C2{ C, F, FGeoRng::Derive(C.Seed, 2, 0), R }; FStage02Plates().Bake(C2);
 		FPlanetBakeContext C3{ C, F, FGeoRng::Derive(C.Seed, 3, 0), R }; FStage03Terrain().Bake(C3);
 		FPlanetBakeContext C4{ C, F, FGeoRng::Derive(C.Seed, 4, 0), R }; FStage04Magmatism().Bake(C4);
+		for (const TSharedPtr<const IGeoMineralRule>& Rule : C.MineralRules)
+		{
+			if (!Rule) { continue; }
+			// 随机流与 FPlanetBakePipeline::Bake 逐位一致，测试量的就是生产撒出来的矿体。
+			const uint64 Purpose = GeoHash::Combine(GeoHash::Combine(GeoHash::Str("scatter"), Rule->HashParams()), uint64(Rule->SeedOffset));
+			FGeoScatterContext SC{ C, F, FGeoRng::Derive(C.Seed, Rule->GetStage(), Purpose), R.Errors };
+			FGeoScatterOutput Out;
+			Rule->Scatter(SC, Out);
+			for (FGeoPrimitive& B : Out.Bodies) { B.MineralId = Rule->MineralId; F.Primitives.Add(B); }
+			for (FGeoMineralOverlay& O : Out.Overlays) { O.MineralId = Rule->MineralId; F.MineralOverlays.Add(MoveTemp(O)); }
+		}
 	}
 	int32 Stage04c2LithoCount(const TArray<FGeoPrimitive>& P, uint8 Litho)
 	{
 		int32 N = 0; for (const FGeoPrimitive& Q : P) { N += Q.LithologyId == Litho ? 1 : 0; } return N;
+	}
+	/** 宿主局部空间：世界点先绕宿主旋转回局部，再除半轴。与实现的辅助独立重写，形成交叉验证。 */
+	FVector3f Stage04c2Local(const FGeoPrimitive& Host, const FVector3f& P)
+	{
+		const FVector3f D = P - Host.Center;
+		const FVector3f L = Host.Kind == EGeoPrimitiveKind::OrientedBlob ? Host.Rotation.UnrotateVector(D) : D;
+		return L / Host.Radii;
+	}
+	/** 按世界心距取最近宿主；宿主为空时返回 nullptr（= 这一体没有宿主）。 */
+	const FGeoPrimitive* Stage04c2NearestHost(const TArray<const FGeoPrimitive*>& Hosts, const FVector3f& Center)
+	{
+		const FGeoPrimitive* Best = nullptr;
+		float BestD = TNumericLimits<float>::Max();
+		for (const FGeoPrimitive* H : Hosts)
+		{
+			const float D = (H->Center - Center).SizeSquared();
+			if (D < BestD) { BestD = D; Best = H; }
+		}
+		return Best;
+	}
+	/** 拆成「宿主」与「某种矿体」两列表：宿主只认未撒矿（MineralId == 0）的花岗岩。 */
+	void Stage04c2Split(const TArray<FGeoPrimitive>& P, uint8 MineralId, TArray<const FGeoPrimitive*>& Hosts, TArray<const FGeoPrimitive*>& Bodies)
+	{
+		for (const FGeoPrimitive& Q : P)
+		{
+			if (Q.MineralId == MineralId) { Bodies.Add(&Q); }
+			else if (Q.LithologyId == GeoLithology::Granite && Q.MineralId == 0) { Hosts.Add(&Q); }
+		}
 	}
 }
 
@@ -66,6 +107,115 @@ bool FGeoStage04c2CarbonatiteTest::RunTest(const FString& Parameters)
 	FPlanetBakeFields Fh; FPlanetBakeReport Rh;
 	Stage04c2TestBake(Half, Fh, Rh);
 	TestEqual(TEXT("半径减半碳酸岩数量不变"), Stage04c2LithoCount(Fh.Primitives, GeoLithology::Carbonatite), NC);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage04c2TinTungstenTest, "StellarEra.Planet.Geo.Stage04c2.TinTungsten",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage04c2TinTungstenTest::RunTest(const FString& Parameters)
+{
+	FPlanetRecipeConfig C; C.FaceRes = 512;
+	TSharedPtr<FGeoTinTungstenRule> Rule = MakeShared<FGeoTinTungstenRule>();
+	Rule->MineralId = 1;
+	C.MineralRules = { Rule };
+	FPlanetBakeFields F; FPlanetBakeReport R;
+	Stage04c2TestBake(C, F, R);
+	TestFalse(FString::Printf(TEXT("无错误（%s）"), *FString::Join(R.Errors, TEXT(" | "))), R.HasErrors());
+
+	TArray<const FGeoPrimitive*> Hosts, Bodies;
+	Stage04c2Split(F.Primitives, Rule->MineralId, Hosts, Bodies);
+	if (!TestTrue(TEXT("有花岗岩岩基"), Hosts.Num() > 0)) { return false; }
+
+	const int32 Expect = Hosts.Num() * Rule->P.PerBatholith;
+	AddInfo(FString::Printf(TEXT("岩基 %d 座，锡钨脉 %d 条（期望 %d）"), Hosts.Num(), Bodies.Num(), Expect));
+	TestTrue(TEXT("数量 = 岩基数 × PerBatholith（±5%）"),
+		FMath::Abs(Bodies.Num() - Expect) <= FMath::Max(1, FMath::CeilToInt(0.05f * float(Expect))));
+
+	const float Rx = float(C.Radius);
+	const FVector3f Want(Rule->P.LengthRatio * Rx, Rule->P.RadiusRatio * Rx, Rule->P.ThicknessRatio * Rx);
+	int32 NoHost = 0, BadZ = 0, BadXY = 0, BadKind = 0, BadShape = 0, BadPose = 0;
+	float ZLo = TNumericLimits<float>::Max(), ZHi = -ZLo, WorstXY = 0.f;
+	for (const FGeoPrimitive* Body : Bodies)
+	{
+		const FGeoPrimitive* Host = Stage04c2NearestHost(Hosts, Body->Center);
+		if (!Host) { ++NoHost; continue; }
+		const FVector3f L = Stage04c2Local(*Host, Body->Center);
+		const float AZ = FMath::Abs(L.Z);
+		const float AXY = FMath::Max(FMath::Abs(L.X), FMath::Abs(L.Y));
+		ZLo = FMath::Min(ZLo, AZ); ZHi = FMath::Max(ZHi, AZ); WorstXY = FMath::Max(WorstXY, AXY);
+		BadZ += AZ >= 0.5f && AZ <= 1.02f ? 0 : 1;
+		BadXY += AXY <= 0.6f ? 0 : 1;
+		BadKind += Body->Kind == EGeoPrimitiveKind::OrientedBlob ? 0 : 1;
+		// 局部 X 长、Z 厚的细脉：三条半轴必须各按自己的比例，别把长轴与厚度装反。
+		BadShape += Body->Radii.X > Body->Radii.Y && Body->Radii.Y > Body->Radii.Z
+			&& FMath::IsNearlyEqual(Body->Radii.X, Want.X, 1e-4f * Want.X)
+			&& FMath::IsNearlyEqual(Body->Radii.Y, Want.Y, 1e-4f * Want.Y)
+			&& FMath::IsNearlyEqual(Body->Radii.Z, Want.Z, 1e-4f * Want.Z) ? 0 : 1;
+		// 与宿主同朝向：脉沿岩基长轴拉开靠的就是这条（四元数符号无关，比旋转后的轴）。
+		const FVector3f BX = Body->Rotation.RotateVector(FVector3f::XAxisVector), HX = Host->Rotation.RotateVector(FVector3f::XAxisVector);
+		const FVector3f BZ = Body->Rotation.RotateVector(FVector3f::ZAxisVector), HZ = Host->Rotation.RotateVector(FVector3f::ZAxisVector);
+		BadPose += FVector3f::DotProduct(BX, HX) >= 0.999f && FVector3f::DotProduct(BZ, HZ) >= 0.999f ? 0 : 1;
+	}
+	AddInfo(FString::Printf(TEXT("局部 |z| %.3f–%.3f，最差 |x|/|y| %.3f；越界 z %d / xy %d / 非 OrientedBlob %d / 尺寸 %d / 朝向 %d"),
+		ZLo, ZHi, WorstXY, BadZ, BadXY, BadKind, BadShape, BadPose));
+	TestEqual(TEXT("没有无宿主的矿体"), NoHost, 0);
+	TestEqual(TEXT("局部 |z| 都在 [0.5, 1.02]（岩基顶面壳层）"), BadZ, 0);
+	TestEqual(TEXT("局部 |x|,|y| 都 ≤ 0.6"), BadXY, 0);
+	TestEqual(TEXT("都是 OrientedBlob（能沿长轴拉伸）"), BadKind, 0);
+	TestEqual(TEXT("半轴 = 比例 × R，X 最长 Z 最薄"), BadShape, 0);
+	TestEqual(TEXT("朝向与宿主一致"), BadPose, 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage04c2PegmatiteTest, "StellarEra.Planet.Geo.Stage04c2.Pegmatite",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage04c2PegmatiteTest::RunTest(const FString& Parameters)
+{
+	FPlanetRecipeConfig C; C.FaceRes = 512;
+	TSharedPtr<FGeoPegmatiteRule> Rule = MakeShared<FGeoPegmatiteRule>();
+	Rule->MineralId = 1;
+	C.MineralRules = { Rule };
+	FPlanetBakeFields F; FPlanetBakeReport R;
+	Stage04c2TestBake(C, F, R);
+	TestFalse(FString::Printf(TEXT("无错误（%s）"), *FString::Join(R.Errors, TEXT(" | "))), R.HasErrors());
+
+	TArray<const FGeoPrimitive*> Hosts, Bodies;
+	Stage04c2Split(F.Primitives, Rule->MineralId, Hosts, Bodies);
+	if (!TestTrue(TEXT("有花岗岩岩基"), Hosts.Num() > 0)) { return false; }
+
+	const int32 Expect = Hosts.Num() * Rule->P.PerBatholith;
+	AddInfo(FString::Printf(TEXT("岩基 %d 座，伟晶岩 %d 个（期望 %d）"), Hosts.Num(), Bodies.Num(), Expect));
+	TestTrue(TEXT("数量 = 岩基数 × PerBatholith（±5%）"),
+		FMath::Abs(Bodies.Num() - Expect) <= FMath::Max(1, FMath::CeilToInt(0.05f * float(Expect))));
+
+	const float WantRadius = Rule->P.RadiusRatio * float(C.Radius);
+	int32 NoHost = 0, BadShell = 0, BadKind = 0, BadRadius = 0, Below = 0, Above = 0;
+	float SLo = TNumericLimits<float>::Max(), SHi = -SLo;
+	for (const FGeoPrimitive* Body : Bodies)
+	{
+		const FGeoPrimitive* Host = Stage04c2NearestHost(Hosts, Body->Center);
+		if (!Host) { ++NoHost; continue; }
+		const FVector3f L = Stage04c2Local(*Host, Body->Center);
+		const float S = L.Size();
+		SLo = FMath::Min(SLo, S); SHi = FMath::Max(SHi, S);
+		BadShell += S >= 0.8f && S <= 1.05f ? 0 : 1;
+		BadKind += Body->Kind == EGeoPrimitiveKind::Blob ? 0 : 1;
+		BadRadius += FMath::IsNearlyEqual(Body->Radii.X, WantRadius, 1e-4f * WantRadius)
+			&& FMath::IsNearlyEqual(Body->Radii.Y, WantRadius, 1e-4f * WantRadius)
+			&& FMath::IsNearlyEqual(Body->Radii.Z, WantRadius, 1e-4f * WantRadius) ? 0 : 1;
+		// 方向在宿主局部球面上随机：两半球都该有，否则就是被钉在某条固定轴上。
+		Below += L.Z < -0.2f ? 1 : 0;
+		Above += L.Z > 0.2f ? 1 : 0;
+	}
+	AddInfo(FString::Printf(TEXT("局部半径 %.3f–%.3f，局部 z < -0.2 的 %d 个 / > 0.2 的 %d 个；越界 %d / 非 Blob %d / 半径 %d"),
+		SLo, SHi, Below, Above, BadShell, BadKind, BadRadius));
+	TestEqual(TEXT("没有无宿主的矿体"), NoHost, 0);
+	TestEqual(TEXT("局部半径在 [0.8, 1.05]（岩基边缘壳层）"), BadShell, 0);
+	TestEqual(TEXT("都是 Blob"), BadKind, 0);
+	TestEqual(TEXT("半径 = RadiusRatio × R（各向同性）"), BadRadius, 0);
+	TestTrue(TEXT("方向铺满两半球（不是钉在固定轴上）"), Below > 0 && Above > 0);
 	return true;
 }
 

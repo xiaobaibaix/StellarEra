@@ -234,6 +234,62 @@ public:
 	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
 };
 
+/** 锡钨脉：花岗岩基顶面壳层里沿长轴拉长的细脉。运行于阶段 4b 之后。 */
+UCLASS(meta = (DisplayName = "锡钨脉（阶段 4）"))
+class STELLARERAPLANET_API UGeoTinTungstenScatterer : public UGeoMineralScatterer
+{
+	GENERATED_BODY()
+
+public:
+	UGeoTinTungstenScatterer() { Mineral = TEXT("TinTungsten"); }
+
+	/** 每座岩基几条脉。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1", ClampMax = "16"))
+	int32 PerBatholith = 4;
+	/** 脉长半轴（占 R，沿岩基长轴）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.001", ClampMax = "0.5"))
+	float LengthRatio = 0.02f;
+	/** 脉横向半轴（占 R）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.0005", ClampMax = "0.1"))
+	float RadiusRatio = 0.004f;
+	/** 脉半厚（占 R，岩基局部 Z）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.0002", ClampMax = "0.05"))
+	float ThicknessRatio = 0.0015f;
+	/** 脉中心在岩基局部 z 的比例下限（0 = 中心，1 = 顶面）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "1"))
+	float TopMinRatio = 0.6f;
+	/** 比例上限：必须 < 1，否则脉顶冒出岩基顶面。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "1"))
+	float TopMaxRatio = 0.95f;
+
+	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
+};
+
+/** 伟晶岩锂钽铍：花岗岩基边缘壳层里的团块。运行于阶段 4b 之后。 */
+UCLASS(meta = (DisplayName = "伟晶岩锂钽铍（阶段 4）"))
+class STELLARERAPLANET_API UGeoPegmatiteScatterer : public UGeoMineralScatterer
+{
+	GENERATED_BODY()
+
+public:
+	UGeoPegmatiteScatterer() { Mineral = TEXT("PegmatiteLi"); }
+
+	/** 每座岩基几个。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1", ClampMax = "16"))
+	int32 PerBatholith = 6;
+	/** 团块半径（占 R）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.0005", ClampMax = "0.05"))
+	float RadiusRatio = 0.003f;
+	/** 团块中心到岩基中心的局部半径比例下限。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "1"))
+	float ShellMin = 0.88f;
+	/** 比例上限：贴着岩基外缘。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "1"))
+	float ShellMax = 1.f;
+
+	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
+};
+
 /** 硫磺结壳：活跃火山火口内的地表覆层（覆层，不是矿体）。运行于阶段 4 之后。 */
 UCLASS(meta = (DisplayName = "硫磺结壳（阶段 4）"))
 class STELLARERAPLANET_API UGeoSulfurScatterer : public UGeoMineralScatterer

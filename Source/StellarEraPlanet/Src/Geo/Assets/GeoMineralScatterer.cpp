@@ -62,3 +62,17 @@ TSharedPtr<IGeoMineralRule> UGeoPorphyryScatterer::MakeRule() const
 	R->P = { DepthMinRatio, DepthMaxRatio, RadiusRatio, PerStock };
 	return R;
 }
+
+TSharedPtr<IGeoMineralRule> UGeoTinTungstenScatterer::MakeRule() const
+{
+	TSharedPtr<FGeoTinTungstenRule> R = MakeShared<FGeoTinTungstenRule>();
+	R->P = { PerBatholith, LengthRatio, RadiusRatio, ThicknessRatio, TopMinRatio, TopMaxRatio };
+	return R;
+}
+
+TSharedPtr<IGeoMineralRule> UGeoPegmatiteScatterer::MakeRule() const
+{
+	TSharedPtr<FGeoPegmatiteRule> R = MakeShared<FGeoPegmatiteRule>();
+	R->P = { PerBatholith, RadiusRatio, ShellMin, ShellMax };
+	return R;
+}
