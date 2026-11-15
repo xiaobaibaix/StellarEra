@@ -1,4 +1,5 @@
-﻿// 阶段 4：管线接线（点表进快照、配方哈希对火山参数敏感）+ 放点（间距 / 上盘 / 热点链 / 活性 / 确定性 / 尺度不变 / 开关）。
+﻿// 阶段 4：管线接线（点表进快照、配方哈希对火山参数敏感）+ 放点（间距 / 上盘 / 热点链 / 活性 / 确定性 / 尺度不变 / 开关）
+// + 剖面叠加（火口 / 陆地占比 / 宏观场）。
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "GeoContinentField.h"
@@ -144,7 +145,7 @@ bool FGeoStage04PlacementTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("高度减半"), FMath::IsNearlyEqual(B.Height, 0.5f * A.Height, 0.01f * A.Height + 1e-3f));
 	}
 
-	// 开关：关掉一种只少这一种，另几种个数不变（各用独立随机流）。
+	// 开关：关掉一种 → 该类型 0 座。
 	const auto Off = [&](TFunctionRef<void(FPlanetVolcanoParams&)> Set, EGeoVolcanoKind K, const TCHAR* Name)
 	{
 		FPlanetRecipeConfig X = C; Set(X.Volcano);
@@ -156,6 +157,75 @@ bool FGeoStage04PlacementTest::RunTest(const FString& Parameters)
 	Off([](FPlanetVolcanoParams& P) { P.bFloodBasalt = false; }, EGeoVolcanoKind::FloodBasalt, TEXT("溢流玄武岩"));
 	Off([](FPlanetVolcanoParams& P) { P.bCalderas = false; }, EGeoVolcanoKind::Caldera, TEXT("破火山口"));
 	Off([](FPlanetVolcanoParams& P) { P.bCinderCones = false; }, EGeoVolcanoKind::CinderCone, TEXT("渣锥"));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage04ReliefTest, "StellarEra.Planet.Geo.Stage04.Relief",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage04ReliefTest::RunTest(const FString& Parameters)
+{
+	FPlanetRecipeConfig C;
+	C.FaceRes = 1024;   // 层状火口半径约 2.6 texel，512 下只有 1.3 个
+	FPlanetBakeFields F; FPlanetBakeReport R;
+	const FGeoField2D Before = Stage04TestBake(C, F, R);
+	TestFalse(TEXT("无错误"), R.HasErrors());
+	const float Texel = 2.f / float(C.FaceRes);
+
+	// 火口：中心比火口外一圈的平均低。
+	int32 Checked = 0, Pit = 0;
+	for (const FGeoVolcano& V : F.Volcanoes)
+	{
+		if (V.CraterRadius < 2.f * Texel || V.Kind == EGeoVolcanoKind::CinderCone) { continue; }
+		const FVector3f T1 = FVector3f::CrossProduct(FMath::Abs(V.Dir.Z) < 0.9f ? FVector3f::UpVector : FVector3f::ForwardVector, V.Dir).GetSafeNormal();
+		const FVector3f T2 = FVector3f::CrossProduct(V.Dir, T1);
+		float Rim = 0.f;
+		for (int32 k = 0; k < 8; ++k)
+		{
+			const float A = 2.f * PI * float(k) / 8.f;
+			Rim += 0.125f * F.Elevation.Sample((V.Dir + (T1 * FMath::Cos(A) + T2 * FMath::Sin(A)) * (1.2f * V.CraterRadius)).GetSafeNormal());
+		}
+		++Checked;
+		const float Center = F.Elevation.Sample(V.Dir);
+		if (Center < Rim)
+		{
+			++Pit;
+		}
+		else
+		{
+			int32 Neighbors = 0;
+			float BeforeRim = 0.f;
+			for (const FGeoVolcano& W : F.Volcanoes) { Neighbors += (W.Dir - V.Dir).Size() < 2.f * W.BaseRadius ? 1 : 0; }
+			for (int32 k = 0; k < 8; ++k)
+			{
+				const float A = 2.f * PI * float(k) / 8.f;
+				BeforeRim += 0.125f * Before.Sample((V.Dir + (T1 * FMath::Cos(A) + T2 * FMath::Sin(A)) * (1.2f * V.CraterRadius)).GetSafeNormal());
+			}
+			AddInfo(FString::Printf(TEXT("未凹下：类型 %d 火口半径 %.4f 邻近火山 %d 中心 %.1f 边缘 %.1f 阶段3中心 %.1f 阶段3边缘 %.1f"),
+				int32(V.Kind), V.CraterRadius, Neighbors, Center, Rim, Before.Sample(V.Dir), BeforeRim));
+		}
+	}
+	AddInfo(FString::Printf(TEXT("火口检查 %d 座，凹下 %d 座"), Checked, Pit));
+	TestTrue(TEXT("有可检查的火口"), Checked > 0);
+	TestEqual(TEXT("火口底都低于火口边缘"), Pit, Checked);
+
+	// 陆地占比与「只抬不挖穿」。
+	FPlanetBakeFields F3; FPlanetBakeReport R3;
+	Stage04TestBake(C, F3, R3, false);
+	float MaxPit = 0.f;
+	for (const FGeoVolcano& V : F.Volcanoes) { MaxPit = FMath::Max(MaxPit, V.CraterDepth); }
+	int32 Below = 0, LandLost = 0;
+	for (int32 Face = 0; Face < 6; ++Face) for (int32 Y = 0; Y < Before.Res; ++Y) for (int32 X = 0; X < Before.Res; ++X)
+	{
+		const float E3 = Before.At(Face, X, Y), E4 = F.Elevation.At(Face, X, Y);
+		Below += E4 < E3 - MaxPit - 1.f ? 1 : 0;
+		LandLost += (E3 > 0.f && E4 <= 0.f) ? 1 : 0;
+	}
+	AddInfo(FString::Printf(TEXT("陆地 %.4f → %.4f；火山增量峰值 %.0f"), F3.LandAreaFrac, F.LandAreaFrac, F.MaxElevation - F3.MaxElevation));
+	TestTrue(TEXT("陆地占比变化 < 0.01"), FMath::Abs(F.LandAreaFrac - F3.LandAreaFrac) < 0.01f);
+	TestEqual(TEXT("没有 texel 被挖得比火口还深"), Below, 0);
+	TestEqual(TEXT("陆上火山不把陆地压到海面下"), LandLost, 0);
+	TestTrue(TEXT("宏观场已写"), F.VolcanoMask.Res == F.PlateId.Res && F.VolcanicType.Res == F.PlateId.Res);
 	return true;
 }
 
