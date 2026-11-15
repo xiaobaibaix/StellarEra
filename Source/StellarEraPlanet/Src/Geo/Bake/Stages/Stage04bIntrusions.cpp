@@ -218,4 +218,26 @@ void Stage04b::PlaceIntrusions(const FPlanetRecipeConfig& Cfg, const FPlanetBake
 			++Placed;
 		}
 	}
+
+	// —— 蚀变晕：岩株 / 岩基同形状放大一圈，只带线索不带岩性 ——
+	// 遍历副本：晕自身不能被再当岩体挂晕。Bounds 必须按放大后的椭球重算，否则查询盒剪掉它。
+	if (P.bAlteration)
+	{
+		const int32 Bodies = Out.Num();
+		for (int32 i = 0; i < Bodies; ++i)
+		{
+			const FGeoPrimitive& B = Out[i];
+			const bool bBatho = B.LithologyId == GeoLithology::Granite;
+			if (!bBatho && B.LithologyId != GeoLithology::Diorite) { continue; }
+			FGeoPrimitive Halo = B;
+			Halo.MineralId = 0; Halo.Grade = 0;
+			Halo.LithologyId = 0;
+			Halo.ClueId = 1; Halo.ClueStrength = 15;
+			Halo.Radii *= (bBatho ? 1.25f : Cfg.Intrusion.AlterHaloScale);
+			Halo.Bounds = B.Kind == EGeoPrimitiveKind::Blob
+				? FBox3f(Halo.Center - Halo.Radii, Halo.Center + Halo.Radii)
+				: FGeoPrimitive::MakeOrientedBlob(Halo.Center, Halo.Radii, Halo.Rotation, Halo.Hard).Bounds;
+			Out.Add(Halo);
+		}
+	}
 }

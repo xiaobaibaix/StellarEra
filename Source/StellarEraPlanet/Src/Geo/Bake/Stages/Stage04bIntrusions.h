@@ -5,6 +5,6 @@
 
 namespace Stage04b
 {
-	/** 读 4a 的火山点表与阶段 2/3 的场，把六类岩体追加到 Out。 */
+	/** 读 4a 的火山点表与阶段 2/3 的场，把六类岩体连同各自的蚀变晕追加到 Out。 */
 	STELLARERAPLANET_API void PlaceIntrusions(const FPlanetRecipeConfig& Cfg, const FPlanetBakeFields& F, TArray<FGeoPrimitive>& Out);
 }

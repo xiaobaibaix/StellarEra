@@ -85,6 +85,67 @@ bool FGeoStage04bMaterialTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage04bAlterationTest, "StellarEra.Planet.Geo.Stage04b.Alteration",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage04bAlterationTest::RunTest(const FString& Parameters)
+{
+	FPlanetRecipeConfig C; C.FaceRes = 512;
+	FPlanetBakeFields F; FPlanetBakeReport R;
+	Stage04bTestBake(C, F, R);
+	const int32 Halos = Stage04bClueCount(F.Primitives);
+	AddInfo(FString::Printf(TEXT("蚀变晕原语 %d 个"), Halos));
+	TestTrue(TEXT("有蚀变晕"), Halos > 0);
+	// 每个岩株 / 岩基都挂一个：晕数 = 闪长岩 + 花岗岩 数。
+	TestEqual(TEXT("岩株与岩基各挂一个晕"), Halos,
+		Stage04bCount(F.Primitives, GeoLithology::Granite) + Stage04bCount(F.Primitives, GeoLithology::Diorite));
+
+	// 四圈：取一个岩株，沿其半径向外采样，ClueId 顺序正确、强度递减。
+	const FGeoPrimitive* Stock = F.Primitives.FindByPredicate([](const FGeoPrimitive& P) { return P.LithologyId == GeoLithology::Diorite; });
+	TestNotNull(TEXT("找得到岩株"), Stock);
+	if (Stock)
+	{
+		const FGeoPrimitive* Halo = nullptr;
+		for (const FGeoPrimitive& P : F.Primitives)
+		{
+			if (P.ClueId != 0 && (P.Center - Stock->Center).Size() < 1.f) { Halo = &P; break; }
+		}
+		TestNotNull(TEXT("找得到对应的晕"), Halo);
+		if (Halo)
+		{
+			const uint8 Want[4] = { GeoClue::Keratitic, GeoClue::Sericitic, GeoClue::Argillic, GeoClue::Propylitic };
+			const float Fract[4] = { 0.15f, 0.42f, 0.68f, 0.9f };
+			TSharedPtr<FPlanetSnapshot> S = MakeShared<FPlanetSnapshot>();
+			S->R0 = C.Radius;
+			S->Radial.Layers = { { 1.f, GeoLithology::Crust, 0.f } };
+			S->AlterBands[0] = C.Intrusion.AlterKeratiticBand;
+			S->AlterBands[1] = C.Intrusion.AlterSericiticBand;
+			S->AlterBands[2] = C.Intrusion.AlterArgillicBand;
+			S->Primitives.Build(F.Primitives);
+			int32 Order = 0, Mono = 0; uint8 Prev = 255;
+			for (int32 k = 0; k < 4; ++k)
+			{
+				// 沿晕的 X 半径轴采样：Z 轴会落到椭球外，取不到同心圈。
+				const FVector3f Q = Halo->Center + FVector3f(Halo->Radii.X * Fract[k], 0.f, 0.f);
+				const FGeoSample Sm = PlanetMaterialEval::Sample(*S, FVector3d(Q));
+				Order += Sm.Clue == Want[k] ? 1 : 0;
+				Mono += Sm.ClueStrength < Prev ? 1 : 0;
+				Prev = Sm.ClueStrength;
+			}
+			TestEqual(TEXT("四圈顺序正确"), Order, 4);
+			TestEqual(TEXT("强度递减"), Mono, 4);
+		}
+	}
+
+	// 关掉蚀变 → 晕为 0，岩体不受影响。
+	FPlanetRecipeConfig Off = C; Off.Intrusion.bAlteration = false;
+	FPlanetBakeFields Fo; FPlanetBakeReport Ro;
+	Stage04bTestBake(Off, Fo, Ro);
+	TestEqual(TEXT("关掉蚀变后没有晕"), Stage04bClueCount(Fo.Primitives), 0);
+	TestEqual(TEXT("关掉蚀变不影响岩基"), Stage04bCount(Fo.Primitives, GeoLithology::Granite), Stage04bCount(F.Primitives, GeoLithology::Granite));
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage04bPlacementTest, "StellarEra.Planet.Geo.Stage04b.Placement",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
