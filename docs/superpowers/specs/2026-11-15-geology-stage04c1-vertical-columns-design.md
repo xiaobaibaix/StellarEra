@@ -32,7 +32,7 @@
 |---|---|---|---|
 | 硫磺 | `Volcanoes` 中 `bActive && CraterRadius > 0` 的每座 | `FGeoMineralOverlay`：遮罩在火口半径内为 1（边缘平滑到 1.2 倍），`DepthVoxels = 40` | 遮罩分辨率 = `max(128, Elevation.Res / 2)`；火口半径取 `max(CraterRadius, 0.008R)` |
 | 浅成金银 | 同一批活火山，锥顶正下方 | 每座 `VeinCount` 条朝向椭球，沿走向排开，`Hard = 0.06` | 深度 0.004–0.012R，单条半径 (0.004R, 0.004R, 0.0015R)，水平散布 2 倍火口半径，`VeinCount = 3` |
-| 斑岩铜 | `Primitives` 中 `LithologyId == Diorite` 的每座岩株 | 一个软边椭球，`Hard = 0.25` | 中心在岩株中心下方，取深度 0.012–0.03R 区间中点；半径 0.01R |
+| 斑岩铜 | `Primitives` 中 `LithologyId == Diorite` 的每座岩株 | 一个软边椭球，`Hard = 0.25` | 中心在岩株顶面下方 0.012–0.03R（PerStock 个自上而下铺，默认 1 个取 0.012R）；半径 0.01R |
 
 - 随机流：每条规则用 `Ctx.Rng`（管线按 `(Seed, 4, scatter, 规则哈希, SeedOffset)` 派生，已隔离）。
 - 品位：用撒矿器公共的 `GradeMin/GradeMax`。
@@ -43,7 +43,7 @@
 | 撒矿器 | 参数 | 默认 |
 |---|---|---|
 | 硫磺 | `RadiusRatio`（结壳半径下限，占 R）/ `DepthVoxels`（结壳厚度，体素） | 0.008 / 40 |
-| 浅成金银 | `DepthMinRatio` / `DepthMaxRatio` / `VeinCount` / `VeinRadiusRatio` / `VeinLengthRatio` / `SpreadRatio` | 0.004 / 0.012 / 3 / 0.004 / 0.0015 / 2.0 |
+| 浅成金银 | `DepthMinRatio` / `DepthMaxRatio` / `VeinCount` / `VeinRadiusRatio` / `VeinThicknessRatio` / `SpreadRatio` | 0.004 / 0.012 / 3 / 0.004 / 0.0015 / 2.0 |
 | 斑岩铜 | `DepthMinRatio` / `DepthMaxRatio` / `RadiusRatio` / `PerStock` | 0.012 / 0.03 / 0.01 / 1 |
 
 全部进规则哈希（`HashParams`），改参数即改配方哈希。
