@@ -3,6 +3,7 @@
 #include "GeoContinentField.h"
 #include "GeoNoise.h"
 #include "GeoPlates.h"
+#include "PlanetSnapshot.h"
 
 namespace
 {
@@ -329,7 +330,8 @@ void FStage04Magmatism::Bake(FPlanetBakeContext& Ctx) const
 		{
 			const FVector3f Dir = F.VolcanoMask.TexelDir(Face, X, Y);
 			float Up, Pit, Mask, Surface; int32 Top;
-			Eval(Dir, H.Sample(Dir), Up, Pit, Top, Mask, Surface);
+			// 宏观图层只用 Mask/Up/Pit，Surface 被丢弃：基面 E0 不必采样。
+			Eval(Dir, 0.f, Up, Pit, Top, Mask, Surface);
 			const FGeoVolcano* Vo = Top >= 0 ? &F.Volcanoes[Top] : nullptr;
 			F.VolcanoMask.At(Face, X, Y) = Mask;
 			F.VolcanicType.At(Face, X, Y) = Vo ? float(uint8(Vo->Kind)) : 0.f;
@@ -339,5 +341,60 @@ void FStage04Magmatism::Bake(FPlanetBakeContext& Ctx) const
 		}
 	}, PF);
 }
-void FStage04Magmatism::DescribeDebugLayers(TArray<FGeoDebugLayer>&) const {}
-void FStage04Magmatism::ExportDebugFields(const FPlanetBakeFields&, TMap<FName, FGeoField2D>&) const {}
+namespace
+{
+	float Stage04DebugField(const FPlanetSnapshot& S, const TCHAR* Name, const FVector3d& P, bool bNearest)
+	{
+		const FGeoField2D* Fd = S.DebugFields.Find(FName(Name));
+		if (!Fd || Fd->Res <= 0) { return FGeoDebugLayer::NoData(); }
+		const FVector3f Dir(P.GetSafeNormal());
+		return bNearest ? Fd->SampleNearest(Dir) : Fd->Sample(Dir);
+	}
+}
+
+void FStage04Magmatism::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const
+{
+	{
+		FGeoDebugLayer L;
+		L.Id = TEXT("VolcanicType"); L.DisplayName = TEXT("火山类型"); L.Stage = 4;
+		L.Kind = EGeoDebugKind::Categorical;
+		// 下标 = EGeoVolcanoKind。
+		L.Legend = { { TEXT("无"), FColor(70, 70, 70) }, { TEXT("层状火山"), FColor(200, 50, 30) }, { TEXT("盾状火山"), FColor(230, 140, 40) },
+			{ TEXT("溢流玄武岩"), FColor(90, 60, 90) }, { TEXT("破火山口"), FColor(250, 220, 60) }, { TEXT("火山渣锥"), FColor(140, 30, 30) } };
+		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P) { return Stage04DebugField(S, TEXT("VolcanicType"), P, true); };
+		Out.Add(MoveTemp(L));
+	}
+	{
+		FGeoDebugLayer L;
+		L.Id = TEXT("VolcanoActive"); L.DisplayName = TEXT("活火山"); L.Stage = 4;
+		L.Kind = EGeoDebugKind::Categorical;
+		L.Legend = { { TEXT("休眠 / 无"), FColor(70, 70, 70) }, { TEXT("活跃"), FColor(255, 60, 20) } };
+		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P) { return Stage04DebugField(S, TEXT("VolcanoActive"), P, true); };
+		Out.Add(MoveTemp(L));
+	}
+	{
+		FGeoDebugLayer L;
+		L.Id = TEXT("VolcanicAge"); L.DisplayName = TEXT("火山年龄"); L.Stage = 4;
+		L.Unit = TEXT("0 新 … 1 老");
+		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P) { return Stage04DebugField(S, TEXT("VolcanicAge"), P, true); };
+		L.Range = [](const FPlanetSnapshot&) { return FVector2f(0.f, 1.f); };
+		Out.Add(MoveTemp(L));
+	}
+	{
+		FGeoDebugLayer L;
+		L.Id = TEXT("VolcanoDelta"); L.DisplayName = TEXT("火山锥厚度（相对锥底）"); L.Stage = 4;
+		L.Unit = TEXT("体素");
+		// 相对各自锥底 BaseElevation 的厚度，不是相对阶段 3 地面的净抬升。
+		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P) { return Stage04DebugField(S, TEXT("VolcanoDelta"), P, false); };
+		L.Range = [](const FPlanetSnapshot& S) { return FVector2f(float(-0.01 * S.R0), float(0.015 * S.R0)); };
+		Out.Add(MoveTemp(L));
+	}
+}
+
+void FStage04Magmatism::ExportDebugFields(const FPlanetBakeFields& Fields, TMap<FName, FGeoField2D>& Out) const
+{
+	Out.Add(TEXT("VolcanicType"), Fields.VolcanicType);
+	Out.Add(TEXT("VolcanoActive"), Fields.VolcanoActive);
+	Out.Add(TEXT("VolcanicAge"), Fields.VolcanicAge);
+	Out.Add(TEXT("VolcanoDelta"), Fields.VolcanoDelta);
+}

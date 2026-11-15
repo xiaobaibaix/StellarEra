@@ -20,7 +20,7 @@ enum class EPlanetField : uint32
 	Continental = 1 << 4,   // ContinentalMask / ContinentalGrad / CrustType / CrustThickness
 	Elevation   = 1 << 5,   // Elevation
 	Relief      = 1 << 6,   // MountainMask / ReliefDelta / ReliefType
-	Volcanoes   = 1 << 7,   // Volcanoes / VolcanoMask / VolcanicType / VolcanicAge
+	Volcanoes   = 1 << 7,   // Volcanoes / VolcanoMask / VolcanicType / VolcanicAge / VolcanoActive / VolcanoDelta
 };
 ENUM_CLASS_FLAGS(EPlanetField);
 
