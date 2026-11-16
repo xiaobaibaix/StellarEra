@@ -20,7 +20,7 @@ void Stage06::BuildGrid(int32 Res, FHydroGrid& Out)
 		const int32 Idx = (Face * Res + Y) * Res + X;
 		const float U = TexelUV(X), V = TexelUV(Y);
 		Out.Dir[Idx] = FGeoField2D::FaceToDir(Face, U, V);
-		// 立体角权重 (1+u²+v²)^-1.5，与其它阶段的面积加权同一套。
+		// 公式同 GeoContinentField::TexelWeight；它要传 FGeoField2D，这里没有场对象，所以不直接调。
 		const double W = FMath::Pow(1.0 + double(U) * U + double(V) * V, -1.5);
 		Out.Area[Idx] = float(W);
 		Total += W;
@@ -71,7 +71,7 @@ void Stage06::SolveFlow(const FHydroGrid& G, const TArray<float>& E, const TArra
 	const int32 N = G.Num();
 	// 角格距取全脸平均 90°/Res，与阶段 5 的步长口径一致；Filled 用 double，否则 ε 小于大高程的 ulp 会被吞。
 	const double Eps = double(FlatSlopeRatio) * double(Radius) * (PI * 0.5 / double(G.Res));
-	Out.Filled.SetNumUninitialized(N);
+	Out.Filled.Init(TNumericLimits<double>::Max(), N);
 	TArray<uint8> Visited; Visited.SetNumZeroed(N);
 	TArray<uint8> bSeed; bSeed.SetNumZeroed(N);
 	TArray<FStage06HeapItem> Heap;
@@ -101,6 +101,9 @@ void Stage06::SolveFlow(const FHydroGrid& G, const TArray<float>& E, const TArra
 			Heap.HeapPush({ Out.Filled[n], n }, FStage06HeapLess());
 		}
 	}
+
+	// 邻居表若漏了某格（入度 0），它不会被洪水访问，Filled 仍是哨兵值，下游判断会悄悄出错。
+	for (int32 i = 0; i < N; ++i) { if (!ensureMsgf(Visited[i], TEXT("阶段 6：格子 %d 未被填洼访问"), i)) { Out.Filled[i] = E[i]; } }
 
 	// D8：Filled 最低的邻居；平手取编号小者（先排序再只在严格更低时替换）。
 	Out.Down.Init(-1, N);
@@ -145,8 +148,10 @@ void Stage06::SolveFlow(const FHydroGrid& G, const TArray<float>& E, const TArra
 	// 洼地 = Filled > E 的陆格的 8 连通块。
 	Out.BasinId.Init(-1, N);
 	Out.Basin.Init(0, N);
+	Out.DownPreCut = Out.Down;
 	Out.Exits.Reset(); Out.BasinMeanPrecip.Reset();
-	const auto bDeep = [&](int32 i) { return !bSeed[i] && E[i] > 0.f && Out.Filled[i] > double(E[i]); };
+	// 超过 2ε 才算洼地：只被 ε 坡道抬高的平坦高原不是湖。
+	const auto bDeep = [&](int32 i) { return !bSeed[i] && E[i] > 0.f && Out.Filled[i] - double(E[i]) > 2.0 * Eps; };
 	TArray<int32> Stack;
 	for (int32 s = 0; s < N; ++s)
 	{
@@ -179,6 +184,7 @@ void Stage06::SolveFlow(const FHydroGrid& G, const TArray<float>& E, const TArra
 		}
 		const float Mean = SumA > 0.0 ? float(SumP / SumA) : 0.f;
 		Out.BasinMeanPrecip.Add(Mean);
+		// 按切断前的累积判定：位于内流盆地下游的湖盆集水区含被切走的水，6a 接受这点偏差。
 		const bool bEndo = Mean < EndorheicPrecip;
 		for (const int32 c : Cells) { Out.Basin[c] = bEndo ? 2 : 1; }
 		if (bEndo) { for (const int32 c : Ex) { Out.Down[c] = -1; } }

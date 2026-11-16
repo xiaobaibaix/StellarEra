@@ -60,7 +60,7 @@ struct FPlanetBakeFields
 	// 阶段 5：气候场一律 ClimateRes；只给阶段 6/7 与调试图层，不进快照。
 	FGeoField2D Temperature, Precipitation, WindDir, Biome, ClimateLand;
 
-	// 阶段 6：水系场一律 HydroRes；FlowAccum 已按全球面积×降水归一化，BasinMask 0 无 / 1 湖盆 / 2 内流盆地。
+	// 阶段 6：水系场一律 HydroRes；FlowAccum 按全球（含海洋）面积×降水归一化，值恒小于 1，BasinMask 0 无 / 1 湖盆 / 2 内流盆地。
 	FGeoField2D FlowAccum, BasinMask, ErosionDepth, RiverMask;
 };
 

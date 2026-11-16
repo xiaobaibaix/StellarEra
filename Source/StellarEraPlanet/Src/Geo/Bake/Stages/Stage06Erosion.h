@@ -31,6 +31,7 @@ namespace Stage06
 	{
 		TArray<double> Filled;         // 填洼后高程（体素）
 		TArray<int32> Down;            // 下游格；海洋 / 内流盆地出口 / 无下游为 -1
+		TArray<int32> DownPreCut;      // 切断内流出口之前的下游格，只给测试核对分类用
 		TArray<uint8> Basin;           // 0 无 / 1 湖盆 / 2 内流盆地
 		TArray<int32> BasinId;         // 洼地编号；不在洼地为 -1
 		TArray<TArray<int32>> Exits;   // 每个洼地的溢出格（内流盆地的 Down 已被切断）

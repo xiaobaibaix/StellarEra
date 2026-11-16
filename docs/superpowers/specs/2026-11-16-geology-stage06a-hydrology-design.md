@@ -37,7 +37,7 @@
 
 1. **填洼（priority-flood）**：所有 `E ≤ 0` 的格子入最小堆作为种子，`Filled = E`。弹出最低格，对每个未访问邻居 `Filled[n] = max(E[n], Filled[cur] + ε)`，入堆。`ε = FlatSlopeRatio · R · 格距`，保证填平区仍有极小坡度、流向唯一。`Depth = Filled − E`；`Depth > 0` 的连通块是一个洼地，记下它的溢出格（填平时第一次越过洼地边缘的格子）。
 2. **流向**：每格取 8 邻域中 `Filled` 最低且低于自己的那个；海洋格子（`E ≤ 0`）没有下游。平手按邻居编号小者优先（确定性）。
-3. **内流盆地判定**：对每个洼地，计算其上游集水区（所有最终流入该洼地的格子）面积加权平均降水；`< EndorheicPrecip` → 内流盆地，**切断该洼地溢出格的流向**（水流在洼地里终止）；否则为湖盆，流向保持。`BasinMask`：0 无 / 1 湖盆 / 2 内流盆地。
+3. **内流盆地判定**：对每个洼地，计算其上游集水区（所有最终流入该洼地的格子）面积加权平均降水；`< EndorheicPrecip` → 内流盆地，**切断该洼地溢出格的流向**（水流在洼地里终止）；否则为湖盆，流向保持。分类一律按切断前的累积判定，位于内流盆地下游的湖盆集水区因此含有被切走的水，6a 接受这一简化。`BasinMask`：0 无 / 1 湖盆 / 2 内流盆地。
 4. **汇流累积**：按 `Filled` 从高到低排序遍历（拓扑序），`Acc[i] = Area[i]·Precip[i] + Σ Acc[上游]`；再除以全球总面积得到 0–1 量级。
 5. **河道**：`Acc ≥ RiverThreshold` 的陆上格子为河道。`RiverMask = SmoothStep(Thr, 4·Thr, Acc)`。
 6. **下切**：河道格子 `Carve = CarveRatio · R · sqrt(Acc / Thr) · sqrt(Slope / SlopeRef)`，上限 `CarveMaxRatio · R`，且陆上 `E − Carve ≥ 1`。谷半宽 `HalfWidth = ValleyWidthRatio · sqrt(Acc / Thr)`（方向单位）。

@@ -36,7 +36,8 @@ bool FGeoStage06GridTest::RunTest(const FString& Parameters)
 	const int32 N = G.Num();
 	if (!TestEqual(TEXT("格子数"), N, 6 * 64 * 64)) { return false; }
 	double AreaSum = 0.0;
-	int32 BadSlot = 0, Asym = 0, Checked = 0;
+	int32 BadSlot = 0, Asym = 0, Checked = 0, ZeroIn = 0;
+	TArray<int32> InDeg; InDeg.Init(0, N);
 	for (int32 i = 0; i < N; ++i)
 	{
 		AreaSum += G.Area[i];
@@ -47,6 +48,7 @@ bool FGeoStage06GridTest::RunTest(const FString& Parameters)
 			if (n < 0 || n >= N || n == i) { ++BadSlot; continue; }
 			Uniq.Add(n);
 		}
+		for (const int32 n : Uniq) { ++InDeg[n]; }
 		// 去重后恰好 8 个才算「非重复」邻域；面角格子只有 7 个，不参与对称检查。
 		if (Uniq.Num() < 8) { continue; }
 		for (const int32 n : Uniq)
@@ -57,6 +59,8 @@ bool FGeoStage06GridTest::RunTest(const FString& Parameters)
 			if (!bBack) { ++Asym; }
 		}
 	}
+	for (int32 i = 0; i < N; ++i) { ZeroIn += InDeg[i] < 1 ? 1 : 0; }
+	TestEqual(TEXT("每格（含面角）入度 ≥ 1"), ZeroIn, 0);
 	TestEqual(TEXT("每个槽都是有效的他格"), BadSlot, 0);
 	TestTrue(FString::Printf(TEXT("面积和 = 1（%.6f）"), AreaSum), FMath::Abs(AreaSum - 1.0) < 1e-4);
 	AddInfo(FString::Printf(TEXT("邻居对称检查 %d 对，不对称 %d"), Checked, Asym));
@@ -97,42 +101,90 @@ bool FGeoStage06FlowNetworkTest::RunTest(const FString& Parameters)
 	Stage06::FHydroFlow Fl;
 	Stage06::SolveFlow(G, E, Pr, float(C.Radius), C.Hydro.FlatSlopeRatio, C.Hydro.EndorheicPrecip, Fl);
 
-	int32 Land = 0, Stuck = 0, AccDecrease = 0;
+	// 沿 Down 走到底；返回终点格。
+	const auto Terminal = [&](const TArray<int32>& Down, int32 Start)
+	{
+		int32 c = Start, Steps = 0;
+		while (Down[c] >= 0 && Steps <= N) { c = Down[c]; ++Steps; }
+		return Steps > N ? -1 : c;
+	};
+	int32 Land = 0, Stuck = 0, LakeLost = 0, LakeToOcean = 0, EndoEscape = 0;
 	for (int32 i = 0; i < N; ++i)
 	{
 		if (E[i] <= 0.f) { continue; }
 		++Land;
-		int32 c = i, Steps = 0;
-		while (Fl.Down[c] >= 0 && Steps <= N) { c = Fl.Down[c]; ++Steps; }
-		const bool bEnds = E[c] <= 0.f || Fl.Basin[c] == 2;
-		if (Steps > N || !bEnds) { ++Stuck; }
-		const int32 d = Fl.Down[i];
-		if (d >= 0 && Fl.Acc[d] + 1e-12 < Fl.Acc[i]) { ++AccDecrease; }
+		const int32 t = Terminal(Fl.Down, i);
+		if (t < 0 || !(E[t] <= 0.f || Fl.Basin[t] == 2)) { ++Stuck; }
+		if (Fl.Basin[i] == 1)
+		{
+			// 湖盆下游若落进某个内流盆地的集水区，水就终止在那里：这是已接受的情形。
+			if (t >= 0 && E[t] <= 0.f) { ++LakeToOcean; }
+			else if (t < 0 || Fl.Basin[t] != 2) { ++LakeLost; }
+		}
+		// 内流盆地切断后不得再有路径通到海洋。
+		if (Fl.Basin[i] == 2 && (t < 0 || E[t] <= 0.f || Fl.Basin[t] != 2)) { ++EndoEscape; }
 	}
 	TestEqual(TEXT("每个陆格都流到海洋或内流盆地"), Stuck, 0);
-	TestEqual(TEXT("沿流向汇流不减"), AccDecrease, 0);
+	TestEqual(TEXT("湖盆格都流到海洋或内流盆地"), LakeLost, 0);
+	TestEqual(TEXT("内流盆地切断后到不了海洋"), EndoEscape, 0);
 
-	int32 Lakes = 0, Endo = 0, BadExit = 0, BadEndo = 0;
+	// 守恒：所有根（Down<0 的格）的汇流之和 = 陆地面积×降水总量，每份水只能终止一次。
+	double RootSum = 0.0, LandAP = 0.0;
+	for (int32 i = 0; i < N; ++i)
+	{
+		if (Fl.Down[i] < 0) { RootSum += Fl.Acc[i]; }
+		if (E[i] > 0.f) { LandAP += double(G.Area[i]) * Pr[i]; }
+	}
+	TestTrue(FString::Printf(TEXT("汇流守恒（根之和 %.8f，陆地总量 %.8f）"), RootSum, LandAP),
+		FMath::Abs(RootSum - LandAP) <= 1e-4 * LandAP);
+
+	// 按切断后的 Down 重算内流盆地集水区平均降水；上游若有别的内流盆地，平均值允许偏离分类时的数。
+	TArray<int32> Order;
+	Order.SetNumUninitialized(N);
+	for (int32 i = 0; i < N; ++i) { Order[i] = i; }
+	Order.Sort([&Fl](int32 A, int32 B) { return Fl.Filled[A] > Fl.Filled[B] || (Fl.Filled[A] == Fl.Filled[B] && A < B); });
+	TArray<double> AP, AA;
+	AP.Init(0.0, N); AA.Init(0.0, N);
+	for (int32 i = 0; i < N; ++i) { if (E[i] > 0.f) { AP[i] = double(G.Area[i]) * Pr[i]; AA[i] = G.Area[i]; } }
+	for (const int32 i : Order) { if (Fl.Down[i] >= 0) { AP[Fl.Down[i]] += AP[i]; AA[Fl.Down[i]] += AA[i]; } }
+	// 切断前，哪些内流盆地的水会流进别的内流盆地：它们下游的盆地分类用了「多算的集水区」。
+	TSet<int32> HasUpstreamEndo;
+	for (int32 b = 0; b < Fl.Exits.Num(); ++b)
+	{
+		if (Fl.Exits[b].Num() == 0 || Fl.Basin[Fl.Exits[b][0]] != 2) { continue; }
+		for (const int32 e : Fl.Exits[b])
+		{
+			int32 c = Fl.DownPreCut[e], Steps = 0;
+			while (c >= 0 && Steps++ <= N)
+			{
+				if (Fl.BasinId[c] >= 0 && Fl.BasinId[c] != b && Fl.Basin[c] == 2) { HasUpstreamEndo.Add(Fl.BasinId[c]); }
+				c = Fl.DownPreCut[c];
+			}
+		}
+	}
+	int32 Lakes = 0, Endo = 0, BadExit = 0, BadEndo = 0, Changed = 0;
 	for (int32 b = 0; b < Fl.Exits.Num(); ++b)
 	{
 		const TArray<int32>& Ex = Fl.Exits[b];
-		const bool bEndo = Fl.Basin[Ex.Num() > 0 ? Ex[0] : 0] == 2;
-		if (bEndo)
+		if (Ex.Num() == 0) { ++BadExit; continue; }
+		if (Fl.Basin[Ex[0]] == 2)
 		{
 			++Endo;
-			if (!(Fl.BasinMeanPrecip[b] < C.Hydro.EndorheicPrecip)) { ++BadEndo; }
-			for (const int32 e : Ex) { if (Fl.Down[e] != -1) { ++BadEndo; } }
+			double SP = 0.0, SA = 0.0;
+			for (const int32 e : Ex) { if (Fl.Down[e] != -1) { ++BadEndo; } SP += AP[e]; SA += AA[e]; }
+			const float Post = SA > 0.0 ? float(SP / SA) : 0.f;
+			if (FMath::Abs(Post - Fl.BasinMeanPrecip[b]) > 1e-6f) { ++Changed; }
+			if (!(Post < C.Hydro.EndorheicPrecip) && !HasUpstreamEndo.Contains(b)) { ++BadEndo; }
 		}
 		else
 		{
 			++Lakes;
-			if (Ex.Num() == 0) { ++BadExit; }
 			for (const int32 e : Ex) { if (Fl.Down[e] < 0) { ++BadExit; } }
-			if (!(Fl.BasinMeanPrecip[b] >= C.Hydro.EndorheicPrecip)) { ++BadExit; }
 		}
 	}
 	TestEqual(TEXT("每个湖盆有溢出格且溢出格有下游"), BadExit, 0);
-	TestEqual(TEXT("内流盆地集水区平均降水低于阈值且出口已切断"), BadEndo, 0);
+	TestEqual(TEXT("内流盆地出口已切断，切断后集水区平均降水仍低于阈值（或位于另一内流盆地下游）"), BadEndo, 0);
+	AddInfo(FString::Printf(TEXT("内流盆地 %d 个中，切断后平均降水与分类时不同的 %d 个；湖盆格直达海洋 %d"), Endo, Changed, LakeToOcean));
 
 	// 阶段写出的字段与求解一致，且归一化后在 0–1。
 	float MaxAcc = 0.f;
