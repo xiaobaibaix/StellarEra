@@ -248,6 +248,25 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("BiomeTemperatePrecip 透传"), CC.BiomeTemperatePrecip, 0.44f, 1e-6f);
 	}
 
+	// 阶段 6 的 10 项逐项透传：全给互不相同的非默认值。
+	{
+		UPlanetRecipe* Rc = NewObject<UPlanetRecipe>();
+		Rc->bRivers = false; Rc->RiverThreshold = 0.0013f; Rc->CarveRatio = 0.0031f; Rc->CarveMaxRatio = 0.0112f;
+		Rc->ValleyWidthRatio = 0.0073f; Rc->SlopeRef = 0.033f; Rc->ErosionRatio = 0.0147f;
+		Rc->EndorheicPrecip = 0.37f; Rc->FlatSlopeRatio = 3e-6f; Rc->MountainErosionWeight = 0.55f;
+		const FPlanetHydroParams HY = Rc->ToConfig(40000.0).Hydro;
+		TestFalse(TEXT("bRivers 透传"), HY.bRivers);
+		TestEqual(TEXT("RiverThreshold 透传"), HY.RiverThreshold, 0.0013f, 1e-7f);
+		TestEqual(TEXT("CarveRatio 透传"), HY.CarveRatio, 0.0031f, 1e-7f);
+		TestEqual(TEXT("CarveMaxRatio 透传"), HY.CarveMaxRatio, 0.0112f, 1e-7f);
+		TestEqual(TEXT("ValleyWidthRatio 透传"), HY.ValleyWidthRatio, 0.0073f, 1e-7f);
+		TestEqual(TEXT("SlopeRef 透传"), HY.SlopeRef, 0.033f, 1e-7f);
+		TestEqual(TEXT("ErosionRatio 透传"), HY.ErosionRatio, 0.0147f, 1e-7f);
+		TestEqual(TEXT("EndorheicPrecip 透传"), HY.EndorheicPrecip, 0.37f, 1e-7f);
+		TestEqual(TEXT("FlatSlopeRatio 透传"), HY.FlatSlopeRatio, 3e-6f, 1e-9f);
+		TestEqual(TEXT("MountainErosionWeight 透传"), HY.MountainErosionWeight, 0.55f, 1e-7f);
+	}
+
 	// 每项都必须进 Hash()：漏一项则改它快照哈希不变、存档校验失效。
 	const uint64 Base = C2.Hash();
 	FPlanetRecipeConfig Probe;
@@ -286,6 +305,10 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 	Probe = C2; Probe.Climate.RainShadow = 0.79f;            TestTrue(TEXT("RainShadow 进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Climate.ShadowSteps = 31;              TestTrue(TEXT("ShadowSteps 进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Climate.BiomeDesertPrecip = 0.21f;     TestTrue(TEXT("BiomeDesertPrecip 进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Hydro.RiverThreshold = 0.0009f;        TestTrue(TEXT("RiverThreshold 进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Hydro.CarveRatio = 0.0021f;            TestTrue(TEXT("CarveRatio 进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Hydro.EndorheicPrecip = 0.31f;         TestTrue(TEXT("EndorheicPrecip 进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Hydro.bRivers = !C2.Hydro.bRivers;     TestTrue(TEXT("bRivers 进哈希"), Probe.Hash() != Base);
 	return true;
 }
 

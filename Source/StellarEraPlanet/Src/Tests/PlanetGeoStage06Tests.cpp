@@ -301,4 +301,82 @@ bool FGeoStage06ErosionTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06DeterminismTest, "StellarEra.Planet.Geo.Stage06.Determinism",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage06DeterminismTest::RunTest(const FString& Parameters)
+{
+	FPlanetRecipeConfig C;
+	C.FaceRes = 256;
+	FPlanetRecipeConfig Single = C;
+	Single.bSingleThreadBake = true;
+	FPlanetBakeReport R1, R2;
+	FPlanetBakeFields A = Stage06UpToClimate(C, R1);
+	FPlanetBakeFields B = Stage06UpToClimate(Single, R2);
+	if (!TestFalse(TEXT("无错误"), R1.HasErrors() || R2.HasErrors())) { return false; }
+	FPlanetBakeContext CA{ C, A, FGeoRng::Derive(C.Seed, 6, 0), R1 }; FStage06Erosion().Bake(CA);
+	FPlanetBakeContext CB{ Single, B, FGeoRng::Derive(Single.Seed, 6, 0), R2 }; FStage06Erosion().Bake(CB);
+	struct FPair { const TCHAR* Name; const FGeoField2D& X; const FGeoField2D& Y; };
+	const FPair Pairs[] = {
+		{ TEXT("FlowAccum"), A.FlowAccum, B.FlowAccum }, { TEXT("BasinMask"), A.BasinMask, B.BasinMask },
+		{ TEXT("ErosionDepth"), A.ErosionDepth, B.ErosionDepth }, { TEXT("RiverMask"), A.RiverMask, B.RiverMask },
+		{ TEXT("Elevation（刻谷后）"), A.Elevation, B.Elevation } };
+	for (const FPair& P : Pairs)
+	{
+		TestTrue(FString::Printf(TEXT("%s：单线程与并行哈希一致"), P.Name), P.X.Hash() == P.Y.Hash());
+	}
+	TestTrue(TEXT("刻谷后 Min/Max/陆地占比一致"), A.MinElevation == B.MinElevation && A.MaxElevation == B.MaxElevation && A.LandAreaFrac == B.LandAreaFrac);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06ScaleInvarianceTest, "StellarEra.Planet.Geo.Stage06.ScaleInvariance",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage06ScaleInvarianceTest::RunTest(const FString& Parameters)
+{
+	FPlanetRecipeConfig C;
+	C.FaceRes = 256;
+	FPlanetRecipeConfig Half = C;
+	Half.Radius = C.Radius * 0.5;
+	FPlanetBakeReport R1, R2;
+	FPlanetBakeFields F1 = Stage06UpToClimate(C, R1);
+	FPlanetBakeFields F2 = Stage06UpToClimate(Half, R2);
+	if (!TestFalse(TEXT("无错误"), R1.HasErrors() || R2.HasErrors())) { return false; }
+	const FGeoField2D Elev1 = F1.Elevation, Elev2 = F2.Elevation;
+	FPlanetBakeContext C1{ C, F1, FGeoRng::Derive(C.Seed, 6, 0), R1 }; FStage06Erosion().Bake(C1);
+	FPlanetBakeContext C2{ Half, F2, FGeoRng::Derive(Half.Seed, 6, 0), R2 }; FStage06Erosion().Bake(C2);
+
+	const int32 Res = F1.BasinMask.Res;
+	const int32 Total = 6 * Res * Res;
+	int32 BasinDiff = 0, RiverDiff = 0;
+	TArray<double> FlowErr, EroErr, CarveErr;
+	for (int32 Face = 0; Face < 6; ++Face) for (int32 Y = 0; Y < Res; ++Y) for (int32 X = 0; X < Res; ++X)
+	{
+		BasinDiff += F1.BasinMask.At(Face, X, Y) != F2.BasinMask.At(Face, X, Y) ? 1 : 0;
+		RiverDiff += (F1.RiverMask.At(Face, X, Y) > 0.f) != (F2.RiverMask.At(Face, X, Y) > 0.f) ? 1 : 0;
+		const double A1 = F1.FlowAccum.At(Face, X, Y), A2 = F2.FlowAccum.At(Face, X, Y);
+		if (A1 > 0.0) { FlowErr.Add(FMath::Abs(A1 - A2) / A1); }
+		const double E1 = F1.ErosionDepth.At(Face, X, Y), E2 = F2.ErosionDepth.At(Face, X, Y);
+		if (E1 > 0.0) { EroErr.Add(FMath::Abs(E2 - 0.5 * E1) / (0.5 * E1)); }
+	}
+	const int32 Full = F1.Elevation.Res;
+	for (int32 Face = 0; Face < 6; ++Face) for (int32 Y = 0; Y < Full; ++Y) for (int32 X = 0; X < Full; ++X)
+	{
+		const double D1 = double(Elev1.At(Face, X, Y)) - F1.Elevation.At(Face, X, Y);
+		const double D2 = double(Elev2.At(Face, X, Y)) - F2.Elevation.At(Face, X, Y);
+		if (D1 > 0.0) { CarveErr.Add(FMath::Abs(D2 - 0.5 * D1) / (0.5 * D1)); }
+	}
+	const auto Median = [](TArray<double>& V) { if (V.Num() == 0) { return 0.0; } V.Sort(); return V[V.Num() / 2]; };
+	const double MFlow = Median(FlowErr), MEro = Median(EroErr), MCarve = Median(CarveErr);
+	const double FBasin = double(BasinDiff) / Total, FRiver = double(RiverDiff) / Total;
+	AddInfo(FString::Printf(TEXT("BasinMask 差 %.4f%%，河道集合差 %.4f%%，FlowAccum 中位相对误差 %.2e，ErosionDepth %.2e，下切 %.2e（下切 texel %d）"),
+		FBasin * 100.0, FRiver * 100.0, MFlow, MEro, MCarve, CarveErr.Num()));
+	TestTrue(FString::Printf(TEXT("BasinMask 差异 ≤ 0.5%%（%.4f%%）"), FBasin * 100.0), FBasin <= 0.005);
+	TestTrue(FString::Printf(TEXT("河道格集合差异 ≤ 0.5%%（%.4f%%）"), FRiver * 100.0), FRiver <= 0.005);
+	TestTrue(FString::Printf(TEXT("FlowAccum 中位相对误差 ≤ 1e-3（%.2e）"), MFlow), MFlow <= 1e-3);
+	TestTrue(FString::Printf(TEXT("ErosionDepth 减半中位相对误差 ≤ 1e-3（%.2e）"), MEro), MEro <= 1e-3);
+	TestTrue(FString::Printf(TEXT("下切深度减半中位相对误差 ≤ 1e-3（%.2e）"), MCarve), MCarve <= 1e-3);
+	return true;
+}
+
 #endif

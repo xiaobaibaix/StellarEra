@@ -32,7 +32,8 @@ bool FGeoStage02AcceptanceTest::RunTest(const FString& Parameters)
 
 	const double MB = double(Snap->GetAllocatedSize()) / 1048576.0;
 	const double Band = (Snap->MaxSurfaceRadius - Snap->MinSurfaceRadius) / Snap->R0;
-	TestTrue(FString::Printf(TEXT("烘焙 %.2f s ≤ 10 s"), Seconds), Seconds <= 10.0);
+	// 预算覆盖整条默认管线（阶段 1–6）。
+	TestTrue(FString::Printf(TEXT("烘焙 %.2f s ≤ 12 s"), Seconds), Seconds <= 12.0);
 	TestTrue(FString::Printf(TEXT("快照 %.1f MB ≤ 60 MB"), MB), Snap->GetAllocatedSize() <= 60ull * 1024 * 1024);
 	TestEqual(FString::Printf(TEXT("Elevation 全分辨率（Res=%d）"), Snap->Elevation.Res), Snap->Elevation.Res, 1024);
 	TestTrue(FString::Printf(TEXT("地表上下界包住 R0：Min=%.1f < R0=%.1f < Max=%.1f"),
@@ -42,6 +43,10 @@ bool FGeoStage02AcceptanceTest::RunTest(const FString& Parameters)
 	AddInfo(FString::Printf(TEXT("烘焙 %.2f s，快照 %.1f MB，地表 [%.1f, %.1f]，R0 %.1f"),
 		Seconds, MB, Snap->MinSurfaceRadius, Snap->MaxSurfaceRadius, Snap->R0));
 	for (const TPair<FName, double>& St : Report.StageSeconds) { AddInfo(FString::Printf(TEXT("阶段耗时 %s %.3f s"), *St.Key.ToString(), St.Value)); }
+	for (const TPair<FName, double>& St : Report.StageSeconds)
+	{
+		if (St.Key == TEXT("Stage06Erosion")) { TestTrue(FString::Printf(TEXT("阶段 6 %.3f s ≤ 1.5 s"), St.Value), St.Value <= 1.5); }
+	}
 
 	FGeoRng Rng = FGeoRng::Derive(C.Seed, 5, 0);
 

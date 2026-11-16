@@ -11,6 +11,8 @@ public:
 	virtual EPlanetField GetReads() const override { return EPlanetField::Elevation | EPlanetField::Relief | EPlanetField::Climate; }
 	virtual EPlanetField GetWrites() const override { return EPlanetField::Hydro; }
 	virtual void Bake(FPlanetBakeContext& Ctx) const override;
+	virtual void DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const override;
+	virtual void ExportDebugFields(const FPlanetBakeFields& Fields, TMap<FName, FGeoField2D>& Out) const override;
 };
 
 namespace Stage06

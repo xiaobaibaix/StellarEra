@@ -2,6 +2,7 @@
 #include "Async/ParallelFor.h"
 #include "Algo/Sort.h"
 #include "GeoContinentField.h"
+#include "PlanetSnapshot.h"
 
 void Stage06::BuildGrid(int32 Res, FHydroGrid& Out)
 {
@@ -372,4 +373,66 @@ void FStage06Erosion::Bake(FPlanetBakeContext& Ctx) const
 		F.LandAreaFrac = float(LandW / FMath::Max(TotalW, 1e-30));
 	}
 	UE_LOG(LogTemp, Log, TEXT("[地质] 阶段 6：河道格 %d，线段 %d，最大下切 %.2f 体素（%.5f R）"), RiverCells, Segs.Num(), MaxCarve, MaxCarve / R);
+}
+
+namespace
+{
+	float Stage06DebugField(const FPlanetSnapshot& S, const TCHAR* Name, const FVector3d& P, bool bNearest)
+	{
+		const FGeoField2D* Fd = S.DebugFields.Find(FName(Name));
+		if (!Fd || Fd->Res <= 0) { return FGeoDebugLayer::NoData(); }
+		const FVector3f Dir(P.GetSafeNormal());
+		if (Dir.IsNearlyZero()) { return FGeoDebugLayer::NoData(); }
+		return bNearest ? Fd->SampleNearest(Dir) : Fd->Sample(Dir);
+	}
+}
+
+void FStage06Erosion::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const
+{
+	{
+		FGeoDebugLayer L;
+		L.Id = TEXT("FlowAccum"); L.DisplayName = TEXT("汇流量"); L.Stage = 6;
+		L.Unit = TEXT("占全球降水量的比例（log10 着色）");
+		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P) { return Stage06DebugField(S, TEXT("FlowAccum"), P, false); };
+		// 汇流跨 4 个数量级：线性色带只剩入海口一点亮，按 log10 把 1e-5…1 铺开。
+		L.Colorize = [](const FPlanetSnapshot&, float V)
+		{
+			const float T = V > 0.f ? FMath::Clamp((FMath::LogX(10.f, V) + 5.f) / 5.f, 0.f, 1.f) : 0.f;
+			return FMath::Lerp(FLinearColor(1.f, 1.f, 1.f), FLinearColor(0.02f, 0.10f, 0.45f), T).ToFColor(false);
+		};
+		Out.Add(MoveTemp(L));
+	}
+	{
+		FGeoDebugLayer L;
+		L.Id = TEXT("BasinMask"); L.DisplayName = TEXT("洼地"); L.Stage = 6;
+		L.Kind = EGeoDebugKind::Categorical;
+		L.Legend = { { TEXT("无"), FColor(70, 70, 70) }, { TEXT("湖盆"), FColor(60, 150, 230) }, { TEXT("内流盆地"), FColor(220, 160, 60) } };
+		// 分类必须最近邻：双线性会在两类交界混出不存在的编号。
+		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P) { return Stage06DebugField(S, TEXT("BasinMask"), P, true); };
+		Out.Add(MoveTemp(L));
+	}
+	{
+		FGeoDebugLayer L;
+		L.Id = TEXT("ErosionDepth"); L.DisplayName = TEXT("剥蚀深度"); L.Stage = 6;
+		L.Unit = TEXT("体素");
+		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P) { return Stage06DebugField(S, TEXT("ErosionDepth"), P, false); };
+		// 剥蚀深度上限约 0.03R（剥蚀 0.02R + 下切 0.008R）。
+		L.Range = [](const FPlanetSnapshot& S) { return FVector2f(0.f, float(0.03 * S.R0)); };
+		Out.Add(MoveTemp(L));
+	}
+	{
+		FGeoDebugLayer L;
+		L.Id = TEXT("RiverMask"); L.DisplayName = TEXT("河道"); L.Stage = 6;
+		L.Unit = TEXT("0 无 … 1 干流");
+		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P) { return Stage06DebugField(S, TEXT("RiverMask"), P, false); };
+		Out.Add(MoveTemp(L));
+	}
+}
+
+void FStage06Erosion::ExportDebugFields(const FPlanetBakeFields& Fields, TMap<FName, FGeoField2D>& Out) const
+{
+	if (Fields.FlowAccum.Res > 0) { Out.Add(TEXT("FlowAccum"), Fields.FlowAccum); }
+	if (Fields.BasinMask.Res > 0) { Out.Add(TEXT("BasinMask"), Fields.BasinMask); }
+	if (Fields.ErosionDepth.Res > 0) { Out.Add(TEXT("ErosionDepth"), Fields.ErosionDepth); }
+	if (Fields.RiverMask.Res > 0) { Out.Add(TEXT("RiverMask"), Fields.RiverMask); }
 }

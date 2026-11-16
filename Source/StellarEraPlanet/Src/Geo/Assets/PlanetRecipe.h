@@ -587,6 +587,48 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Stage5|Climate", meta = (ClampMin = "0", ClampMax = "1"))
 	float BiomeTemperatePrecip = 0.5f;
 
+	// 阶段 6：水系与剥蚀，全部进 Hash()。
+
+	/** 是否刻河谷；关掉后只算剥蚀深度，高程不变。 */
+	UPROPERTY(EditAnywhere, Category = "Stage6|Hydro")
+	bool bRivers = true;
+
+	/** 成为河道的最小归一化汇流量。 */
+	UPROPERTY(EditAnywhere, Category = "Stage6|Hydro", meta = (ClampMin = "0.00001", ClampMax = "0.1"))
+	float RiverThreshold = 0.0008f;
+
+	/** 下切强度（占 R）：深度 = 它 × √(汇流/阈值) × √(坡度/参考坡度)。 */
+	UPROPERTY(EditAnywhere, Category = "Stage6|Hydro", meta = (ClampMin = "0", ClampMax = "0.05"))
+	float CarveRatio = 0.002f;
+
+	/** 最大下切深度（占 R）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage6|Hydro", meta = (ClampMin = "0", ClampMax = "0.05"))
+	float CarveMaxRatio = 0.008f;
+
+	/** 谷半宽（方向单位，随汇流增大；超大河受分桶半径限制会更窄）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage6|Hydro", meta = (ClampMin = "0.0005", ClampMax = "0.1"))
+	float ValleyWidthRatio = 0.006f;
+
+	/** 坡度参考值（高程差 / 弧长），下切与剥蚀都按它归一。 */
+	UPROPERTY(EditAnywhere, Category = "Stage6|Hydro", meta = (ClampMin = "0.0001", ClampMax = "1"))
+	float SlopeRef = 0.02f;
+
+	/** 剥蚀强度（占 R）。 */
+	UPROPERTY(EditAnywhere, Category = "Stage6|Hydro", meta = (ClampMin = "0", ClampMax = "0.1"))
+	float ErosionRatio = 0.01f;
+
+	/** 洼地集水区平均降水低于它即为内流盆地，否则是湖。 */
+	UPROPERTY(EditAnywhere, Category = "Stage6|Hydro", meta = (ClampMin = "0", ClampMax = "1"))
+	float EndorheicPrecip = 0.3f;
+
+	/** 填洼后保留的极小坡度（占 R），保证平地也有流向。 */
+	UPROPERTY(EditAnywhere, Category = "Stage6|Hydro", meta = (ClampMin = "0", ClampMax = "0.001"))
+	float FlatSlopeRatio = 1e-6f;
+
+	/** 山带遮蔽对剥蚀的加权：0 全域均匀，1 只剥山带。 */
+	UPROPERTY(EditAnywhere, Category = "Stage6|Hydro", meta = (ClampMin = "0", ClampMax = "1"))
+	float MountainErosionWeight = 0.7f;
+
 	/** 矿物目录：编号、中文名、调试色。撒矿器只引用这里的编号。 */
 	UPROPERTY(EditAnywhere, Category = "Minerals")
 	TObjectPtr<UGeoMineralCatalog> MineralCatalog;

@@ -149,6 +149,16 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 	C.Climate.BiomeRainPrecip = BiomeRainPrecip;
 	C.Climate.BiomeSavannaTemp = BiomeSavannaTemp;
 	C.Climate.BiomeTemperatePrecip = BiomeTemperatePrecip;
+	C.Hydro.bRivers = bRivers;
+	C.Hydro.RiverThreshold = RiverThreshold;
+	C.Hydro.CarveRatio = CarveRatio;
+	C.Hydro.CarveMaxRatio = CarveMaxRatio;
+	C.Hydro.ValleyWidthRatio = ValleyWidthRatio;
+	C.Hydro.SlopeRef = SlopeRef;
+	C.Hydro.ErosionRatio = ErosionRatio;
+	C.Hydro.EndorheicPrecip = EndorheicPrecip;
+	C.Hydro.FlatSlopeRatio = FlatSlopeRatio;
+	C.Hydro.MountainErosionWeight = MountainErosionWeight;
 	if (MineralCatalog)
 	{
 		for (const FGeoMineralDef& D : MineralCatalog->Minerals)
