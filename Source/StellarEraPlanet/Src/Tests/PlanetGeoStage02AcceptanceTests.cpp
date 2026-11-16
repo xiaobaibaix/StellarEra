@@ -41,6 +41,7 @@ bool FGeoStage02AcceptanceTest::RunTest(const FString& Parameters)
 	TestTrue(FString::Printf(TEXT("高程带宽 %.2f%% R < 15%%"), Band * 100.0), Band < 0.15);
 	AddInfo(FString::Printf(TEXT("烘焙 %.2f s，快照 %.1f MB，地表 [%.1f, %.1f]，R0 %.1f"),
 		Seconds, MB, Snap->MinSurfaceRadius, Snap->MaxSurfaceRadius, Snap->R0));
+	for (const TPair<FName, double>& St : Report.StageSeconds) { AddInfo(FString::Printf(TEXT("阶段耗时 %s %.3f s"), *St.Key.ToString(), St.Value)); }
 
 	FGeoRng Rng = FGeoRng::Derive(C.Seed, 5, 0);
 

@@ -213,4 +213,92 @@ bool FGeoStage06FlowNetworkTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06CarveTest, "StellarEra.Planet.Geo.Stage06.Carve",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage06CarveTest::RunTest(const FString& Parameters)
+{
+	FPlanetRecipeConfig C;
+	C.FaceRes = 256;
+	FPlanetBakeReport R;
+	FPlanetBakeFields F = Stage06UpToClimate(C, R);
+	if (!TestFalse(TEXT("无错误"), R.HasErrors())) { return false; }
+	const int32 Full = F.Elevation.Res;
+
+	FPlanetBakeFields F6 = F;
+	FPlanetBakeContext C6{ C, F6, FGeoRng::Derive(C.Seed, 6, 0), R };
+	FStage06Erosion().Bake(C6);
+
+	int32 Raised = 0, LandLost = 0;
+	double MaxCarve = 0.0;
+	for (int32 Face = 0; Face < 6; ++Face)
+	for (int32 Y = 0; Y < Full; ++Y)
+	for (int32 X = 0; X < Full; ++X)
+	{
+		const float B = F.Elevation.At(Face, X, Y), A = F6.Elevation.At(Face, X, Y);
+		if (A > B) { ++Raised; }
+		if (B > 0.f && A <= 0.f) { ++LandLost; }
+		MaxCarve = FMath::Max(MaxCarve, double(B) - A);
+	}
+	TestEqual(TEXT("没有 texel 被抬高"), Raised, 0);
+	TestEqual(TEXT("陆地 texel 刻后仍 > 0"), LandLost, 0);
+	TestTrue(FString::Printf(TEXT("陆地占比变化 < 0.005（%.5f → %.5f）"), F.LandAreaFrac, F6.LandAreaFrac),
+		FMath::Abs(F6.LandAreaFrac - F.LandAreaFrac) < 0.005f);
+	TestTrue(FString::Printf(TEXT("至少一条河刻深 > 0.001R（%.2f 体素，%.5f R）"), MaxCarve, MaxCarve / C.Radius),
+		MaxCarve > 0.001 * C.Radius);
+	int32 RiverCells = 0;
+	const int32 HRes = F6.RiverMask.Res;
+	for (int32 Face = 0; Face < 6; ++Face) for (int32 Y = 0; Y < HRes; ++Y) for (int32 X = 0; X < HRes; ++X)
+	{
+		RiverCells += F6.RiverMask.At(Face, X, Y) > 0.f ? 1 : 0;
+	}
+	AddInfo(FString::Printf(TEXT("河道格（RiverMask>0）%d，最大刻深 %.2f 体素（%.5f R）"), RiverCells, MaxCarve, MaxCarve / C.Radius));
+
+	FPlanetRecipeConfig Off = C;
+	Off.Hydro.bRivers = false;
+	FPlanetBakeFields F7 = F;
+	FPlanetBakeContext C7{ Off, F7, FGeoRng::Derive(Off.Seed, 6, 0), R };
+	FStage06Erosion().Bake(C7);
+	int32 Diff = 0;
+	for (int32 Face = 0; Face < 6; ++Face) for (int32 Y = 0; Y < Full; ++Y) for (int32 X = 0; X < Full; ++X)
+	{
+		Diff += FMemory::Memcmp(&F.Elevation.At(Face, X, Y), &F7.Elevation.At(Face, X, Y), sizeof(float)) != 0 ? 1 : 0;
+	}
+	TestEqual(TEXT("bRivers=false 高程逐位不变"), Diff, 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06ErosionTest, "StellarEra.Planet.Geo.Stage06.Erosion",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage06ErosionTest::RunTest(const FString& Parameters)
+{
+	FPlanetRecipeConfig C;
+	C.FaceRes = 256;
+	FPlanetBakeReport R;
+	FPlanetBakeFields F = Stage06UpToClimate(C, R);
+	if (!TestFalse(TEXT("无错误"), R.HasErrors())) { return false; }
+	// 海陆按刻谷前的高程分：刻谷后的双线性采样会把岸边正值压到 ≤ 0，与阶段用的口径错开。
+	const FGeoField2D ElevBefore = F.Elevation;
+	FPlanetBakeContext C6{ C, F, FGeoRng::Derive(C.Seed, 6, 0), R };
+	FStage06Erosion().Bake(C6);
+	const int32 Res = F.ErosionDepth.Res;
+	double SumM = 0, SumP = 0; int32 NM = 0, NP = 0, OceanNonZero = 0;
+	for (int32 Face = 0; Face < 6; ++Face) for (int32 Y = 0; Y < Res; ++Y) for (int32 X = 0; X < Res; ++X)
+	{
+		const FVector3f D = F.ErosionDepth.TexelDir(Face, X, Y);
+		const float Ed = F.ErosionDepth.At(Face, X, Y);
+		if (ElevBefore.Sample(D) <= 0.f) { OceanNonZero += Ed != 0.f ? 1 : 0; continue; }
+		const float M = F.MountainMask.Sample(D);
+		if (M > 0.5f) { SumM += Ed; ++NM; }
+		else if (M < 0.1f) { SumP += Ed; ++NP; }
+	}
+	const double MeanM = NM ? SumM / NM : 0.0, MeanP = NP ? SumP / NP : 0.0;
+	AddInfo(FString::Printf(TEXT("山带均值 %.3f（%d 格），非山均值 %.3f（%d 格）"), MeanM, NM, MeanP, NP));
+	TestTrue(TEXT("山带与非山格都有样本"), NM > 0 && NP > 0);
+	TestTrue(TEXT("山带剥蚀 > 非山 2 倍"), MeanM > 2.0 * MeanP);
+	TestEqual(TEXT("海底剥蚀为 0"), OceanNonZero, 0);
+	return true;
+}
+
 #endif
