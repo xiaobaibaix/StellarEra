@@ -27,6 +27,8 @@ void FStage06bExposure::Bake(FPlanetBakeContext& Ctx) const
 		return Dir.IsNearlyZero() ? 0.f : FMath::Clamp(P.LiftScale * F.ErosionDepth.Sample(Dir), 0.f, MaxLift);
 	};
 	const auto IsRock = [](const FGeoPrimitive& Pr) { return Pr.MineralId == 0 && Pr.LithologyId != 0; };
+	// 蚀变晕描述的就是宿主岩体本身：分开抬会让「晕」留在原地、描述几百体素外的空气。
+	const auto IsHalo = [](const FGeoPrimitive& Pr) { return Pr.MineralId == 0 && Pr.LithologyId == 0 && Pr.ClueId != 0; };
 
 	TArray<float> Lift; Lift.Init(0.f, Num);
 	for (int32 i = 0; i < Num; ++i)
@@ -35,8 +37,8 @@ void FStage06bExposure::Bake(FPlanetBakeContext& Ctx) const
 	}
 	for (int32 i = 0; i < Num; ++i)
 	{
-		const FGeoPrimitive& Ore = F.Primitives[i];
-		if (Ore.MineralId == 0) { continue; }
+		const FGeoPrimitive& Follower = F.Primitives[i];
+		if (IsRock(Follower) || (Follower.MineralId == 0 && !IsHalo(Follower))) { continue; }
 		// 宿主 = 中心落在椭球内、归一化距离最小的岩体；平手取编号小者（严格小于才替换）。
 		int32 Host = INDEX_NONE;
 		float BestD = 1.f;
@@ -44,10 +46,10 @@ void FStage06bExposure::Bake(FPlanetBakeContext& Ctx) const
 		{
 			const FGeoPrimitive& Pr = F.Primitives[h];
 			if (!IsRock(Pr)) { continue; }
-			const float D = GeoPrimitiveDistance(Pr, Ore.Center);
+			const float D = GeoPrimitiveDistance(Pr, Follower.Center);
 			if (D < BestD) { BestD = D; Host = h; }
 		}
-		Lift[i] = Host != INDEX_NONE ? Lift[Host] : LiftAt(Ore.Center);
+		Lift[i] = Host != INDEX_NONE ? Lift[Host] : LiftAt(Follower.Center);
 	}
 
 	for (int32 i = 0; i < Num; ++i)

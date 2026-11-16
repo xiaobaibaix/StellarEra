@@ -27,7 +27,7 @@
 记 `D = ErosionDepth(dir)`（体素，6a 的宏观场，按方向双线性采样），`R = Cfg.Radius`。
 
 1. **抬升量**：`Lift = clamp(LiftScale · D, 0, MaxLiftRatio · R)`。
-2. **宿主先算**：岩体（`LithologyId != 0 && MineralId == 0`）按自身中心方向的 `D` 算 `Lift`；矿体（`MineralId != 0`）**使用宿主岩体的 `Lift`**——宿主按「矿体中心落在其椭球内、取归一化距离最小者」匹配；找不到宿主退回自身方向的 `D`。
+2. **宿主先算**：岩体（`LithologyId != 0 && MineralId == 0`）按自身中心方向的 `D` 算 `Lift`；**矿体（`MineralId != 0`）与蚀变晕（`MineralId == 0 && LithologyId == 0 && ClueId != 0`）使用宿主岩体的 `Lift`**——宿主按「原语中心落在其椭球内、取归一化距离最小者（平手取编号小者）」匹配；找不到宿主退回自身方向的 `D`。晕描述的就是宿主本身，分开抬会让晕留在原地描述几百体素外的空气。
 3. **平移**：`Center += dir · Lift`（`dir` = 抬升前中心方向，归一化）。
 4. **不高于地表**：抬升后沿 `dir` 的最高点 `Top = |Center| + Support(dir)`（椭球支撑函数），地表半径 `S = R0 + Elevation(dir)`；若 `Top > S`，把 `Center` 沿 `dir` 收回 `Top − S`，并把 `Exposure` 记满。
 5. **出露比例**：`Exposure = clamp(Lift / max(2 · Support(dir), 1), 0, 1)`；被第 4 条收回的记 1。`RawDepthBefore = S − (|Center_before| + Support(dir))`。
@@ -63,7 +63,7 @@ float RawDepthBefore = 0.f; // 抬升前原语最高点离地表多深（体素�
 ## 7. 测试（`Src/Tests/PlanetGeoStage06bTests.cpp`）
 
 1. **不高于地表**：全部原语抬升后 `Top ≤ S + 1` 体素。
-2. **随宿主**：每个矿体与其宿主的 `Lift` 相差 ≤ 1 体素（匹配失败的矿体打印数量，不算违规）。
+2. **随宿主**：每个矿体、每个蚀变晕与其宿主的位移相差 ≤ 1 体素（匹配失败的数量分别打印，不算违规）。
 3. **剥蚀为零则不动**：`D ≈ 0` 处原语中心位移 ≤ 0.5 体素且 `Exposure == 0`。
 4. **山带出露更强**：`MountainMask > 0.5` 区域原语平均 `Exposure` > `MountainMask < 0.1` 的 2 倍。
 5. **形状不变**：所有原语 `Radii`、`Rotation`、`Hard`、`MineralId`、`Grade` 与阶段 6a 结束时逐位相同。

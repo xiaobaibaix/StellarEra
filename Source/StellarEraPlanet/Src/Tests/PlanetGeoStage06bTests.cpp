@@ -43,17 +43,25 @@ namespace
 		OutStage7Sec = FPlatformTime::Seconds() - T7;
 	}
 
-	/** 矿体（MineralId != 0）能否在岩体集合里找到「中心落在椭球内」的宿主。 */
-	bool Stage06bHasHost(const TArray<FGeoPrimitive>& Prims, int32 OreIdx)
+	/** 按阶段同一规则找宿主：中心落在椭球内、归一化距离最小（平手取编号小者）；没有返回 INDEX_NONE。 */
+	int32 Stage06bHostIndex(const TArray<FGeoPrimitive>& Prims, int32 FollowerIdx)
 	{
-		const FGeoPrimitive& Ore = Prims[OreIdx];
+		const FGeoPrimitive& Follower = Prims[FollowerIdx];
+		int32 Host = INDEX_NONE;
+		float BestD = 1.f;
 		for (int32 h = 0; h < Prims.Num(); ++h)
 		{
-			const FGeoPrimitive& Host = Prims[h];
-			if (Host.MineralId != 0 || Host.LithologyId == 0) { continue; }
-			if (GeoPrimitiveDistance(Host, Ore.Center) < 1.f) { return true; }
+			const FGeoPrimitive& Pr = Prims[h];
+			if (Pr.MineralId != 0 || Pr.LithologyId == 0) { continue; }
+			const float D = GeoPrimitiveDistance(Pr, Follower.Center);
+			if (D < BestD) { BestD = D; Host = h; }
 		}
-		return false;
+		return Host;
+	}
+
+	bool Stage06bIsHalo(const FGeoPrimitive& P)
+	{
+		return P.MineralId == 0 && P.LithologyId == 0 && P.ClueId != 0;
 	}
 }
 
@@ -93,7 +101,8 @@ bool FGeoStage06bLiftTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Radii / Rotation / Hard / MineralId / Grade 逐位不变"), ShapeDiff, 0);
 
 	// 不高于地表。
-	int32 Above = 0, Exposed = 0, OreMiss = 0, Lifted = 0;
+	int32 Above = 0, Exposed = 0, OreMiss = 0, HaloMiss = 0, HaloCount = 0, Lifted = 0;
+	int32 HaloDrift = 0;
 	float WorstOver = 0.f, MaxExposure = 0.f, MaxLiftVox = 0.f;
 	double LiftSum = 0.0;
 	int32 Hist[6] = { 0 };
@@ -113,13 +122,25 @@ bool FGeoStage06bLiftTest::RunTest(const FString& Parameters)
 		LiftSum += LiftVox;
 		MaxLiftVox = FMath::Max(MaxLiftVox, LiftVox);
 		Lifted += LiftVox > 0.5f ? 1 : 0;
-		if (P.MineralId != 0 && !Stage06bHasHost(Before, i)) { ++OreMiss; }
+		const int32 Host = Stage06bHostIndex(Before, i);
+		if (P.MineralId != 0 && Host == INDEX_NONE) { ++OreMiss; }
+		if (Stage06bIsHalo(Before[i]))
+		{
+			++HaloCount;
+			if (Host == INDEX_NONE) { ++HaloMiss; }
+			// 晕必须和宿主同进同退：分开抬会让晕描述几百体素外的空气。
+			else if (FMath::Abs((P.Center - Before[i].Center).Size() - (F.Primitives[Host].Center - Before[Host].Center).Size()) > 1.f)
+			{
+				++HaloDrift;
+			}
+		}
 	}
 	TestEqual(FString::Printf(TEXT("全部原语 Top ≤ S + 1（超出的 %d 个，最差 %.3f 体素）"), Above, WorstOver), Above, 0);
 	TestTrue(FString::Printf(TEXT("至少一个原语 Exposure > 0.5（%d 个，最大 %.3f）"), Exposed, MaxExposure), Exposed > 0);
-	AddInfo(FString::Printf(TEXT("原语 %d（矿体 %d），出露 >0.5 的 %d 个，最大出露 %.3f，无宿主矿体 %d 个，阶段 7 用时 %.1f ms"),
-		F.Primitives.Num(), [&]() { int32 N = 0; for (const FGeoPrimitive& P : Before) { N += P.MineralId != 0 ? 1 : 0; } return N; }(),
-		Exposed, MaxExposure, OreMiss, Stage7Sec * 1000.0));
+	TestEqual(FString::Printf(TEXT("每个有宿主的蚀变晕位移与宿主相差 ≤ 1 体素（漂移 %d / %d）"), HaloDrift, HaloCount), HaloDrift, 0);
+	AddInfo(FString::Printf(TEXT("原语 %d（矿体 %d，蚀变晕 %d），出露 >0.5 的 %d 个，最大出露 %.3f，无宿主矿体 %d 个、蚀变晕 %d 个，阶段 7 用时 %.1f ms"),
+		F.Primitives.Num(), [&]() { int32 N = 0; for (const FGeoPrimitive& P : Before) { N += P.MineralId != 0 ? 1 : 0; } return N; }(), HaloCount,
+		Exposed, MaxExposure, OreMiss, HaloMiss, Stage7Sec * 1000.0));
 	AddInfo(FString::Printf(TEXT("出露直方图：0=%d，(0,0.25)=%d，[0.25,0.5)=%d，[0.5,0.75)=%d，[0.75,1)=%d，1=%d；位移 %d 个，均值 %.1f，最大 %.1f 体素"),
 		Hist[0], Hist[1], Hist[2], Hist[3], Hist[4], Hist[5], Lifted, F.Primitives.Num() > 0 ? LiftSum / F.Primitives.Num() : 0.0, MaxLiftVox));
 	return true;
