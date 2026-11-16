@@ -23,6 +23,7 @@ enum class EPlanetField : uint32
 	Volcanoes   = 1 << 7,   // Volcanoes / VolcanoMask / VolcanicType / VolcanicAge / VolcanoActive / VolcanoDelta
 	Climate     = 1 << 8,   // Temperature / Precipitation / WindDir / Biome / ClimateLand
 	Hydro       = 1 << 9,   // FlowAccum / BasinMask / ErosionDepth / RiverMask
+	Exposure    = 1 << 10,  // Primitives 里的 Exposure / RawDepthBefore（原地改写）
 };
 ENUM_CLASS_FLAGS(EPlanetField);
 

@@ -217,6 +217,14 @@ struct FPlanetHydroParams
 	float MountainErosionWeight = 0.7f;  // 山带对剥蚀的加权
 };
 
+/** 阶段 6b 出露结算：把 6a 的剥蚀深度换算成原语的径向上抬量。 */
+struct FPlanetExposureParams
+{
+	bool bExposure = true;       // 是否做出露结算
+	float LiftScale = 1.0f;      // 抬升量占剥蚀深度的比例（1 = 完全抬升）
+	float MaxLiftRatio = 0.02f;  // 单个原语最大抬升（占 R），防止极端剥蚀把矿整体顶到地表
+};
+
 struct FPlanetRecipeConfig
 {
 	/** 半径（体素），由行星填；烘焙全程以体素为单位，与体素厘米尺寸无关。 */
@@ -237,6 +245,7 @@ struct FPlanetRecipeConfig
 	FPlanetIntrusionParams Intrusion;
 	FPlanetClimateParams Climate;
 	FPlanetHydroParams Hydro;
+	FPlanetExposureParams Exposure;
 	/** 撒矿规则（来自配方的撒矿器列表，已过滤掉停用项）。规则不可变，后台线程只读。 */
 	TArray<TSharedPtr<const IGeoMineralRule>> MineralRules;
 	/** 矿物调色板，只供显示，不进哈希。 */
@@ -314,6 +323,8 @@ struct FPlanetRecipeConfig
 			Hydro.ErosionRatio, Hydro.EndorheicPrecip, Hydro.FlatSlopeRatio, Hydro.MountainErosionWeight };
 		for (const float V : HyF) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 		H = GeoHash::Combine(H, uint64(Hydro.bRivers));
+		H = GeoHash::Combine(H, uint64(Exposure.bExposure));
+		H = GeoHash::Combine(H, GeoHash::Combine(GeoHash::Float(Exposure.LiftScale), GeoHash::Float(Exposure.MaxLiftRatio)));
 		for (const TSharedPtr<const IGeoMineralRule>& Rule : MineralRules)
 		{
 			if (Rule) { H = GeoHash::Combine(H, Rule->Hash()); }

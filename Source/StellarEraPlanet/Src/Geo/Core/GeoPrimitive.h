@@ -25,6 +25,8 @@ struct FGeoPrimitive
 	uint8 LithologyId = 0;
 	uint8 ClueId = 0;        // GeoClue，0 = 无
 	uint8 ClueStrength = 0;  // 0..15，晕原语给满，材质按圈衰减
+	uint8 Exposure = 0;      // 0 未出露 … 255 完全出露
+	float RawDepthBefore = 0.f; // 抬升前原语最高点离地表多深（体素），可为负（本来就露头）
 	uint8 Grade = 0;
 	uint8 Priority = 0;
 	FVector3f Center = FVector3f::ZeroVector;
@@ -64,6 +66,13 @@ struct FGeoPrimitive
 		return P;
 	}
 };
+
+/** 椭球沿单位方向 Dir 的半厚（支撑函数）：| Rot · (Radii ∘ (Rot⁻¹ Dir)) |。 */
+FORCEINLINE float GeoPrimitiveSupport(const FGeoPrimitive& P, const FVector3f& Dir)
+{
+	const FVector3f L = P.Kind == EGeoPrimitiveKind::OrientedBlob ? P.Rotation.UnrotateVector(Dir) : Dir;
+	return (L * P.Radii).Size();
+}
 
 /** 归一化距离 D → 强度：D ≤ 1−Hard 为 1，D ≥ 1 为 0，单调不增（值域推导依赖单调）。 */
 FORCEINLINE float GeoBlobFalloff(float D, float Hard)

@@ -28,7 +28,7 @@ bool FGeoEvalStage02Test::RunTest(const FString& Parameters)
 	FPlanetBakeReport Report;
 	const TSharedPtr<const FPlanetSnapshot> Snap = FPlanetBakePipeline::MakeDefault().Bake(Config, Report);
 	if (!TestTrue(TEXT("默认管线（阶段 1–5）烘焙成功"), Snap.IsValid())) { return false; }
-	TestEqual(TEXT("默认管线含六个阶段"), FPlanetBakePipeline::MakeDefault().Sorted().Num(), 6);
+	TestEqual(TEXT("默认管线含七个阶段"), FPlanetBakePipeline::MakeDefault().Sorted().Num(), 7);
 
 	FGeoRng Rng = FGeoRng::Derive(21, 0, 0);
 
