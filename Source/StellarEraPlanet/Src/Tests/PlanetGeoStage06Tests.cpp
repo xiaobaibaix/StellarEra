@@ -254,6 +254,27 @@ bool FGeoStage06CarveTest::RunTest(const FString& Parameters)
 	}
 	AddInfo(FString::Printf(TEXT("河道格（RiverMask>0）%d，最大刻深 %.2f 体素（%.5f R）"), RiverCells, MaxCarve, MaxCarve / C.Radius));
 
+	// 谷宽加倍必须多刻 texel：抓「半宽被固定上限吃掉」。
+	{
+		const auto CountCarved = [&](const FPlanetBakeFields& Out)
+		{
+			int32 N = 0;
+			for (int32 Face = 0; Face < 6; ++Face) for (int32 Y = 0; Y < Full; ++Y) for (int32 X = 0; X < Full; ++X)
+			{
+				N += Out.Elevation.At(Face, X, Y) < F.Elevation.At(Face, X, Y) ? 1 : 0;
+			}
+			return N;
+		};
+		FPlanetRecipeConfig Wide = C;
+		Wide.Hydro.ValleyWidthRatio = C.Hydro.ValleyWidthRatio * 2.f;
+		FPlanetBakeFields FW = F;
+		FPlanetBakeContext CW{ Wide, FW, FGeoRng::Derive(Wide.Seed, 6, 0), R };
+		FStage06Erosion().Bake(CW);
+		const int32 N1 = CountCarved(F6), N2 = CountCarved(FW);
+		AddInfo(FString::Printf(TEXT("刻到的 texel：谷宽 1× %d，2× %d"), N1, N2));
+		TestTrue(FString::Printf(TEXT("谷宽加倍后刻到的 texel 严格增多（%d → %d）"), N1, N2), N2 > N1);
+	}
+
 	FPlanetRecipeConfig Off = C;
 	Off.Hydro.bRivers = false;
 	FPlanetBakeFields F7 = F;
@@ -371,6 +392,14 @@ bool FGeoStage06ScaleInvarianceTest::RunTest(const FString& Parameters)
 	const double FBasin = double(BasinDiff) / Total, FRiver = double(RiverDiff) / Total;
 	AddInfo(FString::Printf(TEXT("BasinMask 差 %.4f%%，河道集合差 %.4f%%，FlowAccum 中位相对误差 %.2e，ErosionDepth %.2e，下切 %.2e（下切 texel %d）"),
 		FBasin * 100.0, FRiver * 100.0, MFlow, MEro, MCarve, CarveErr.Num()));
+	int32 RiverCells1 = 0, RiverCells2 = 0;
+	for (int32 Face = 0; Face < 6; ++Face) for (int32 Y = 0; Y < Res; ++Y) for (int32 X = 0; X < Res; ++X)
+	{
+		RiverCells1 += F1.RiverMask.At(Face, X, Y) > 0.f ? 1 : 0;
+		RiverCells2 += F2.RiverMask.At(Face, X, Y) > 0.f ? 1 : 0;
+	}
+	TestTrue(FString::Printf(TEXT("两个尺度都有河（%d / %d）且有下切 texel（%d）"), RiverCells1, RiverCells2, CarveErr.Num()),
+		RiverCells1 > 0 && RiverCells2 > 0 && CarveErr.Num() > 0);
 	TestTrue(FString::Printf(TEXT("BasinMask 差异 ≤ 0.5%%（%.4f%%）"), FBasin * 100.0), FBasin <= 0.005);
 	TestTrue(FString::Printf(TEXT("河道格集合差异 ≤ 0.5%%（%.4f%%）"), FRiver * 100.0), FRiver <= 0.005);
 	TestTrue(FString::Printf(TEXT("FlowAccum 中位相对误差 ≤ 1e-3（%.2e）"), MFlow), MFlow <= 1e-3);

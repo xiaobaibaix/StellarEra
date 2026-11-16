@@ -43,10 +43,9 @@ bool FGeoStage02AcceptanceTest::RunTest(const FString& Parameters)
 	AddInfo(FString::Printf(TEXT("烘焙 %.2f s，快照 %.1f MB，地表 [%.1f, %.1f]，R0 %.1f"),
 		Seconds, MB, Snap->MinSurfaceRadius, Snap->MaxSurfaceRadius, Snap->R0));
 	for (const TPair<FName, double>& St : Report.StageSeconds) { AddInfo(FString::Printf(TEXT("阶段耗时 %s %.3f s"), *St.Key.ToString(), St.Value)); }
-	for (const TPair<FName, double>& St : Report.StageSeconds)
-	{
-		if (St.Key == TEXT("Stage06Erosion")) { TestTrue(FString::Printf(TEXT("阶段 6 %.3f s ≤ 1.5 s"), St.Value), St.Value <= 1.5); }
-	}
+	const TPair<FName, double>* Stage6 = Report.StageSeconds.FindByPredicate([](const TPair<FName, double>& P) { return P.Key == TEXT("Stage06Erosion"); });
+	TestTrue(TEXT("报告里有阶段 6 的计时"), Stage6 != nullptr);
+	if (Stage6) { TestTrue(FString::Printf(TEXT("阶段 6 %.3f s ≤ 1.5 s"), Stage6->Value), Stage6->Value <= 1.5); }
 
 	FGeoRng Rng = FGeoRng::Derive(C.Seed, 5, 0);
 

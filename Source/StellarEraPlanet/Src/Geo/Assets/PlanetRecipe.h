@@ -605,7 +605,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Stage6|Hydro", meta = (ClampMin = "0", ClampMax = "0.05"))
 	float CarveMaxRatio = 0.008f;
 
-	/** 谷半宽（方向单位，随汇流增大；超大河受分桶半径限制会更窄）。 */
+	/** 谷半宽（方向单位，随汇流增大）；按公式生效到约 4 个宏观格的半宽，更宽的谷被截到这个上限。 */
 	UPROPERTY(EditAnywhere, Category = "Stage6|Hydro", meta = (ClampMin = "0.0005", ClampMax = "0.1"))
 	float ValleyWidthRatio = 0.006f;
 

@@ -233,8 +233,6 @@ void FStage06Erosion::Bake(FPlanetBakeContext& Ctx) const
 	const double R = Cfg.Radius;
 	const float Thr = FMath::Max(P.RiverThreshold, 1e-9f);
 	const float W = P.MountainErosionWeight;
-	// 河谷半宽上限：分桶只覆盖端点格 2 圈邻格，半宽超过覆盖半径会在桶边界处被硬切。
-	const float HalfWidthCap = 1.2f * 2.f / float(Res);
 
 	struct FSegment { FVector3f A, AB; float InvLen2, HalfWidth, Carve; };
 	TArray<FSegment> Segs;
@@ -273,7 +271,7 @@ void FStage06Erosion::Bake(FPlanetBakeContext& Ctx) const
 				const float L2 = AB.SizeSquared();
 				if (Carve > 0.f && L2 > 1e-12f)
 				{
-					Segs.Add({ Grid.Dir[i], AB, 1.f / L2, FMath::Min(P.ValleyWidthRatio * Ratio, HalfWidthCap), Carve });
+					Segs.Add({ Grid.Dir[i], AB, 1.f / L2, P.ValleyWidthRatio * Ratio, Carve });
 				}
 			}
 		}
@@ -285,9 +283,15 @@ void FStage06Erosion::Bake(FPlanetBakeContext& Ctx) const
 
 	if (Segs.Num() > 0)
 	{
-		// CSR 分桶：每段进两端格及其 2 圈邻格；texel 只查自己所在宏观格的桶。
+		// 圈数由最宽的谷定：桶覆盖半径必须 ≥ 半宽，否则谷会在桶边界被硬切。
+		const float CellArc = float(PI * 0.5) / float(Res);
+		float MaxHW = 0.f;
+		for (const FSegment& Sg : Segs) { MaxHW = FMath::Max(MaxHW, Sg.HalfWidth); }
+		const int32 Rings = FMath::Clamp(FMath::CeilToInt(MaxHW / CellArc) + 1, 2, 4);
+		const float HWCap = (float(Rings) - 0.5f) * CellArc;
+		for (FSegment& Sg : Segs) { Sg.HalfWidth = FMath::Min(Sg.HalfWidth, HWCap); }
+		// CSR 分桶：每段进两端格及其 Rings 圈邻格；texel 只查自己所在宏观格的桶。
 		TArray<int32> Count; Count.Init(0, N + 1);
-		TArray<int32> Mark; Mark.Init(-1, N);
 		TArray<int32> Cells;
 		const auto Touch = [&](const FSegment& Sg, TFunctionRef<void(int32)> Emit)
 		{
@@ -302,15 +306,16 @@ void FStage06Erosion::Bake(FPlanetBakeContext& Ctx) const
 				Ring[e] = (Fc * Res + Y) * Res + X;
 			}
 			Cells.Reset();
-			for (int32 e = 0; e < 2; ++e)
+			for (int32 e = 0; e < 2; ++e) { Cells.AddUnique(Ring[e]); }
+			int32 Begin = 0;
+			for (int32 r = 0; r < Rings; ++r)
 			{
-				Cells.AddUnique(Ring[e]);
-				for (int32 k = 0; k < 8; ++k)
+				const int32 End = Cells.Num();
+				for (int32 j = Begin; j < End; ++j)
 				{
-					const int32 n1 = Grid.Nbr[8 * Ring[e] + k];
-					Cells.AddUnique(n1);
-					for (int32 m = 0; m < 8; ++m) { Cells.AddUnique(Grid.Nbr[8 * n1 + m]); }
+					for (int32 k = 0; k < 8; ++k) { Cells.AddUnique(Grid.Nbr[8 * Cells[j] + k]); }
 				}
+				Begin = End;
 			}
 			for (const int32 c : Cells) { Emit(c); }
 		};
@@ -416,7 +421,7 @@ void FStage06Erosion::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const
 		L.Id = TEXT("ErosionDepth"); L.DisplayName = TEXT("剥蚀深度"); L.Stage = 6;
 		L.Unit = TEXT("体素");
 		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P) { return Stage06DebugField(S, TEXT("ErosionDepth"), P, false); };
-		// 剥蚀深度上限约 0.03R（剥蚀 0.02R + 下切 0.008R）。
+		// 快照不带配方参数：取默认参数下的上限 (2·ErosionRatio + CarveMaxRatio)·R0 = 0.028R0，取整 0.03R0。
 		L.Range = [](const FPlanetSnapshot& S) { return FVector2f(0.f, float(0.03 * S.R0)); };
 		Out.Add(MoveTemp(L));
 	}
