@@ -101,16 +101,19 @@ namespace
 		return Host != INDEX_NONE ? Stage06bExpectedDelta(C, F, Before, Host) : Stage06bLiftAt(C, F, P.Center);
 	}
 
-	/** 期望的最终位移模长：再叠加自身的地表夹取。 */
+	/**
+	 * 期望的径向上抬量（有符号）：夹取按抬升前方向判定，与实现同口径。
+	 * 已经在地表以上的原语会被沿 −dir 收回，位移为负，这里必须给出负值才能对上。
+	 */
 	float Stage06bExpectedDelta(const FPlanetRecipeConfig& C, const FPlanetBakeFields& F, const TArray<FGeoPrimitive>& Before, int32 Idx)
 	{
 		const FGeoPrimitive& P = Before[Idx];
-		const FVector3f Dir = P.Center.GetSafeNormal();
-		if (Dir.IsNearlyZero()) { return 0.f; }
-		const float BeforeTop = P.Center.Size() + GeoPrimitiveSupport(P, Dir);
+		const FVector3f PreDir = P.Center.GetSafeNormal();
+		if (PreDir.IsNearlyZero()) { return 0.f; }
+		const float BeforeTop = P.Center.Size() + GeoPrimitiveSupport(P, PreDir);
 		const float Want = Stage06bExpectedWant(C, F, Before, Idx);
-		const float Surface = Stage06bSurface(C, F, Dir);
-		return BeforeTop + Want > Surface ? FMath::Max(0.f, Surface - BeforeTop) : Want;
+		const float Surface = Stage06bSurface(C, F, PreDir);
+		return BeforeTop + Want > Surface ? (Surface - BeforeTop) : Want;
 	}
 
 	float Stage06bSurface(const FPlanetRecipeConfig& C, const FPlanetBakeFields& F, const FVector3f& Dir)
@@ -311,8 +314,8 @@ bool FGeoStage06bExposureFormulaTest::RunTest(const FString& Parameters)
 	Stage06bBake(C, F, Before, R, Stage7Sec);
 	if (!TestFalse(FString::Printf(TEXT("无错误（%s）"), *FString::Join(R.Errors, TEXT(" | "))), R.HasErrors())) { return false; }
 
-	int32 Checked = 0, Capped = 0, BadFormula = 0, BadCap = 0;
-	float MaxErr = 0.f;
+	int32 Checked = 0, Capped = 0, BadFormula = 0, BadCap = 0, BadCapPos = 0;
+	float MaxErr = 0.f, MaxCapPosErr = 0.f;
 	for (int32 i = 0; i < F.Primitives.Num(); ++i)
 	{
 		const FGeoPrimitive& B = Before[i];
@@ -326,8 +329,13 @@ bool FGeoStage06bExposureFormulaTest::RunTest(const FString& Parameters)
 		const float Exp = float(F.Primitives[i].Exposure) / 255.f;
 		if (BeforeTop + Want > S)
 		{
+			// 收回分支：不只记满出露，径向落点也必须落在 S − Support（负位移的「已露头」也覆盖）。
 			++Capped;
 			BadCap += F.Primitives[i].Exposure == 255 ? 0 : 1;
+			const float ActualRadial = F.Primitives[i].Center.Size() - B.Center.Size();
+			const float PosErr = FMath::Abs(ActualRadial - (S - BeforeTop));
+			MaxCapPosErr = FMath::Max(MaxCapPosErr, PosErr);
+			BadCapPos += PosErr > 1.f ? 1 : 0;
 			continue;
 		}
 		++Checked;
@@ -343,8 +351,9 @@ bool FGeoStage06bExposureFormulaTest::RunTest(const FString& Parameters)
 	}
 	TestTrue(FString::Printf(TEXT("至少一个原语进了收回分支（%d 个）"), Capped), Capped > 0);
 	TestEqual(FString::Printf(TEXT("收回分支的 Exposure 全为 255（不符 %d 个）"), BadCap), BadCap, 0);
+	TestEqual(FString::Printf(TEXT("收回分支的径向落点 = S − Support（超差 %d / %d，最差 %.3f）"), BadCapPos, Capped, MaxCapPosErr), BadCapPos, 0);
 	TestEqual(FString::Printf(TEXT("未收回原语按 Lift/(2·Support) 计算出露（超差 %d / %d，最差 %.4f）"), BadFormula, Checked, MaxErr), BadFormula, 0);
-	AddInfo(FString::Printf(TEXT("公式核对 %d 个（最差 %.4f），收回分支 %d 个"), Checked, MaxErr, Capped));
+	AddInfo(FString::Printf(TEXT("公式核对 %d 个（最差 %.4f），收回分支 %d 个（落点最差 %.3f 体素）"), Checked, MaxErr, Capped, MaxCapPosErr));
 	return true;
 }
 

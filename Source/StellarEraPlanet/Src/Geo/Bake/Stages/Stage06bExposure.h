@@ -8,7 +8,7 @@ class STELLARERAPLANET_API FStage06bExposure final : public IPlanetStage
 public:
 	virtual FName GetName() const override { return TEXT("Stage06bExposure"); }
 	virtual uint32 GetStageIndex() const override { return 7; }
-	virtual EPlanetField GetReads() const override { return EPlanetField::Hydro | EPlanetField::Primitives; }
+	virtual EPlanetField GetReads() const override { return EPlanetField::Hydro | EPlanetField::Primitives | EPlanetField::Elevation; }
 	virtual EPlanetField GetWrites() const override { return EPlanetField::Exposure; }
 	virtual void Bake(FPlanetBakeContext& Ctx) const override;
 	virtual void DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const override;

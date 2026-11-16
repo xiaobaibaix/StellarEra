@@ -20,7 +20,7 @@
 
 - 阶段 7 尚未实现，因此 6b 用**阶段号 7**，`FStage06bExposure` 注册在阶段 6 之后。
 - 将来实现风化壳阶段时用阶段号 8；「阶段 7 风化壳」的文档编号顺延。
-- 读写：读 `E PlanetField::Hydro | Primitives`，写 `EPlanetField::Exposure`（新位）。
+- 读写：读 `E PlanetField::Hydro | Primitives | Elevation`，写 `EPlanetField::Exposure`（新位）。
 
 ## 3. 抬升规则
 
@@ -28,9 +28,9 @@
 
 1. **抬升量**：`Lift = clamp(LiftScale · D, 0, MaxLiftRatio · R)`。
 2. **宿主先算**：岩体（`LithologyId != 0 && MineralId == 0`）按自身中心方向的 `D` 算 `Lift`；**矿体（`MineralId != 0`）与蚀变晕（`MineralId == 0 && LithologyId == 0 && ClueId != 0`）使用宿主岩体的 `Lift`**——宿主按「原语中心落在其椭球内、取归一化距离最小者（平手取编号小者）」匹配；找不到宿主退回自身方向的 `D`。晕描述的就是宿主本身，分开抬会让晕留在原地描述几百体素外的空气。
-3. **平移**：`Center += dir · Lift`（`dir` = 抬升前中心方向，归一化）。
+3. **平移**：岩体沿自身抬升前方向平移 `Center += dir · Lift`（`dir` 归一化）；矿体与蚀变晕**复制宿主的整条位移向量**（含宿主已被第 4 条收回的部分）——只抄模长会因两者中心方向不同而相对错位。
 4. **不高于地表**：抬升后沿 `dir` 的最高点 `Top = |Center| + Support(dir)`（椭球支撑函数），地表半径 `S = R0 + Elevation(dir)`；若 `Top > S`，把 `Center` 沿 `dir` 收回 `Top − S`，并把 `Exposure` 记满。
-5. **出露比例**：`Exposure = clamp(Lift / max(2 · Support(dir), 1), 0, 1)`；被第 4 条收回的记 1。`RawDepthBefore = S − (|Center_before| + Support(dir))`。
+5. **出露比例**：`Exposure = clamp(|Δ| / max(2 · Support(dir), 1), 0, 1)`，`Δ` 是该原语的实际位移（岩体 = `dir · Lift`，跟随者 = 宿主位移向量）；被第 4 条收回的记 1。`RawDepthBefore = S − (|Center_before| + Support(dir))`。
 
 形状、朝向、品位、`Hard` 不变；`Bounds` 只平移中心。
 

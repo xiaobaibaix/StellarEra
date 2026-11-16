@@ -132,6 +132,12 @@ void FStage06bExposure::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const
 		L.Id = TEXT("Exposure"); L.DisplayName = TEXT("出露程度（地下）"); L.Stage = 7;
 		L.Domain = EGeoDebugDomain::Volume;
 		L.Unit = TEXT("0 未出露 … 1 完全出露");
+		// 出露比例是单变量：黑 → 白，别用默认五段彩虹，它会让 0.5 和 1 看起来像不同量纲。
+		L.Colorize = [](const FPlanetSnapshot&, float V)
+		{
+			const uint8 C = uint8(FMath::RoundToInt(255.f * FMath::Clamp(V, 0.f, 1.f)));
+			return FColor(C, C, C, 255);
+		};
 		// 只读快照原语：暴露出露是三维属性，剖面与地表叠加都走同一个 Sample。
 		L.Sample = [](const FPlanetSnapshot& S, const FVector3d& P)
 		{
