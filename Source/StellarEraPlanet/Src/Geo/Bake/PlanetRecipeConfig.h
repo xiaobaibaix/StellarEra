@@ -202,6 +202,21 @@ struct FPlanetClimateParams
 	float BiomeTemperatePrecip = 0.5f;  // 温带林：降水高于它
 };
 
+/** 阶段 6 水系与剥蚀：尺寸一律占半径比例；汇流量按「全球面积 × 降水」归一化。 */
+struct FPlanetHydroParams
+{
+	bool bRivers = true;                 // 是否刻河谷
+	float RiverThreshold = 0.0008f;      // 成为河道的最小汇流量
+	float CarveRatio = 0.002f;           // 下切强度（占 R）
+	float CarveMaxRatio = 0.008f;        // 最大下切深度（占 R）
+	float ValleyWidthRatio = 0.006f;     // 谷半宽（方向单位，随汇流增大）
+	float SlopeRef = 0.02f;              // 坡度参考值（高程差 / 弧长）
+	float ErosionRatio = 0.01f;          // 剥蚀强度（占 R）
+	float EndorheicPrecip = 0.3f;        // 洼地集水区平均降水低于它即内流盆地
+	float FlatSlopeRatio = 1e-6f;        // 填洼后保留的极小坡度
+	float MountainErosionWeight = 0.7f;  // 山带对剥蚀的加权
+};
+
 struct FPlanetRecipeConfig
 {
 	/** 半径（体素），由行星填；烘焙全程以体素为单位，与体素厘米尺寸无关。 */
@@ -221,6 +236,7 @@ struct FPlanetRecipeConfig
 	FPlanetVolcanoParams Volcano;
 	FPlanetIntrusionParams Intrusion;
 	FPlanetClimateParams Climate;
+	FPlanetHydroParams Hydro;
 	/** 撒矿规则（来自配方的撒矿器列表，已过滤掉停用项）。规则不可变，后台线程只读。 */
 	TArray<TSharedPtr<const IGeoMineralRule>> MineralRules;
 	/** 矿物调色板，只供显示，不进哈希。 */
@@ -294,6 +310,10 @@ struct FPlanetRecipeConfig
 			Climate.BiomeForestPrecip, Climate.BiomeRainTemp, Climate.BiomeRainPrecip, Climate.BiomeSavannaTemp,
 			Climate.BiomeTemperatePrecip };
 		for (const float V : ClF) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
+		const float HyF[9] = { Hydro.RiverThreshold, Hydro.CarveRatio, Hydro.CarveMaxRatio, Hydro.ValleyWidthRatio, Hydro.SlopeRef,
+			Hydro.ErosionRatio, Hydro.EndorheicPrecip, Hydro.FlatSlopeRatio, Hydro.MountainErosionWeight };
+		for (const float V : HyF) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
+		H = GeoHash::Combine(H, uint64(Hydro.bRivers));
 		for (const TSharedPtr<const IGeoMineralRule>& Rule : MineralRules)
 		{
 			if (Rule) { H = GeoHash::Combine(H, Rule->Hash()); }

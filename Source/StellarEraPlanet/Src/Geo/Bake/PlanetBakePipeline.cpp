@@ -7,6 +7,7 @@
 #include "Stage03Terrain.h"
 #include "Stage04Magmatism.h"
 #include "Stage05Climate.h"
+#include "Stage06Erosion.h"
 
 FPlanetBakePipeline::FPlanetBakePipeline() = default;
 FPlanetBakePipeline::~FPlanetBakePipeline() = default;
@@ -129,6 +130,7 @@ FPlanetBakePipeline FPlanetBakePipeline::MakeDefault()
 	P.AddStage(MakeUnique<FStage03Terrain>());
 	P.AddStage(MakeUnique<FStage04Magmatism>());
 	P.AddStage(MakeUnique<FStage05Climate>());
+	P.AddStage(MakeUnique<FStage06Erosion>());
 	return P;
 }
 

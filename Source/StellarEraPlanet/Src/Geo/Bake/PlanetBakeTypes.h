@@ -22,6 +22,7 @@ enum class EPlanetField : uint32
 	Relief      = 1 << 6,   // MountainMask / ReliefDelta / ReliefType
 	Volcanoes   = 1 << 7,   // Volcanoes / VolcanoMask / VolcanicType / VolcanicAge / VolcanoActive / VolcanoDelta
 	Climate     = 1 << 8,   // Temperature / Precipitation / WindDir / Biome / ClimateLand
+	Hydro       = 1 << 9,   // FlowAccum / BasinMask / ErosionDepth / RiverMask
 };
 ENUM_CLASS_FLAGS(EPlanetField);
 
@@ -58,6 +59,9 @@ struct FPlanetBakeFields
 
 	// 阶段 5：气候场一律 ClimateRes；只给阶段 6/7 与调试图层，不进快照。
 	FGeoField2D Temperature, Precipitation, WindDir, Biome, ClimateLand;
+
+	// 阶段 6：水系场一律 HydroRes；FlowAccum 已按全球面积×降水归一化，BasinMask 0 无 / 1 湖盆 / 2 内流盆地。
+	FGeoField2D FlowAccum, BasinMask, ErosionDepth, RiverMask;
 };
 
 struct FPlanetBakeReport
