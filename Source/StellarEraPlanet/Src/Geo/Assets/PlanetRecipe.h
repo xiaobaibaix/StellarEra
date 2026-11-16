@@ -629,6 +629,20 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Stage6|Hydro", meta = (ClampMin = "0", ClampMax = "1"))
 	float MountainErosionWeight = 0.7f;
 
+	// 阶段 6b：出露结算，全部进 Hash()。
+
+	/** 是否做出露结算：关掉后原语停在阶段 4 的埋深，Exposure 全 0。 */
+	UPROPERTY(EditAnywhere, Category = "Stage6b|Exposure")
+	bool bExposure = true;
+
+	/** 抬升量占剥蚀深度的比例：1 = 剥蚀多少就抬多少，0 = 不动。 */
+	UPROPERTY(EditAnywhere, Category = "Stage6b|Exposure", meta = (ClampMin = "0", ClampMax = "2"))
+	float LiftScale = 1.0f;
+
+	/** 单个原语最大抬升（占 R）：极端剥蚀下的安全网，防止整条矿被顶到地表。 */
+	UPROPERTY(EditAnywhere, Category = "Stage6b|Exposure", meta = (ClampMin = "0", ClampMax = "0.2"))
+	float MaxLiftRatio = 0.02f;
+
 	/** 矿物目录：编号、中文名、调试色。撒矿器只引用这里的编号。 */
 	UPROPERTY(EditAnywhere, Category = "Minerals")
 	TObjectPtr<UGeoMineralCatalog> MineralCatalog;

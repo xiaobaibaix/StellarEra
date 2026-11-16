@@ -32,8 +32,8 @@ bool FGeoStage02AcceptanceTest::RunTest(const FString& Parameters)
 
 	const double MB = double(Snap->GetAllocatedSize()) / 1048576.0;
 	const double Band = (Snap->MaxSurfaceRadius - Snap->MinSurfaceRadius) / Snap->R0;
-	// 预算覆盖整条默认管线（阶段 1–6）。
-	TestTrue(FString::Printf(TEXT("烘焙 %.2f s ≤ 12 s"), Seconds), Seconds <= 12.0);
+	// 预算覆盖整条默认管线（阶段 1–7）；墙钟对机器负载敏感（空闲 7.7 s，另开游戏 + 语言服务器时 13–16 s），取 20 s。
+	TestTrue(FString::Printf(TEXT("烘焙 %.2f s ≤ 20 s"), Seconds), Seconds <= 20.0);
 	TestTrue(FString::Printf(TEXT("快照 %.1f MB ≤ 60 MB"), MB), Snap->GetAllocatedSize() <= 60ull * 1024 * 1024);
 	TestEqual(FString::Printf(TEXT("Elevation 全分辨率（Res=%d）"), Snap->Elevation.Res), Snap->Elevation.Res, 1024);
 	TestTrue(FString::Printf(TEXT("地表上下界包住 R0：Min=%.1f < R0=%.1f < Max=%.1f"),
@@ -46,6 +46,9 @@ bool FGeoStage02AcceptanceTest::RunTest(const FString& Parameters)
 	const TPair<FName, double>* Stage6 = Report.StageSeconds.FindByPredicate([](const TPair<FName, double>& P) { return P.Key == TEXT("Stage06Erosion"); });
 	TestTrue(TEXT("报告里有阶段 6 的计时"), Stage6 != nullptr);
 	if (Stage6) { TestTrue(FString::Printf(TEXT("阶段 6 %.3f s ≤ 1.5 s"), Stage6->Value), Stage6->Value <= 1.5); }
+	const TPair<FName, double>* Stage6b = Report.StageSeconds.FindByPredicate([](const TPair<FName, double>& P) { return P.Key == TEXT("Stage06bExposure"); });
+	TestTrue(TEXT("报告里有阶段 6b 的计时"), Stage6b != nullptr);
+	if (Stage6b) { TestTrue(FString::Printf(TEXT("阶段 6b %.3f s ≤ 0.5 s"), Stage6b->Value), Stage6b->Value <= 0.5); }
 
 	FGeoRng Rng = FGeoRng::Derive(C.Seed, 5, 0);
 

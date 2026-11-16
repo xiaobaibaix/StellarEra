@@ -8,6 +8,7 @@
 #include "GeoPrimitiveIndex.h"
 #include "GeoRng.h"
 #include "PlanetBakePipeline.h"
+#include "PlanetSnapshot.h"
 #include "Stage02Plates.h"
 #include "Stage03Terrain.h"
 #include "Stage04Magmatism.h"
@@ -87,14 +88,29 @@ namespace
 		return FMath::Clamp(C.Exposure.LiftScale * F.ErosionDepth.Sample(Dir), 0.f, MaxLift);
 	}
 
-	/** 岩体按自身方向；矿体与晕跟随宿主；其余原语不抬。 */
-	float Stage06bExpectedLift(const FPlanetRecipeConfig& C, const FPlanetBakeFields& F, const TArray<FGeoPrimitive>& Before, int32 Idx)
+	float Stage06bExpectedDelta(const FPlanetRecipeConfig& C, const FPlanetBakeFields& F, const TArray<FGeoPrimitive>& Before, int32 Idx);
+	float Stage06bSurface(const FPlanetRecipeConfig& C, const FPlanetBakeFields& F, const FVector3f& Dir);
+
+	/** 自身夹取之前想抬多少：岩体按自身方向；跟随者继承宿主已夹取的实际位移。 */
+	float Stage06bExpectedWant(const FPlanetRecipeConfig& C, const FPlanetBakeFields& F, const TArray<FGeoPrimitive>& Before, int32 Idx)
 	{
 		const FGeoPrimitive& P = Before[Idx];
 		if (Stage06bIsRock(P)) { return Stage06bLiftAt(C, F, P.Center); }
 		if (P.MineralId == 0 && !Stage06bIsHalo(P)) { return 0.f; }
 		const int32 Host = Stage06bHostIndex(Before, Idx);
-		return Host != INDEX_NONE ? Stage06bLiftAt(C, F, Before[Host].Center) : Stage06bLiftAt(C, F, P.Center);
+		return Host != INDEX_NONE ? Stage06bExpectedDelta(C, F, Before, Host) : Stage06bLiftAt(C, F, P.Center);
+	}
+
+	/** 期望的最终位移模长：再叠加自身的地表夹取。 */
+	float Stage06bExpectedDelta(const FPlanetRecipeConfig& C, const FPlanetBakeFields& F, const TArray<FGeoPrimitive>& Before, int32 Idx)
+	{
+		const FGeoPrimitive& P = Before[Idx];
+		const FVector3f Dir = P.Center.GetSafeNormal();
+		if (Dir.IsNearlyZero()) { return 0.f; }
+		const float BeforeTop = P.Center.Size() + GeoPrimitiveSupport(P, Dir);
+		const float Want = Stage06bExpectedWant(C, F, Before, Idx);
+		const float Surface = Stage06bSurface(C, F, Dir);
+		return BeforeTop + Want > Surface ? FMath::Max(0.f, Surface - BeforeTop) : Want;
 	}
 
 	float Stage06bSurface(const FPlanetRecipeConfig& C, const FPlanetBakeFields& F, const FVector3f& Dir)
@@ -197,31 +213,75 @@ bool FGeoStage06bHostFollowTest::RunTest(const FString& Parameters)
 	if (!TestFalse(FString::Printf(TEXT("无错误（%s）"), *FString::Join(R.Errors, TEXT(" | "))), R.HasErrors())) { return false; }
 
 	int32 OreCount = 0, OreMiss = 0, OreDrift = 0, HaloCount = 0, HaloMiss = 0, HaloDrift = 0;
-	int32 OreOwnDiff = 0;
-	float WorstOre = 0.f, WorstHalo = 0.f, MaxOwnDiff = 0.f;
+	int32 OreOwnDiff = 0, VecChecked = 0, VecDrift = 0, FrameBad = 0, Clipped = 0, ClippedBad = 0;
+	float WorstOre = 0.f, WorstHalo = 0.f, MaxOwnDiff = 0.f, WorstVec = 0.f, WorstCross = 0.f;
 	for (int32 i = 0; i < F.Primitives.Num(); ++i)
 	{
 		const FGeoPrimitive& P = F.Primitives[i];
 		const int32 Host = Stage06bHostIndex(Before, i);
+		const bool bFollowsHost = (P.MineralId != 0 || Stage06bIsHalo(Before[i])) && Host != INDEX_NONE;
 		if (P.MineralId != 0)
 		{
 			++OreCount;
-			if (Host == INDEX_NONE) { ++OreMiss; continue; }
-			const float D = FMath::Abs((P.Center - Before[i].Center).Size() - (F.Primitives[Host].Center - Before[Host].Center).Size());
-			WorstOre = FMath::Max(WorstOre, D);
-			OreDrift += D > 1.f ? 1 : 0;
-			// 自身方向与宿主方向的 D 若处处一样，「跟宿主」这条断言分不出对错。
-			const float OwnDiff = FMath::Abs(Stage06bLiftAt(C, F, Before[i].Center) - Stage06bLiftAt(C, F, Before[Host].Center));
-			MaxOwnDiff = FMath::Max(MaxOwnDiff, OwnDiff);
-			OreOwnDiff += OwnDiff > 1.f ? 1 : 0;
+			if (Host == INDEX_NONE) { ++OreMiss; }
+			else
+			{
+				const float D = FMath::Abs((P.Center - Before[i].Center).Size() - (F.Primitives[Host].Center - Before[Host].Center).Size());
+				WorstOre = FMath::Max(WorstOre, D);
+				OreDrift += D > 1.f ? 1 : 0;
+				// 自身方向与宿主方向的 D 若处处一样，「跟宿主」这条断言分不出对错。
+				const float OwnDiff = FMath::Abs(Stage06bLiftAt(C, F, Before[i].Center) - Stage06bLiftAt(C, F, Before[Host].Center));
+				MaxOwnDiff = FMath::Max(MaxOwnDiff, OwnDiff);
+				OreOwnDiff += OwnDiff > 1.f ? 1 : 0;
+			}
 		}
 		if (Stage06bIsHalo(Before[i]))
 		{
 			++HaloCount;
-			if (Host == INDEX_NONE) { ++HaloMiss; continue; }
-			const float D = FMath::Abs((P.Center - Before[i].Center).Size() - (F.Primitives[Host].Center - Before[Host].Center).Size());
-			WorstHalo = FMath::Max(WorstHalo, D);
-			HaloDrift += D > 1.f ? 1 : 0;
+			if (Host == INDEX_NONE) { ++HaloMiss; }
+			else
+			{
+				const float D = FMath::Abs((P.Center - Before[i].Center).Size() - (F.Primitives[Host].Center - Before[Host].Center).Size());
+				WorstHalo = FMath::Max(WorstHalo, D);
+				HaloDrift += D > 1.f ? 1 : 0;
+			}
+		}
+		if (bFollowsHost)
+		{
+			// 只比模长会放过「方向抬反」：跟随者必须复制宿主的整条三维位移。
+			const FVector3f Df = P.Center - Before[i].Center;
+			const FVector3f Dh = F.Primitives[Host].Center - Before[Host].Center;
+			if (Df.Size() < Dh.Size() - 1.f)
+			{
+				// 跟随者自己的顶点也会顶到地表：spec §3.4 要求收回，此时必然比宿主少走。
+				++Clipped;
+				ClippedBad += P.Exposure == 255 ? 0 : 1;
+				continue;
+			}
+			const float VecErr = (Df - Dh).Size();
+			WorstVec = FMath::Max(WorstVec, VecErr);
+			VecDrift += VecErr > 1.f ? 1 : 0;
+			if (Df.Size() > 1.f)
+			{
+				++VecChecked;
+				// 位移方向来自宿主：宿主中心方向才是这次抬升的径向（伟晶岩壳层可偏离自身径向 0.08 rad）。
+				const FVector3f Dir = Before[Host].Center.GetSafeNormal();
+				const float Cross = FVector3f::CrossProduct(Df, Dir).Size();
+				WorstCross = FMath::Max(WorstCross, Cross);
+				FrameBad += Cross > 0.01f * Df.Size() ? 1 : 0;
+			}
+		}
+		else if (Stage06bIsRock(Before[i]))
+		{
+			// 岩体按自身径向抬：这一条把「世界轴平移」之类错框架钉死。
+			const FVector3f D = P.Center - Before[i].Center;
+			if (D.Size() > 1.f)
+			{
+				const FVector3f Dir = Before[i].Center.GetSafeNormal();
+				const float Cross = FVector3f::CrossProduct(D, Dir).Size();
+				WorstCross = FMath::Max(WorstCross, Cross);
+				FrameBad += Cross > 0.01f * D.Size() ? 1 : 0;
+			}
 		}
 	}
 	TestTrue(FString::Printf(TEXT("样本里有蚀变晕（%d 个），晕分支不得空转"), HaloCount), HaloCount > 0);
@@ -229,8 +289,12 @@ bool FGeoStage06bHostFollowTest::RunTest(const FString& Parameters)
 		OreOwnDiff, MaxOwnDiff), OreOwnDiff > 0);
 	TestEqual(FString::Printf(TEXT("每个有宿主的矿体位移与宿主相差 ≤ 1 体素（漂移 %d / %d，最差 %.3f）"), OreDrift, OreCount - OreMiss, WorstOre), OreDrift, 0);
 	TestEqual(FString::Printf(TEXT("每个有宿主的蚀变晕位移与宿主相差 ≤ 1 体素（漂移 %d / %d，最差 %.3f）"), HaloDrift, HaloCount - HaloMiss, WorstHalo), HaloDrift, 0);
-	AddInfo(FString::Printf(TEXT("矿体 %d（无宿主 %d），蚀变晕 %d（无宿主 %d）；最差位移差：矿体 %.3f、晕 %.3f 体素；自身方向与宿主抬升差 > 1 的矿体 %d 个（最大 %.2f）"),
-		OreCount, OreMiss, HaloCount, HaloMiss, WorstOre, WorstHalo, OreOwnDiff, MaxOwnDiff));
+	TestTrue(FString::Printf(TEXT("有位移 > 1 体素的跟随者样本（%d 个）"), VecChecked), VecChecked > 0);
+	TestEqual(FString::Printf(TEXT("跟随者与宿主的三维位移差 |Δf−Δh| ≤ 1 体素（超差 %d / %d，最差 %.3f）"), VecDrift, VecChecked, WorstVec), VecDrift, 0);
+	TestEqual(FString::Printf(TEXT("被自身夹取的跟随者 Exposure 全为 255（%d 个中不符 %d）"), Clipped, ClippedBad), ClippedBad, 0);
+	TestEqual(FString::Printf(TEXT("抬升方向沿宿主 / 自身径向（|Δ×dir| ≤ 0.01|Δ|，超差 %d，最差 %.4f）"), FrameBad, WorstCross), FrameBad, 0);
+	AddInfo(FString::Printf(TEXT("矿体 %d（无宿主 %d），蚀变晕 %d（无宿主 %d）；最差位移差：矿体 %.3f、晕 %.3f；三维位移差最差 %.3f；自身被夹取的跟随者 %d 个；叉积最差 %.4f"),
+		OreCount, OreMiss, HaloCount, HaloMiss, WorstOre, WorstHalo, WorstVec, Clipped, WorstCross));
 	return true;
 }
 
@@ -257,19 +321,25 @@ bool FGeoStage06bExposureFormulaTest::RunTest(const FString& Parameters)
 		const float Support = GeoPrimitiveSupport(B, Dir);
 		const float BeforeTop = B.Center.Size() + Support;
 		const float S = Stage06bSurface(C, F, Dir);
-		const float Lift = Stage06bExpectedLift(C, F, Before, i);
+		const float Want = Stage06bExpectedWant(C, F, Before, i);
+		const float Delta = Stage06bExpectedDelta(C, F, Before, i);
 		const float Exp = float(F.Primitives[i].Exposure) / 255.f;
-		if (BeforeTop + Lift > S)
+		if (BeforeTop + Want > S)
 		{
 			++Capped;
 			BadCap += F.Primitives[i].Exposure == 255 ? 0 : 1;
 			continue;
 		}
 		++Checked;
-		const float Expected = FMath::Clamp(Lift / FMath::Max(2.f * Support, 1.f), 0.f, 1.f);
+		const float Expected = FMath::Clamp(Delta / FMath::Max(2.f * Support, 1.f), 0.f, 1.f);
 		const float Err = FMath::Abs(Exp - Expected);
 		MaxErr = FMath::Max(MaxErr, Err);
-		BadFormula += Err > 0.01f ? 1 : 0;
+		if (Err > 0.01f)
+		{
+			++BadFormula;
+			AddInfo(FString::Printf(TEXT("公式超差 #%d：Exposure=%.3f（%d）Expected=%.3f Want=%.2f Delta=%.2f Support=%.2f Top=%.1f S=%.1f Host=%d"),
+				i, Exp, F.Primitives[i].Exposure, Expected, Want, Delta, Support, BeforeTop, S, Stage06bHostIndex(Before, i)));
+		}
 	}
 	TestTrue(FString::Printf(TEXT("至少一个原语进了收回分支（%d 个）"), Capped), Capped > 0);
 	TestEqual(FString::Printf(TEXT("收回分支的 Exposure 全为 255（不符 %d 个）"), BadCap), BadCap, 0);
@@ -323,7 +393,7 @@ bool FGeoStage06bBoundsTest::RunTest(const FString& Parameters)
 	Stage06bBake(C, F, Before, R, Stage7Sec);
 	if (!TestFalse(FString::Printf(TEXT("无错误（%s）"), *FString::Join(R.Errors, TEXT(" | "))), R.HasErrors())) { return false; }
 
-	// 1e-3 是「明显没搬 / 被重算」的判据；R=40000 时 float 的 ulp 约 0.005，纯绝对容差会被量化误差顶破。
+	// 1e-3 是「明显没搬 / 被重算」的判据；R=40000 时 float 的 ulp 约 0.0039，纯绝对容差会被量化误差顶破。
 	const float Tol = 1e-3f + 1e-6f * float(C.Radius);
 	int32 Moved = 0, BadCenter = 0, BadExtent = 0;
 	float MaxCenterErr = 0.f, MaxExtentErr = 0.f;
@@ -455,6 +525,61 @@ bool FGeoStage06bSwitchTest::RunTest(const FString& Parameters)
 		TestEqual(FString::Printf(TEXT("bExposure=false 时 Exposure 全 0（%d 个）"), Exposed), Exposed, 0);
 		TestTrue(TEXT("bExposure=false 时原语哈希与阶段 6 结束时一致"), Stage06bPrimHash(F.Primitives) == Stage06bPrimHash(Before));
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06bLayersTest, "StellarEra.Planet.Geo.Stage06b.Layers",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage06bLayersTest::RunTest(const FString& Parameters)
+{
+	const FPlanetRecipeConfig C = Stage06bConfig();
+	FPlanetBakeReport R;
+	FPlanetBakeFields F;
+	TArray<FGeoPrimitive> Before;
+	double Stage7Sec = 0.0;
+	Stage06bBake(C, F, Before, R, Stage7Sec);
+	if (!TestFalse(FString::Printf(TEXT("无错误（%s）"), *FString::Join(R.Errors, TEXT(" | "))), R.HasErrors())) { return false; }
+
+	// 图层只读快照：手工装配所需的三样（原语索引、地表、R0），PrimitiveDepthMaxRatio 保持默认不剔除。
+	TSharedPtr<FPlanetSnapshot> Snap = MakeShared<FPlanetSnapshot>();
+	Snap->R0 = C.Radius;
+	Snap->Primitives.Build(F.Primitives);
+	Snap->Elevation = F.Elevation;
+	Snap->MinSurfaceRadius = C.Radius + double(F.MinElevation);
+	Snap->MaxSurfaceRadius = C.Radius + double(F.MaxElevation);
+
+	const FGeoDebugLayer* Exp = FPlanetBakePipeline::FindDefaultDebugLayer(TEXT("Exposure"));
+	const FGeoDebugLayer* Ore = FPlanetBakePipeline::FindDefaultDebugLayer(TEXT("ExposedOre"));
+	if (!TestNotNull(TEXT("能按编号找到 Exposure 图层"), Exp) || !TestNotNull(TEXT("能按编号找到 ExposedOre 图层"), Ore)) { return false; }
+
+	const FGeoPrimitive* Full = nullptr;
+	const FGeoPrimitive* Partial = nullptr;
+	for (const FGeoPrimitive& P : F.Primitives)
+	{
+		if (P.MineralId == 0) { continue; }
+		if (!Full && P.Exposure == 255) { Full = &P; }
+		if (!Partial && P.Exposure > 0 && P.Exposure < 255) { Partial = &P; }
+	}
+	if (!TestNotNull(TEXT("样本里有完全出露的矿体"), Full)) { return false; }
+	if (!Partial) { AddInfo(TEXT("样本里没有部分出露的矿体，跳过该档核对")); }
+
+	// 矿体中心：归一化距离 0，最近的已标记原语就是它自己。
+	const FVector3d Center(Full->Center);
+	TestEqual(FString::Printf(TEXT("Exposure 图层在完全出露矿体处 = %.3f"), 255.f / 255.f), Exp->Sample(*Snap, Center), 1.f, 0.02f);
+	TestEqual(TEXT("ExposedOre 在完全出露矿体中心 = 2"), Ore->Sample(*Snap, Center), 2.f);
+	if (Partial)
+	{
+		TestEqual(FString::Printf(TEXT("ExposedOre 在部分出露矿体中心 = 1（Exposure=%d）"), Partial->Exposure),
+			Ore->Sample(*Snap, FVector3d(Partial->Center)), 1.f);
+	}
+
+	// 深处没有原语：两个图层都必须是 0。
+	const FVector3d Void(0.0, 0.0, 0.5 * C.Radius);
+	TestEqual(TEXT("ExposedOre 在无矿处 = 0"), Ore->Sample(*Snap, Void), 0.f);
+	TestEqual(TEXT("Exposure 在无矿处 = 0"), Exp->Sample(*Snap, Void), 0.f);
+	AddInfo(FString::Printf(TEXT("图层核对：全出露矿体 Exposure=%d，ExposedOre=2；部分出露档 %s"), Full->Exposure,
+		Partial ? TEXT("已核对") : TEXT("无样本")));
 	return true;
 }
 

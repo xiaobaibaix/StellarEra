@@ -159,6 +159,9 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 	C.Hydro.EndorheicPrecip = EndorheicPrecip;
 	C.Hydro.FlatSlopeRatio = FlatSlopeRatio;
 	C.Hydro.MountainErosionWeight = MountainErosionWeight;
+	C.Exposure.bExposure = bExposure;
+	C.Exposure.LiftScale = LiftScale;
+	C.Exposure.MaxLiftRatio = MaxLiftRatio;
 	if (MineralCatalog)
 	{
 		for (const FGeoMineralDef& D : MineralCatalog->Minerals)

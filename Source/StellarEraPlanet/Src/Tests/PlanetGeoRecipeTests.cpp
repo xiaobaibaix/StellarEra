@@ -267,6 +267,16 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("MountainErosionWeight 透传"), HY.MountainErosionWeight, 0.55f, 1e-7f);
 	}
 
+	// 阶段 6b 的 3 项逐项透传：全给非默认值，抓 ToConfig 里接错字段。
+	{
+		UPlanetRecipe* Re = NewObject<UPlanetRecipe>();
+		Re->bExposure = false; Re->LiftScale = 0.83f; Re->MaxLiftRatio = 0.031f;
+		const FPlanetExposureParams EX = Re->ToConfig(40000.0).Exposure;
+		TestFalse(TEXT("bExposure 透传"), EX.bExposure);
+		TestEqual(TEXT("LiftScale 透传"), EX.LiftScale, 0.83f, 1e-7f);
+		TestEqual(TEXT("MaxLiftRatio 透传"), EX.MaxLiftRatio, 0.031f, 1e-7f);
+	}
+
 	// 每项都必须进 Hash()：漏一项则改它快照哈希不变、存档校验失效。
 	const uint64 Base = C2.Hash();
 	FPlanetRecipeConfig Probe;
@@ -309,6 +319,9 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 	Probe = C2; Probe.Hydro.CarveRatio = 0.0021f;            TestTrue(TEXT("CarveRatio 进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Hydro.EndorheicPrecip = 0.31f;         TestTrue(TEXT("EndorheicPrecip 进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Hydro.bRivers = !C2.Hydro.bRivers;     TestTrue(TEXT("bRivers 进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Exposure.bExposure = !C2.Exposure.bExposure; TestTrue(TEXT("bExposure 进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Exposure.LiftScale = 1.13f;            TestTrue(TEXT("LiftScale 进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Exposure.MaxLiftRatio = 0.021f;        TestTrue(TEXT("MaxLiftRatio 进哈希"), Probe.Hash() != Base);
 	return true;
 }
 

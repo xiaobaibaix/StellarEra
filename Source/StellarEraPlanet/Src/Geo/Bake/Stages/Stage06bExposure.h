@@ -11,4 +11,5 @@ public:
 	virtual EPlanetField GetReads() const override { return EPlanetField::Hydro | EPlanetField::Primitives; }
 	virtual EPlanetField GetWrites() const override { return EPlanetField::Exposure; }
 	virtual void Bake(FPlanetBakeContext& Ctx) const override;
+	virtual void DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const override;
 };
