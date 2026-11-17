@@ -496,15 +496,20 @@ namespace
 		}
 	}
 
-	/** 2→7 全手动烘焙（含各阶段的撒矿器），结束时场还活着，测试才读得到 FlowAccum / FlowNext / Elevation。 */
-	void Stage06cBakeToExposure(const FPlanetRecipeConfig& C, FPlanetBakeFields& F, FPlanetBakeReport& R)
+	/**
+	 * 2→7 全手动烘焙（含各阶段的撒矿器），结束时场还活着，测试才读得到 FlowAccum / FlowNext / Elevation。
+	 * 跳过的阶段 1 只写圈层剖面；OutStageIndices 交回实际跑过的阶段号，供测试与默认管线对表。
+	 */
+	void Stage06cBakeToExposure(const FPlanetRecipeConfig& C, FPlanetBakeFields& F, FPlanetBakeReport& R,
+		TArray<uint32>& OutStageIndices)
 	{
-		const FStage02Plates S2; Stage06cBakeOne(C, F, R, S2);
-		const FStage03Terrain S3; Stage06cBakeOne(C, F, R, S3);
-		const FStage04Magmatism S4; Stage06cBakeOne(C, F, R, S4);
-		const FStage05Climate S5; Stage06cBakeOne(C, F, R, S5);
-		const FStage06Erosion S6; Stage06cBakeOne(C, F, R, S6);
-		const FStage06bExposure S7; Stage06cBakeOne(C, F, R, S7);
+		OutStageIndices.Reset();
+		const FStage02Plates S2; Stage06cBakeOne(C, F, R, S2); OutStageIndices.Add(S2.GetStageIndex());
+		const FStage03Terrain S3; Stage06cBakeOne(C, F, R, S3); OutStageIndices.Add(S3.GetStageIndex());
+		const FStage04Magmatism S4; Stage06cBakeOne(C, F, R, S4); OutStageIndices.Add(S4.GetStageIndex());
+		const FStage05Climate S5; Stage06cBakeOne(C, F, R, S5); OutStageIndices.Add(S5.GetStageIndex());
+		const FStage06Erosion S6; Stage06cBakeOne(C, F, R, S6); OutStageIndices.Add(S6.GetStageIndex());
+		const FStage06bExposure S7; Stage06cBakeOne(C, F, R, S7); OutStageIndices.Add(S7.GetStageIndex());
 	}
 
 	/** 砂金配方：火山金银脉（编号 6）当源矿，砂矿跟着它顺流沉积。 */
@@ -544,7 +549,7 @@ bool FGeoStage06cPipelineTest::RunTest(const FString& Parameters)
 	if (!TestFalse(FString::Printf(TEXT("整管线无错误（%s）"), *FString::Join(R.Errors, TEXT(" | "))), R.HasErrors())) { return false; }
 	if (!TestNotNull(TEXT("产出快照"), Snap.Get())) { return false; }
 
-	int32 Placers = 0, Above = 0, Below = 0;
+	int32 Placers = 0, Above = 0, Below = 0, Touched = 0;
 	for (const FGeoPrimitive& B : Snap->Primitives.GetPrimitives())
 	{
 		if (B.MineralId != 20) { continue; }
@@ -553,12 +558,16 @@ bool FGeoStage06cPipelineTest::RunTest(const FString& Parameters)
 		const double Surf = double(Snap->R0) + double(Snap->Elevation.Sample(Dir));
 		Above += double(B.Center.Size()) > Surf + 1.0 ? 1 : 0;
 		Below += double(B.Center.Size()) < Surf - 4.0 ? 1 : 0;
+		// 位置证明不了「没被出露结算碰过」：砂矿本来就在地表，结算的贴顶夹取会把它放回原处。
+		// 结算只要跑过就写非零比例（夹取那条路写满），所以 Exposure 仍是 0 才是真正没被碰过的证据。
+		Touched += B.Exposure != 0 ? 1 : 0;
 	}
-	AddInfo(FString::Printf(TEXT("FaceRes %d 整管线 %.2f s，原语 %d（砂金 %d 片，高于地表 %d，埋深超 4 体素 %d）"),
-		C.FaceRes, Seconds, Snap->Primitives.GetPrimitives().Num(), Placers, Above, Below));
+	AddInfo(FString::Printf(TEXT("FaceRes %d 整管线 %.2f s，原语 %d（砂金 %d 片，高于地表 %d，埋深超 4 体素 %d，被出露结算改写 %d）"),
+		C.FaceRes, Seconds, Snap->Primitives.GetPrimitives().Num(), Placers, Above, Below, Touched));
 	TestTrue(TEXT("有砂金产出"), Placers > 0);
 	TestEqual(TEXT("砂金不高于地表 1 体素"), Above, 0);
 	TestEqual(TEXT("砂金不埋深 4 体素以上"), Below, 0);
+	TestEqual(TEXT("砂金未被出露结算改写（Exposure 恒 0，说明规则跑在阶段 7 之后）"), Touched, 0);
 	TestTrue(TEXT("沉积规则阶段号是 7"), Placer.IsValid() && Placer->GetStage() == 7);
 	TestTrue(TEXT("默认管线含阶段 7"), FPlanetBakePipeline::MakeDefault().Sorted().ContainsByPredicate(
 		[](const IPlanetStage* S) { return S->GetStageIndex() == 7; }));
@@ -571,11 +580,34 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06cPlacerOnRiversTest, "StellarEra.Pla
 bool FGeoStage06cPlacerOnRiversTest::RunTest(const FString& Parameters)
 {
 	// 手动烘焙才留得住 FlowAccum / FlowNext：管线只交出快照。
-	const FPlanetRecipeConfig C = Stage06cPlacerRecipe();
-	FPlanetBakeFields F; FPlanetBakeReport R;
-	Stage06cBakeToExposure(C, F, R);
+	TSharedPtr<const IGeoMineralRule> PlacerOwner;
+	const FPlanetRecipeConfig C = Stage06cPlacerRecipe(&PlacerOwner);
+	const FGeoPlacerRule* PlacerRule = static_cast<const FGeoPlacerRule*>(PlacerOwner.Get());
+	if (!TestNotNull(TEXT("拿到砂矿规则"), PlacerRule)) { return false; }
+
+	FPlanetBakeFields F; FPlanetBakeReport R; TArray<uint32> UsedStages;
+	Stage06cBakeToExposure(C, F, R, UsedStages);
 	if (!TestFalse(FString::Printf(TEXT("手动烘焙无错误（%s）"), *FString::Join(R.Errors, TEXT(" | "))), R.HasErrors())) { return false; }
 	if (!TestEqual(TEXT("FlowAccum 分辨率 = max(64, FaceRes/4)"), F.FlowAccum.Res, FMath::Max(64, C.FaceRes / 4))) { return false; }
+
+	// 阶段 1 只写圈层剖面（2–7 的代码都不读它），手动链从 2 起；其余必须与默认管线逐项对齐，
+	// 否则管线加了阶段而这里没跟上，测试会悄悄测一条过时的链路。
+	// 管线必须落成具名对象：Sorted() 交出的裸指针指进它的 Stages，临时管线一析构就悬垂。
+	FPlanetBakePipeline Pipeline = FPlanetBakePipeline::MakeDefault();
+	TArray<uint32> PipelineStages;
+	for (const IPlanetStage* S : Pipeline.Sorted()) { PipelineStages.Add(S->GetStageIndex()); }
+	const bool bSkipsOnlyStage1 = PipelineStages.Num() > 0 && PipelineStages[0] == 1;
+	if (bSkipsOnlyStage1) { PipelineStages.RemoveAt(0); }
+	TestTrue(TEXT("默认管线以阶段 1（圈层剖面）开头，手动链只跳过它"), bSkipsOnlyStage1);
+	int32 StageMismatch = 0;
+	for (int32 i = 0; i < UsedStages.Num() || i < PipelineStages.Num(); ++i)
+	{
+		StageMismatch += (UsedStages.IsValidIndex(i) && PipelineStages.IsValidIndex(i) && UsedStages[i] == PipelineStages[i]) ? 0 : 1;
+	}
+	AddInfo(FString::Printf(TEXT("手动链阶段 [%s]，默认管线去掉阶段 1 后 [%s]"),
+		*FString::JoinBy(UsedStages, TEXT(","), [](uint32 V) { return FString::FromInt(int32(V)); }),
+		*FString::JoinBy(PipelineStages, TEXT(","), [](uint32 V) { return FString::FromInt(int32(V)); })));
+	TestEqual(TEXT("手动链与默认管线逐阶段号一致（管线新增阶段必须同步到这里）"), StageMismatch, 0);
 
 	// 诊断：源矿本身在不在可顺流的陆格上——砂金为 0 时先看这里，而不是猜规则。
 	int32 Sources = 0, SourcesOnFlow = 0;
@@ -589,6 +621,8 @@ bool FGeoStage06cPlacerOnRiversTest::RunTest(const FString& Parameters)
 		SourcesOnFlow += (bLand && int32(F.FlowNext.At(Face, X, Y)) - 1 >= 0) ? 1 : 0;
 	}
 
+	// 门槛走规则自己的参数（MinFlowAccumRatio × RiverThreshold），调参后这条断言仍然合法。
+	const double MinAcc = double(PlacerRule->P.MinFlowAccumRatio) * double(FMath::Max(C.Hydro.RiverThreshold, 1e-9f));
 	int32 Placers = 0, Ocean = 0, LowAccum = 0, OffCell = 0;
 	for (const FGeoPrimitive& B : F.Primitives)
 	{
@@ -600,10 +634,10 @@ bool FGeoStage06cPlacerOnRiversTest::RunTest(const FString& Parameters)
 		// 片心 = 格方向 × 半径，所以方向反查必须是同一格；点积兜住「隔壁格也过其余断言」的漏判。
 		OffCell += FVector3f::DotProduct(B.Center.GetSafeNormal(), Dir) < 0.999f ? 1 : 0;
 		Ocean += F.Elevation.Sample(Dir) <= 0.f ? 1 : 0;
-		LowAccum += F.FlowAccum.At(Face, X, Y) < C.Hydro.RiverThreshold ? 1 : 0;
+		LowAccum += double(F.FlowAccum.At(Face, X, Y)) < MinAcc ? 1 : 0;
 	}
-	AddInfo(FString::Printf(TEXT("源矿 %d 条（其中 %d 条在可顺流的陆格），砂金 %d 片（海洋 %d，汇流不足 %d，片心出格 %d）"),
-		Sources, SourcesOnFlow, Placers, Ocean, LowAccum, OffCell));
+	AddInfo(FString::Printf(TEXT("源矿 %d 条（其中 %d 条在可顺流的陆格），砂金 %d 片（海洋 %d，汇流 < %.6f 的 %d，片心出格 %d）"),
+		Sources, SourcesOnFlow, Placers, Ocean, MinAcc, LowAccum, OffCell));
 	TestTrue(TEXT("源矿（火山脉）进了管线"), Sources > 0);
 	TestTrue(TEXT("有砂金产出"), Placers > 0);
 	TestEqual(TEXT("砂金都落在陆上格"), Ocean, 0);
