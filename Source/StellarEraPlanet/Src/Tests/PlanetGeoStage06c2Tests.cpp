@@ -76,7 +76,7 @@ namespace
 		FStage06c2Basin Out;
 		Out.C.Radius = 1000.0;
 		const int32 Res = 8;
-		Out.F.BasinMask.Init(Res); Out.F.BasinId.Init(Res);
+		Out.F.BasinMask.Init(Res); Out.F.BasinId.Init(Res); Out.F.FlowAccum.Init(Res);
 		Out.F.Precipitation.Init(Res); Out.F.Elevation.Init(Res);
 		Out.F.ContinentalMask.Init(Res);
 		for (int32 Face = 0; Face < 6; ++Face)
@@ -94,19 +94,45 @@ namespace
 		return Out;
 	}
 
-	/** 盆地 0 的最大角半径：同编号格子里离中心最远的那个。 */
-	float Stage06c2BasinRad(const FStage06c2Basin& B)
+	/** 某编号盆地的最大角半径：同编号格子里离中心最远的那个。 */
+	float Stage06c2BasinIdRad(const FPlanetBakeFields& F, int32 Id, const FVector3f& Center)
 	{
 		float MinDot = 1.f;
-		const int32 Res = B.F.BasinMask.Res;
+		const int32 Res = F.BasinMask.Res;
 		for (int32 Face = 0; Face < 6; ++Face)
 		for (int32 Y = 0; Y < Res; ++Y)
 		for (int32 X = 0; X < Res; ++X)
 		{
-			if (B.F.BasinMask.At(Face, X, Y) != 2.f || int32(B.F.BasinId.At(Face, X, Y)) != 0) { continue; }
-			MinDot = FMath::Min(MinDot, FVector3f::DotProduct(B.F.BasinMask.TexelDir(Face, X, Y), B.Center));
+			if (F.BasinMask.At(Face, X, Y) != 2.f || int32(F.BasinId.At(Face, X, Y)) != Id) { continue; }
+			MinDot = FMath::Min(MinDot, FVector3f::DotProduct(F.BasinMask.TexelDir(Face, X, Y), Center));
 		}
 		return FMath::Acos(FMath::Clamp(MinDot, -1.f, 1.f));
+	}
+
+	float Stage06c2BasinRad(const FStage06c2Basin& B)
+	{
+		return Stage06c2BasinIdRad(B.F, 0, B.Center);
+	}
+
+	/** 两个内流盆地：A 在面 0 (2,2)、B 在面 1 (4,4)，各 3×3 格、独立编号。 */
+	void Stage06c2TwoBasins(FPlanetBakeFields& F, FVector3f& OutA, FVector3f& OutB)
+	{
+		const int32 Res = 8;
+		F.BasinMask.Init(Res); F.BasinId.Init(Res); F.FlowAccum.Init(Res);
+		F.Precipitation.Init(Res); F.Elevation.Init(Res);
+		for (int32 Face = 0; Face < 6; ++Face)
+		for (int32 Y = 0; Y < Res; ++Y)
+		for (int32 X = 0; X < Res; ++X)
+		{
+			const bool bA = Face == 0 && FMath::Abs(X - 2) <= 1 && FMath::Abs(Y - 2) <= 1;
+			const bool bB = Face == 1 && FMath::Abs(X - 4) <= 1 && FMath::Abs(Y - 4) <= 1;
+			F.BasinMask.At(Face, X, Y) = (bA || bB) ? 2.f : 0.f;
+			F.BasinId.At(Face, X, Y) = bA ? 0.f : (bB ? 1.f : -1.f);
+			F.Precipitation.At(Face, X, Y) = 0.1f;
+			F.Elevation.At(Face, X, Y) = 50.f;
+		}
+		OutA = F.BasinMask.TexelDir(0, 2, 2);
+		OutB = F.BasinMask.TexelDir(1, 4, 4);
 	}
 
 	void Stage06c2Scatter(const FStage06c2Basin& B, const IGeoMineralRule& Rule, FGeoScatterOutput& Out)
@@ -201,6 +227,74 @@ bool FGeoStage06c2BasinDepositRingShapeTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("全部 OrientedBlob"), BadKind, 0);
 	TestEqual(TEXT("厚度恰为 max(ThicknessVoxels/2, 0.5)（2 → 1）"), BadThick, 0);
 	TestEqual(TEXT("中心半径 = R + Elev - ThicknessVoxels/2（1049）"), BadCenter, 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06c2RingOrientationTest, "StellarEra.Planet.Geo.Stage06c2.BasinDeposit.RingOrientation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage06c2RingOrientationTest::RunTest(const FString& Parameters)
+{
+	const FStage06c2Basin B = Stage06c2MakeBasin(0.1f);
+	FGeoBasinDepositRule Rule;
+	// 环带全在盆心 5° 之外，沿用盆心标架时每片都会歪。
+	Rule.P.RingInner = 0.5f;
+	Rule.P.RingOuter = 1.f;
+	FGeoScatterOutput Out;
+	Stage06c2Scatter(B, Rule, Out);
+	if (!TestTrue(TEXT("有片才谈朝向"), Out.Bodies.Num() > 0)) { return false; }
+
+	const float CosLimit = FMath::Cos(FMath::DegreesToRadians(5.f));
+	int32 Bad = 0;
+	for (const FGeoPrimitive& Body : Out.Bodies)
+	{
+		const FVector3f Normal = Body.Rotation.RotateVector(FVector3f::ZAxisVector).GetSafeNormal();
+		const float Dot = FVector3f::DotProduct(Normal, Body.Center.GetSafeNormal());
+		Bad += Dot < CosLimit ? 1 : 0;
+	}
+	TestEqual(TEXT("每片的局部 Z 轴与自身地表法线夹角 ≤ 5°"), Bad, 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06c2TwoBasinsTest, "StellarEra.Planet.Geo.Stage06c2.BasinDeposit.TwoBasins",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage06c2TwoBasinsTest::RunTest(const FString& Parameters)
+{
+	FPlanetBakeFields F;
+	FVector3f CenterA, CenterB;
+	Stage06c2TwoBasins(F, CenterA, CenterB);
+	FPlanetRecipeConfig C; C.Radius = 1000.0;
+
+	FGeoBasinDepositRule Rule;
+	Rule.P.BodiesPerBasin = 16;
+	TArray<FString> Errors;
+	FGeoScatterContext SC{ C, F, FGeoRng::Derive(C.Seed, Rule.GetStage(), 0), Errors };
+	FGeoScatterOutput Out;
+	Rule.Scatter(SC, Out);
+
+	const float RadA = Stage06c2BasinIdRad(F, 0, CenterA);
+	const float RadB = Stage06c2BasinIdRad(F, 1, CenterB);
+	// 两盆地相隔约 90°，半径之和远小于它，下面按角半径判归属不会有歧义。
+	const float Sep = FMath::Acos(FMath::Clamp(FVector3f::DotProduct(CenterA, CenterB), -1.f, 1.f));
+	TestTrue(TEXT("两盆地中心足够分开"), Sep > 2.f * FMath::Max(RadA, RadB));
+
+	int32 CountA = 0, CountB = 0, BadOwner = 0, BadNear = 0;
+	for (const FGeoPrimitive& Body : Out.Bodies)
+	{
+		const FVector3f Dir = Body.Center.GetSafeNormal();
+		const float AngleA = FMath::Acos(FMath::Clamp(FVector3f::DotProduct(Dir, CenterA), -1.f, 1.f));
+		const float AngleB = FMath::Acos(FMath::Clamp(FVector3f::DotProduct(Dir, CenterB), -1.f, 1.f));
+		const bool bInA = AngleA <= RadA + 1e-3f, bInB = AngleB <= RadB + 1e-3f;
+		if (bInA == bInB) { ++BadOwner; continue; }
+		if (bInA) { ++CountA; BadNear += AngleA >= AngleB ? 1 : 0; }
+		else { ++CountB; BadNear += AngleB >= AngleA ? 1 : 0; }
+	}
+	TestEqual(TEXT("总片数 = 2 × BodiesPerBasin"), Out.Bodies.Num(), 2 * Rule.P.BodiesPerBasin);
+	TestEqual(TEXT("盆地 A 恰得 BodiesPerBasin 片"), CountA, Rule.P.BodiesPerBasin);
+	TestEqual(TEXT("盆地 B 恰得 BodiesPerBasin 片"), CountB, Rule.P.BodiesPerBasin);
+	TestEqual(TEXT("每片只落在一个盆地的角半径内"), BadOwner, 0);
+	TestEqual(TEXT("每片离自己盆地中心更近"), BadNear, 0);
 	return true;
 }
 

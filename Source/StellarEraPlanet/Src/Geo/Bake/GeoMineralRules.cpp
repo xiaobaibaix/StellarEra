@@ -640,7 +640,7 @@ namespace
 	{
 		for (const FGeoVolcano& V : Volcanoes)
 		{
-			if (V.bActive && (V.Dir - Center).Size() * R <= MaxChord) { return true; }
+			if (V.bActive && (V.Dir.GetSafeNormal() - Center).Size() * R <= MaxChord) { return true; }
 		}
 		return false;
 	}
@@ -650,15 +650,18 @@ void FGeoBasinDepositRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& O
 {
 	const FPlanetBakeFields& F = Ctx.Fields;
 	const int32 Res = F.BasinMask.Res;
-	if (Res <= 0 || F.BasinId.Res != Res || F.Precipitation.Res <= 0 || F.Elevation.Res <= 0)
+	if (Res <= 0 || F.BasinId.Res != Res || F.FlowAccum.Res != Res || F.Precipitation.Res <= 0 || F.Elevation.Res <= 0)
 	{
-		Ctx.Errors.Add(TEXT("[地质] 撒矿器「BasinDeposit」需要阶段 6 的 BasinMask/BasinId 与降水/高程场"));
+		Ctx.Errors.Add(TEXT("[地质] 撒矿器「BasinDeposit」需要阶段 6 的 BasinMask/BasinId/FlowAccum 与降水/高程场"));
 		return;
 	}
 	if (P.BodiesPerBasin <= 0) { return; }
 	const double R = Ctx.Config.Radius;
-	const float Inner = FMath::Min(P.RingInner, P.RingOuter), Outer = FMath::Max(P.RingInner, P.RingOuter);
+	// RingOuter 封顶到 1：超出盆地边缘的环带没有意义。
+	const float Inner = FMath::Min(P.RingInner, P.RingOuter);
+	const float Outer = FMath::Min(FMath::Max(P.RingInner, P.RingOuter), 1.f);
 	const float HalfThick = FMath::Max(0.5f * P.ThicknessVoxels, 0.5f);
+	const int32 Bodies = FMath::Clamp(P.BodiesPerBasin, 0, 4096);
 
 	// 1) 单遍聚合：同一 BasinId 的方向和与格子数。
 	TMap<int32, FGeoBasinStats> Bins;
@@ -674,37 +677,44 @@ void FGeoBasinDepositRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& O
 		++S.Count;
 	}
 	TArray<int32> Ids; Bins.GetKeys(Ids); Ids.Sort();   // 键排序：确定性
+	TMap<int32, FVector3f> Centers;
+	for (const int32 Id : Ids) { Centers.Add(Id, Bins[Id].SumDir.GetSafeNormal()); }
+	// 2) 角半径用第二遍全网格扫描按编号取最小点积，避免每盆地各扫一遍全网格。
+	TMap<int32, float> MinDots;
+	for (int32 Face = 0; Face < 6; ++Face)
+	for (int32 Y = 0; Y < Res; ++Y)
+	for (int32 X = 0; X < Res; ++X)
+	{
+		if (F.BasinMask.At(Face, X, Y) != 2.f) { continue; }
+		const int32 CellId = int32(F.BasinId.At(Face, X, Y));
+		const FVector3f* CellCenter = Centers.Find(CellId);
+		if (!CellCenter) { continue; }
+		float& MinDot = MinDots.FindOrAdd(CellId, 1.f);
+		MinDot = FMath::Min(MinDot, FVector3f::DotProduct(F.BasinMask.TexelDir(Face, X, Y), *CellCenter));
+	}
+
 	for (const int32 Id : Ids)
 	{
 		const FGeoBasinStats& S = Bins[Id];
-		const FVector3f Center = S.SumDir.GetSafeNormal();
+		const FVector3f Center = Centers[Id];
 		if (Center.IsNearlyZero() || S.Count < P.MinBasinCells) { continue; }
 		if (F.Precipitation.Sample(Center) > P.MaxPrecip) { continue; }
 		if (P.bRequireVolcano && !GeoBasinHasVolcanoNear(F.Volcanoes, Center, float(P.VolcanoRadiusRatio * R), float(R))) { continue; }
-
-		// 2) 盆地角半径：同编号格子里离中心最远的那个。
-		float MinDot = 1.f;
-		for (int32 Face = 0; Face < 6; ++Face)
-		for (int32 Y = 0; Y < Res; ++Y)
-		for (int32 X = 0; X < Res; ++X)
-		{
-			if (F.BasinMask.At(Face, X, Y) != 2.f || int32(F.BasinId.At(Face, X, Y)) != Id) { continue; }
-			MinDot = FMath::Min(MinDot, FVector3f::DotProduct(F.BasinMask.TexelDir(Face, X, Y), Center));
-		}
-		const float Rad = FMath::Acos(FMath::Clamp(MinDot, -1.f, 1.f));
+		const float Rad = FMath::Acos(FMath::Clamp(MinDots.FindRef(Id), -1.f, 1.f));
 		if (Rad <= 1e-5f) { continue; }
 
-		for (int32 k = 0; k < P.BodiesPerBasin; ++k)
+		for (int32 k = 0; k < Bodies; ++k)
 		{
 			const float U = Ctx.Rng.NextFloat();
 			const float Angle = Rad * FMath::Lerp(Inner, Outer, FMath::Sqrt(U));
-			const FQuat4f Frame = GeoMineralRules::TangentFrame(Center, Ctx.Rng.Range(0.f, 2.f * PI));
-			const FVector3f Tangent = Frame.RotateVector(FVector3f::XAxisVector);
+			const float Phi = Ctx.Rng.Range(0.f, 2.f * PI);
+			const FVector3f Tangent = GeoMineralRules::TangentFrame(Center, Phi).RotateVector(FVector3f::XAxisVector);
 			const FVector3f Dir = (Center * FMath::Cos(Angle) + Tangent * FMath::Sin(Angle)).GetSafeNormal();
 			const float Elev = F.Elevation.Sample(Dir);
 			const FVector3f Radii(float(P.RadiusRatio * R), float(P.RadiusRatio * R), HalfThick);
 			const FVector3f BodyCenter = Dir * (float(R) + Elev - 0.5f * P.ThicknessVoxels);
-			FGeoPrimitive Body = FGeoPrimitive::MakeOrientedBlob(BodyCenter, Radii, Frame, P.Hard);
+			// 盘的法线必须沿自身地表法线；沿用盆心标架会让环带片斜插进地表。
+			FGeoPrimitive Body = FGeoPrimitive::MakeOrientedBlob(BodyCenter, Radii, GeoMineralRules::TangentFrame(Dir, Phi), P.Hard);
 			Body.Grade = RandomGrade(Ctx.Rng);
 			Out.Bodies.Add(Body);
 		}
