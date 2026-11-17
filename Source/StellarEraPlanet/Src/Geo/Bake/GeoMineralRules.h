@@ -287,6 +287,31 @@ public:
 	virtual uint64 HashParams() const override;
 };
 
+/** 盆地沉积：内流盆地的环带里撒蒸发岩 / 锂盐薄层。运行于阶段 6b 之后（阶段号 7）。 */
+struct FGeoBasinDepositParams
+{
+	float MaxPrecip = 0.2f;           // 盆心降水上限；更湿的盆地不产蒸发岩
+	int32 MinBasinCells = 6;          // 少于这么多格子的洼地跳过
+	float RingInner = 0.f;            // 归一化半径下限（0 = 盆心）
+	float RingOuter = 1.f;            // 归一化半径上限（1 = 盆地边缘）
+	int32 BodiesPerBasin = 24;        // 每个盆地几片
+	float RadiusRatio = 0.004f;       // 单片半径（占 R）
+	float ThicknessVoxels = 2.f;      // 薄层厚度（体素）
+	bool bRequireVolcano = false;     // 要求盆心附近有活火山（锂盐用）
+	float VolcanoRadiusRatio = 0.05f; // 「附近」的球面弦距上限（占 R）
+	float Hard = 0.25f;               // 软边宽度
+};
+
+class STELLARERAPLANET_API FGeoBasinDepositRule final : public IGeoMineralRule
+{
+public:
+	FGeoBasinDepositParams P;
+	virtual uint32 GetStage() const override { return 7; }
+	virtual const TCHAR* GetRuleName() const override { return TEXT("BasinDeposit"); }
+	virtual void Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const override;
+	virtual uint64 HashParams() const override;
+};
+
 namespace GeoMineralRules
 {
 	/** 矿物图层（地下 / 地表矿化），图例来自快照的矿物调色板。不属于某一阶段，Stage = 0。 */

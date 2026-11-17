@@ -634,6 +634,95 @@ uint64 FGeoPlacerRule::HashParams() const
 
 namespace
 {
+	struct FGeoBasinStats { FVector3f SumDir = FVector3f::ZeroVector; int32 Count = 0; };
+
+	bool GeoBasinHasVolcanoNear(const TArray<FGeoVolcano>& Volcanoes, const FVector3f& Center, float MaxChord, float R)
+	{
+		for (const FGeoVolcano& V : Volcanoes)
+		{
+			if (V.bActive && (V.Dir - Center).Size() * R <= MaxChord) { return true; }
+		}
+		return false;
+	}
+}
+
+void FGeoBasinDepositRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const
+{
+	const FPlanetBakeFields& F = Ctx.Fields;
+	const int32 Res = F.BasinMask.Res;
+	if (Res <= 0 || F.BasinId.Res != Res || F.Precipitation.Res <= 0 || F.Elevation.Res <= 0)
+	{
+		Ctx.Errors.Add(TEXT("[地质] 撒矿器「BasinDeposit」需要阶段 6 的 BasinMask/BasinId 与降水/高程场"));
+		return;
+	}
+	if (P.BodiesPerBasin <= 0) { return; }
+	const double R = Ctx.Config.Radius;
+	const float Inner = FMath::Min(P.RingInner, P.RingOuter), Outer = FMath::Max(P.RingInner, P.RingOuter);
+	const float HalfThick = FMath::Max(0.5f * P.ThicknessVoxels, 0.5f);
+
+	// 1) 单遍聚合：同一 BasinId 的方向和与格子数。
+	TMap<int32, FGeoBasinStats> Bins;
+	for (int32 Face = 0; Face < 6; ++Face)
+	for (int32 Y = 0; Y < Res; ++Y)
+	for (int32 X = 0; X < Res; ++X)
+	{
+		if (F.BasinMask.At(Face, X, Y) != 2.f) { continue; }
+		const int32 Id = int32(F.BasinId.At(Face, X, Y));
+		if (Id < 0) { continue; }
+		FGeoBasinStats& S = Bins.FindOrAdd(Id);
+		S.SumDir += F.BasinMask.TexelDir(Face, X, Y);
+		++S.Count;
+	}
+	TArray<int32> Ids; Bins.GetKeys(Ids); Ids.Sort();   // 键排序：确定性
+	for (const int32 Id : Ids)
+	{
+		const FGeoBasinStats& S = Bins[Id];
+		const FVector3f Center = S.SumDir.GetSafeNormal();
+		if (Center.IsNearlyZero() || S.Count < P.MinBasinCells) { continue; }
+		if (F.Precipitation.Sample(Center) > P.MaxPrecip) { continue; }
+		if (P.bRequireVolcano && !GeoBasinHasVolcanoNear(F.Volcanoes, Center, float(P.VolcanoRadiusRatio * R), float(R))) { continue; }
+
+		// 2) 盆地角半径：同编号格子里离中心最远的那个。
+		float MinDot = 1.f;
+		for (int32 Face = 0; Face < 6; ++Face)
+		for (int32 Y = 0; Y < Res; ++Y)
+		for (int32 X = 0; X < Res; ++X)
+		{
+			if (F.BasinMask.At(Face, X, Y) != 2.f || int32(F.BasinId.At(Face, X, Y)) != Id) { continue; }
+			MinDot = FMath::Min(MinDot, FVector3f::DotProduct(F.BasinMask.TexelDir(Face, X, Y), Center));
+		}
+		const float Rad = FMath::Acos(FMath::Clamp(MinDot, -1.f, 1.f));
+		if (Rad <= 1e-5f) { continue; }
+
+		for (int32 k = 0; k < P.BodiesPerBasin; ++k)
+		{
+			const float U = Ctx.Rng.NextFloat();
+			const float Angle = Rad * FMath::Lerp(Inner, Outer, FMath::Sqrt(U));
+			const FQuat4f Frame = GeoMineralRules::TangentFrame(Center, Ctx.Rng.Range(0.f, 2.f * PI));
+			const FVector3f Tangent = Frame.RotateVector(FVector3f::XAxisVector);
+			const FVector3f Dir = (Center * FMath::Cos(Angle) + Tangent * FMath::Sin(Angle)).GetSafeNormal();
+			const float Elev = F.Elevation.Sample(Dir);
+			const FVector3f Radii(float(P.RadiusRatio * R), float(P.RadiusRatio * R), HalfThick);
+			const FVector3f BodyCenter = Dir * (float(R) + Elev - 0.5f * P.ThicknessVoxels);
+			FGeoPrimitive Body = FGeoPrimitive::MakeOrientedBlob(BodyCenter, Radii, Frame, P.Hard);
+			Body.Grade = RandomGrade(Ctx.Rng);
+			Out.Bodies.Add(Body);
+		}
+	}
+}
+
+uint64 FGeoBasinDepositRule::HashParams() const
+{
+	uint64 H = GeoHash::Combine(GeoHash::Str("basindeposit"),
+		uint64(FMath::Max(P.MinBasinCells, 0)) | (uint64(FMath::Max(P.BodiesPerBasin, 0)) << 32));
+	// 单独混入：与上面的整数槽挤在一起时，翻转布尔可能不改哈希（6c-1 踩过）。
+	H = GeoHash::Combine(H, uint64(P.bRequireVolcano ? 1 : 0));
+	return GeoMineralRulesHashFloats(H, { P.MaxPrecip, P.RingInner, P.RingOuter, P.RadiusRatio,
+		P.ThicknessVoxels, P.VolcanoRadiusRatio, P.Hard });
+}
+
+namespace
+{
 	TArray<FGeoDebugLegendEntry> GeoMineralRulesLegend(const FPlanetSnapshot& S)
 	{
 		TArray<FGeoDebugLegendEntry> L;
