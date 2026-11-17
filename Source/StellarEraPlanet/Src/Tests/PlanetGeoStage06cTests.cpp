@@ -296,6 +296,26 @@ bool FGeoStage06cPlacerShapeTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06cPlacerHashTest, "StellarEra.Planet.Geo.Stage06c.Placer.Hash",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage06cPlacerHashTest::RunTest(const FString& Parameters)
+{
+	FGeoPlacerRule Off;
+	Off.P.SourceMineralIds.Add(5);
+	FGeoPlacerRule OnMouth = Off;
+	OnMouth.P.bMouthOnly = true;   // 默认 MouthCells=3：旧位移写法下这个翻转不改哈希
+	TestTrue(TEXT("bMouthOnly 翻转改变哈希"), Off.HashParams() != OnMouth.HashParams());
+
+	FGeoPlacerRule Mouth1 = Off;
+	Mouth1.P.bMouthOnly = true;
+	Mouth1.P.MouthCells = 1;
+	FGeoPlacerRule Mouth3 = Off;   // bMouthOnly=false, MouthCells=3（默认）
+	TestTrue(TEXT("(MouthCells=1, 嘴模式) 与 (MouthCells=3, 普通) 哈希不同"),
+		Mouth1.HashParams() != Mouth3.HashParams());
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06cFlowNextMatchTest, "StellarEra.Planet.Geo.Stage06c.FlowNextMatch",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
@@ -338,6 +358,7 @@ bool FGeoStage06cFlowNextMatchTest::RunTest(const FString& Parameters)
 		}
 	}
 	AddInfo(FString::Printf(TEXT("海洋格 %d，有下游的陆格 %d，失配 %d（其中陆格 %d）"), Ocean, LandWithDown, Mismatch, LandMismatch));
+	TestTrue(TEXT("有下游的陆格非零（否则对拍空转）"), LandWithDown > 0);
 	TestEqual(TEXT("陆格 FlowNext 与重算的 Down+1 逐格一致"), LandMismatch, 0);
 	TestEqual(TEXT("全部格一致（Down=-1 落成零值）"), Mismatch, 0);
 	return true;

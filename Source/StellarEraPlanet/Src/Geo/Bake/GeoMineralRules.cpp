@@ -573,6 +573,8 @@ void FGeoPlacerRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) co
 			const float Acc = F.FlowAccum.At(Face, X, Y);
 			if (PrevCell >= 0) { Dist += R * double((Dir - PrevDir).Size()); }
 			const int32 Next = int32(F.FlowNext.At(Face, X, Y)) - 1;
+			// 越界编号当坏数据直接停：它接下来会被拿去查格子。
+			if (Next >= 6 * Res * Res) { break; }
 			FVector3f NextDir = Dir;
 			if (Next >= 0)
 			{
@@ -606,8 +608,9 @@ uint64 FGeoPlacerRule::HashParams() const
 	Sorted.Sort();
 	uint64 H = GeoHash::Combine(GeoHash::Str("placer"),
 		uint64(uint32(P.MaxSteps)) | (uint64(uint32(P.StepStride)) << 32));
-	H = GeoHash::Combine(H, uint64(uint32(P.MaxBodiesPerSource)) | (uint64(uint32(P.MouthCells)) << 32)
-		| (uint64(P.bMouthOnly ? 1 : 0) << 33));
+	H = GeoHash::Combine(H, uint64(uint32(P.MaxBodiesPerSource)) | (uint64(uint32(P.MouthCells)) << 32));
+	// 单独混入：MouthCells 占了高位，挤在一起时翻转 bMouthOnly 会不改哈希。
+	H = GeoHash::Combine(H, uint64(P.bMouthOnly ? 1 : 0));
 	H = GeoMineralRulesHashFloats(H, { P.MinSourceExposure, P.MinFlowAccumRatio, P.HalfWidthRatio,
 		P.ThicknessVoxels, P.DecayPerVoxel, P.Hard });
 	for (const uint8 Id : Sorted) { H = GeoHash::Combine(H, uint64(Id)); }
