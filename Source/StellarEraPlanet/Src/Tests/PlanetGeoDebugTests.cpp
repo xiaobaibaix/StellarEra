@@ -10,6 +10,7 @@
 #include "PlanetBakePipeline.h"
 #include "PlanetGeoDebugRender.h"
 #include "PlanetGeoDebugView3D.h"
+#include "VoxelPlanetActor.h"
 #include "PlanetGeoGenerator.h"
 #include "PlanetShapeEval.h"
 #include "PlanetStage.h"
@@ -37,6 +38,34 @@ namespace
 	}
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoDebugLayerLabelTest, "StellarEra.Planet.Geo.Debug.LayerLabels",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoDebugLayerLabelTest::RunTest(const FString& Parameters)
+{
+	// 细节面板的下拉只有 FName，标签必须自带中文并能解析回 Id；否则用户只能看到英文代号。
+	const TArray<FGeoDebugLayer>& Layers = FPlanetBakePipeline::DefaultDebugLayers();
+	TestTrue(TEXT("有图层"), Layers.Num() > 0);
+	int32 BadSuffix = 0, BadRoundTrip = 0, BadBareId = 0, NoChinese = 0;
+	for (const FGeoDebugLayer& L : Layers)
+	{
+		const FString Label = AVoxelPlanetActor::GeoDebugLayerLabel(L);
+		BadSuffix += Label.EndsWith(FString::Printf(TEXT("（%s）"), *L.Id.ToString())) ? 0 : 1;
+		BadRoundTrip += AVoxelPlanetActor::ParseGeoDebugLayerLabel(FName(*Label)) == L.Id ? 0 : 1;
+		BadBareId += AVoxelPlanetActor::ParseGeoDebugLayerLabel(L.Id) == L.Id ? 0 : 1;
+		bool bHasNonAscii = false;
+		for (const TCHAR C : Label) { bHasNonAscii |= C > 127; }
+		NoChinese += bHasNonAscii ? 0 : 1;
+	}
+	AddInfo(FString::Printf(TEXT("图层 %d 个；坏后缀 %d，回环失败 %d，裸 Id 失败 %d，无中文 %d"),
+		Layers.Num(), BadSuffix, BadRoundTrip, BadBareId, NoChinese));
+	TestEqual(TEXT("标签以「（Id）」结尾"), BadSuffix, 0);
+	TestEqual(TEXT("标签能解析回 Id"), BadRoundTrip, 0);
+	TestEqual(TEXT("裸 Id 仍能解析（老数据兼容）"), BadBareId, 0);
+	TestEqual(TEXT("每个标签都含中文"), NoChinese, 0);
+	TestTrue(TEXT("无法识别的名字解析为 None"), AVoxelPlanetActor::ParseGeoDebugLayerLabel(TEXT("不存在的图层")).IsNone());
+	return true;
+}
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoDebugRegistryTest, "StellarEra.Planet.Geo.Debug.Registry",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 

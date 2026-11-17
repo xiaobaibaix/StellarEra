@@ -208,6 +208,14 @@ public:
 
 	UFUNCTION()
 	TArray<FName> GetGeoDebugLayerOptions() const;
+	/** 下拉标签「中文名（Id）」：细节面板只能显示 FName，不带中文就认不出来。 */
+	static FString GeoDebugLayerLabel(const FGeoDebugLayer& Layer);
+	/** 标签、裸 Id 或中文名 → 图层 Id；认不出返回 None（老数据存的是裸 Id）。 */
+	static FName ParseGeoDebugLayerLabel(FName Label);
+	/** 两个属性统一存标签：下拉收起时也看得到中文。 */
+	void NormalizeGeoDebugLayerNames();
+	FName GetSurfaceLayerId() const { return ParseGeoDebugLayerLabel(GeoDebugSurfaceLayer); }
+	FName GetVolumeLayerId() const { return ParseGeoDebugLayerLabel(GeoDebugVolumeLayer); }
 
 	UFUNCTION(BlueprintPure, Category = "Planet|Geo")
 	bool IsGeoMode() const { return GeoRecipe != nullptr; }

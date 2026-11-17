@@ -582,6 +582,9 @@ void AVoxelPlanetActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyCh
 	// 这些属性不放进 ComputeParamsHash，否则同一次编辑会重建两次。
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 
+	// 下拉选中的是「中文名（Id）」标签，这里立刻规范成标签形式；老值（裸 Id）也一并升级。
+	NormalizeGeoDebugLayerNames();
+
 	// 地质预设换了要通知镜像方（矿物组件上的槽），否则先改行星再选组件会看到
 	// 过期值。新的预设仍需按「重建行星」才生效。
 	if (PropertyChangedEvent.GetPropertyName()
@@ -890,8 +893,8 @@ void AVoxelPlanetActor::RebuildGeoPlanet()
 	GeoGenerator->SetSnapshot(GeoSnapshot);
 	GeoGenerator->DebugColor = GeoDebugColor;
 	GeoGenerator->Cutaway = GeoCutaway;
-	GeoGenerator->SurfaceLayer = GeoCutaway != EPlanetGeoCutaway::None ? GeoDebugSurfaceLayer : NAME_None;
-	GeoGenerator->VolumeLayer = GeoDebugVolumeLayer;
+	GeoGenerator->SurfaceLayer = GeoCutaway != EPlanetGeoCutaway::None ? GetSurfaceLayerId() : NAME_None;
+	GeoGenerator->VolumeLayer = GetVolumeLayerId();
 	// 材质必须在建世界前就位：渲染器创建时快照它。
 	ApplyGeoDebugOverlay();
 
@@ -1367,6 +1370,7 @@ void AVoxelPlanetActor::PostLoad()
 		PlanetGenerator = nullptr;
 		Generator = FVoxelGeneratorPicker();
 	}
+	NormalizeGeoDebugLayerNames();
 
 	// 迁移：旧关卡存的是 JSON 预设名，找不到资产就保留字符串、不报错（资产可能还没建）。
 	// 同步 TryLoad 是有意取舍：一次性编辑器迁移、预设只有几 KB；将来运行时依赖须改异步。
@@ -1779,8 +1783,8 @@ uint64 AVoxelPlanetActor::ComputeParamsHash() const
 	Mix(&GeoDebugColor, sizeof(GeoDebugColor));
 	// 剖切改的是密度与顶点色，要重建；不剖切时地表图层只换贴图，不进哈希。
 	Mix(&GeoCutaway, sizeof(GeoCutaway));
-	const FString GeoDebugKey = GeoDebugVolumeLayer.ToString()
-		+ (GeoCutaway != EPlanetGeoCutaway::None ? GeoDebugSurfaceLayer.ToString() : FString());
+	const FString GeoDebugKey = GetVolumeLayerId().ToString()
+		+ (GeoCutaway != EPlanetGeoCutaway::None ? GetSurfaceLayerId().ToString() : FString());
 	Mix(*GeoDebugKey, GeoDebugKey.Len() * sizeof(TCHAR));
 
 	return Hash;
@@ -1789,13 +1793,49 @@ uint64 AVoxelPlanetActor::ComputeParamsHash() const
 TArray<FName> AVoxelPlanetActor::GetGeoDebugLayerOptions() const
 {
 	TArray<FName> Out = { NAME_None };
-	for (const FGeoDebugLayer& L : FPlanetBakePipeline::DefaultDebugLayers()) { Out.Add(L.Id); }
+	for (const FGeoDebugLayer& L : FPlanetBakePipeline::DefaultDebugLayers()) { Out.Add(FName(*GeoDebugLayerLabel(L))); }
 	return Out;
+}
+
+FString AVoxelPlanetActor::GeoDebugLayerLabel(const FGeoDebugLayer& Layer)
+{
+	return FString::Printf(TEXT("%s（%s）"), *Layer.DisplayName, *Layer.Id.ToString());
+}
+
+FName AVoxelPlanetActor::ParseGeoDebugLayerLabel(FName Label)
+{
+	if (Label.IsNone()) { return NAME_None; }
+	// 老数据与代码里存的都是裸 Id，先直接认。
+	if (FPlanetBakePipeline::FindDefaultDebugLayer(Label)) { return Label; }
+	const FString S = Label.ToString();
+	int32 Open = INDEX_NONE;
+	if (S.FindLastChar(TEXT('（'), Open) && S.EndsWith(TEXT("）")))
+	{
+		const FName Id(*S.Mid(Open + 1, S.Len() - Open - 2));
+		if (FPlanetBakePipeline::FindDefaultDebugLayer(Id)) { return Id; }
+	}
+	// 用户可能只写了中文名。
+	for (const FGeoDebugLayer& L : FPlanetBakePipeline::DefaultDebugLayers())
+	{
+		if (S == L.DisplayName) { return L.Id; }
+	}
+	return NAME_None;
+}
+
+void AVoxelPlanetActor::NormalizeGeoDebugLayerNames()
+{
+	const auto Canon = [](FName& Field)
+	{
+		const FName Id = ParseGeoDebugLayerLabel(Field);
+		if (const FGeoDebugLayer* L = FPlanetBakePipeline::FindDefaultDebugLayer(Id)) { Field = FName(*GeoDebugLayerLabel(*L)); }
+	};
+	Canon(GeoDebugSurfaceLayer);
+	Canon(GeoDebugVolumeLayer);
 }
 
 bool AVoxelPlanetActor::ApplyGeoDebugOverlay()
 {
-	const FGeoDebugLayer* Layer = FPlanetBakePipeline::FindDefaultDebugLayer(GeoDebugSurfaceLayer);
+	const FGeoDebugLayer* Layer = FPlanetBakePipeline::FindDefaultDebugLayer(GetSurfaceLayerId());
 	const bool bWant = GeoSnapshot.IsValid() && Layer && GeoDebugOverlayOpacity > 0.f && GeoCutaway == EPlanetGeoCutaway::None;
 
 	// 父材质永远是用户设的那个：VoxelMaterial 此刻可能指着上次的 MID（PIE 复制时甚至是副本）。
