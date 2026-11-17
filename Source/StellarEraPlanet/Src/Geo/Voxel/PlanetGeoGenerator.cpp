@@ -68,6 +68,10 @@ FVoxelMaterial FPlanetGeoGeneratorInstance::GetMaterialImpl(v_flt X, v_flt Y, v_
 	const double D = Pos.Size();
 	const FVector3f Dir = D > 1e-6 ? FVector3f(Pos / D) : FVector3f::UpVector;
 	const double Surface = PlanetShapeEval::SurfaceRadius(*Snapshot, Dir);
+	// 表面遮罩：地表用生物群系色，挖开处用岩性色。带宽随 LOD 放大，粗 LOD 采样点离表面更远。
+	const double Band = 8.0 + 2.0 * double(1 << FMath::Clamp(LOD, 0, 20));
+	const float Mask = float(FMath::Clamp(1.0 - FMath::Max(Surface - D, 0.0) / Band, 0.0, 1.0));
+	P.U1 = uint8(FMath::RoundToInt(Mask * 255.f));
 	const bool bNearSurface = Surface - D < GeoNearBand(LOD);
 	const bool bOnCut = View.Cutaway != EPlanetGeoCutaway::None && View.VolumeLayer
 		&& GeoCutDistance(View.Cutaway, Pos) > -GeoNearBand(LOD);

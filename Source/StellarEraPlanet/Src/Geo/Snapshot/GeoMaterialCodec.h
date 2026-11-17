@@ -21,6 +21,9 @@ struct FGeoPackedMaterial
 
 namespace GeoMaterialCodec
 {
+	/** U1 是离地表遮罩，材质按 UV1.x 读；改通道顺序要同步改 MF_GeoDecode。 */
+	constexpr int32 SurfaceMaskChannel = 6;
+
 	FORCEINLINE FGeoPackedMaterial Encode(const FGeoSample& S)
 	{
 		FGeoPackedMaterial M;
