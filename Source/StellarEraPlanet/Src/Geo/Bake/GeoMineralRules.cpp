@@ -553,15 +553,24 @@ void FGeoPlacerRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) co
 		Out.Bodies.Add(Body);
 	};
 
+	int32 SkipNoDownstream = 0, SkipOceanEntry = 0, MouthNoSea = 0;
 	for (const FGeoPrimitive& Src : F.Primitives)
 	{
 		if (Src.MineralId == 0 || !P.SourceMineralIds.Contains(Src.MineralId)) { continue; }
 		if (float(Src.Exposure) / 255.f < P.MinSourceExposure) { continue; }
 		int32 Cell = int32(GeoPlacerReadAt(F.FlowNext, GeoPlacerCellIndex(F.FlowAccum, Src.Center.GetSafeNormal()))) - 1;
-		if (Cell < 0) { continue; }
+		if (Cell < 0) { ++SkipNoDownstream; continue; }
+		// 入口格与走流循环共用同一个上界：越界编号拿去查格子会读到数组外。
+		if (Cell >= 6 * Res * Res) { continue; }
+		{
+			int32 EF, EX, EY; GeoPlacerCellFaceXY(F.FlowAccum, Cell, EF, EX, EY);
+			// 入口格就在海里时循环会空手退出；提前拦下只为把它计入诊断。
+			if (F.Elevation.Sample(F.FlowAccum.TexelDir(EF, EX, EY)) <= 0.f) { ++SkipOceanEntry; continue; }
+		}
 
 		int32 Emitted = 0, ValidRun = 0, Steps = 0, PrevCell = -1;
 		double Dist = 0.0;
+		bool bReachedSea = false;
 		FVector3f PrevDir = FVector3f::ZeroVector;
 		TArray<TPair<int32, double>> MouthBuf;   // (格, 到该格的流程距离)
 		while (Cell >= 0 && Steps < MaxSteps && Emitted < MaxBodies)
@@ -584,6 +593,7 @@ void FGeoPlacerRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) co
 			PrevDir = Dir; PrevCell = Cell;
 			if (Elev <= 0.f)   // 入海：嘴模式结算缓冲区；普通模式直接停
 			{
+				bReachedSea = true;
 				if (P.bMouthOnly) { for (const TPair<int32, double>& M : MouthBuf) { EmitOne(M.Key, NextDir, M.Value); } }
 				break;
 			}
@@ -599,7 +609,12 @@ void FGeoPlacerRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) co
 			if (Next < 0) { break; }   // 内流盆地 / 无下游：嘴模式不结算（不是海）
 			Cell = Next;
 		}
+		// 嘴模式走到步数上限还没入海：这一源出不了片，单独计数。正常模式的步数耗尽不算跳过。
+		if (P.bMouthOnly && !bReachedSea && Steps >= MaxSteps) { ++MouthNoSea; }
 	}
+	// 规范 §9 要求给出跳过数；逐个源打日志会刷屏，这里每次调用汇总一行。
+	UE_LOG(LogTemp, Log, TEXT("[地质] 撒矿器「%s」跳过源矿 %d 个：无下游 %d，入口即海洋 %d，嘴模式步数耗尽未见海 %d"),
+		GetRuleName(), SkipNoDownstream + SkipOceanEntry + MouthNoSea, SkipNoDownstream, SkipOceanEntry, MouthNoSea);
 }
 
 uint64 FGeoPlacerRule::HashParams() const

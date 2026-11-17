@@ -199,6 +199,15 @@ bool FGeoStage06cPlacerFollowFlowTest::RunTest(const FString& Parameters)
 		if (Chain.F.FlowAccum.At(Face, X, Y) < Chain.C.Hydro.RiverThreshold) { ++Bad; }
 	}
 	TestEqual(TEXT("每片都在河格（面 0 / Y=8 / 陆地 / 汇流过阈值）"), Bad, 0);
+
+	// 每源片数上限：链上有效格远多于 2，超了必然截到 2 片。
+	FGeoPlacerRule Capped;
+	Capped.P.SourceMineralIds.Add(5);
+	Capped.P.StepStride = 1;
+	Capped.P.MaxBodiesPerSource = 2;
+	FGeoScatterOutput CappedOut;
+	Stage06cScatter(Chain.C, Chain.F, Capped, CappedOut);
+	TestEqual(TEXT("MaxBodiesPerSource=2 时恰好 2 片"), CappedOut.Bodies.Num(), 2);
 	return true;
 }
 
@@ -233,7 +242,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06cPlacerMouthTest, "StellarEra.Planet
 
 bool FGeoStage06cPlacerMouthTest::RunTest(const FString& Parameters)
 {
-	const FStage06cChain Chain = Stage06cMakeChain(12);
+	const FStage06cChain Chain = Stage06cMakeChain(16);   // Res=16：上限 15 个陆格
+	const int32 Land = Chain.F.FlowAccum.Res - 1;         // 与 Stage06cMakeChain 的 Clamp 一致
 	FGeoPlacerRule Plain;
 	Plain.P.SourceMineralIds.Add(5);
 	FGeoScatterOutput PlainOut;
@@ -243,19 +253,19 @@ bool FGeoStage06cPlacerMouthTest::RunTest(const FString& Parameters)
 	FGeoPlacerRule Mouth;
 	Mouth.P.SourceMineralIds.Add(5);
 	Mouth.P.bMouthOnly = true;
-	Mouth.P.MouthCells = 3;
+	Mouth.P.MouthCells = 5;
 	FGeoScatterOutput MouthOut;
 	Stage06cScatter(Chain.C, Chain.F, Mouth, MouthOut);
-	TestEqual(TEXT("嘴模式恰好 3 片"), MouthOut.Bodies.Num(), 3);
+	TestEqual(TEXT("嘴模式恰好 5 片"), MouthOut.Bodies.Num(), 5);
 
 	int32 Bad = 0;
 	for (const FGeoPrimitive& Body : MouthOut.Bodies)
 	{
 		int32 Face, X, Y;
 		Stage06cCellFaceXY(Chain.F.FlowAccum, Stage06cBodyCell(Chain.F.FlowAccum, Body), Face, X, Y);
-		if (Face != 0 || Y != 8 || X < 12 - 3) { ++Bad; }
+		if (Face != 0 || Y != 8 || X < Land - 5) { ++Bad; }
 	}
-	TestEqual(TEXT("三片都在入海前最后 3 格"), Bad, 0);
+	TestEqual(TEXT("五片都在入海前最后 5 格"), Bad, 0);
 	return true;
 }
 
@@ -288,18 +298,20 @@ bool FGeoStage06cPlacerShapeTest::RunTest(const FString& Parameters)
 	const FStage06cChain Chain = Stage06cMakeChain(12);
 	FGeoPlacerRule Rule;
 	Rule.P.SourceMineralIds.Add(5);
+	Rule.P.ThicknessVoxels = 4.f;   // 非默认值：厚度若被写死成 0.5，这里会露馅
 	FGeoScatterOutput Out;
 	Stage06cScatter(Chain.C, Chain.F, Rule, Out);
 	if (!TestTrue(TEXT("有片才验形状"), Out.Bodies.Num() > 0)) { return false; }
 
+	const float ExpectedHalfThick = FMath::Max(0.5f * Rule.P.ThicknessVoxels, 0.5f);   // 4 体素 → 2
 	int32 BadKind = 0, BadThickness = 0;
 	for (const FGeoPrimitive& Body : Out.Bodies)
 	{
 		BadKind += Body.Kind != EGeoPrimitiveKind::OrientedBlob ? 1 : 0;
-		BadThickness += Body.Radii.Z > 0.5f * Rule.P.ThicknessVoxels + 0.01f ? 1 : 0;
+		BadThickness += FMath::Abs(Body.Radii.Z - ExpectedHalfThick) > 0.01f ? 1 : 0;
 	}
 	TestEqual(TEXT("全部 OrientedBlob"), BadKind, 0);
-	TestEqual(TEXT("厚度不超过 ThicknessVoxels/2"), BadThickness, 0);
+	TestEqual(TEXT("厚度恰为 max(ThicknessVoxels/2, 0.5)（4 → 2）"), BadThickness, 0);
 	return true;
 }
 
