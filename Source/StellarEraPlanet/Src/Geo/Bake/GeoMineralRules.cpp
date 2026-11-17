@@ -484,6 +484,138 @@ uint64 FGeoRareEarthRule::HashParams() const
 
 namespace
 {
+	// 方向 → 格子编号：取整与 FGeoField2D::SampleNearest 一致，规则才与阶段 6 读同一格。
+	int32 GeoPlacerCellIndex(const FGeoField2D& Field, const FVector3f& Dir)
+	{
+		int32 Face; float U, V;
+		FGeoField2D::DirToFace(Dir, Face, U, V);
+		const int32 R = Field.Res;
+		const int32 X = FMath::Clamp(int32((U + 1.f) * 0.5f * float(R)), 0, R - 1);
+		const int32 Y = FMath::Clamp(int32((V + 1.f) * 0.5f * float(R)), 0, R - 1);
+		return (Face * R + Y) * R + X;
+	}
+
+	void GeoPlacerCellFaceXY(const FGeoField2D& Field, int32 Idx, int32& Face, int32& X, int32& Y)
+	{
+		const int32 R = Field.Res;
+		Face = Idx / (R * R);
+		const int32 Rem = Idx - Face * R * R;
+		X = Rem % R;
+		Y = Rem / R;
+	}
+
+	float GeoPlacerReadAt(const FGeoField2D& Field, int32 Idx)
+	{
+		int32 Face, X, Y; GeoPlacerCellFaceXY(Field, Idx, Face, X, Y);
+		return Field.At(Face, X, Y);
+	}
+}
+
+void FGeoPlacerRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const
+{
+	if (P.SourceMineralIds.IsEmpty()) { return; }
+	const FPlanetBakeFields& F = Ctx.Fields;
+	const int32 Res = F.FlowAccum.Res;
+	if (Res <= 0 || F.FlowNext.Res != Res)
+	{
+		Ctx.Errors.Add(TEXT("[地质] 撒矿器「Placer」需要阶段 6 的 FlowAccum 与 FlowNext"));
+		return;
+	}
+	const double R = Ctx.Config.Radius;
+	const double Thr = FMath::Max(double(Ctx.Config.Hydro.RiverThreshold), 1e-9);
+	const double MinAcc = double(P.MinFlowAccumRatio) * Thr;
+	const double CellArc = 1.5707963 * R / double(Res);   // 一个宏观格的弧长
+	const float HalfThick = FMath::Max(0.5f * P.ThicknessVoxels, 0.5f);
+	const int32 MaxSteps = FMath::Clamp(P.MaxSteps, 1, 4096);
+	const int32 Stride = FMath::Clamp(P.StepStride, 1, 64);
+	const int32 MaxBodies = FMath::Clamp(P.MaxBodiesPerSource, 1, 512);
+	const int32 MouthCells = FMath::Clamp(P.MouthCells, 1, MaxBodies);
+
+	// 一片薄透镜：中心贴地表，X 轴顺流向，Z 轴沿法线。
+	const auto EmitOne = [&](int32 Cell, const FVector3f& FlowDir, double Dist)
+	{
+		int32 Face, X, Y; GeoPlacerCellFaceXY(F.FlowAccum, Cell, Face, X, Y);
+		const FVector3f Dir = F.FlowAccum.TexelDir(Face, X, Y);
+		const float Elev = F.Elevation.Sample(Dir);
+		const float Acc = F.FlowAccum.At(Face, X, Y);
+		FVector3f T = FlowDir - Dir * FVector3f::DotProduct(Dir, FlowDir);
+		if (T.SizeSquared() < 1e-12f) { T = GeoMineralRules::TangentFrame(Dir, 0.f).RotateVector(FVector3f::XAxisVector); }
+		const FVector3f XAxis = T.GetSafeNormal();
+		const FVector3f YAxis = FVector3f::CrossProduct(Dir, XAxis);
+		const FQuat4f Rot(FMatrix44f(XAxis, YAxis, Dir, FVector3f::ZeroVector));
+		const float Across = FMath::Clamp(float(P.HalfWidthRatio * R) * FMath::Sqrt(Acc / float(Thr)),
+			1.f, float(4.0 * CellArc));
+		const FVector3f Radii(float(0.75 * Stride * CellArc), Across, HalfThick);
+		const FVector3f Center = Dir * (float(R) + Elev - 0.5f * P.ThicknessVoxels);
+		FGeoPrimitive Body = FGeoPrimitive::MakeOrientedBlob(Center, Radii, Rot, P.Hard);
+		Body.Grade = uint8(FMath::Clamp(FMath::RoundToInt(double(GradeMax) * FMath::Exp(-double(P.DecayPerVoxel) * Dist)),
+			int32(GradeMin), int32(GradeMax)));
+		Out.Bodies.Add(Body);
+	};
+
+	for (const FGeoPrimitive& Src : F.Primitives)
+	{
+		if (Src.MineralId == 0 || !P.SourceMineralIds.Contains(Src.MineralId)) { continue; }
+		if (float(Src.Exposure) / 255.f < P.MinSourceExposure) { continue; }
+		int32 Cell = int32(GeoPlacerReadAt(F.FlowNext, GeoPlacerCellIndex(F.FlowAccum, Src.Center.GetSafeNormal()))) - 1;
+		if (Cell < 0) { continue; }
+
+		int32 Emitted = 0, ValidRun = 0, Steps = 0, PrevCell = -1;
+		double Dist = 0.0;
+		FVector3f PrevDir = FVector3f::ZeroVector;
+		TArray<TPair<int32, double>> MouthBuf;   // (格, 到该格的流程距离)
+		while (Cell >= 0 && Steps < MaxSteps && Emitted < MaxBodies)
+		{
+			++Steps;
+			int32 Face, X, Y; GeoPlacerCellFaceXY(F.FlowAccum, Cell, Face, X, Y);
+			const FVector3f Dir = F.FlowAccum.TexelDir(Face, X, Y);
+			const float Elev = F.Elevation.Sample(Dir);
+			const float Acc = F.FlowAccum.At(Face, X, Y);
+			if (PrevCell >= 0) { Dist += R * double((Dir - PrevDir).Size()); }
+			const int32 Next = int32(F.FlowNext.At(Face, X, Y)) - 1;
+			FVector3f NextDir = Dir;
+			if (Next >= 0)
+			{
+				int32 NF, NX, NY; GeoPlacerCellFaceXY(F.FlowAccum, Next, NF, NX, NY);
+				NextDir = F.FlowAccum.TexelDir(NF, NX, NY);
+			}
+			PrevDir = Dir; PrevCell = Cell;
+			if (Elev <= 0.f)   // 入海：嘴模式结算缓冲区；普通模式直接停
+			{
+				if (P.bMouthOnly) { for (const TPair<int32, double>& M : MouthBuf) { EmitOne(M.Key, NextDir, M.Value); } }
+				break;
+			}
+			if (double(Acc) >= MinAcc)
+			{
+				if (P.bMouthOnly)
+				{
+					MouthBuf.Emplace(Cell, Dist);
+					if (MouthBuf.Num() > MouthCells) { MouthBuf.RemoveAt(0); }
+				}
+				else if (++ValidRun >= Stride) { ValidRun = 0; ++Emitted; EmitOne(Cell, NextDir, Dist); }
+			}
+			if (Next < 0) { break; }   // 内流盆地 / 无下游：嘴模式不结算（不是海）
+			Cell = Next;
+		}
+	}
+}
+
+uint64 FGeoPlacerRule::HashParams() const
+{
+	TArray<uint8> Sorted = P.SourceMineralIds;
+	Sorted.Sort();
+	uint64 H = GeoHash::Combine(GeoHash::Str("placer"),
+		uint64(uint32(P.MaxSteps)) | (uint64(uint32(P.StepStride)) << 32));
+	H = GeoHash::Combine(H, uint64(uint32(P.MaxBodiesPerSource)) | (uint64(uint32(P.MouthCells)) << 32)
+		| (uint64(P.bMouthOnly ? 1 : 0) << 33));
+	H = GeoMineralRulesHashFloats(H, { P.MinSourceExposure, P.MinFlowAccumRatio, P.HalfWidthRatio,
+		P.ThicknessVoxels, P.DecayPerVoxel, P.Hard });
+	for (const uint8 Id : Sorted) { H = GeoHash::Combine(H, uint64(Id)); }
+	return H;
+}
+
+namespace
+{
 	TArray<FGeoDebugLegendEntry> GeoMineralRulesLegend(const FPlanetSnapshot& S)
 	{
 		TArray<FGeoDebugLegendEntry> L;

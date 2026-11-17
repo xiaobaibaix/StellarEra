@@ -260,6 +260,33 @@ public:
 	virtual uint64 HashParams() const override;
 };
 
+/** 砂矿：上游原生矿沿流磨碎、在河谷里沉积的 1 体素薄层。运行于阶段 6b 之后（阶段号 7）。 */
+struct FGeoPlacerParams
+{
+	TArray<uint8> SourceMineralIds;   // 源矿编号；空 = 不撒（「无源不砂矿」）
+	float MinSourceExposure = 0.f;    // 源矿最低出露比例（0–1）
+	int32 MaxSteps = 96;              // 单条流路最多走多少宏观格
+	int32 StepStride = 2;             // 每几个有效沉积格放一片
+	int32 MaxBodiesPerSource = 24;    // 单个源矿最多几片
+	float MinFlowAccumRatio = 1.f;    // 沉积格最低汇流量 = 该倍数 × Hydro.RiverThreshold
+	float HalfWidthRatio = 0.0015f;   // 横跨半宽（占 R），随汇流开方放大
+	float ThicknessVoxels = 1.f;      // 薄层厚度（体素）
+	float DecayPerVoxel = 0.00008f;   // 品位沿流程的指数衰减系数
+	bool bMouthOnly = false;          // 只在入海前最后 MouthCells 格沉积（滨海重砂）
+	int32 MouthCells = 3;             // bMouthOnly 时沉积几格
+	float Hard = 0.3f;                // 薄层软边宽度
+};
+
+class STELLARERAPLANET_API FGeoPlacerRule final : public IGeoMineralRule
+{
+public:
+	FGeoPlacerParams P;
+	virtual uint32 GetStage() const override { return 7; }
+	virtual const TCHAR* GetRuleName() const override { return TEXT("Placer"); }
+	virtual void Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const override;
+	virtual uint64 HashParams() const override;
+};
+
 namespace GeoMineralRules
 {
 	/** 矿物图层（地下 / 地表矿化），图例来自快照的矿物调色板。不属于某一阶段，Stage = 0。 */
