@@ -14,9 +14,11 @@
 #include "PlanetSnapshot.h"
 #include "VoxelPlanetGenerator.h"
 #include "VoxelPlanetNoiseTerrain.h"
+#include "PlanetRecipe.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Engine/Texture2D.h"
+#include "Engine/TextureCube.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -198,6 +200,79 @@ bool FGeoMaterialActorLUTTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("LUT 高 3"), LUT->GetSizeY(), GeoPalette::Rows);
 	TestTrue(TEXT("纹理 Outer 不是行星 Actor"), LUT->GetOuter() != Planet);
 	TestTrue(TEXT("纹理 Outer 是瞬态包"), LUT->GetOuter() == GetTransientPackage());
+	TestTrue(TEXT("LUT 是 sRGB"), LUT->SRGB);
+	TestTrue(TEXT("最近邻采样（双线性会把矿色与 0 号黑混开）"), LUT->Filter == TF_Nearest);
+	TestTrue(TEXT("U 方向钳制（Wrap 会让 255 号绕回 0）"), LUT->AddressX == TA_Clamp);
+	TestTrue(TEXT("V 方向钳制"), LUT->AddressY == TA_Clamp);
+
+	// Mip0 逐字节对照纯函数：FColor 的内存布局就是 BGRA。
+	const TArray<FColor> Expected = GeoPalette::BuildLUT(Snap->Minerals);
+	FTexture2DMipMap& Mip = LUT->GetPlatformData()->Mips[0];
+	const FColor* Pixels = static_cast<const FColor*>(Mip.BulkData.Lock(LOCK_READ_ONLY));
+	if (TestNotNull(TEXT("Mip0 可加锁读取"), Pixels))
+	{
+		TestEqual(TEXT("岩性 1 号像素与 BuildLUT 一致"),
+			Pixels[1].ToPackedARGB(), Expected[1].ToPackedARGB());
+		TestEqual(TEXT("矿物 1 号像素与 BuildLUT 一致"),
+			Pixels[GeoPalette::Width + 1].ToPackedARGB(), Expected[GeoPalette::Width + 1].ToPackedARGB());
+		Mip.BulkData.Unlock();
+	}
+	return true;
+}
+
+// geo 行星不走 InstallBiomeMaterial：材质必须由 ApplyGeoDebugOverlay 装，否则调色板与 BiomeCube
+// 在唯一有快照的模式里全是死代码（地表一片黑 / 岩性解不出来）。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoMaterialActorGeoTest, "StellarEra.Planet.Geo.Material.ActorGeoMaterial",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoMaterialActorGeoTest::RunTest(const FString& Parameters)
+{
+	AVoxelPlanetActor* Planet = NewObject<AVoxelPlanetActor>(GetTransientPackage());
+	if (!TestNotNull(TEXT("行星 Actor"), Planet)) { return false; }
+	Planet->GeoRecipe = NewObject<UPlanetRecipe>(GetTransientPackage());
+	if (!TestNotNull(TEXT("配方"), Planet->GeoRecipe.Get())) { return false; }
+
+	TSharedPtr<FPlanetSnapshot> Snap = MakeShared<FPlanetSnapshot>();
+	Snap->R0 = 1000.0;
+	Snap->MinSurfaceRadius = Snap->MaxSurfaceRadius = Snap->R0;
+	FGeoMineralInfo Mineral;
+	Mineral.Name = TEXT("矿1");
+	Mineral.Color = FColor(30, 190, 70);
+	Snap->Minerals.Add(Mineral);
+	// Biome 层从 DebugFields 取场；缺了只能烘出一片「无数据」色，这条测试就测不到底图接线。
+	FGeoField2D Biome;
+	Biome.Init(16);
+	Biome.Fill([](const FVector3f&) { return 3.f; });
+	Snap->DebugFields.Add(TEXT("Biome"), MoveTemp(Biome));
+	Snap->FinalizeHash();
+	Planet->SetGeoSnapshotForTest(Snap);
+
+	Planet->VoxelMaterial = NewObject<UMaterial>(GetTransientPackage());
+	// 默认没选叠加图层：材质只带 Biome 底图 + 调色板，混合权重应为 1。
+	Planet->ApplyGeoDebugOverlayForTest();
+
+	UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(Planet->VoxelMaterial.Get());
+	if (!TestNotNull(TEXT("geo 行星的 VoxelMaterial 是 MID"), MID)) { return false; }
+
+	UTexture* Palette = nullptr;
+	TestTrue(TEXT("MID 上有 GeoPalette"),
+		MID->GetTextureParameterValue(FMaterialParameterInfo(TEXT("GeoPalette")), Palette));
+	UTexture2D* LUT = Cast<UTexture2D>(Palette);
+	if (TestNotNull(TEXT("GeoPalette 是 Texture2D"), LUT))
+	{
+		TestEqual(TEXT("LUT 宽 256"), LUT->GetSizeX(), GeoPalette::Width);
+		TestEqual(TEXT("LUT 高 3"), LUT->GetSizeY(), GeoPalette::Rows);
+	}
+
+	UTexture* Cube = nullptr;
+	TestTrue(TEXT("MID 上有 BiomeCube"),
+		MID->GetTextureParameterValue(FMaterialParameterInfo(TEXT("BiomeCube")), Cube));
+	TestNotNull(TEXT("BiomeCube 非空"), Cube);
+
+	float Blend = -1.f;
+	TestTrue(TEXT("MID 上有 BiomeCubeBlend"),
+		MID->GetScalarParameterValue(FMaterialParameterInfo(TEXT("BiomeCubeBlend")), Blend));
+	TestEqual(TEXT("没有叠加时混合权重 = 1"), Blend, 1.f);
 	return true;
 }
 

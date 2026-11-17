@@ -349,6 +349,12 @@ public:
 	 */
 	static UTexture2D* CreatePaletteTexture(const TArray<FColor>& Pixels);
 
+	/**
+	 * MID 的父材质：M_GeoPlanet 存在就用它（解地质通道），否则用 Fallback。
+	 * **建 MID 时才查**：构造函数里 FObjectFinder 缺失资产会打 CDO Error，且缓存住就再也不看新资产。
+	 */
+	static UMaterialInterface* ChooseBiomeParentMaterial(UMaterialInterface* Fallback);
+
 #if WITH_DEV_AUTOMATION_TESTS
 	/** 生产路径只有烘焙回调能写快照；测试装一颗带矿的星需要这条口子。 */
 	void SetGeoSnapshotForTest(TSharedPtr<const FPlanetSnapshot> InSnapshot)
@@ -356,6 +362,7 @@ public:
 		GeoSnapshot = MoveTemp(InSnapshot);
 	}
 	bool InstallBiomeMaterialForTest(bool bForceBake) { return InstallBiomeMaterial(bForceBake); }
+	bool ApplyGeoDebugOverlayForTest() { return ApplyGeoDebugOverlay(); }
 #endif
 
 private:
@@ -421,6 +428,9 @@ private:
 	 * 是否**被换掉**，调用方据此决定是否 ApplyNewMaterials。
 	 */
 	bool InstallBiomeMaterial(bool bForceBake);
+
+	/** 按快照矿物表建 / 复用 LUT 纹理并绑到 MID 的 `GeoPalette`；无快照时什么都不做。 */
+	void BindGeoPalette(UMaterialInstanceDynamic* MID);
 
 	/** 按当前水文场重建水面。没有水的行星会拆掉全部分量。 */
 	void RebuildWater();

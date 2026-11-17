@@ -27,6 +27,7 @@
 // 地质调色板：快照矿物表 → 256×3 LUT，材质按行中心采样。
 #include "GeoPalette.h"
 #include "GeoMineral.h"
+#include "GeoRng.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
 #include "UObject/ConstructorHelpers.h"
@@ -158,17 +159,12 @@ AVoxelPlanetActor::AVoxelPlanetActor()
 	MeshUpdatesBudget = 8.f;
 
 #if WITH_EDITOR
-	// 默认用解地质通道的新材质；M_GeoPlanet 由构建器生成，资产还没建时退回顶点色材质，
-	// 否则新拖进关卡的行星没有材质。仅编辑器有效：打包后实例自带序列化值。
-	static ConstructorHelpers::FObjectFinder<UMaterialInterface> GeoPlanetMaterialFinder(
-		TEXT("/Game/Code/Planet/Materials/M_GeoPlanet.M_GeoPlanet"));
+	// 每颗行星默认用项目顶点色材质。仅编辑器有效：打包后实例自带序列化值。
+	// M_GeoPlanet 不在这里查：资产还没建时 FObjectFinder 会在 CDO 上打 Error，且 static 缓存住
+	// 后即使资产后来生成也不会再找；父材质在建 MID 时由 ChooseBiomeParentMaterial 决定。
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> PlanetMaterialFinder(
 		TEXT("/Game/Code/Planet/Materials/M_PlanetVertexColor.M_PlanetVertexColor"));
-	if (GeoPlanetMaterialFinder.Succeeded())
-	{
-		VoxelMaterial = GeoPlanetMaterialFinder.Object;
-	}
-	else if (PlanetMaterialFinder.Succeeded())
+	if (PlanetMaterialFinder.Succeeded())
 	{
 		VoxelMaterial = PlanetMaterialFinder.Object;
 	}
@@ -424,11 +420,14 @@ UTexture2D* AVoxelPlanetActor::CreatePaletteTexture(const TArray<FColor>& Pixels
 
 	// 与 biome cubemap 同约定：CreateTransient 还没有 RHI 资源，直接写 Mip0 再 UpdateResource。
 	Texture->SRGB = true;
+	// 编号查表必须最近邻：双线性会把矿 1 与 0 号黑混色；Wrap 会让 255 绕回 0。
+	Texture->Filter = TF_Nearest;
+	Texture->AddressX = TA_Clamp;
+	Texture->AddressY = TA_Clamp;
 	FTexture2DMipMap& Mip = Texture->GetPlatformData()->Mips[0];
 	uint8* Dest = static_cast<uint8*>(Mip.BulkData.Lock(LOCK_READ_WRITE));
 	if (!Dest)
 	{
-		Mip.BulkData.Unlock();
 		return nullptr;
 	}
 	FMemory::Memcpy(Dest, Pixels.GetData(), Pixels.Num() * sizeof(FColor));
@@ -436,6 +435,45 @@ UTexture2D* AVoxelPlanetActor::CreatePaletteTexture(const TArray<FColor>& Pixels
 
 	Texture->UpdateResource();
 	return Texture;
+}
+
+UMaterialInterface* AVoxelPlanetActor::ChooseBiomeParentMaterial(UMaterialInterface* Fallback)
+{
+	// LoadObject 找不到时返回 null 且不缓存失败：资产由构建器稍后生成也能立刻生效。
+	if (UMaterialInterface* GeoMaterial = LoadObject<UMaterialInterface>(
+		nullptr, TEXT("/Game/Code/Planet/Materials/M_GeoPlanet.M_GeoPlanet")))
+	{
+		return GeoMaterial;
+	}
+	return Fallback;
+}
+
+void AVoxelPlanetActor::BindGeoPalette(UMaterialInstanceDynamic* MID)
+{
+	if (!MID || !GeoSnapshot.IsValid())
+	{
+		return;
+	}
+
+	const TArray<FGeoMineralInfo>& Minerals = GeoSnapshot->Minerals;
+	uint64 PaletteHash = GeoHash::Mix64(uint64(Minerals.Num()));
+	for (const FGeoMineralInfo& Mineral : Minerals)
+	{
+		PaletteHash = GeoHash::Combine(PaletteHash, uint64(Mineral.Color.ToPackedARGB()));
+	}
+
+	if (!GeoPaletteTexture || GeoPaletteHash != PaletteHash)
+	{
+		// 旧的瞬态纹理在赋值时丢掉最后一个引用，交给 GC。
+		GeoPaletteTexture = CreatePaletteTexture(GeoPalette::BuildLUT(Minerals));
+		GeoPaletteHash = GeoPaletteTexture ? PaletteHash : 0;
+	}
+
+	// 材质里没这个参数时 SetTextureParameterValue 静默不生效。
+	if (GeoPaletteTexture)
+	{
+		MID->SetTextureParameterValue(TEXT("GeoPalette"), GeoPaletteTexture);
+	}
 }
 
 #if WITH_EDITOR
@@ -1058,9 +1096,10 @@ bool AVoxelPlanetActor::InstallBiomeMaterial(bool bForceBake)
 			(FPlatformTime::Seconds() - BakeStart) * 1000.0);
 	}
 
-	if (!BiomeMaterial || BiomeMaterial->Parent != BaseVoxelMaterial)
+	UMaterialInterface* ParentMaterial = ChooseBiomeParentMaterial(BaseVoxelMaterial);
+	if (!BiomeMaterial || BiomeMaterial->Parent != ParentMaterial)
 	{
-		BiomeMaterial = CreateBiomeMaterialMID(BaseVoxelMaterial);
+		BiomeMaterial = CreateBiomeMaterialMID(ParentMaterial);
 		if (!BiomeMaterial)
 		{
 			return false;
@@ -1072,7 +1111,7 @@ bool AVoxelPlanetActor::InstallBiomeMaterial(bool bForceBake)
 		{
 			UE_LOG(LogTemp, Warning,
 				TEXT("AVoxelPlanetActor %s: 无法为用户材质 %s 创建 biome MID（父材质被拒绝），本颗星继续用顶点色。"),
-				*GetName(), *GetNameSafe(BaseVoxelMaterial));
+				*GetName(), *GetNameSafe(ParentMaterial));
 			BiomeMaterial = nullptr;
 			return false;
 		}
@@ -1081,29 +1120,7 @@ bool AVoxelPlanetActor::InstallBiomeMaterial(bool bForceBake)
 	// 参数名须与 M_PlanetVertexColor 对得上；材质里没有时静默不生效（回到纯顶点色）。
 	BiomeMaterial->SetTextureParameterValue(TEXT("BiomeCube"), BiomeCubemap);
 	BiomeMaterial->SetScalarParameterValue(TEXT("BiomeCubeBlend"), BiomeCubemapBlend);
-
-	// 没有快照就没有矿物表，也就没有 LUT 可绑；材质里没这个参数时 SetTextureParameterValue 静默不生效。
-	if (GeoSnapshot.IsValid())
-	{
-		const TArray<FGeoMineralInfo>& Minerals = GeoSnapshot->Minerals;
-		uint64 PaletteHash = GeoHash::Mix64(uint64(Minerals.Num()));
-		for (const FGeoMineralInfo& Mineral : Minerals)
-		{
-			PaletteHash = GeoHash::Combine(PaletteHash, uint64(Mineral.Color.ToPackedARGB()));
-		}
-
-		if (!GeoPaletteTexture || GeoPaletteHash != PaletteHash)
-		{
-			// 旧的瞬态纹理在赋值时丢掉最后一个引用，交给 GC。
-			GeoPaletteTexture = CreatePaletteTexture(GeoPalette::BuildLUT(Minerals));
-			GeoPaletteHash = GeoPaletteTexture ? PaletteHash : 0;
-		}
-
-		if (GeoPaletteTexture)
-		{
-			BiomeMaterial->SetTextureParameterValue(TEXT("GeoPalette"), GeoPaletteTexture);
-		}
-	}
+	BindGeoPalette(BiomeMaterial);
 
 	const bool bSwitched = (VoxelMaterial != BiomeMaterial);
 	VoxelMaterial = BiomeMaterial;
@@ -1900,8 +1917,10 @@ void AVoxelPlanetActor::NormalizeGeoDebugLayerNames()
 
 bool AVoxelPlanetActor::ApplyGeoDebugOverlay()
 {
-	const FGeoDebugLayer* Layer = FPlanetBakePipeline::FindDefaultDebugLayer(GetSurfaceLayerId());
-	const bool bWant = GeoSnapshot.IsValid() && Layer && GeoDebugOverlayOpacity > 0.f && GeoCutaway == EPlanetGeoCutaway::None;
+	const FGeoDebugLayer* OverlayLayer = FPlanetBakePipeline::FindDefaultDebugLayer(GetSurfaceLayerId());
+	const bool bWantOverlay = GeoSnapshot.IsValid() && OverlayLayer && GeoDebugOverlayOpacity > 0.f
+		&& GeoCutaway == EPlanetGeoCutaway::None;
+	const bool bGeo = GeoSnapshot.IsValid();
 
 	// 父材质永远是用户设的那个：VoxelMaterial 此刻可能指着上次的 MID（PIE 复制时甚至是副本）。
 	if (!BiomeMaterial || VoxelMaterial != BiomeMaterial)
@@ -1916,7 +1935,8 @@ bool AVoxelPlanetActor::ApplyGeoDebugOverlay()
 		}
 	}
 
-	if (!bWant)
+	// 退回用户材质：只有真换回了才算「换了」，调用方据此决定是否 ApplyNewMaterials。
+	const auto RestoreBaseMaterial = [this]() -> bool
 	{
 		if (BiomeMaterial && VoxelMaterial == BiomeMaterial && BaseVoxelMaterial)
 		{
@@ -1924,37 +1944,65 @@ bool AVoxelPlanetActor::ApplyGeoDebugOverlay()
 			return true;
 		}
 		return false;
+	};
+
+	if (!bWantOverlay && !bGeo)
+	{
+		return RestoreBaseMaterial();
 	}
 	if (!BaseVoxelMaterial)
 	{
 		return false;
 	}
 
+	// geo 行星没有噪声生物群系，且 **不走 InstallBiomeMaterial**：用 Biome 调试图层烘一张底图，
+	// 否则 M_GeoPlanet 的地表没有 BiomeCube 可采。叠加模式下仍烘用户选的图层，行为不变。
+	const FGeoDebugLayer* CubeLayer = bWantOverlay
+		? OverlayLayer
+		: FPlanetBakePipeline::FindDefaultDebugLayer(TEXT("Biome"));
+	if (!CubeLayer)
+	{
+		// 打包后不保留调试场（bKeepDebugFields=false），没有底图可烘：退回父材质，不装半残 MID。
+		return RestoreBaseMaterial();
+	}
+
 	// 图层与快照都没变就不重烘：只改不透明度时这里是零成本。
-	if (!BiomeCubemap || OverlayBakedLayer != Layer->Id || OverlayBakedHash != GeoSnapshot->ContentHash)
+	if (!BiomeCubemap || OverlayBakedLayer != CubeLayer->Id || OverlayBakedHash != GeoSnapshot->ContentHash)
 	{
 		const double T0 = FPlatformTime::Seconds();
-		BiomeCubemap = PlanetGeoDebugRender::BakeCube(*GeoSnapshot, *Layer, 512);
-		OverlayBakedLayer = Layer->Id;
+		UTextureCube* Cube = PlanetGeoDebugRender::BakeCube(*GeoSnapshot, *CubeLayer, 512);
+		if (!Cube)
+		{
+			return RestoreBaseMaterial();
+		}
+		BiomeCubemap = Cube;
+		OverlayBakedLayer = CubeLayer->Id;
 		OverlayBakedHash = GeoSnapshot->ContentHash;
 		UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor %s: 调试叠加「%s」烘焙 %.0f ms"),
-			*GetName(), *Layer->DisplayName, (FPlatformTime::Seconds() - T0) * 1000.0);
+			*GetName(), *CubeLayer->DisplayName, (FPlatformTime::Seconds() - T0) * 1000.0);
 	}
-	if (!BiomeCubemap)
+
+	UMaterialInterface* ParentMaterial = ChooseBiomeParentMaterial(BaseVoxelMaterial);
+	if (!BiomeMaterial || BiomeMaterial->Parent != ParentMaterial)
 	{
-		return false;
-	}
-	if (!BiomeMaterial || BiomeMaterial->Parent != BaseVoxelMaterial)
-	{
-		BiomeMaterial = CreateBiomeMaterialMID(BaseVoxelMaterial);
+		BiomeMaterial = CreateBiomeMaterialMID(ParentMaterial);
 		if (!BiomeMaterial || !BiomeMaterial->Parent)
 		{
 			BiomeMaterial = nullptr;
+			if (BaseVoxelMaterial)
+			{
+				VoxelMaterial = BaseVoxelMaterial;
+			}
 			return false;
 		}
 	}
+
 	BiomeMaterial->SetTextureParameterValue(TEXT("BiomeCube"), BiomeCubemap);
-	BiomeMaterial->SetScalarParameterValue(TEXT("BiomeCubeBlend"), GeoDebugOverlayOpacity);
+	// 叠加时按不透明度混合；没有叠加时 100% 走 Biome 底图（地表保持生物群系外观）。
+	BiomeMaterial->SetScalarParameterValue(TEXT("BiomeCubeBlend"),
+		bWantOverlay ? GeoDebugOverlayOpacity : 1.f);
+	BindGeoPalette(BiomeMaterial);
+
 	const bool bSwitched = VoxelMaterial != BiomeMaterial;
 	VoxelMaterial = BiomeMaterial;
 	return bSwitched;
