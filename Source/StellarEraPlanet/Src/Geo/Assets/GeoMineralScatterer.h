@@ -440,3 +440,86 @@ public:
 
 	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
 };
+
+/** 盆地沉积：内流盆地的环带里撒蒸发岩 / 锂盐薄层。运行于阶段 6b 之后（阶段 7）。 */
+UCLASS(meta = (DisplayName = "盆地沉积蒸发岩 / 锂盐（阶段 7）"))
+class STELLARERAPLANET_API UGeoBasinDepositScatterer : public UGeoMineralScatterer
+{
+	GENERATED_BODY()
+
+public:
+	UGeoBasinDepositScatterer() { Mineral = TEXT("EvaporiteCarbonate"); }
+
+	/** 盆心降水上限：更湿的盆地水会把盐带走，不产蒸发岩。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "1"))
+	float MaxPrecip = 0.2f;
+	/** 少于这么多格的洼地不算盆地，跳过。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "4096"))
+	int32 MinBasinCells = 6;
+	/** 归一化半径下限（0 = 盆心）：从盆心往外撒到哪一段环带。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "1"))
+	float RingInner = 0.f;
+	/** 归一化半径上限（1 = 盆地边缘），超出盆地没有意义。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "1"))
+	float RingOuter = 1.f;
+	/** 每个盆地几片。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "4096"))
+	int32 BodiesPerBasin = 24;
+	/** 单片半径（占 R）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.0005", ClampMax = "0.05"))
+	float RadiusRatio = 0.004f;
+	/** 薄层厚度（体素）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.5", ClampMax = "16"))
+	float ThicknessVoxels = 2.f;
+	/** 要求盆心附近有活火山（锂盐用：需要热液带来锂）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule")
+	bool bRequireVolcano = false;
+	/** 「附近」的球面弦距上限（占 R）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "1"))
+	float VolcanoRadiusRatio = 0.05f;
+	/** 薄层软边宽度。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.02", ClampMax = "1"))
+	float Hard = 0.25f;
+
+	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
+};
+
+/** 煤：湿热气候的近海低平地上，略埋于地表的水平薄层。运行于阶段 6b 之后（阶段 7）。 */
+UCLASS(meta = (DisplayName = "煤（阶段 7）"))
+class STELLARERAPLANET_API UGeoCoalScatterer : public UGeoMineralScatterer
+{
+	GENERATED_BODY()
+
+public:
+	UGeoCoalScatterer() { Mineral = TEXT("Coal"); }
+
+	/** 最低降水：煤是湿热气候的产物，干区不形成。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "1"))
+	float MinPrecip = 0.6f;
+	/** 高程上限（占 R）：只在高程不超过该比例的近海低地成煤。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "0.2"))
+	float MaxElevRatio = 0.004f;
+	/** 坡度上限（高程 / 水平距离）：陡坡留不住水与有机质。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "1"))
+	float MaxSlope = 0.02f;
+	/** 大陆度上限：越小越靠海，煤层多产于近海平原。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "1"))
+	float MaxContinental = 0.5f;
+	/** 全球最多几片。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "4096"))
+	int32 PatchCount = 300;
+	/** 单片半径（占 R）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.0005", ClampMax = "0.05"))
+	float RadiusRatio = 0.004f;
+	/** 薄层厚度（体素）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.5", ClampMax = "16"))
+	float ThicknessVoxels = 2.f;
+	/** 中心埋深（体素，从地表往下）：煤层略埋，不是地表覆层。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "64"))
+	float DepthVoxels = 1.f;
+	/** 薄层软边宽度。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.02", ClampMax = "1"))
+	float Hard = 0.2f;
+
+	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
+};

@@ -139,3 +139,34 @@ TSharedPtr<IGeoMineralRule> UGeoPlacerScatterer::MakeRule() const
 	}
 	return R;
 }
+
+TSharedPtr<IGeoMineralRule> UGeoBasinDepositScatterer::MakeRule() const
+{
+	TSharedPtr<FGeoBasinDepositRule> R = MakeShared<FGeoBasinDepositRule>();
+	R->P.MaxPrecip = MaxPrecip;
+	R->P.MinBasinCells = MinBasinCells;
+	R->P.RingInner = RingInner;
+	R->P.RingOuter = RingOuter;
+	R->P.BodiesPerBasin = BodiesPerBasin;
+	R->P.RadiusRatio = RadiusRatio;
+	R->P.ThicknessVoxels = ThicknessVoxels;
+	R->P.bRequireVolcano = bRequireVolcano;
+	R->P.VolcanoRadiusRatio = VolcanoRadiusRatio;
+	R->P.Hard = Hard;
+	return R;
+}
+
+TSharedPtr<IGeoMineralRule> UGeoCoalScatterer::MakeRule() const
+{
+	TSharedPtr<FGeoCoalRule> R = MakeShared<FGeoCoalRule>();
+	R->P.MinPrecip = MinPrecip;
+	R->P.MaxElevRatio = MaxElevRatio;
+	R->P.MaxSlope = MaxSlope;
+	R->P.MaxContinental = MaxContinental;
+	R->P.PatchCount = PatchCount;
+	R->P.RadiusRatio = RadiusRatio;
+	R->P.ThicknessVoxels = ThicknessVoxels;
+	R->P.DepthVoxels = DepthVoxels;
+	R->P.Hard = Hard;
+	return R;
+}

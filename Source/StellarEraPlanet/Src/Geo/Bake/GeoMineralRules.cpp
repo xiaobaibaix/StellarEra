@@ -731,6 +731,54 @@ uint64 FGeoBasinDepositRule::HashParams() const
 		P.ThicknessVoxels, P.VolcanoRadiusRatio, P.Hard });
 }
 
+void FGeoCoalRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const
+{
+	const FPlanetBakeFields& F = Ctx.Fields;
+	if (F.Precipitation.Res <= 0 || F.ContinentalMask.Res <= 0 || F.Elevation.Res <= 0)
+	{
+		Ctx.Errors.Add(TEXT("[地质] 撒矿器「Coal」需要降水、大陆度与高程场"));
+		return;
+	}
+	const double R = Ctx.Config.Radius;
+	const float HalfThick = FMath::Max(0.5f * P.ThicknessVoxels, 0.5f);
+	const int32 Target = FMath::Clamp(P.PatchCount, 0, 4096);
+	int32 Placed = 0;
+	for (int32 Try = 0; Try < Target * 400 && Placed < Target; ++Try)
+	{
+		const FVector3f Dir = GeoMineralRulesRandomDir(Ctx.Rng);
+		const float Elev = F.Elevation.Sample(Dir);
+		if (Elev <= 0.f || double(Elev) > double(P.MaxElevRatio) * R) { continue; }
+		if (F.Precipitation.Sample(Dir) < P.MinPrecip) { continue; }
+		if (F.ContinentalMask.Sample(Dir) > P.MaxContinental) { continue; }
+		const FQuat4f Frame = GeoMineralRules::TangentFrame(Dir, Ctx.Rng.Range(0.f, 2.f * PI));
+		const FVector3f X = Frame.RotateVector(FVector3f::XAxisVector);
+		const FVector3f Y = Frame.RotateVector(FVector3f::YAxisVector);
+		// 坡度用切平面四向探针：宏观高程场没有法线，只能靠采样差分估。
+		const float Probe = 0.002f * float(R);
+		const FVector3f P0 = Dir * float(R);
+		const float E1 = F.Elevation.Sample((P0 + X * Probe).GetSafeNormal());
+		const float E2 = F.Elevation.Sample((P0 - X * Probe).GetSafeNormal());
+		const float E3 = F.Elevation.Sample((P0 + Y * Probe).GetSafeNormal());
+		const float E4 = F.Elevation.Sample((P0 - Y * Probe).GetSafeNormal());
+		const float Slope = FMath::Max(FMath::Max(FMath::Abs(E1 - Elev), FMath::Abs(E2 - Elev)),
+			FMath::Max(FMath::Abs(E3 - Elev), FMath::Abs(E4 - Elev))) / Probe;
+		if (Slope > P.MaxSlope) { continue; }
+		const FVector3f Radii(float(P.RadiusRatio * R), float(P.RadiusRatio * R), HalfThick);
+		const FVector3f Center = Dir * (float(R) + Elev - P.DepthVoxels - 0.5f * P.ThicknessVoxels);
+		FGeoPrimitive Body = FGeoPrimitive::MakeOrientedBlob(Center, Radii, Frame, P.Hard);
+		Body.Grade = RandomGrade(Ctx.Rng);
+		Out.Bodies.Add(Body);
+		++Placed;
+	}
+}
+
+uint64 FGeoCoalRule::HashParams() const
+{
+	return GeoMineralRulesHashFloats(GeoHash::Combine(GeoHash::Str("coal"), uint64(FMath::Max(P.PatchCount, 0))),
+		{ P.MinPrecip, P.MaxElevRatio, P.MaxSlope, P.MaxContinental, P.RadiusRatio, P.ThicknessVoxels,
+			P.DepthVoxels, P.Hard });
+}
+
 namespace
 {
 	TArray<FGeoDebugLegendEntry> GeoMineralRulesLegend(const FPlanetSnapshot& S)

@@ -312,6 +312,30 @@ public:
 	virtual uint64 HashParams() const override;
 };
 
+/** 煤：湿热气候的近海低平地上，略埋于地表的水平薄层。运行于阶段 6b 之后（阶段号 7）。 */
+struct FGeoCoalParams
+{
+	float MinPrecip = 0.6f;          // 最低降水：干区不形成煤
+	float MaxElevRatio = 0.004f;     // 高程上限（占 R）：只在高程 ≤ 该比例的近海低地成煤
+	float MaxSlope = 0.02f;          // 坡度上限（高程/水平距离）：陡坡留不住水与有机质
+	float MaxContinental = 0.5f;     // 大陆度上限：煤层多产于近海平原
+	int32 PatchCount = 300;          // 全球最多几片
+	float RadiusRatio = 0.004f;      // 单片半径（占 R）
+	float ThicknessVoxels = 2.f;     // 薄层厚度（体素）
+	float DepthVoxels = 1.f;         // 中心埋深（体素，从地表往下）
+	float Hard = 0.2f;               // 软边宽度
+};
+
+class STELLARERAPLANET_API FGeoCoalRule final : public IGeoMineralRule
+{
+public:
+	FGeoCoalParams P;
+	virtual uint32 GetStage() const override { return 7; }
+	virtual const TCHAR* GetRuleName() const override { return TEXT("Coal"); }
+	virtual void Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const override;
+	virtual uint64 HashParams() const override;
+};
+
 namespace GeoMineralRules
 {
 	/** 矿物图层（地下 / 地表矿化），图例来自快照的矿物调色板。不属于某一阶段，Stage = 0。 */

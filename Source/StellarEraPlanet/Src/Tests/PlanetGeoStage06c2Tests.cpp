@@ -4,6 +4,7 @@
 #include "GeoField2D.h"
 #include "GeoMineralRule.h"
 #include "GeoMineralRules.h"
+#include "GeoMineralScatterer.h"
 #include "GeoPrimitive.h"
 #include "GeoRng.h"
 #include "GeoVolcano.h"
@@ -360,6 +361,209 @@ bool FGeoStage06c2BasinIdMatchTest::RunTest(const FString& Parameters)
 	}
 	AddInfo(FString::Printf(TEXT("洼地数 %d，逐格不符 %d"), Flow.Exits.Num(), Mismatch));
 	TestEqual(TEXT("BasinId 与重新求解的 SolveFlow 逐格一致"), Mismatch, 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06c2RecipeBasinTest, "StellarEra.Planet.Geo.Stage06c2.RecipeBasin",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage06c2RecipeBasinTest::RunTest(const FString& Parameters)
+{
+	UGeoBasinDepositScatterer* S = NewObject<UGeoBasinDepositScatterer>();
+	TestEqual(TEXT("默认矿物是 EvaporiteCarbonate"), S->Mineral, FName(TEXT("EvaporiteCarbonate")));
+
+	// 全字段非默认：抄错任何一项都会露出来。
+	S->MaxPrecip = 0.35f;
+	S->MinBasinCells = 9;
+	S->RingInner = 0.25f;
+	S->RingOuter = 0.8f;
+	S->BodiesPerBasin = 40;
+	S->RadiusRatio = 0.006f;
+	S->ThicknessVoxels = 3.5f;
+	S->bRequireVolcano = true;
+	S->VolcanoRadiusRatio = 0.08f;
+	S->Hard = 0.6f;
+	const TSharedPtr<IGeoMineralRule> Rule = S->MakeRule();
+	if (!TestNotNull(TEXT("撒矿器产出规则"), Rule.Get())) { return false; }
+	const FGeoBasinDepositRule* B = static_cast<const FGeoBasinDepositRule*>(Rule.Get());
+	TestEqual(TEXT("阶段号 7"), int32(Rule->GetStage()), 7);
+	TestEqual(TEXT("规则名 BasinDeposit"), FString(Rule->GetRuleName()), FString(TEXT("BasinDeposit")));
+	TestEqual(TEXT("MaxPrecip"), B->P.MaxPrecip, 0.35f);
+	TestEqual(TEXT("MinBasinCells"), B->P.MinBasinCells, 9);
+	TestEqual(TEXT("RingInner"), B->P.RingInner, 0.25f);
+	TestEqual(TEXT("RingOuter"), B->P.RingOuter, 0.8f);
+	TestEqual(TEXT("BodiesPerBasin"), B->P.BodiesPerBasin, 40);
+	TestEqual(TEXT("RadiusRatio"), B->P.RadiusRatio, 0.006f);
+	TestEqual(TEXT("ThicknessVoxels"), B->P.ThicknessVoxels, 3.5f);
+	TestEqual(TEXT("bRequireVolcano"), B->P.bRequireVolcano, true);
+	TestEqual(TEXT("VolcanoRadiusRatio"), B->P.VolcanoRadiusRatio, 0.08f);
+	TestEqual(TEXT("Hard"), B->P.Hard, 0.6f);
+
+	// 哈希探针：10 项各翻一项，HashParams 必变；翻完立刻恢复。
+	UGeoBasinDepositScatterer* H = NewObject<UGeoBasinDepositScatterer>();
+	auto HashNow = [H]() {
+		const TSharedPtr<IGeoMineralRule> R = H->MakeRule();
+		return R ? R->HashParams() : uint64(0);
+	};
+	const uint64 H0 = HashNow();
+	if (!TestTrue(TEXT("默认参数哈希非零"), H0 != 0)) { return false; }
+	H->MaxPrecip = 0.3f;           TestTrue(TEXT("MaxPrecip 进哈希"), HashNow() != H0); H->MaxPrecip = 0.2f;
+	H->MinBasinCells = 7;          TestTrue(TEXT("MinBasinCells 进哈希"), HashNow() != H0); H->MinBasinCells = 6;
+	H->RingInner = 0.1f;           TestTrue(TEXT("RingInner 进哈希"), HashNow() != H0); H->RingInner = 0.f;
+	H->RingOuter = 0.9f;           TestTrue(TEXT("RingOuter 进哈希"), HashNow() != H0); H->RingOuter = 1.f;
+	H->BodiesPerBasin = 25;        TestTrue(TEXT("BodiesPerBasin 进哈希"), HashNow() != H0); H->BodiesPerBasin = 24;
+	H->RadiusRatio = 0.005f;       TestTrue(TEXT("RadiusRatio 进哈希"), HashNow() != H0); H->RadiusRatio = 0.004f;
+	H->ThicknessVoxels = 3.f;      TestTrue(TEXT("ThicknessVoxels 进哈希"), HashNow() != H0); H->ThicknessVoxels = 2.f;
+	H->bRequireVolcano = true;     TestTrue(TEXT("bRequireVolcano 进哈希"), HashNow() != H0); H->bRequireVolcano = false;
+	H->VolcanoRadiusRatio = 0.06f; TestTrue(TEXT("VolcanoRadiusRatio 进哈希"), HashNow() != H0); H->VolcanoRadiusRatio = 0.05f;
+	H->Hard = 0.4f;                TestTrue(TEXT("Hard 进哈希"), HashNow() != H0); H->Hard = 0.25f;
+	TestEqual(TEXT("翻完恢复原哈希"), HashNow(), H0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06c2RecipeCoalTest, "StellarEra.Planet.Geo.Stage06c2.RecipeCoal",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage06c2RecipeCoalTest::RunTest(const FString& Parameters)
+{
+	UGeoCoalScatterer* S = NewObject<UGeoCoalScatterer>();
+	TestEqual(TEXT("默认矿物是 Coal"), S->Mineral, FName(TEXT("Coal")));
+
+	// 全字段非默认：抄错任何一项都会露出来。
+	S->MinPrecip = 0.75f;
+	S->MaxElevRatio = 0.006f;
+	S->MaxSlope = 0.05f;
+	S->MaxContinental = 0.4f;
+	S->PatchCount = 120;
+	S->RadiusRatio = 0.005f;
+	S->ThicknessVoxels = 3.f;
+	S->DepthVoxels = 2.f;
+	S->Hard = 0.35f;
+	const TSharedPtr<IGeoMineralRule> Rule = S->MakeRule();
+	if (!TestNotNull(TEXT("撒矿器产出规则"), Rule.Get())) { return false; }
+	const FGeoCoalRule* C = static_cast<const FGeoCoalRule*>(Rule.Get());
+	TestEqual(TEXT("阶段号 7"), int32(Rule->GetStage()), 7);
+	TestEqual(TEXT("规则名 Coal"), FString(Rule->GetRuleName()), FString(TEXT("Coal")));
+	TestEqual(TEXT("MinPrecip"), C->P.MinPrecip, 0.75f);
+	TestEqual(TEXT("MaxElevRatio"), C->P.MaxElevRatio, 0.006f);
+	TestEqual(TEXT("MaxSlope"), C->P.MaxSlope, 0.05f);
+	TestEqual(TEXT("MaxContinental"), C->P.MaxContinental, 0.4f);
+	TestEqual(TEXT("PatchCount"), C->P.PatchCount, 120);
+	TestEqual(TEXT("RadiusRatio"), C->P.RadiusRatio, 0.005f);
+	TestEqual(TEXT("ThicknessVoxels"), C->P.ThicknessVoxels, 3.f);
+	TestEqual(TEXT("DepthVoxels"), C->P.DepthVoxels, 2.f);
+	TestEqual(TEXT("Hard"), C->P.Hard, 0.35f);
+
+	// 哈希探针：9 项各翻一项，HashParams 必变。
+	UGeoCoalScatterer* H = NewObject<UGeoCoalScatterer>();
+	auto HashNow = [H]() {
+		const TSharedPtr<IGeoMineralRule> R = H->MakeRule();
+		return R ? R->HashParams() : uint64(0);
+	};
+	const uint64 H0 = HashNow();
+	if (!TestTrue(TEXT("默认参数哈希非零"), H0 != 0)) { return false; }
+	H->MinPrecip = 0.7f;        TestTrue(TEXT("MinPrecip 进哈希"), HashNow() != H0); H->MinPrecip = 0.6f;
+	H->MaxElevRatio = 0.005f;   TestTrue(TEXT("MaxElevRatio 进哈希"), HashNow() != H0); H->MaxElevRatio = 0.004f;
+	H->MaxSlope = 0.03f;        TestTrue(TEXT("MaxSlope 进哈希"), HashNow() != H0); H->MaxSlope = 0.02f;
+	H->MaxContinental = 0.4f;   TestTrue(TEXT("MaxContinental 进哈希"), HashNow() != H0); H->MaxContinental = 0.5f;
+	H->PatchCount = 301;        TestTrue(TEXT("PatchCount 进哈希"), HashNow() != H0); H->PatchCount = 300;
+	H->RadiusRatio = 0.005f;    TestTrue(TEXT("RadiusRatio 进哈希"), HashNow() != H0); H->RadiusRatio = 0.004f;
+	H->ThicknessVoxels = 3.f;   TestTrue(TEXT("ThicknessVoxels 进哈希"), HashNow() != H0); H->ThicknessVoxels = 2.f;
+	H->DepthVoxels = 2.f;       TestTrue(TEXT("DepthVoxels 进哈希"), HashNow() != H0); H->DepthVoxels = 1.f;
+	H->Hard = 0.3f;             TestTrue(TEXT("Hard 进哈希"), HashNow() != H0); H->Hard = 0.2f;
+	TestEqual(TEXT("翻完恢复原哈希"), HashNow(), H0);
+	return true;
+}
+
+namespace
+{
+	struct FStage06c2CoalField
+	{
+		FPlanetRecipeConfig C;
+		FPlanetBakeFields F;
+	};
+
+	/**
+	 * Res=8、面 0 上 6×6 格低地，其余 50；降水 / 大陆度全场统一。
+	 * R=2000：默认 MaxElevRatio=0.004 折合 8 体素，5 体素的低地才过高度闸。
+	 */
+	FStage06c2CoalField Stage06c2MakeCoal(float Precip, float LowElev, bool bSteep)
+	{
+		FStage06c2CoalField Out;
+		Out.C.Radius = 2000.0;
+		const int32 Res = 8;
+		Out.F.Precipitation.Init(Res); Out.F.Elevation.Init(Res); Out.F.ContinentalMask.Init(Res);
+		for (int32 Face = 0; Face < 6; ++Face)
+		for (int32 Y = 0; Y < Res; ++Y)
+		for (int32 X = 0; X < Res; ++X)
+		{
+			const bool bLow = Face == 0 && X >= 1 && X <= 6 && Y >= 1 && Y <= 6;
+			// 陡坡用列交替：整格内线性变化，不存在行交替那种斜率恰好为零的鞍点。
+			const float Low = bSteep ? ((X % 2) ? 50.f : -50.f) : LowElev;
+			Out.F.Precipitation.At(Face, X, Y) = Precip;
+			Out.F.ContinentalMask.At(Face, X, Y) = 0.2f;
+			Out.F.Elevation.At(Face, X, Y) = bLow ? Low : 50.f;
+		}
+		return Out;
+	}
+
+	void Stage06c2ScatterCoal(const FStage06c2CoalField& Field, const IGeoMineralRule& Rule, FGeoScatterOutput& Out)
+	{
+		TArray<FString> Errors;
+		FGeoScatterContext SC{ Field.C, Field.F, FGeoRng::Derive(Field.C.Seed, Rule.GetStage(), 0), Errors };
+		Rule.Scatter(SC, Out);
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06c2CoalConditionsTest, "StellarEra.Planet.Geo.Stage06c2.CoalConditions",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage06c2CoalConditionsTest::RunTest(const FString& Parameters)
+{
+	FGeoCoalRule Rule;
+	const FStage06c2CoalField Wet = Stage06c2MakeCoal(0.8f, 5.f, false);
+	FGeoScatterOutput Out;
+	Stage06c2ScatterCoal(Wet, Rule, Out);
+	if (!TestTrue(TEXT("湿热低平近海：有片"), Out.Bodies.Num() > 0)) { return false; }
+	const double MaxElev = double(Rule.P.MaxElevRatio) * Wet.C.Radius;
+	int32 Bad = 0;
+	for (const FGeoPrimitive& Body : Out.Bodies)
+	{
+		const float Elev = Wet.F.Elevation.Sample(Body.Center.GetSafeNormal());
+		Bad += (Elev <= 0.f || double(Elev) > MaxElev) ? 1 : 0;
+	}
+	TestEqual(TEXT("每片方向高程 ∈ (0, MaxElevRatio·R]"), Bad, 0);
+
+	FGeoScatterOutput Dry, High, Steep;
+	Stage06c2ScatterCoal(Stage06c2MakeCoal(0.3f, 5.f, false), Rule, Dry);
+	Stage06c2ScatterCoal(Stage06c2MakeCoal(0.8f, 100.f, false), Rule, High);
+	Stage06c2ScatterCoal(Stage06c2MakeCoal(0.8f, 5.f, true), Rule, Steep);
+	TestEqual(TEXT("降水 0.3 < MinPrecip：0 片"), Dry.Bodies.Num(), 0);
+	TestEqual(TEXT("低地高程 100 > MaxElevRatio·R：0 片"), High.Bodies.Num(), 0);
+	TestEqual(TEXT("低地内陡坡：0 片"), Steep.Bodies.Num(), 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06c2CoalDepthTest, "StellarEra.Planet.Geo.Stage06c2.CoalDepth",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage06c2CoalDepthTest::RunTest(const FString& Parameters)
+{
+	FGeoCoalRule Rule;
+	const FStage06c2CoalField Wet = Stage06c2MakeCoal(0.8f, 5.f, false);
+	FGeoScatterOutput Out;
+	Stage06c2ScatterCoal(Wet, Rule, Out);
+	if (!TestTrue(TEXT("有片才谈深度"), Out.Bodies.Num() > 0)) { return false; }
+
+	int32 Bad = 0;
+	for (const FGeoPrimitive& Body : Out.Bodies)
+	{
+		const FVector3f Dir = Body.Center.GetSafeNormal();
+		const double Expected = Wet.C.Radius + double(Wet.F.Elevation.Sample(Dir))
+			- double(Rule.P.DepthVoxels) - 0.5 * double(Rule.P.ThicknessVoxels);
+		Bad += FMath::Abs(double(Body.Center.Size()) - Expected) > 0.6 ? 1 : 0;
+	}
+	TestEqual(TEXT("中心半径 = R + Elev - Depth - Thickness/2（±0.6 体素）"), Bad, 0);
 	return true;
 }
 
