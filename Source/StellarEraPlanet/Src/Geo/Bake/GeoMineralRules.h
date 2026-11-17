@@ -317,8 +317,8 @@ struct FGeoCoalParams
 {
 	float MinPrecip = 0.6f;          // 最低降水：干区不形成煤
 	float MaxElevRatio = 0.004f;     // 高程上限（占 R）：只在高程 ≤ 该比例的近海低地成煤
-	float MaxSlope = 0.02f;          // 坡度上限（高程/水平距离）：陡坡留不住水与有机质
-	float MaxContinental = 0.5f;     // 大陆度上限：煤层多产于近海平原
+	float MaxSlope = 0.04f;          // 坡度上限（高程/水平距离）：陡坡留不住水与有机质
+	float MaxContinental = 0.65f;    // 0.5 是海岸线分界；煤要的是岸内侧那条陆地带
 	int32 PatchCount = 300;          // 全球最多几片
 	float RadiusRatio = 0.004f;      // 单片半径（占 R）
 	float ThicknessVoxels = 2.f;     // 薄层厚度（体素）

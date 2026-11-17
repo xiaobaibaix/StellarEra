@@ -73,8 +73,8 @@ FGeoField2D BasinId;
 |---|---|---|
 | `MinPrecip` | 0.6 | 降水下限：太干不长煤 |
 | `MaxElevRatio` | 0.004 | 高程上限（占 R）：只做低地 |
-| `MaxSlope` | 0.02 | 坡度上限（高程差 / 弧长） |
-| `MaxContinental` | 0.5 | 大陆度上限：越靠海越像三角洲/沼泽 |
+| `MaxSlope` | 0.04 | 坡度上限（高程差 / 弧长） |
+| `MaxContinental` | 0.65 | 大陆度上限：0.5 是海岸线分界，煤要岸内侧的陆地带 |
 | `PatchCount` | 300 | 目标片数 |
 | `RadiusRatio` | 0.004 | 单片半径（占 R） |
 | `ThicknessVoxels` | 2 | 煤层厚度（体素） |

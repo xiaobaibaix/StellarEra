@@ -501,10 +501,10 @@ public:
 	float MaxElevRatio = 0.004f;
 	/** 坡度上限（高程 / 水平距离）：陡坡留不住水与有机质。 */
 	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "1"))
-	float MaxSlope = 0.02f;
-	/** 大陆度上限：越小越靠海，煤层多产于近海平原。 */
+	float MaxSlope = 0.04f;
+	/** 大陆度上限：0.5 是海岸线分界，煤要的是岸内侧那条陆地带。 */
 	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "1"))
-	float MaxContinental = 0.5f;
+	float MaxContinental = 0.65f;
 	/** 全球最多几片。 */
 	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "4096"))
 	int32 PatchCount = 300;

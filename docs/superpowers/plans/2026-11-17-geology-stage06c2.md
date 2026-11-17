@@ -280,8 +280,8 @@ struct FGeoCoalParams
 {
 	float MinPrecip = 0.6f;
 	float MaxElevRatio = 0.004f;
-	float MaxSlope = 0.02f;
-	float MaxContinental = 0.5f;
+	float MaxSlope = 0.04f;
+	float MaxContinental = 0.65f;
 	int32 PatchCount = 300;
 	float RadiusRatio = 0.004f;
 	float ThicknessVoxels = 2.f;

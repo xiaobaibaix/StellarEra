@@ -467,8 +467,8 @@ bool FGeoStage06c2RecipeCoalTest::RunTest(const FString& Parameters)
 	if (!TestTrue(TEXT("默认参数哈希非零"), H0 != 0)) { return false; }
 	H->MinPrecip = 0.7f;        TestTrue(TEXT("MinPrecip 进哈希"), HashNow() != H0); H->MinPrecip = 0.6f;
 	H->MaxElevRatio = 0.005f;   TestTrue(TEXT("MaxElevRatio 进哈希"), HashNow() != H0); H->MaxElevRatio = 0.004f;
-	H->MaxSlope = 0.03f;        TestTrue(TEXT("MaxSlope 进哈希"), HashNow() != H0); H->MaxSlope = 0.02f;
-	H->MaxContinental = 0.4f;   TestTrue(TEXT("MaxContinental 进哈希"), HashNow() != H0); H->MaxContinental = 0.5f;
+	H->MaxSlope = 0.03f;        TestTrue(TEXT("MaxSlope 进哈希"), HashNow() != H0); H->MaxSlope = 0.04f;
+	H->MaxContinental = 0.4f;   TestTrue(TEXT("MaxContinental 进哈希"), HashNow() != H0); H->MaxContinental = 0.65f;
 	H->PatchCount = 301;        TestTrue(TEXT("PatchCount 进哈希"), HashNow() != H0); H->PatchCount = 300;
 	H->RadiusRatio = 0.005f;    TestTrue(TEXT("RadiusRatio 进哈希"), HashNow() != H0); H->RadiusRatio = 0.004f;
 	H->ThicknessVoxels = 3.f;   TestTrue(TEXT("ThicknessVoxels 进哈希"), HashNow() != H0); H->ThicknessVoxels = 2.f;
@@ -578,13 +578,13 @@ bool FGeoStage06c2CoalContinentalTest::RunTest(const FString& Parameters)
 	FGeoCoalRule Rule;
 	FGeoScatterOutput Oceanic;
 	Stage06c2ScatterCoal(Stage06c2MakeCoal(0.8f, 5.f, false), Rule, Oceanic);
-	TestTrue(TEXT("大陆度 0.2 ≤ MaxContinental=0.5：有片"), Oceanic.Bodies.Num() > 0);
+	TestTrue(TEXT("大陆度 0.2 ≤ MaxContinental=0.65：有片"), Oceanic.Bodies.Num() > 0);
 
 	FStage06c2CoalField Continental = Stage06c2MakeCoal(0.8f, 5.f, false);
 	Continental.F.ContinentalMask.Fill([](const FVector3f&) { return 0.9f; }, true);
 	FGeoScatterOutput Rejected;
 	Stage06c2ScatterCoal(Continental, Rule, Rejected);
-	TestEqual(TEXT("大陆度 0.9 > MaxContinental=0.5：0 片"), Rejected.Bodies.Num(), 0);
+	TestEqual(TEXT("大陆度 0.9 > MaxContinental=0.65：0 片"), Rejected.Bodies.Num(), 0);
 	return true;
 }
 
@@ -635,16 +635,18 @@ namespace
 
 	/**
 	 * 2→7 全手动烘焙（含阶段 7 后的撒矿器），结束时场还活着，测试才数得到 BasinMask。
-	 * 阶段 1 只写圈层剖面，2–7 的代码都不读它，所以从 2 起。
+	 * 阶段 1 只写圈层剖面，2–7 的代码都不读它，所以从 2 起。OutStageIndices 交回实际跑过的阶段号。
 	 */
-	void Stage06c2BakeToExposure(const FPlanetRecipeConfig& C, FPlanetBakeFields& F, FPlanetBakeReport& R)
+	void Stage06c2BakeToExposure(const FPlanetRecipeConfig& C, FPlanetBakeFields& F, FPlanetBakeReport& R,
+		TArray<uint32>& OutStageIndices)
 	{
-		const FStage02Plates S2; Stage06c2BakeOne(C, F, R, S2);
-		const FStage03Terrain S3; Stage06c2BakeOne(C, F, R, S3);
-		const FStage04Magmatism S4; Stage06c2BakeOne(C, F, R, S4);
-		const FStage05Climate S5; Stage06c2BakeOne(C, F, R, S5);
-		const FStage06Erosion S6; Stage06c2BakeOne(C, F, R, S6);
-		const FStage06bExposure S7; Stage06c2BakeOne(C, F, R, S7);
+		OutStageIndices.Reset();
+		const FStage02Plates S2; Stage06c2BakeOne(C, F, R, S2); OutStageIndices.Add(S2.GetStageIndex());
+		const FStage03Terrain S3; Stage06c2BakeOne(C, F, R, S3); OutStageIndices.Add(S3.GetStageIndex());
+		const FStage04Magmatism S4; Stage06c2BakeOne(C, F, R, S4); OutStageIndices.Add(S4.GetStageIndex());
+		const FStage05Climate S5; Stage06c2BakeOne(C, F, R, S5); OutStageIndices.Add(S5.GetStageIndex());
+		const FStage06Erosion S6; Stage06c2BakeOne(C, F, R, S6); OutStageIndices.Add(S6.GetStageIndex());
+		const FStage06bExposure S7; Stage06c2BakeOne(C, F, R, S7); OutStageIndices.Add(S7.GetStageIndex());
 	}
 
 	/** 两条阶段 7 规则：盆地环带蒸发岩（编号 30）与湿热低地煤（编号 31）。 */
@@ -689,11 +691,29 @@ bool FGeoStage06c2PipelineTest::RunTest(const FString& Parameters)
 	const int32 Coals = Stage06c2CountBodies(Prims, 31);
 
 	// 快照里没有 BasinMask：同配方再手动跑一遍 2→7，留住场才数得了内流盆地格。
-	FPlanetBakeFields F; FPlanetBakeReport ManualR;
+	FPlanetBakeFields F; FPlanetBakeReport ManualR; TArray<uint32> UsedStages;
 	const double T1 = FPlatformTime::Seconds();
-	Stage06c2BakeToExposure(C, F, ManualR);
+	Stage06c2BakeToExposure(C, F, ManualR, UsedStages);
 	const double ManualSeconds = FPlatformTime::Seconds() - T1;
 	if (!TestFalse(FString::Printf(TEXT("手动烘焙无错误（%s）"), *FString::Join(ManualR.Errors, TEXT(" | "))), ManualR.HasErrors())) { return false; }
+
+	// 阶段 1 只写圈层剖面，手动链从 2 起；其余必须与默认管线逐项对齐，否则管线加了阶段而这里没跟上。
+	// 管线必须落成具名对象：Sorted() 交出的裸指针指进它的 Stages，临时管线一析构就悬垂。
+	FPlanetBakePipeline Pipeline = FPlanetBakePipeline::MakeDefault();
+	TArray<uint32> PipelineStages;
+	for (const IPlanetStage* S : Pipeline.Sorted()) { PipelineStages.Add(S->GetStageIndex()); }
+	const bool bSkipsOnlyStage1 = PipelineStages.Num() > 0 && PipelineStages[0] == 1;
+	if (bSkipsOnlyStage1) { PipelineStages.RemoveAt(0); }
+	TestTrue(TEXT("默认管线以阶段 1（圈层剖面）开头，手动链只跳过它"), bSkipsOnlyStage1);
+	int32 StageMismatch = 0;
+	for (int32 i = 0; i < UsedStages.Num() || i < PipelineStages.Num(); ++i)
+	{
+		StageMismatch += (UsedStages.IsValidIndex(i) && PipelineStages.IsValidIndex(i) && UsedStages[i] == PipelineStages[i]) ? 0 : 1;
+	}
+	TestEqual(TEXT("手动链与默认管线逐阶段号一致（管线新增阶段必须同步到这里）"), StageMismatch, 0);
+
+	// 空场会让下面的「无内流盆地」跳过分支静默通过；先把分辨率钉死。
+	if (!TestEqual(TEXT("BasinMask 分辨率 = max(64, FaceRes/4)"), F.BasinMask.Res, FMath::Max(64, C.FaceRes / 4))) { return false; }
 	const int32 Res = F.BasinMask.Res;
 	int32 Endorheic = 0;
 	for (int32 Face = 0; Face < 6; ++Face)
