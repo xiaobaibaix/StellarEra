@@ -98,12 +98,13 @@ bool FGeoStage06c2BasinIdTest::RunTest(const FString& Parameters)
 	{
 		const float M = F.BasinMask.At(Face, X, Y);
 		const float Id = F.BasinId.At(Face, X, Y);
-		if (M == 2.f) { ++Endorheic; BadMaskWithoutId += Id < 0.f ? 1 : 0; }
+		if (M > 0.f) { ++Endorheic; BadMaskWithoutId += Id < 0.f ? 1 : 0; }   // 湖盆也有编号
 		else { BadIdOutside += Id >= 0.f ? 1 : 0; }
 	}
-	AddInfo(FString::Printf(TEXT("内流格 %d"), Endorheic));
-	TestEqual(TEXT("内流盆地格子都有编号"), BadMaskWithoutId, 0);
-	TestEqual(TEXT("非内流格编号为 -1"), BadIdOutside, 0);
+	AddInfo(FString::Printf(TEXT("洼地格（湖盆+内流）%d"), Endorheic));
+	TestTrue(TEXT("有洼地格（否则断言空转）"), Endorheic > 0);
+	TestEqual(TEXT("洼地格子都有编号"), BadMaskWithoutId, 0);
+	TestEqual(TEXT("非洼地格编号为 -1"), BadIdOutside, 0);
 	return true;
 }
 
