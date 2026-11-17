@@ -47,9 +47,9 @@ public:
 	UPROPERTY(VisibleAnywhere, Category = "Geo")
 	FName SurfaceLayer;
 
-	/** 剖切面着色用的图层。 */
+	/** 剖切面着色用的图层。空 = 保留地质编码，由材质解码；非空时盖调试色。 */
 	UPROPERTY(VisibleAnywhere, Category = "Geo")
-	FName VolumeLayer = TEXT("Lithology");
+	FName VolumeLayer;
 
 private:
 	TSharedPtr<const FPlanetSnapshot> Snapshot;

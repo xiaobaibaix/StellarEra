@@ -440,8 +440,9 @@ UTexture2D* AVoxelPlanetActor::CreatePaletteTexture(const TArray<FColor>& Pixels
 UMaterialInterface* AVoxelPlanetActor::ChooseBiomeParentMaterial(UMaterialInterface* Fallback)
 {
 	// LoadObject 找不到时返回 null 且不缓存失败：资产由构建器稍后生成也能立刻生效。
+	// LOAD_NoWarn/Quiet：M_GeoPlanet 在构建器跑之前不存在，缺资产不是错误，别刷警告。
 	if (UMaterialInterface* GeoMaterial = LoadObject<UMaterialInterface>(
-		nullptr, TEXT("/Game/Code/Planet/Materials/M_GeoPlanet.M_GeoPlanet")))
+		nullptr, TEXT("/Game/Code/Planet/Materials/M_GeoPlanet.M_GeoPlanet"), nullptr, LOAD_NoWarn | LOAD_Quiet))
 	{
 		return GeoMaterial;
 	}
@@ -1096,10 +1097,11 @@ bool AVoxelPlanetActor::InstallBiomeMaterial(bool bForceBake)
 			(FPlatformTime::Seconds() - BakeStart) * 1000.0);
 	}
 
-	UMaterialInterface* ParentMaterial = ChooseBiomeParentMaterial(BaseVoxelMaterial);
-	if (!BiomeMaterial || BiomeMaterial->Parent != ParentMaterial)
+	// 非 geo 行星继续用用户材质：M_GeoPlanet 解的是地质编码，而噪声地形的顶点 RGB 是普通颜色、U1=0，
+	// 换过去整颗星会变成解码垃圾。只有 ApplyGeoDebugOverlay 才允许选 M_GeoPlanet。
+	if (!BiomeMaterial || BiomeMaterial->Parent != BaseVoxelMaterial)
 	{
-		BiomeMaterial = CreateBiomeMaterialMID(ParentMaterial);
+		BiomeMaterial = CreateBiomeMaterialMID(BaseVoxelMaterial);
 		if (!BiomeMaterial)
 		{
 			return false;
@@ -1111,7 +1113,7 @@ bool AVoxelPlanetActor::InstallBiomeMaterial(bool bForceBake)
 		{
 			UE_LOG(LogTemp, Warning,
 				TEXT("AVoxelPlanetActor %s: 无法为用户材质 %s 创建 biome MID（父材质被拒绝），本颗星继续用顶点色。"),
-				*GetName(), *GetNameSafe(ParentMaterial));
+				*GetName(), *GetNameSafe(BaseVoxelMaterial));
 			BiomeMaterial = nullptr;
 			return false;
 		}
@@ -1960,9 +1962,10 @@ bool AVoxelPlanetActor::ApplyGeoDebugOverlay()
 	const FGeoDebugLayer* CubeLayer = bWantOverlay
 		? OverlayLayer
 		: FPlanetBakePipeline::FindDefaultDebugLayer(TEXT("Biome"));
-	if (!CubeLayer)
+	// 判据是「这张图真的有数据」，不是「层有没有注册」：Biome 层永远注册，而打包后
+	// bKeepDebugFields=false 使 DebugFields 为空，烘出来是整片 NoData 灰再盖满整星。
+	if (!CubeLayer || (!bWantOverlay && !GeoSnapshot->DebugFields.Contains(CubeLayer->Id)))
 	{
-		// 打包后不保留调试场（bKeepDebugFields=false），没有底图可烘：退回父材质，不装半残 MID。
 		return RestoreBaseMaterial();
 	}
 

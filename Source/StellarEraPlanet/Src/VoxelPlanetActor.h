@@ -183,9 +183,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Geo")
 	TObjectPtr<UPlanetRecipe> GeoRecipe;
 
-	/** geo 模式的体素调试着色；默认按高程分色，方便验收大陆形状。 */
+	/** geo 模式的体素调试着色。默认 None：RGB 写真实地质编码，材质才解得出来；调试分色仍可从下拉框选。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Geo")
-	EPlanetGeoDebugColor GeoDebugColor = EPlanetGeoDebugColor::Elevation;
+	EPlanetGeoDebugColor GeoDebugColor = EPlanetGeoDebugColor::None;
 
 	/**
 	 * 地表叠加图层（编辑器调试）。下拉框列出全部已注册图层：Lithology 圈层/岩性、MohoWobble 莫霍面起伏、
@@ -203,9 +203,9 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Planet|GeoDebug")
 	EPlanetGeoCutaway GeoCutaway = EPlanetGeoCutaway::None;
 
-	/** 剖切面着色用的图层，默认圈层 / 岩性。 */
+	/** 剖切面着色用的图层。默认空：切面保留地质编码交给材质解码；要看调试图层再从下拉框选。 */
 	UPROPERTY(EditAnywhere, Category = "Planet|GeoDebug", meta = (GetOptions = "GetGeoDebugLayerOptions"))
-	FName GeoDebugVolumeLayer = TEXT("Lithology");
+	FName GeoDebugVolumeLayer;
 
 	UFUNCTION()
 	TArray<FName> GetGeoDebugLayerOptions() const;

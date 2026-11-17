@@ -4,6 +4,7 @@
 #include "PlanetGeoGenerator.h"
 #include "PlanetBakePipeline.h"
 #include "PlanetShapeEval.h"
+#include "PlanetMaterialEval.h"
 #include "GeoMaterialCodec.h"
 #include "GeoPalette.h"
 #include "GeoLithology.h"
@@ -273,6 +274,77 @@ bool FGeoMaterialActorGeoTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("MID 上有 BiomeCubeBlend"),
 		MID->GetScalarParameterValue(FMaterialParameterInfo(TEXT("BiomeCubeBlend")), Blend));
 	TestEqual(TEXT("没有叠加时混合权重 = 1"), Blend, 1.f);
+	return true;
+}
+
+// 剖切面若被调试图层盖成调色板色，材质就解不出岩性；默认不叠图层时 RGB 必须保持 Encode 的结果。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoMaterialCutawayEncodedTest, "StellarEra.Planet.Geo.Material.CutawayEncoded",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoMaterialCutawayEncodedTest::RunTest(const FString& Parameters)
+{
+	FPlanetRecipeConfig Config;
+	Config.Radius = 2000.0;
+	Config.FaceRes = 128;
+	FPlanetBakeReport Report;
+	const TSharedPtr<const FPlanetSnapshot> Snap = FPlanetBakePipeline::MakeDefault().Bake(Config, Report);
+	if (!TestTrue(TEXT("烘焙成功"), Snap.IsValid())) { return false; }
+
+	// 按默认配置装生成器：DebugColor=None、剖切面不选图层，切面应保留地质编码。
+	UPlanetGeoGenerator* Gen = NewObject<UPlanetGeoGenerator>();
+	Gen->DebugColor = EPlanetGeoDebugColor::None;
+	Gen->Cutaway = EPlanetGeoCutaway::Half;
+	Gen->SetSnapshot(Snap);
+	const TVoxelSharedRef<FVoxelGeneratorInstance> Base = Gen->GetInstance();
+	const FPlanetGeoGeneratorInstance& Inst = static_cast<const FPlanetGeoGeneratorInstance&>(*Base);
+
+	// Half 切掉 +X 半球：取 +X 方向地表点，既在切区内，U1 又是满遮罩。
+	const FVector3f Dir = FVector3f(1.f, 0.f, 0.f);
+	const double Surface = PlanetShapeEval::SurfaceRadius(*Snap, Dir);
+	const FVector3d P = FVector3d(Dir) * Surface;
+	const FGeoPackedMaterial Expected = GeoMaterialCodec::Encode(PlanetMaterialEval::Sample(*Snap, P));
+
+	const FVoxelMaterial M = Inst.GetMaterialImpl(
+		v_flt(P.X), v_flt(P.Y), v_flt(P.Z), 0, FVoxelItemStack::Empty);
+	TestEqual(TEXT("切面 R = 岩性编号（不是调试色）"), int32(M.GetR()), int32(Expected.R));
+	TestEqual(TEXT("切面 G = 矿物编号"), int32(M.GetG()), int32(Expected.G));
+	TestEqual(TEXT("切面 B = 品位"), int32(M.GetB()), int32(Expected.B));
+	TestEqual(TEXT("切面 A = 线索"), int32(M.GetA()), int32(Expected.A));
+	TestEqual(TEXT("地表点 U1 = 255"), int32(M.GetU1()), 255);
+	return true;
+}
+
+// 打包后 bKeepDebugFields=false：Biome 层仍注册但 DebugFields 为空。此时必须退回父材质，
+// 否则全 NoData 灰立方体会以 BiomeCubeBlend=1 盖满整星（还白烘一次 512²×6）。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoMaterialPackagedNoBiomeFieldTest,
+	"StellarEra.Planet.Geo.Material.PackagedNoBiomeField",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoMaterialPackagedNoBiomeFieldTest::RunTest(const FString& Parameters)
+{
+	AVoxelPlanetActor* Planet = NewObject<AVoxelPlanetActor>(GetTransientPackage());
+	if (!TestNotNull(TEXT("行星 Actor"), Planet)) { return false; }
+	Planet->GeoRecipe = NewObject<UPlanetRecipe>(GetTransientPackage());
+	if (!TestNotNull(TEXT("配方"), Planet->GeoRecipe.Get())) { return false; }
+
+	TSharedPtr<FPlanetSnapshot> Snap = MakeShared<FPlanetSnapshot>();
+	Snap->R0 = 1000.0;
+	Snap->MinSurfaceRadius = Snap->MaxSurfaceRadius = Snap->R0;
+	FGeoMineralInfo Mineral;
+	Mineral.Name = TEXT("矿1");
+	Mineral.Color = FColor::Red;
+	Snap->Minerals.Add(Mineral);
+	// 刻意不填 DebugFields：这正是打包后快照的形状。
+	Snap->FinalizeHash();
+	Planet->SetGeoSnapshotForTest(Snap);
+
+	UMaterial* Base = NewObject<UMaterial>(GetTransientPackage());
+	Planet->VoxelMaterial = Base;
+
+	TestFalse(TEXT("没有 Biome 场时不装 MID"), Planet->ApplyGeoDebugOverlayForTest());
+	TestTrue(TEXT("VoxelMaterial 保持父材质"), Planet->VoxelMaterial == Base);
+	TestNull(TEXT("没有留下 MID"), Planet->BiomeMaterial.Get());
+	TestNull(TEXT("跳过调色板，不建 LUT"), Planet->GeoPaletteTexture.Get());
 	return true;
 }
 
