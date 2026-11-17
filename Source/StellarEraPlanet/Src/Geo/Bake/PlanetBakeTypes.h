@@ -63,6 +63,8 @@ struct FPlanetBakeFields
 
 	// 阶段 6：水系场一律 HydroRes；FlowAccum 按全球（含海洋）面积×降水归一化，值恒小于 1，BasinMask 0 无 / 1 湖盆 / 2 内流盆地。
 	FGeoField2D FlowAccum, BasinMask, ErosionDepth, RiverMask;
+	/** 阶段 6 的水系拓扑：值 = 下游格编号 + 1，0 = 无下游（海洋 / 内流盆地出口 / 无流向）。 */
+	FGeoField2D FlowNext;
 };
 
 struct FPlanetBakeReport
