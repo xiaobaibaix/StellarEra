@@ -4,8 +4,8 @@
 
 ## 仓库状态
 
-- 分支 `geo-pipeline`，HEAD `77f258f`（阶段 6c-2 蒸发岩 / 锂盐 / 煤）。
-- 全量自动化测试 **377 条全过**（`Automation RunTests StellarEra`，约 10 分钟）。
+- 分支 `geo-pipeline`，HEAD `a35d814`（材质解码 v1：U1 遮罩 + 调色板 LUT + MF_GeoDecode/M_GeoPlanet）。
+- 全量自动化测试 **384 条全过**（`Automation RunTests StellarEra`，约 10 分钟）。
 - 未提交（工作区）：`Content/Code/Maps/GeoPlanetMap.umap`、`GeoTestMap.umap`、
   `DA_GeoRecipe_Archipelago.uasset`、`DA_MineralCatalog.uasset`、`Content/Code/Maps/Saves/PlanetVoxel/GeoPlanetMap/`。
   **这两个资产是 4c 与 6c 的挂载（现为 24 种矿、24 个撒矿器），回退会丢**；配方资产里混着用户早前的未提交改动，所以一直没代提交。
@@ -26,6 +26,7 @@
 | 6b | `FStage06bExposure` | 按剥蚀深度把岩体 / 矿体 / 蚀变晕径向上抬（跟随者复制宿主位移向量）、夹到地表、写 `Exposure` / `RawDepthBefore` + 两图层 |
 | 6c-1 | `FGeoPlacerRule` + `UGeoPlacerScatterer` | 阶段 6a 导出 `FlowNext`；砂矿按「上游原生矿 + 沿流追踪」撒 1 体素薄层，品位沿流程指数衰减；`bMouthOnly` 撒滨海重砂。目录 18 种矿、配方 18 个撒矿器 |
 | 6c-2 | `FGeoBasinDepositRule` + `FGeoCoalRule` | 阶段 6a 导出 `BasinId`；内流盆地按归一化半径环带撒蒸发岩四环（各自一个矿物），可选火山门槛撒锂盐；煤在湿热、低平、近海的陆地撒略埋薄层。目录 24 种矿、配方 24 个撒矿器 |
+| 材质 | `MF_GeoDecode` + `M_GeoPlanet` | 生成器写 `U1` 表面遮罩；运行时 256×3 调色板 LUT（岩性/矿物/线索）；材质解码岩性色、矿物覆盖、线索染色；`StellarEra.BuildGeoMaterials` 代码重建材质资产 |
 
 阶段号：1 球、2 板块、3 地形、4 岩浆（含 4a/4b/4c）、5 气候、6 侵蚀（6a/6b/6c-1/6c-2）、7 出露（6b 占 7，风化壳将来用 8）。
 
@@ -37,15 +38,18 @@
 主线之后还剩两条可选支线与两项非阶段交付：
 - 3A 沉积盖层（石灰岩/砂岩/页岩）→ 层控铅锌、古煤、古蒸发岩、砂岩型铀；矽卡岩依赖它。
 - 3B 构造变形变质 → 造山型金、石墨、大理岩。
-- `MF_GeoDecode` 材质解码；元素映射 / 资源层。
+- 元素映射 / 资源层。
+
+材质解码 v1 的已知限制：
+- 地表「生物群系」混合尚未生效：实机里行星表面直接显示岩性色（`U1` 遮罩在材质侧读出 0，疑为体素网格未把 UV1 传给材质）。挖开 / 剖面显示岩性色已成立。
+- 打包版（`bKeepDebugFields=false`）没有 Biome 底图，按设计回退旧材质，不解码。
 
 6c 的两个规则类可作模板：一个规则类 + 一个撒矿器类，矿种与参数全在资产里。
 
 ## 一直挂着的两件事
 
-1. **材质解码 `MF_GeoDecode` 没做**：游戏画面里切面不按岩性 / 矿种上色，只有调试图层与查看器可见。
-   规格见 `11-material-field.md`（含「顶点索引插值」那条被否决的方案）。
-2. **矽卡岩**没做：缺沉积岩（石灰岩）岩性，上位规格写明「需 3A 否则跳过」。
+1. **矽卡岩**没做：缺沉积岩（石灰岩）岩性，上位规格写明「需 3A 否则跳过」。
+2. **材质解码的表面遮罩**：`U1` 已写入但材质读不到，地表用不上生物群系色；下一步查体素网格 UV1 传递或改用其他通道。
 
 ## 常用命令
 
@@ -90,3 +94,7 @@ cd F:/workspace/ue && "/d/Application/Epic Games/UE_5.8/Engine/Binaries/ThirdPar
 14. 蒸发岩用四个独立矿物、四个撒矿器实例共用同一规则类；环带边界首尾相接不留重叠（材质取强度最大的矿，重叠归属不确定）。
 15. 煤的默认门槛：`MaxContinental = 0.65`（0.5 恰好是大陆度场的海岸线，写 0.5 会把煤闸死）、`MaxSlope = 0.04`；默认星球约 18 片煤层、744 片蒸发岩。
 16. 沉积规则的 `BodiesPerBasin` 是每盆地上限而非全球配额；极端调大需自行控制总量。
+17. 材质调色板是运行时 `256×3` LUT（行 0 岩性 / 行 1 矿物 / 行 2 线索），由目录自动生成，不写死在材质里。
+18. 材质资产由代码构建（`StellarEra.BuildGeoMaterials`），GUID 固定、重复构建字节稳定；改材质图必须开真 RHI 编辑器验证编译（`-nullrhi` 测试抓不到）。
+19. UE 5.8 的 `VertexColor` 表达式是两路输出（RGB float3 + Alpha float），接 Vector4 前必须 `AppendVector` 拼回；这是本轮的编译错误根因。
+20. 默认 `GeoDebugColor` 改为 `None`（地质编码）、默认剖切图层置空；调试色与调试图层仍可在下拉里选。
