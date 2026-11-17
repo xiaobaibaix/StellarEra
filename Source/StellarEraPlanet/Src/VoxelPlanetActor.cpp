@@ -23,6 +23,10 @@
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Engine/TextureCube.h"
+#include "Engine/Texture2D.h"
+// 地质调色板：快照矿物表 → 256×3 LUT，材质按行中心采样。
+#include "GeoPalette.h"
+#include "GeoMineral.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
 #include "UObject/ConstructorHelpers.h"
@@ -154,10 +158,17 @@ AVoxelPlanetActor::AVoxelPlanetActor()
 	MeshUpdatesBudget = 8.f;
 
 #if WITH_EDITOR
-	// 每颗行星默认用项目顶点色材质。仅编辑器有效：打包后实例自带序列化值。
+	// 默认用解地质通道的新材质；M_GeoPlanet 由构建器生成，资产还没建时退回顶点色材质，
+	// 否则新拖进关卡的行星没有材质。仅编辑器有效：打包后实例自带序列化值。
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> GeoPlanetMaterialFinder(
+		TEXT("/Game/Code/Planet/Materials/M_GeoPlanet.M_GeoPlanet"));
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> PlanetMaterialFinder(
 		TEXT("/Game/Code/Planet/Materials/M_PlanetVertexColor.M_PlanetVertexColor"));
-	if (PlanetMaterialFinder.Succeeded())
+	if (GeoPlanetMaterialFinder.Succeeded())
+	{
+		VoxelMaterial = GeoPlanetMaterialFinder.Object;
+	}
+	else if (PlanetMaterialFinder.Succeeded())
 	{
 		VoxelMaterial = PlanetMaterialFinder.Object;
 	}
@@ -394,6 +405,37 @@ UMaterialInstanceDynamic* AVoxelPlanetActor::CreateBiomeMaterialMID(UMaterialInt
 	// Outer 必须是瞬态包，理由见头文件：插件在编辑器态把这张 MID 直接登记进
 	// 全局管理器（GC root），Outer 指向行星 Actor 会把整张旧关卡钉住。
 	return UMaterialInstanceDynamic::Create(Parent, GetTransientPackage(), TEXT("BiomeMaterialMID"));
+}
+
+UTexture2D* AVoxelPlanetActor::CreatePaletteTexture(const TArray<FColor>& Pixels)
+{
+	if (Pixels.Num() != GeoPalette::Width * GeoPalette::Rows)
+	{
+		return nullptr;
+	}
+
+	// CreateTransient 的 Outer 就是瞬态包；理由见头文件（切图泄漏）。
+	UTexture2D* Texture = UTexture2D::CreateTransient(
+		GeoPalette::Width, GeoPalette::Rows, PF_B8G8R8A8, TEXT("GeoPalette"));
+	if (!Texture || !Texture->GetPlatformData() || Texture->GetPlatformData()->Mips.Num() == 0)
+	{
+		return nullptr;
+	}
+
+	// 与 biome cubemap 同约定：CreateTransient 还没有 RHI 资源，直接写 Mip0 再 UpdateResource。
+	Texture->SRGB = true;
+	FTexture2DMipMap& Mip = Texture->GetPlatformData()->Mips[0];
+	uint8* Dest = static_cast<uint8*>(Mip.BulkData.Lock(LOCK_READ_WRITE));
+	if (!Dest)
+	{
+		Mip.BulkData.Unlock();
+		return nullptr;
+	}
+	FMemory::Memcpy(Dest, Pixels.GetData(), Pixels.Num() * sizeof(FColor));
+	Mip.BulkData.Unlock();
+
+	Texture->UpdateResource();
+	return Texture;
 }
 
 #if WITH_EDITOR
@@ -1039,6 +1081,29 @@ bool AVoxelPlanetActor::InstallBiomeMaterial(bool bForceBake)
 	// 参数名须与 M_PlanetVertexColor 对得上；材质里没有时静默不生效（回到纯顶点色）。
 	BiomeMaterial->SetTextureParameterValue(TEXT("BiomeCube"), BiomeCubemap);
 	BiomeMaterial->SetScalarParameterValue(TEXT("BiomeCubeBlend"), BiomeCubemapBlend);
+
+	// 没有快照就没有矿物表，也就没有 LUT 可绑；材质里没这个参数时 SetTextureParameterValue 静默不生效。
+	if (GeoSnapshot.IsValid())
+	{
+		const TArray<FGeoMineralInfo>& Minerals = GeoSnapshot->Minerals;
+		uint64 PaletteHash = GeoHash::Mix64(uint64(Minerals.Num()));
+		for (const FGeoMineralInfo& Mineral : Minerals)
+		{
+			PaletteHash = GeoHash::Combine(PaletteHash, uint64(Mineral.Color.ToPackedARGB()));
+		}
+
+		if (!GeoPaletteTexture || GeoPaletteHash != PaletteHash)
+		{
+			// 旧的瞬态纹理在赋值时丢掉最后一个引用，交给 GC。
+			GeoPaletteTexture = CreatePaletteTexture(GeoPalette::BuildLUT(Minerals));
+			GeoPaletteHash = GeoPaletteTexture ? PaletteHash : 0;
+		}
+
+		if (GeoPaletteTexture)
+		{
+			BiomeMaterial->SetTextureParameterValue(TEXT("GeoPalette"), GeoPaletteTexture);
+		}
+	}
 
 	const bool bSwitched = (VoxelMaterial != BiomeMaterial);
 	VoxelMaterial = BiomeMaterial;

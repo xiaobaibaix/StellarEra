@@ -10,6 +10,13 @@
 #include "GeoMineral.h"
 #include "GeoPrimitive.h"
 #include "VoxelItemStack.h"
+#include "VoxelPlanetActor.h"
+#include "PlanetSnapshot.h"
+#include "VoxelPlanetGenerator.h"
+#include "VoxelPlanetNoiseTerrain.h"
+#include "Materials/Material.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Engine/Texture2D.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -139,6 +146,58 @@ bool FGeoPaletteLUTTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("行 1 的 0 号与越界为黑"), bMineralRest);
 	TestTrue(TEXT("行 2 线索色与 GeoClue::DebugColor 逐项相等"), bClue);
 	TestTrue(TEXT("行 2 越界为黑"), bClueRest);
+	return true;
+}
+
+// LUT 必须真的挂到 MID 上且 Outer 是瞬态包：UNPROPERTY 的瞬态纹理会被 GC 收走，
+// Outer 指向 Actor 则会被材质管理器钉住，切图时 World Memory Leaks 直接 Fatal。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoMaterialActorLUTTest, "StellarEra.Planet.Geo.Material.ActorLUT",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoMaterialActorLUTTest::RunTest(const FString& Parameters)
+{
+	// 不 SpawnActor：构造/OnConstruction 会建整个体素世界，无头下极慢。InstallBiomeMaterial
+	// 只碰材质与贴图，未注册的 Actor 够用（PlanetMineralViewTests 也这么装）。
+	AVoxelPlanetActor* Planet = NewObject<AVoxelPlanetActor>(GetTransientPackage());
+	if (!TestNotNull(TEXT("行星 Actor"), Planet)) { return false; }
+
+	TSharedPtr<FPlanetSnapshot> Snap = MakeShared<FPlanetSnapshot>();
+	Snap->R0 = 1000.0;
+	Snap->MinSurfaceRadius = Snap->MaxSurfaceRadius = Snap->R0;
+	for (int32 Index = 0; Index < 2; ++Index)
+	{
+		FGeoMineralInfo Mineral;
+		Mineral.Name = FString::Printf(TEXT("矿%d"), Index);
+		Mineral.Color = FColor(uint8(20 + Index * 60), 180, uint8(90 - Index * 40));
+		Snap->Minerals.Add(Mineral);
+	}
+	Snap->FinalizeHash();
+	Planet->SetGeoSnapshotForTest(Snap);
+
+	// 最小生成器 + 噪声地形：InstallBiomeMaterial 在这两样齐了之后才走到设参数那段。
+	// cubemap 分辨率压到 4 只为省烘焙时间，调色板尺寸与它无关。
+	Planet->BiomeCubemapResolution = 4;
+	UVoxelPlanetGenerator* Generator = NewObject<UVoxelPlanetGenerator>(GetTransientPackage());
+	UVoxelPlanetNoiseTerrain* Terrain = NewObject<UVoxelPlanetNoiseTerrain>(GetTransientPackage());
+	if (!TestNotNull(TEXT("生成器"), Generator) || !TestNotNull(TEXT("噪声地形"), Terrain)) { return false; }
+	Generator->Terrain = Terrain;
+	Planet->PlanetGenerator = Generator;
+	Planet->VoxelMaterial = NewObject<UMaterial>(GetTransientPackage());
+
+	Planet->InstallBiomeMaterialForTest(/*bForceBake=*/true);
+	if (!TestNotNull(TEXT("biome MID"), Planet->BiomeMaterial.Get())) { return false; }
+
+	UTexture* Bound = nullptr;
+	const bool bFound = Planet->BiomeMaterial->GetTextureParameterValue(
+		FMaterialParameterInfo(TEXT("GeoPalette")), Bound);
+	TestTrue(TEXT("MID 上有 GeoPalette 纹理参数"), bFound);
+	UTexture2D* LUT = Cast<UTexture2D>(Bound);
+	if (!TestNotNull(TEXT("GeoPalette 是 Texture2D"), LUT)) { return false; }
+
+	TestEqual(TEXT("LUT 宽 256"), LUT->GetSizeX(), GeoPalette::Width);
+	TestEqual(TEXT("LUT 高 3"), LUT->GetSizeY(), GeoPalette::Rows);
+	TestTrue(TEXT("纹理 Outer 不是行星 Actor"), LUT->GetOuter() != Planet);
+	TestTrue(TEXT("纹理 Outer 是瞬态包"), LUT->GetOuter() == GetTransientPackage());
 	return true;
 }
 

@@ -26,6 +26,7 @@ struct FPlanetSnapshot;
 class UVoxelSimpleInvokerComponent;
 class UPlanetGeologyPreset;
 class UTextureCube;
+class UTexture2D;
 class FPlanetGeologyField;
 
 /**
@@ -302,6 +303,10 @@ public:
 	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "Planet|Color")
 	TObjectPtr<UTextureCube> BiomeCubemap;
 
+	/** 地质调色板 LUT（瞬态：随快照矿物表重建）。材质参数 `GeoPalette`。 */
+	UPROPERTY(Transient)
+	TObjectPtr<UTexture2D> GeoPaletteTexture;
+
 	/**
 	 * 装了 BiomeCubemap 的材质实例，**运行期 VoxelMaterial 指向它**。必须当独立
 	 * 字段强引用：渲染器只存弱指针，否则下次 GC 会被收走。
@@ -337,6 +342,21 @@ public:
 	 * Actor 就让旧关卡永远收不掉，切图时以 "World Memory Leaks" 直接 Fatal。
 	 */
 	static UMaterialInstanceDynamic* CreateBiomeMaterialMID(UMaterialInterface* Parent);
+
+	/**
+	 * 256×3 调色板 → 瞬态 UTexture2D。**Outer 必须是瞬态包**（CreateTransient 的默认）：
+	 * 挂到 Actor 下会让材质管理器把它钉成 GC root，切图时 World Memory Leaks 直接 Fatal。
+	 */
+	static UTexture2D* CreatePaletteTexture(const TArray<FColor>& Pixels);
+
+#if WITH_DEV_AUTOMATION_TESTS
+	/** 生产路径只有烘焙回调能写快照；测试装一颗带矿的星需要这条口子。 */
+	void SetGeoSnapshotForTest(TSharedPtr<const FPlanetSnapshot> InSnapshot)
+	{
+		GeoSnapshot = MoveTemp(InSnapshot);
+	}
+	bool InstallBiomeMaterialForTest(bool bForceBake) { return InstallBiomeMaterial(bForceBake); }
+#endif
 
 private:
 	/**
@@ -407,6 +427,9 @@ private:
 
 	/** 上次烘焙用的分辨率。-1 = 从没烘过。 */
 	int32 BakedCubemapResolution = -1;
+
+	/** 上次建 LUT 用的矿物表哈希；变了才重建纹理。非 UPROPERTY：瞬态缓存不落盘。 */
+	uint64 GeoPaletteHash = 0;
 
 	/** PreSave 把 VoxelMaterial 换回 BaseVoxelMaterial 了，PostSaveRoot 负责换回来。 */
 	bool bRestoreVoxelMaterialAfterSave = false;
