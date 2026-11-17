@@ -22,6 +22,9 @@ namespace
 
 	void GeoSetRGB(FGeoPackedMaterial& P, const FColor& C) { P.R = C.R; P.G = C.G; P.B = C.B; }
 
+	/** 8 体素：再宽远处整片都是地表色，再窄粗 LOD 采样点落在地表下就更早变岩性色。 */
+	constexpr double MaterialSurfaceBandVoxels = 8.0;
+
 	/** 粗 LOD 的材质采样点在 2^LOD 体素网格上，可能离表面一整格；门限要跟着放宽。 */
 	double GeoNearBand(int32 LOD) { return 16.0 + 2.0 * double(1 << FMath::Clamp(LOD, 0, 20)); }
 }
@@ -69,7 +72,7 @@ FVoxelMaterial FPlanetGeoGeneratorInstance::GetMaterialImpl(v_flt X, v_flt Y, v_
 	const FVector3f Dir = D > 1e-6 ? FVector3f(Pos / D) : FVector3f::UpVector;
 	const double Surface = PlanetShapeEval::SurfaceRadius(*Snapshot, Dir);
 	// 表面遮罩：地表用生物群系色，挖开处用岩性色。带宽随 LOD 放大，粗 LOD 采样点离表面更远。
-	const double Band = 8.0 + 2.0 * double(1 << FMath::Clamp(LOD, 0, 20));
+	const double Band = MaterialSurfaceBandVoxels + 2.0 * double(1 << FMath::Clamp(LOD, 0, 20));
 	const float Mask = float(FMath::Clamp(1.0 - FMath::Max(Surface - D, 0.0) / Band, 0.0, 1.0));
 	P.U1 = uint8(FMath::RoundToInt(Mask * 255.f));
 	const bool bNearSurface = Surface - D < GeoNearBand(LOD);
