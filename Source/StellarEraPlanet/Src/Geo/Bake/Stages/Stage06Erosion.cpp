@@ -227,7 +227,7 @@ void FStage06Erosion::Bake(FPlanetBakeContext& Ctx) const
 	Stage06::FHydroFlow Flow;
 	Stage06::SolveFlow(Grid, E, Pr, float(Cfg.Radius), P.FlatSlopeRatio, P.EndorheicPrecip, Flow);
 
-	F.FlowAccum.Init(Res); F.BasinMask.Init(Res);
+	F.FlowAccum.Init(Res); F.BasinMask.Init(Res); F.BasinId.Init(Res);
 	F.ErosionDepth.Init(Res); F.RiverMask.Init(Res); F.FlowNext.Init(Res);
 	const double Inv = Flow.TotalAreaPrecip > 0.0 ? 1.0 / Flow.TotalAreaPrecip : 0.0;
 	const double R = Cfg.Radius;
@@ -246,6 +246,7 @@ void FStage06Erosion::Bake(FPlanetBakeContext& Ctx) const
 		const float An = float(Flow.Acc[i] * Inv);
 		F.FlowAccum.At(Face, X, Y) = An;
 		F.BasinMask.At(Face, X, Y) = float(Flow.Basin[i]);
+		F.BasinId.At(Face, X, Y) = float(Flow.BasinId[i]);
 		if (!bLand) { continue; }
 		const int32 D = Flow.Down[i];
 		F.FlowNext.At(Face, X, Y) = float(D + 1);

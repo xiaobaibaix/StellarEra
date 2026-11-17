@@ -22,7 +22,7 @@ enum class EPlanetField : uint32
 	Relief      = 1 << 6,   // MountainMask / ReliefDelta / ReliefType
 	Volcanoes   = 1 << 7,   // Volcanoes / VolcanoMask / VolcanicType / VolcanicAge / VolcanoActive / VolcanoDelta
 	Climate     = 1 << 8,   // Temperature / Precipitation / WindDir / Biome / ClimateLand
-	Hydro       = 1 << 9,   // FlowAccum / BasinMask / ErosionDepth / RiverMask / FlowNext
+	Hydro       = 1 << 9,   // FlowAccum / BasinMask / BasinId / ErosionDepth / RiverMask / FlowNext
 	Exposure    = 1 << 10,  // Primitives 里的 Exposure / RawDepthBefore（原地改写）
 };
 ENUM_CLASS_FLAGS(EPlanetField);
@@ -65,6 +65,8 @@ struct FPlanetBakeFields
 	FGeoField2D FlowAccum, BasinMask, ErosionDepth, RiverMask;
 	/** 阶段 6 的水系拓扑：值 = 下游格编号 + 1，0 = 无下游（海洋 / 内流盆地出口 / 无流向）。 */
 	FGeoField2D FlowNext;
+	/** 洼地编号（0..N-1），-1 = 不在洼地。按洼地分组，盆地沉积才不会把不同盆地的物源混在一起。 */
+	FGeoField2D BasinId;
 };
 
 struct FPlanetBakeReport
