@@ -4,11 +4,11 @@
 
 ## 仓库状态
 
-- 分支 `geo-pipeline`，HEAD `d057fcc`（阶段 6c-1 砂矿与滨海重砂）。
-- 全量自动化测试 **356 条全过**（`Automation RunTests StellarEra`，约 10 分钟）。
+- 分支 `geo-pipeline`，HEAD `77f258f`（阶段 6c-2 蒸发岩 / 锂盐 / 煤）。
+- 全量自动化测试 **377 条全过**（`Automation RunTests StellarEra`，约 10 分钟）。
 - 未提交（工作区）：`Content/Code/Maps/GeoPlanetMap.umap`、`GeoTestMap.umap`、
   `DA_GeoRecipe_Archipelago.uasset`、`DA_MineralCatalog.uasset`、`Content/Code/Maps/Saves/PlanetVoxel/GeoPlanetMap/`。
-  **这两个资产是 4c 与 6c-1 的挂载（现为 18 种矿、18 个撒矿器），回退会丢**；配方资产里混着用户早前的未提交改动，所以一直没代提交。
+  **这两个资产是 4c 与 6c 的挂载（现为 24 种矿、24 个撒矿器），回退会丢**；配方资产里混着用户早前的未提交改动，所以一直没代提交。
 
 ## 已完成的阶段
 
@@ -25,23 +25,21 @@
 | 6a | `FStage06Erosion` | priority-flood 填洼、D8 流向、内流盆地、汇流累积、U 形河谷刻进高程、剥蚀深度 + 四图层 |
 | 6b | `FStage06bExposure` | 按剥蚀深度把岩体 / 矿体 / 蚀变晕径向上抬（跟随者复制宿主位移向量）、夹到地表、写 `Exposure` / `RawDepthBefore` + 两图层 |
 | 6c-1 | `FGeoPlacerRule` + `UGeoPlacerScatterer` | 阶段 6a 导出 `FlowNext`；砂矿按「上游原生矿 + 沿流追踪」撒 1 体素薄层，品位沿流程指数衰减；`bMouthOnly` 撒滨海重砂。目录 18 种矿、配方 18 个撒矿器 |
+| 6c-2 | `FGeoBasinDepositRule` + `FGeoCoalRule` | 阶段 6a 导出 `BasinId`；内流盆地按归一化半径环带撒蒸发岩四环（各自一个矿物），可选火山门槛撒锂盐；煤在湿热、低平、近海的陆地撒略埋薄层。目录 24 种矿、配方 24 个撒矿器 |
 
-阶段号：1 球、2 板块、3 地形、4 岩浆（含 4a/4b/4c）、5 气候、6 侵蚀、7 出露（6b 占 7，风化壳将来用 8）。
+阶段号：1 球、2 板块、3 地形、4 岩浆（含 4a/4b/4c）、5 气候、6 侵蚀（6a/6b/6c-1/6c-2）、7 出露（6b 占 7，风化壳将来用 8）。
 
-## 下一步：6c-2 蒸发岩 / 锂盐 / 煤
+## 下一步：阶段 7 表生风化（主线最后一段）
 
-上位规格 `docs/superpowers/specs/2026-11-12-geology-pipeline/06-erosion.md` §撒矿（砂矿与滨海重砂已在 6c-1 完成）：
+上位规格 `docs/superpowers/specs/2026-11-12-geology-pipeline/07-weathering.md`：铝土矿、红土镍、次生富集铜、铁帽、高岭土；输出 `WeatheringDepth` / `SoilType`。
+所需数据都已就位：`ErosionDepth`、`Temperature`、`Precipitation`、`Exposure`、`Primitives`。
 
-| 矿 | 条件 | 形态 |
-|---|---|---|
-| 蒸发岩 | `BasinMask == 内流` 且 `Precipitation < 0.2` | 同心环：碳酸盐→石膏→岩盐→钾盐 |
-| 锂盐 | 同上 + 附近有火山 | 盆心固态层 |
-| 煤 | `Precipitation > 0.6` + 低平三角洲 | 水平薄层 |
+主线之后还剩两条可选支线与两项非阶段交付：
+- 3A 沉积盖层（石灰岩/砂岩/页岩）→ 层控铅锌、古煤、古蒸发岩、砂岩型铀；矽卡岩依赖它。
+- 3B 构造变形变质 → 造山型金、石墨、大理岩。
+- `MF_GeoDecode` 材质解码；元素映射 / 资源层。
 
-数据都已就位：`BasinMask`、`BasinId`（6c-2 需要从 6a 再导出一张，与 `FlowNext` 同法）、`Precipitation`、`Volcanoes`、`Primitives`。
-6c-1 的 `FGeoPlacerRule` 可作模板：一个规则类 + 一个撒矿器类，矿种与参数全在资产里。
-
-之后：阶段 7 风化壳（铝土 / 红土镍 / 次生铜 / 铁帽），需要 `ErosionDepth` + 气候。
+6c 的两个规则类可作模板：一个规则类 + 一个撒矿器类，矿种与参数全在资产里。
 
 ## 一直挂着的两件事
 
@@ -72,6 +70,7 @@ cd F:/workspace/ue && "/d/Application/Epic Games/UE_5.8/Engine/Binaries/ThirdPar
 - 导出图层：控制台 `StellarEra.Geo.ExportLayers 1024` → `Saved/GeoDebug/<星球>_Editor/`。
 - 体积图层（`IntrusionType` / `Exposure` 等）在地表图上看不到，要看剖面 / 3D 视图 / 切面。
 - 已知：重开编辑器偶尔在 Slate 层崩一次（崩溃栈无本模块帧），重开即好，未复现。
+- **改配方后重烘要用「重建行星（ReloadGeology）」**，不是 `RebuildPlanet`：后者只在没有快照时才烘，旧快照不会因配方改动失效。
 
 ## 本轮关键裁定（避免重复讨论）
 
@@ -87,3 +86,7 @@ cd F:/workspace/ue && "/d/Application/Epic Games/UE_5.8/Engine/Binaries/ThirdPar
 10. 砂矿源矿默认不要求出露（`MinSourceExposure = 0`），要收紧在资产里调；「无源不砂矿」是硬规则。
 11. 砂矿体的 `Exposure` 恒 0（规则跑在 6b 之后，本来就没经过出露结算）：出露图层里它们显示「未出露」，看砂矿请用「矿物 / 地表矿化」图层。
 12. 全量套件由 controller 统一跑；实施子代理只跑聚焦过滤，避免每次 10 分钟。
+13. 6c-2 的 `BasinId`：`>= 0` 表示「在某洼地」，湖盆（Mask 1）与内流盆地（Mask 2）各有编号；规则只聚合 Mask==2。
+14. 蒸发岩用四个独立矿物、四个撒矿器实例共用同一规则类；环带边界首尾相接不留重叠（材质取强度最大的矿，重叠归属不确定）。
+15. 煤的默认门槛：`MaxContinental = 0.65`（0.5 恰好是大陆度场的海岸线，写 0.5 会把煤闸死）、`MaxSlope = 0.04`；默认星球约 18 片煤层、744 片蒸发岩。
+16. 沉积规则的 `BodiesPerBasin` 是每盆地上限而非全球配额；极端调大需自行控制总量。
