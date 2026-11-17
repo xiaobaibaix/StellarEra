@@ -1,5 +1,6 @@
 ﻿// 阶段 6c-1：水系拓扑导出与砂矿规则。
 #include "CoreMinimal.h"
+#include "HAL/PlatformTime.h"
 #include "Misc/AutomationTest.h"
 #include "GeoField2D.h"
 #include "GeoMineralCatalog.h"
@@ -9,13 +10,16 @@
 #include "PlanetRecipe.h"
 #include "GeoPrimitive.h"
 #include "GeoRng.h"
+#include "PlanetBakePipeline.h"
 #include "PlanetBakeTypes.h"
 #include "PlanetRecipeConfig.h"
+#include "PlanetStage.h"
 #include "Stage02Plates.h"
 #include "Stage03Terrain.h"
 #include "Stage04Magmatism.h"
 #include "Stage05Climate.h"
 #include "Stage06Erosion.h"
+#include "Stage06bExposure.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -465,6 +469,181 @@ bool FGeoStage06cPlacerRecipeTest::RunTest(const FString& Parameters)
 	H->MouthCells = 4;             TestTrue(TEXT("MouthCells 进哈希"), HashNow() != H0); H->MouthCells = 3;
 	H->Hard = 0.5f;                TestTrue(TEXT("Hard 进哈希"), HashNow() != H0); H->Hard = 0.3f;
 	TestEqual(TEXT("翻完恢复原哈希"), HashNow(), H0);
+	return true;
+}
+
+namespace
+{
+	/**
+	 * 按管线的执行方式手动跑一个阶段：Bake 完立刻跑挂在该阶段的撒矿器。
+	 * 阶段号与随机流逐位照抄 FPlanetBakePipeline::Bake，测试量的就是生产那条路径。
+	 */
+	void Stage06cBakeOne(const FPlanetRecipeConfig& C, FPlanetBakeFields& F, FPlanetBakeReport& R,
+		const IPlanetStage& Stage)
+	{
+		FPlanetBakeContext Ctx{ C, F, FGeoRng::Derive(C.Seed, Stage.GetStageIndex(), 0), R };
+		Stage.Bake(Ctx);
+		for (const TSharedPtr<const IGeoMineralRule>& Rule : C.MineralRules)
+		{
+			if (!Rule || Rule->GetStage() != Stage.GetStageIndex()) { continue; }
+			const uint64 Purpose = GeoHash::Combine(GeoHash::Combine(GeoHash::Str("scatter"), Rule->HashParams()),
+				uint64(Rule->SeedOffset));
+			FGeoScatterContext SC{ C, F, FGeoRng::Derive(C.Seed, Stage.GetStageIndex(), Purpose), R.Errors };
+			FGeoScatterOutput Out;
+			Rule->Scatter(SC, Out);
+			for (FGeoPrimitive& B : Out.Bodies) { B.MineralId = Rule->MineralId; F.Primitives.Add(B); }
+			for (FGeoMineralOverlay& O : Out.Overlays) { O.MineralId = Rule->MineralId; F.MineralOverlays.Add(MoveTemp(O)); }
+		}
+	}
+
+	/** 2→7 全手动烘焙（含各阶段的撒矿器），结束时场还活着，测试才读得到 FlowAccum / FlowNext / Elevation。 */
+	void Stage06cBakeToExposure(const FPlanetRecipeConfig& C, FPlanetBakeFields& F, FPlanetBakeReport& R)
+	{
+		const FStage02Plates S2; Stage06cBakeOne(C, F, R, S2);
+		const FStage03Terrain S3; Stage06cBakeOne(C, F, R, S3);
+		const FStage04Magmatism S4; Stage06cBakeOne(C, F, R, S4);
+		const FStage05Climate S5; Stage06cBakeOne(C, F, R, S5);
+		const FStage06Erosion S6; Stage06cBakeOne(C, F, R, S6);
+		const FStage06bExposure S7; Stage06cBakeOne(C, F, R, S7);
+	}
+
+	/** 砂金配方：火山金银脉（编号 6）当源矿，砂矿跟着它顺流沉积。 */
+	FPlanetRecipeConfig Stage06cPlacerRecipe(TSharedPtr<const IGeoMineralRule>* OutPlacer = nullptr)
+	{
+		FPlanetRecipeConfig C; C.FaceRes = 512; C.bSingleThreadBake = true;
+		TSharedPtr<FGeoEpithermalRule> Gold = MakeShared<FGeoEpithermalRule>(); Gold->MineralId = 6;
+		TSharedPtr<FGeoPlacerRule> Placer = MakeShared<FGeoPlacerRule>();
+		Placer->MineralId = 20;
+		Placer->P.SourceMineralIds = { 6 };
+		Placer->P.StepStride = 1;
+		C.MineralRules = { Gold, Placer };
+		if (OutPlacer) { *OutPlacer = Placer; }
+		return C;
+	}
+
+	int32 Stage06cCountBodies(const TArray<FGeoPrimitive>& P, uint8 MineralId)
+	{
+		int32 N = 0;
+		for (const FGeoPrimitive& B : P) { N += B.MineralId == MineralId ? 1 : 0; }
+		return N;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06cPipelineTest, "StellarEra.Planet.Geo.Stage06c.Pipeline",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage06cPipelineTest::RunTest(const FString& Parameters)
+{
+	TSharedPtr<const IGeoMineralRule> Placer;
+	const FPlanetRecipeConfig C = Stage06cPlacerRecipe(&Placer);
+
+	const double T0 = FPlatformTime::Seconds();
+	FPlanetBakeReport R;
+	const TSharedPtr<const FPlanetSnapshot> Snap = FPlanetBakePipeline::MakeDefault().Bake(C, R);
+	const double Seconds = FPlatformTime::Seconds() - T0;
+	if (!TestFalse(FString::Printf(TEXT("整管线无错误（%s）"), *FString::Join(R.Errors, TEXT(" | "))), R.HasErrors())) { return false; }
+	if (!TestNotNull(TEXT("产出快照"), Snap.Get())) { return false; }
+
+	int32 Placers = 0, Above = 0, Below = 0;
+	for (const FGeoPrimitive& B : Snap->Primitives.GetPrimitives())
+	{
+		if (B.MineralId != 20) { continue; }
+		++Placers;
+		const FVector3f Dir = B.Center.GetSafeNormal();
+		const double Surf = double(Snap->R0) + double(Snap->Elevation.Sample(Dir));
+		Above += double(B.Center.Size()) > Surf + 1.0 ? 1 : 0;
+		Below += double(B.Center.Size()) < Surf - 4.0 ? 1 : 0;
+	}
+	AddInfo(FString::Printf(TEXT("FaceRes %d 整管线 %.2f s，原语 %d（砂金 %d 片，高于地表 %d，埋深超 4 体素 %d）"),
+		C.FaceRes, Seconds, Snap->Primitives.GetPrimitives().Num(), Placers, Above, Below));
+	TestTrue(TEXT("有砂金产出"), Placers > 0);
+	TestEqual(TEXT("砂金不高于地表 1 体素"), Above, 0);
+	TestEqual(TEXT("砂金不埋深 4 体素以上"), Below, 0);
+	TestTrue(TEXT("沉积规则阶段号是 7"), Placer.IsValid() && Placer->GetStage() == 7);
+	TestTrue(TEXT("默认管线含阶段 7"), FPlanetBakePipeline::MakeDefault().Sorted().ContainsByPredicate(
+		[](const IPlanetStage* S) { return S->GetStageIndex() == 7; }));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06cPlacerOnRiversTest, "StellarEra.Planet.Geo.Stage06c.PlacerOnRivers",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage06cPlacerOnRiversTest::RunTest(const FString& Parameters)
+{
+	// 手动烘焙才留得住 FlowAccum / FlowNext：管线只交出快照。
+	const FPlanetRecipeConfig C = Stage06cPlacerRecipe();
+	FPlanetBakeFields F; FPlanetBakeReport R;
+	Stage06cBakeToExposure(C, F, R);
+	if (!TestFalse(FString::Printf(TEXT("手动烘焙无错误（%s）"), *FString::Join(R.Errors, TEXT(" | "))), R.HasErrors())) { return false; }
+	if (!TestEqual(TEXT("FlowAccum 分辨率 = max(64, FaceRes/4)"), F.FlowAccum.Res, FMath::Max(64, C.FaceRes / 4))) { return false; }
+
+	// 诊断：源矿本身在不在可顺流的陆格上——砂金为 0 时先看这里，而不是猜规则。
+	int32 Sources = 0, SourcesOnFlow = 0;
+	for (const FGeoPrimitive& Src : F.Primitives)
+	{
+		if (Src.MineralId != 6) { continue; }
+		++Sources;
+		const int32 Cell = Stage06cBodyCell(F.FlowAccum, Src);
+		int32 Face, X, Y; Stage06cCellFaceXY(F.FlowAccum, Cell, Face, X, Y);
+		const bool bLand = F.Elevation.Sample(F.FlowAccum.TexelDir(Face, X, Y)) > 0.f;
+		SourcesOnFlow += (bLand && int32(F.FlowNext.At(Face, X, Y)) - 1 >= 0) ? 1 : 0;
+	}
+
+	int32 Placers = 0, Ocean = 0, LowAccum = 0, OffCell = 0;
+	for (const FGeoPrimitive& B : F.Primitives)
+	{
+		if (B.MineralId != 20) { continue; }
+		++Placers;
+		const int32 Cell = Stage06cBodyCell(F.FlowAccum, B);
+		int32 Face, X, Y; Stage06cCellFaceXY(F.FlowAccum, Cell, Face, X, Y);
+		const FVector3f Dir = F.FlowAccum.TexelDir(Face, X, Y);
+		// 片心 = 格方向 × 半径，所以方向反查必须是同一格；点积兜住「隔壁格也过其余断言」的漏判。
+		OffCell += FVector3f::DotProduct(B.Center.GetSafeNormal(), Dir) < 0.999f ? 1 : 0;
+		Ocean += F.Elevation.Sample(Dir) <= 0.f ? 1 : 0;
+		LowAccum += F.FlowAccum.At(Face, X, Y) < C.Hydro.RiverThreshold ? 1 : 0;
+	}
+	AddInfo(FString::Printf(TEXT("源矿 %d 条（其中 %d 条在可顺流的陆格），砂金 %d 片（海洋 %d，汇流不足 %d，片心出格 %d）"),
+		Sources, SourcesOnFlow, Placers, Ocean, LowAccum, OffCell));
+	TestTrue(TEXT("源矿（火山脉）进了管线"), Sources > 0);
+	TestTrue(TEXT("有砂金产出"), Placers > 0);
+	TestEqual(TEXT("砂金都落在陆上格"), Ocean, 0);
+	TestEqual(TEXT("砂金都在汇流达标的河道格"), LowAccum, 0);
+	TestEqual(TEXT("砂金片心都落在它记录的那一格"), OffCell, 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06cDeterminismTest, "StellarEra.Planet.Geo.Stage06c.Determinism",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage06cDeterminismTest::RunTest(const FString& Parameters)
+{
+	FPlanetRecipeConfig C = Stage06cPlacerRecipe();
+	// 三次烘焙只翻 bSingleThreadBake，其余字段原样：哈希不同只可能是并行度改变结果。
+	auto Bake = [&C](bool bSingle, double& OutSeconds)
+	{
+		C.bSingleThreadBake = bSingle;
+		FPlanetBakeReport R;
+		const double T0 = FPlatformTime::Seconds();
+		TSharedPtr<const FPlanetSnapshot> Out = FPlanetBakePipeline::MakeDefault().Bake(C, R);
+		OutSeconds = FPlatformTime::Seconds() - T0;
+		return R.HasErrors() ? TSharedPtr<const FPlanetSnapshot>() : Out;
+	};
+
+	double T1 = 0.0, T2 = 0.0, T3 = 0.0;
+	const TSharedPtr<const FPlanetSnapshot> S1 = Bake(true, T1);
+	const TSharedPtr<const FPlanetSnapshot> S2 = Bake(true, T2);
+	const TSharedPtr<const FPlanetSnapshot> S3 = Bake(false, T3);
+	if (!TestTrue(TEXT("单线程两次烘焙都成功"), S1.IsValid() && S2.IsValid())) { return false; }
+	if (!TestTrue(TEXT("多线程烘焙成功"), S3.IsValid())) { return false; }
+
+	const uint64 H1 = S1->Primitives.Hash();
+	AddInfo(FString::Printf(TEXT("原语 %d（砂金 %d）哈希 %016llx；单线程 %.2f/%.2f s，多线程 %.2f s"),
+		S1->Primitives.GetPrimitives().Num(), Stage06cCountBodies(S1->Primitives.GetPrimitives(), 20),
+		static_cast<unsigned long long>(H1), T1, T2, T3));
+	TestTrue(TEXT("砂金非空，哈希对比不是空转"), Stage06cCountBodies(S1->Primitives.GetPrimitives(), 20) > 0);
+	TestTrue(TEXT("哈希非零"), H1 != 0);
+	TestEqual(TEXT("同配方两次烘焙原语哈希一致"), int64(S2->Primitives.Hash()), int64(H1));
+	TestEqual(TEXT("单线程与多线程原语哈希一致"), int64(S3->Primitives.Hash()), int64(H1));
 	return true;
 }
 
