@@ -16,7 +16,13 @@
 #include "VoxelPlanetGenerator.h"
 #include "VoxelPlanetNoiseTerrain.h"
 #include "PlanetRecipe.h"
+#include "GeoMaterialBuilder.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialFunction.h"
+#include "Materials/MaterialExpressionFunctionOutput.h"
+#include "Materials/MaterialExpressionMaterialFunctionCall.h"
+#include "Materials/MaterialExpressionScalarParameter.h"
+#include "Materials/MaterialExpressionTextureSampleParameter.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Engine/Texture2D.h"
 #include "Engine/TextureCube.h"
@@ -152,6 +158,91 @@ bool FGeoPaletteLUTTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// 材质图无法单测：只冒烟「资产在、函数调用指向 MF、参数齐、重建幂等」。视觉验收才是主判据。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoMaterialAssetsTest, "StellarEra.Planet.Geo.Material.Assets",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+#if WITH_EDITOR
+bool FGeoMaterialAssetsTest::RunTest(const FString& Parameters)
+{
+	FString Error;
+	if (!TestTrue(FString::Printf(TEXT("BuildAll 成功：%s"), *Error), GeoMaterialBuild::BuildAll(Error)))
+	{
+		return false;
+	}
+
+	UMaterialFunction* Function = LoadObject<UMaterialFunction>(nullptr, GeoMaterialBuild::GetDecodeFunctionPath());
+	UMaterial* Material = LoadObject<UMaterial>(nullptr, GeoMaterialBuild::GetPlanetMaterialPath());
+	if (!TestNotNull(TEXT("MF_GeoDecode"), Function) || !TestNotNull(TEXT("M_GeoPlanet"), Material))
+	{
+		return false;
+	}
+
+	UMaterialExpressionMaterialFunctionCall* Call = nullptr;
+	bool bPalette = false, bBiomeCube = false, bBlend = false;
+	for (UMaterialExpression* Expression : Material->GetExpressionCollection().Expressions)
+	{
+		if (UMaterialExpressionMaterialFunctionCall* Found = Cast<UMaterialExpressionMaterialFunctionCall>(Expression))
+		{
+			if (Found->MaterialFunction.Get() == Function)
+			{
+				Call = Found;
+			}
+		}
+
+		if (const UMaterialExpressionTextureSampleParameter* Texture = Cast<UMaterialExpressionTextureSampleParameter>(Expression))
+		{
+			bPalette |= Texture->ParameterName == FName(TEXT("GeoPalette"));
+			bBiomeCube |= Texture->ParameterName == FName(TEXT("BiomeCube"));
+		}
+
+		if (const UMaterialExpressionScalarParameter* Scalar = Cast<UMaterialExpressionScalarParameter>(Expression))
+		{
+			if (Scalar->ParameterName == FName(TEXT("BiomeCubeBlend")))
+			{
+				bBlend = true;
+				TestEqual(TEXT("BiomeCubeBlend 默认 1"), Scalar->DefaultValue, 1.f);
+			}
+		}
+	}
+
+	TestTrue(TEXT("有指向 MF_GeoDecode 的函数调用"), Call != nullptr);
+	TestTrue(TEXT("纹理参数 GeoPalette"), bPalette);
+	TestTrue(TEXT("纹理参数 BiomeCube"), bBiomeCube);
+	TestTrue(TEXT("标量参数 BiomeCubeBlend"), bBlend);
+	if (!Call)
+	{
+		return false;
+	}
+
+	TestEqual(TEXT("函数调用 3 个输入"), Call->FunctionInputs.Num(), 3);
+
+	TSet<FName> OutputNames;
+	for (const FFunctionExpressionOutput& FunctionOutput : Call->FunctionOutputs)
+	{
+		if (FunctionOutput.ExpressionOutput)
+		{
+			OutputNames.Add(FunctionOutput.ExpressionOutput->OutputName);
+		}
+	}
+	TestTrue(TEXT("输出 RockColor"), OutputNames.Contains(FName(TEXT("RockColor"))));
+	TestTrue(TEXT("输出 MineralCover"), OutputNames.Contains(FName(TEXT("MineralCover"))));
+	TestTrue(TEXT("输出 SurfaceMask"), OutputNames.Contains(FName(TEXT("SurfaceMask"))));
+	TestTrue(TEXT("输出 Debug"), OutputNames.Contains(FName(TEXT("Debug"))));
+
+	const int32 MaterialExpressions = Material->GetExpressionCollection().Expressions.Num();
+	const int32 FunctionExpressions = Function->GetExpressionCollection().Expressions.Num();
+	if (!TestTrue(TEXT("第二次 BuildAll 成功"), GeoMaterialBuild::BuildAll(Error)))
+	{
+		return false;
+	}
+
+	TestEqual(TEXT("重建后材质表达式数不变"), Material->GetExpressionCollection().Expressions.Num(), MaterialExpressions);
+	TestEqual(TEXT("重建后函数表达式数不变"), Function->GetExpressionCollection().Expressions.Num(), FunctionExpressions);
+	return true;
+}
+#endif // WITH_EDITOR
+
 // LUT 必须真的挂到 MID 上且 Outer 是瞬态包：UNPROPERTY 的瞬态纹理会被 GC 收走，
 // Outer 指向 Actor 则会被材质管理器钉住，切图时 World Memory Leaks 直接 Fatal。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoMaterialActorLUTTest, "StellarEra.Planet.Geo.Material.ActorLUT",
@@ -163,6 +254,10 @@ bool FGeoMaterialActorLUTTest::RunTest(const FString& Parameters)
 	// 只碰材质与贴图，未注册的 Actor 够用（PlanetMineralViewTests 也这么装）。
 	AVoxelPlanetActor* Planet = NewObject<AVoxelPlanetActor>(GetTransientPackage());
 	if (!TestNotNull(TEXT("行星 Actor"), Planet)) { return false; }
+
+	// 默认必须不改色、不剖切：打开关卡就该是正常星球，调试层只能显式开启。
+	TestEqual(TEXT("默认不改色"), Planet->GeoDebugColor, EPlanetGeoDebugColor::None);
+	TestTrue(TEXT("默认无剖切图层"), Planet->GeoDebugVolumeLayer.IsNone());
 
 	TSharedPtr<FPlanetSnapshot> Snap = MakeShared<FPlanetSnapshot>();
 	Snap->R0 = 1000.0;
@@ -290,7 +385,7 @@ bool FGeoMaterialCutawayEncodedTest::RunTest(const FString& Parameters)
 	const TSharedPtr<const FPlanetSnapshot> Snap = FPlanetBakePipeline::MakeDefault().Bake(Config, Report);
 	if (!TestTrue(TEXT("烘焙成功"), Snap.IsValid())) { return false; }
 
-	// 按默认配置装生成器：DebugColor=None、剖切面不选图层，切面应保留地质编码。
+	// 生成器默认 DebugColor 是 Lithology，这里显式关掉；剖切面不选图层，切面应保留地质编码。
 	UPlanetGeoGenerator* Gen = NewObject<UPlanetGeoGenerator>();
 	Gen->DebugColor = EPlanetGeoDebugColor::None;
 	Gen->Cutaway = EPlanetGeoCutaway::Half;
