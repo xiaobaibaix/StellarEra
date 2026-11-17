@@ -72,6 +72,9 @@ public class StellarEraPlanet : ModuleRules
 			// 矿物等值面用到的动态网格组件（原 StellarEraMinerals 的依赖）。
 			// 只在 .cpp 里用，不需要向下游传递。
 			"GeometryFramework",
+
+			// 材质构建器收尾时要主动查一次着色器编译结果（GMaxRHIShaderPlatform）。
+			"RHI",
 		});
 
 		if (Target.bBuildEditor)

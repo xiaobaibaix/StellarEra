@@ -49,8 +49,10 @@ const TCHAR* GeoMaterialBuild::GetPlanetMaterialPath()
 #include "Materials/MaterialExpressionTextureSampleParameterCube.h"
 #include "Materials/MaterialExpressionVertexColor.h"
 #include "Materials/MaterialExpressionWorldPosition.h"
+#include "MaterialShared.h"
 #include "Materials/MaterialFunction.h"
 #include "Misc/PackageName.h"
+#include "RHI.h"
 #include "UObject/Package.h"
 #include "UObject/UnrealType.h"
 #include "UObject/SavePackage.h"
@@ -301,6 +303,11 @@ namespace
 		UMaterialExpressionTextureSample* ClueColor = GeoSamplePalette(
 			Graph, Palette, Clue, 5.f / 6.f, -700, 100);
 
+		// 采样是 float4；立刻裁成 RGB，后面的 Lerp 两端都是 float3，编译不会报 float3→float4。
+		UMaterialExpressionComponentMask* LithRgb = GeoMask(Graph, LithColor, true, true, true, false, -550, -300);
+		UMaterialExpressionComponentMask* MinRgb = GeoMask(Graph, MinColor, true, true, true, false, -550, -100);
+		UMaterialExpressionComponentMask* ClueRgb = GeoMask(Graph, ClueColor, true, true, true, false, -550, 100);
+
 		UMaterialExpressionSmoothStep* Smooth = Graph.Add<UMaterialExpressionSmoothStep>(-700, 500);
 		Smooth->ConstMin = 0.15f;
 		Smooth->ConstMax = 0.75f;
@@ -318,21 +325,19 @@ namespace
 		UMaterialExpressionMultiply* MinScale = GeoBinary<UMaterialExpressionMultiply>(
 			Graph, MineralCover, MinWeight, -350, 400);
 		UMaterialExpressionLinearInterpolate* Rock = GeoLerp(
-			Graph, LithColor, MinColor, MinScale, -200, -100);
+			Graph, LithRgb, MinRgb, MinScale, -200, -100);
 
 		UMaterialExpressionConstant* ClueWeight = GeoConstant(Graph, 0.35f, -350, -600);
 		UMaterialExpressionMultiply* ClueScale = GeoBinary<UMaterialExpressionMultiply>(
 			Graph, Strength, ClueWeight, -200, -800);
-		UMaterialExpressionLinearInterpolate* RockFinal = GeoLerp(Graph, Rock, ClueColor, ClueScale, 0, -300);
+		UMaterialExpressionLinearInterpolate* RockFinal = GeoLerp(Graph, Rock, ClueRgb, ClueScale, 0, -300);
 
-		UMaterialExpressionComponentMask* RockRgb = GeoMask(Graph, RockFinal, true, true, true, false, 200, -400);
-		UMaterialExpressionComponentMask* LithRgb = GeoMask(Graph, LithColor, true, true, true, false, 200, -200);
 		UMaterialExpressionComponentMask* SurfaceMask = GeoMask(Graph, Uv1, true, false, false, false, 200, 0);
 
 		UMaterialExpressionFunctionOutput* OutRock = Graph.Add<UMaterialExpressionFunctionOutput>(400, -500);
 		OutRock->OutputName = TEXT("RockColor");
 		OutRock->SortPriority = 0;
-		GeoWire(OutRock->A, RockRgb);
+		GeoWire(OutRock->A, RockFinal);
 		GeoSetStableId(OutRock, TEXT("Output"), TEXT("RockColor"));
 
 		UMaterialExpressionFunctionOutput* OutCover = Graph.Add<UMaterialExpressionFunctionOutput>(400, -400);
@@ -428,6 +433,10 @@ namespace
 		Blend->ExpressionGUID = GeoStableGuid(TEXT("Param"), TEXT("BiomeCubeBlend"));
 
 		UMaterialExpressionVertexColor* VertexColor = Graph.Add<UMaterialExpressionVertexColor>(-1600, -700);
+		// 5.8 的 VertexColor 节点拆成两路：0 = RGB(float3)，1 = Alpha(float)。编码要 4 通道，先拼回去。
+		UMaterialExpressionAppendVector* VertexColor4 = Graph.Add<UMaterialExpressionAppendVector>(-1400, -650);
+		GeoWire(VertexColor4->A, VertexColor, 0);
+		GeoWire(VertexColor4->B, VertexColor, 1);
 
 		UMaterialExpressionTextureCoordinate* Uv1 = Graph.Add<UMaterialExpressionTextureCoordinate>(-1600, -500);
 		Uv1->CoordinateIndex = 1;
@@ -439,7 +448,7 @@ namespace
 			OutError = TEXT("M_GeoPlanet: SetMaterialFunction(MF_GeoDecode) 失败");
 			return false;
 		}
-		if (!WireGeoFunctionInputs(Decode, VertexColor, Uv1, Palette, OutError))
+		if (!WireGeoFunctionInputs(Decode, VertexColor4, Uv1, Palette, OutError))
 		{
 			return false;
 		}
@@ -570,6 +579,36 @@ namespace
 		return Signature;
 	}
 
+	/** 根槽连线不在表达式集合里：BaseColor / Roughness 改了也必须让签名变化。 */
+	FString GeoMaterialRootSignature(const UMaterial* Material)
+	{
+		const UMaterialEditorOnlyData* EditorData = Material->GetEditorOnlyData();
+		if (!EditorData)
+		{
+			return FString();
+		}
+
+		const FMaterialExpressionCollection& Collection = Material->GetExpressionCollection();
+		TMap<const UMaterialExpression*, int32> Indices;
+		for (int32 Index = 0; Index < Collection.Expressions.Num(); ++Index)
+		{
+			Indices.Add(Collection.Expressions[Index], Index);
+		}
+
+		auto Slot = [&Indices](const TCHAR* Name, const FExpressionInput& Input)
+		{
+			const int32* Found = Input.Expression ? Indices.Find(Input.Expression) : nullptr;
+			return FString::Printf(TEXT("%s:%d,%d;"), Name, Found ? *Found : -1, Input.OutputIndex);
+		};
+		return Slot(TEXT("BaseColor"), EditorData->BaseColor)
+			+ Slot(TEXT("Roughness"), EditorData->Roughness);
+	}
+
+	FString GeoMaterialSignature(const UMaterial* Material)
+	{
+		return GeoGraphSignature(Material->GetExpressionCollection()) + GeoMaterialRootSignature(Material);
+	}
+
 	FAutoConsoleCommandWithWorldAndArgs GBuildGeoMaterialsCommand(
 		TEXT("StellarEra.BuildGeoMaterials"),
 		TEXT("重建 /Game/Code/Planet/Materials 下的 MF_GeoDecode 与 M_GeoPlanet。改完通道布局后跑一次。"),
@@ -645,7 +684,7 @@ bool GeoMaterialBuild::BuildAll(FString& OutError)
 
 	const bool bMaterialOnDisk = FPackageName::DoesPackageExist(GeoPlanetMaterialPath);
 	const FString PreviousMaterialSignature = Material->GetExpressionCollection().Expressions.Num() > 0
-		? GeoGraphSignature(Material->GetExpressionCollection()) : FString();
+		? GeoMaterialSignature(Material) : FString();
 
 	Material->PreEditChange(nullptr);
 	Material->GetExpressionCollection().Empty();
@@ -655,9 +694,23 @@ bool GeoMaterialBuild::BuildAll(FString& OutError)
 	}
 
 	if (!bMaterialOnDisk
-		|| PreviousMaterialSignature != GeoGraphSignature(Material->GetExpressionCollection()))
+		|| PreviousMaterialSignature != GeoMaterialSignature(Material))
 	{
 		Material->PostEditChange();
+		// 着色器编译是异步的：主动收尾一次并把错误打进日志，连线宽度错误才不会拖到目检才发现。
+		if (FMaterialResource* Resource = Material->GetMaterialResource(GMaxRHIShaderPlatform))
+		{
+			Resource->FinishCompilation();
+			const TArray<FString>& CompileErrors = Resource->GetCompileErrors();
+			for (const FString& CompileError : CompileErrors)
+			{
+				UE_LOG(LogTemp, Error, TEXT("[地质] M_GeoPlanet 编译失败：%s"), *CompileError);
+			}
+			if (CompileErrors.Num() == 0)
+			{
+				UE_LOG(LogTemp, Display, TEXT("[地质] M_GeoPlanet 着色器编译通过"));
+			}
+		}
 		{
 			FString GraphKey;
 			for (const UMaterialExpression* Expr : Material->GetExpressionCollection().Expressions)
