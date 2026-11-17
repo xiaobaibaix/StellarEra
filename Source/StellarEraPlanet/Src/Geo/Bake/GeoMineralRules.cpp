@@ -671,7 +671,8 @@ void FGeoBasinDepositRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& O
 	{
 		if (F.BasinMask.At(Face, X, Y) != 2.f) { continue; }
 		const int32 Id = int32(F.BasinId.At(Face, X, Y));
-		if (Id < 0) { continue; }
+		// 编号越界与负数一样是坏数据；它接下来会被拿去查格子。
+		if (Id < 0 || Id >= 6 * Res * Res) { continue; }
 		FGeoBasinStats& S = Bins.FindOrAdd(Id);
 		S.SumDir += F.BasinMask.TexelDir(Face, X, Y);
 		++S.Count;
@@ -696,11 +697,15 @@ void FGeoBasinDepositRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& O
 	for (const int32 Id : Ids)
 	{
 		const FGeoBasinStats& S = Bins[Id];
-		const FVector3f Center = Centers[Id];
-		if (Center.IsNearlyZero() || S.Count < P.MinBasinCells) { continue; }
-		if (F.Precipitation.Sample(Center) > P.MaxPrecip) { continue; }
-		if (P.bRequireVolcano && !GeoBasinHasVolcanoNear(F.Volcanoes, Center, float(P.VolcanoRadiusRatio * R), float(R))) { continue; }
-		const float Rad = FMath::Acos(FMath::Clamp(MinDots.FindRef(Id), -1.f, 1.f));
+		// Find 而不是 FindRef/operator[]：缺键时默认 0 会让 acos 得到 π/2，静默产出一圈错片。
+		const FVector3f* Center = Centers.Find(Id);
+		if (!Center) { continue; }
+		const float* MinDot = MinDots.Find(Id);
+		if (!MinDot) { continue; }
+		if (Center->IsNearlyZero() || S.Count < P.MinBasinCells) { continue; }
+		if (F.Precipitation.Sample(*Center) > P.MaxPrecip) { continue; }
+		if (P.bRequireVolcano && !GeoBasinHasVolcanoNear(F.Volcanoes, *Center, float(P.VolcanoRadiusRatio * R), float(R))) { continue; }
+		const float Rad = FMath::Acos(FMath::Clamp(*MinDot, -1.f, 1.f));
 		if (Rad <= 1e-5f) { continue; }
 
 		for (int32 k = 0; k < Bodies; ++k)
@@ -708,8 +713,8 @@ void FGeoBasinDepositRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& O
 			const float U = Ctx.Rng.NextFloat();
 			const float Angle = Rad * FMath::Lerp(Inner, Outer, FMath::Sqrt(U));
 			const float Phi = Ctx.Rng.Range(0.f, 2.f * PI);
-			const FVector3f Tangent = GeoMineralRules::TangentFrame(Center, Phi).RotateVector(FVector3f::XAxisVector);
-			const FVector3f Dir = (Center * FMath::Cos(Angle) + Tangent * FMath::Sin(Angle)).GetSafeNormal();
+			const FVector3f Tangent = GeoMineralRules::TangentFrame(*Center, Phi).RotateVector(FVector3f::XAxisVector);
+			const FVector3f Dir = (*Center * FMath::Cos(Angle) + Tangent * FMath::Sin(Angle)).GetSafeNormal();
 			const float Elev = F.Elevation.Sample(Dir);
 			const FVector3f Radii(float(P.RadiusRatio * R), float(P.RadiusRatio * R), HalfThick);
 			const FVector3f BodyCenter = Dir * (float(R) + Elev - 0.5f * P.ThicknessVoxels);

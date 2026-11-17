@@ -208,6 +208,113 @@ bool FGeoStage06c2BasinDepositRingVolcanoTest::RunTest(const FString& Parameters
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06c2BasinMaskFilterTest, "StellarEra.Planet.Geo.Stage06c2.BasinMaskFilter",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage06c2BasinMaskFilterTest::RunTest(const FString& Parameters)
+{
+	FStage06c2Basin B = Stage06c2MakeBasin(0.1f);
+	// 远处一块纯湖盆（Mask 1、编号 7）：形状与内流盆地一样，但掩码不是 2，不该产片。
+	for (int32 Y = 3; Y <= 5; ++Y)
+	for (int32 X = 3; X <= 5; ++X)
+	{
+		B.F.BasinMask.At(5, X, Y) = 1.f;
+		B.F.BasinId.At(5, X, Y) = 7.f;
+	}
+	FGeoBasinDepositRule Rule;
+	Rule.P.BodiesPerBasin = 16;
+	FGeoScatterOutput Out;
+	Stage06c2Scatter(B, Rule, Out);
+	if (!TestEqual(TEXT("只产内流盆地的那份：16 片"), Out.Bodies.Num(), 16)) { return false; }
+
+	const float Rad = Stage06c2BasinRad(B);
+	const FVector3f LakeCenter = B.F.BasinMask.TexelDir(5, 4, 4);
+	int32 BadEndorheic = 0, InLake = 0;
+	for (const FGeoPrimitive& Body : Out.Bodies)
+	{
+		const FVector3f Dir = Body.Center.GetSafeNormal();
+		const float ToEndorheic = FMath::Acos(FMath::Clamp(FVector3f::DotProduct(Dir, B.Center), -1.f, 1.f));
+		const float ToLake = FMath::Acos(FMath::Clamp(FVector3f::DotProduct(Dir, LakeCenter), -1.f, 1.f));
+		BadEndorheic += ToEndorheic > Rad * 1.02f ? 1 : 0;
+		InLake += ToLake <= Rad * 1.02f ? 1 : 0;
+	}
+	TestEqual(TEXT("全部落在内流盆地的角半径内"), BadEndorheic, 0);
+	TestEqual(TEXT("湖盆方向一片都没有"), InLake, 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06c2VolcanoInactiveTest, "StellarEra.Planet.Geo.Stage06c2.VolcanoInactive",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage06c2VolcanoInactiveTest::RunTest(const FString& Parameters)
+{
+	FStage06c2Basin B = Stage06c2MakeBasin(0.1f);
+	FGeoVolcano V;
+	V.Dir = B.Center;
+	V.bActive = false;
+	B.F.Volcanoes.Add(V);
+
+	FGeoBasinDepositRule Rule;
+	Rule.P.bRequireVolcano = true;
+	Rule.P.BodiesPerBasin = 16;
+	FGeoScatterOutput Dead;
+	Stage06c2Scatter(B, Rule, Dead);
+	TestEqual(TEXT("盆心的死火山不算数：0 片"), Dead.Bodies.Num(), 0);
+
+	// 同位置点成活火山必须产片，否则上面的 0 可能只是因为火山根本没被认到。
+	B.F.Volcanoes[0].bActive = true;
+	FGeoScatterOutput Alive;
+	Stage06c2Scatter(B, Rule, Alive);
+	TestEqual(TEXT("同位置活火山：16 片"), Alive.Bodies.Num(), 16);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06c2MinBasinGateTest, "StellarEra.Planet.Geo.Stage06c2.MinBasinGate",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage06c2MinBasinGateTest::RunTest(const FString& Parameters)
+{
+	const FStage06c2Basin B = Stage06c2MakeBasin(0.1f);
+	const int32 Cells = 9;   // 标准合成盆地是 3×3
+	FGeoBasinDepositRule Rule;
+	Rule.P.BodiesPerBasin = 16;
+	Rule.P.MinBasinCells = Cells + 1;
+	FGeoScatterOutput Small;
+	Stage06c2Scatter(B, Rule, Small);
+	TestEqual(TEXT("格子数 < MinBasinCells：0 片"), Small.Bodies.Num(), 0);
+
+	Rule.P.MinBasinCells = Cells;
+	FGeoScatterOutput Enough;
+	Stage06c2Scatter(B, Rule, Enough);
+	TestEqual(TEXT("格子数 = MinBasinCells：16 片（证明闸门不是空转）"), Enough.Bodies.Num(), 16);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06c2RingClampTest, "StellarEra.Planet.Geo.Stage06c2.RingClamp",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage06c2RingClampTest::RunTest(const FString& Parameters)
+{
+	const FStage06c2Basin B = Stage06c2MakeBasin(0.1f);
+	FGeoBasinDepositRule Rule;
+	Rule.P.BodiesPerBasin = 64;
+	Rule.P.RingInner = 0.f;
+	Rule.P.RingOuter = 2.f;   // 应被封顶到 1
+	FGeoScatterOutput Out;
+	Stage06c2Scatter(B, Rule, Out);
+	if (!TestEqual(TEXT("64 片"), Out.Bodies.Num(), 64)) { return false; }
+
+	const float Rad = Stage06c2BasinRad(B);
+	int32 Beyond = 0;
+	for (const FGeoPrimitive& Body : Out.Bodies)
+	{
+		const float Angle = FMath::Acos(FMath::Clamp(FVector3f::DotProduct(Body.Center.GetSafeNormal(), B.Center), -1.f, 1.f));
+		Beyond += Angle > Rad * 1.02f ? 1 : 0;
+	}
+	TestEqual(TEXT("RingOuter=2 被封顶：每片夹角 ≤ 盆半径 +2%"), Beyond, 0);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06c2BasinDepositRingShapeTest, "StellarEra.Planet.Geo.Stage06c2.BasinDeposit.RingShape",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
