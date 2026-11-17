@@ -104,3 +104,38 @@ TSharedPtr<IGeoMineralRule> UGeoRareEarthScatterer::MakeRule() const
 	R->P = { PerBody, RadiusScale };
 	return R;
 }
+
+TSharedPtr<IGeoMineralRule> UGeoPlacerScatterer::MakeRule() const
+{
+	TSharedPtr<FGeoPlacerRule> R = MakeShared<FGeoPlacerRule>();
+	R->P.MinSourceExposure = MinSourceExposure;
+	R->P.MaxSteps = MaxSteps;
+	R->P.StepStride = StepStride;
+	R->P.MaxBodiesPerSource = MaxBodiesPerSource;
+	R->P.MinFlowAccumRatio = MinFlowAccumRatio;
+	R->P.HalfWidthRatio = HalfWidthRatio;
+	R->P.ThicknessVoxels = ThicknessVoxels;
+	R->P.DecayPerVoxel = DecayPerVoxel;
+	R->P.bMouthOnly = bMouthOnly;
+	R->P.MouthCells = MouthCells;
+	R->P.Hard = Hard;
+	// 源矿按名字引用目录：找不到只跳过该名字，不能让整条烘焙失败。
+	const UPlanetRecipe* Recipe = Cast<UPlanetRecipe>(GetOuter());
+	const UGeoMineralCatalog* Cat = Recipe ? Recipe->MineralCatalog.Get() : nullptr;
+	if (!Cat)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[地质] 撒矿器 %s 没有矿物目录，源矿列表为空"), *GetClass()->GetName());
+		return R;
+	}
+	for (const FName& Name : Sources)
+	{
+		const int32 Index = Cat->FindIndex(Name);
+		if (Index == INDEX_NONE || Index >= 255)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[地质] 撒矿器 %s 的源矿「%s」不在矿物目录里，跳过"), *GetClass()->GetName(), *Name.ToString());
+			continue;
+		}
+		R->P.SourceMineralIds.Add(uint8(Index + 1));
+	}
+	return R;
+}

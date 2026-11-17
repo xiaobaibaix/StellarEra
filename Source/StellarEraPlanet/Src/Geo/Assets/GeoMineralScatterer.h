@@ -390,3 +390,53 @@ public:
 
 	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
 };
+
+/** 砂矿：上游原生矿沿流磨碎、沉积在河谷里的薄层。运行于阶段 6b 之后。 */
+UCLASS(meta = (DisplayName = "砂矿 / 滨海重砂（阶段 6）"))
+class STELLARERAPLANET_API UGeoPlacerScatterer : public UGeoMineralScatterer
+{
+	GENERATED_BODY()
+
+public:
+	UGeoPlacerScatterer() { Mineral = TEXT("AuPlacer"); }
+
+	/** 源矿：上游必须有它才撒砂矿；从矿物目录多选。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (GetOptions = "GetMineralOptions"))
+	TArray<FName> Sources;
+
+	/** 源矿最低出露比例；0 = 只要有矿体。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "1"))
+	float MinSourceExposure = 0.f;
+	/** 单条流路最多追踪多少宏观格。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1", ClampMax = "4096"))
+	int32 MaxSteps = 96;
+	/** 每几个有效沉积格放一片。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1", ClampMax = "64"))
+	int32 StepStride = 2;
+	/** 单个源矿最多几片。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1", ClampMax = "512"))
+	int32 MaxBodiesPerSource = 24;
+	/** 沉积格最低汇流量 = 该倍数 × 配方里的河道阈值。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "20"))
+	float MinFlowAccumRatio = 1.f;
+	/** 横跨河谷的半宽（占半径），随汇流开方放大。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.0001", ClampMax = "0.05"))
+	float HalfWidthRatio = 0.0015f;
+	/** 薄层厚度（体素）；1 = 规格要求的单格砂层。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.5", ClampMax = "16"))
+	float ThicknessVoxels = 1.f;
+	/** 品位沿流程的指数衰减系数（1/体素）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "0.01"))
+	float DecayPerVoxel = 0.00008f;
+	/** 只在入海前最后几格沉积：滨海重砂用。 */
+	UPROPERTY(EditAnywhere, Category = "Rule")
+	bool bMouthOnly = false;
+	/** 入海前沉积几格。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1", ClampMax = "64", EditCondition = "bMouthOnly"))
+	int32 MouthCells = 3;
+	/** 薄层软边宽度（占半径）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0.02", ClampMax = "1"))
+	float Hard = 0.3f;
+
+	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
+};

@@ -2,8 +2,11 @@
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "GeoField2D.h"
+#include "GeoMineralCatalog.h"
 #include "GeoMineralRule.h"
 #include "GeoMineralRules.h"
+#include "GeoMineralScatterer.h"
+#include "PlanetRecipe.h"
 #include "GeoPrimitive.h"
 #include "GeoRng.h"
 #include "PlanetBakeTypes.h"
@@ -361,6 +364,107 @@ bool FGeoStage06cFlowNextMatchTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("有下游的陆格非零（否则对拍空转）"), LandWithDown > 0);
 	TestEqual(TEXT("陆格 FlowNext 与重算的 Down+1 逐格一致"), LandMismatch, 0);
 	TestEqual(TEXT("全部格一致（Down=-1 落成零值）"), Mismatch, 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06cPlacerRecipeTest, "StellarEra.Planet.Geo.Stage06c.Recipe",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage06cPlacerRecipeTest::RunTest(const FString& Parameters)
+{
+	UGeoMineralCatalog* Cat = NewObject<UGeoMineralCatalog>();
+	for (const TCHAR* Id : { TEXT("EpithermalAuAg"), TEXT("PorphyryCu") })
+	{
+		FGeoMineralDef D; D.Id = FName(Id); D.DisplayName = Id; Cat->Minerals.Add(D);
+	}
+	UPlanetRecipe* Recipe = NewObject<UPlanetRecipe>();
+	Recipe->MineralCatalog = Cat;
+
+	// 解析路径会对缺名 / 缺目录打警告；不登记的话测试会被判成「意外警告」。
+	AddExpectedError(TEXT("不在矿物目录里"), EAutomationExpectedErrorFlags::Contains, 1);
+	AddExpectedError(TEXT("没有矿物目录"), EAutomationExpectedErrorFlags::Contains, 1);
+
+	UGeoPlacerScatterer* S = NewObject<UGeoPlacerScatterer>(Recipe);
+	S->Sources = { TEXT("EpithermalAuAg"), TEXT("PorphyryCu"), TEXT("Missing") };
+	const TSharedPtr<IGeoMineralRule> Rule = S->MakeRule();
+	if (!TestNotNull(TEXT("撒矿器产出规则"), Rule.Get())) { return false; }
+	TestEqual(TEXT("砂矿规则的阶段号 7"), int32(Rule->GetStage()), 7);
+	const FGeoPlacerRule* Placer = static_cast<const FGeoPlacerRule*>(Rule.Get());
+	TestEqual(TEXT("两个名字解析成功、缺的跳过"), Placer->P.SourceMineralIds.Num(), 2);
+	if (Placer->P.SourceMineralIds.Num() == 2)
+	{
+		TestEqual(TEXT("编号 1"), int32(Placer->P.SourceMineralIds[0]), 1);
+		TestEqual(TEXT("编号 2"), int32(Placer->P.SourceMineralIds[1]), 2);
+	}
+	TestEqual(TEXT("默认矿物是 AuPlacer"), S->Mineral, FName(TEXT("AuPlacer")));
+
+	// 没有配方外层级：源矿解析不了，但规则照出，整条烘焙不该因此失败。
+	UGeoPlacerScatterer* Orphan = NewObject<UGeoPlacerScatterer>();
+	Orphan->Sources = { TEXT("EpithermalAuAg") };
+	const TSharedPtr<IGeoMineralRule> OrphanRule = Orphan->MakeRule();
+	if (TestNotNull(TEXT("无目录也产出规则"), OrphanRule.Get()))
+	{
+		TestEqual(TEXT("无目录：源矿列表为空"),
+			static_cast<const FGeoPlacerRule*>(OrphanRule.Get())->P.SourceMineralIds.Num(), 0);
+	}
+
+	// 属性 → 参数逐项拷贝：全部给非默认值，抄错哪一项都会露出来。
+	UGeoPlacerScatterer* Full = NewObject<UGeoPlacerScatterer>(Recipe);
+	Full->Sources = { TEXT("PorphyryCu") };
+	Full->MinSourceExposure = 0.42f;
+	Full->MaxSteps = 55;
+	Full->StepStride = 5;
+	Full->MaxBodiesPerSource = 17;
+	Full->MinFlowAccumRatio = 3.5f;
+	Full->HalfWidthRatio = 0.0035f;
+	Full->ThicknessVoxels = 2.5f;
+	Full->DecayPerVoxel = 0.0004f;
+	Full->bMouthOnly = true;
+	Full->MouthCells = 7;
+	Full->Hard = 0.7f;
+	const TSharedPtr<IGeoMineralRule> FullRuleOwner = Full->MakeRule();
+	const FGeoPlacerRule* FullRule = static_cast<const FGeoPlacerRule*>(FullRuleOwner.Get());
+	if (!TestNotNull(TEXT("全非默认参数产出规则"), FullRule)) { return false; }
+	const FGeoPlacerParams& FP = FullRule->P;
+	TestEqual(TEXT("源矿只解析出一项"), FP.SourceMineralIds.Num(), 1);
+	if (FP.SourceMineralIds.Num() == 1)
+	{
+		TestEqual(TEXT("源矿编号 = 目录下标 + 1（PorphyryCu = 2）"), int32(FP.SourceMineralIds[0]), 2);
+	}
+	TestEqual(TEXT("出露阈值"), FP.MinSourceExposure, 0.42f);
+	TestEqual(TEXT("追踪步数"), FP.MaxSteps, 55);
+	TestEqual(TEXT("步进"), FP.StepStride, 5);
+	TestEqual(TEXT("每源片数上限"), FP.MaxBodiesPerSource, 17);
+	TestEqual(TEXT("汇流倍数"), FP.MinFlowAccumRatio, 3.5f);
+	TestEqual(TEXT("半宽"), FP.HalfWidthRatio, 0.0035f);
+	TestEqual(TEXT("厚度"), FP.ThicknessVoxels, 2.5f);
+	TestEqual(TEXT("品位衰减"), FP.DecayPerVoxel, 0.0004f);
+	TestEqual(TEXT("嘴模式"), FP.bMouthOnly, true);
+	TestEqual(TEXT("嘴格数"), FP.MouthCells, 7);
+	TestEqual(TEXT("软边"), FP.Hard, 0.7f);
+
+	// 哈希探针：12 个参数各翻一项，HashParams 必变；翻完立刻恢复，下一条从默认值出发。
+	UGeoPlacerScatterer* H = NewObject<UGeoPlacerScatterer>(Recipe);
+	H->Sources = { TEXT("EpithermalAuAg"), TEXT("PorphyryCu") };
+	auto HashNow = [H]() {
+		const TSharedPtr<IGeoMineralRule> R = H->MakeRule();
+		return R ? R->HashParams() : uint64(0);
+	};
+	const uint64 H0 = HashNow();
+	if (!TestTrue(TEXT("默认参数哈希非零"), H0 != 0)) { return false; }
+	H->Sources.Pop();        TestTrue(TEXT("Sources 进哈希"), HashNow() != H0); H->Sources.Add(TEXT("PorphyryCu"));
+	H->MinSourceExposure = 0.5f;   TestTrue(TEXT("MinSourceExposure 进哈希"), HashNow() != H0); H->MinSourceExposure = 0.f;
+	H->MaxSteps = 97;              TestTrue(TEXT("MaxSteps 进哈希"), HashNow() != H0); H->MaxSteps = 96;
+	H->StepStride = 3;             TestTrue(TEXT("StepStride 进哈希"), HashNow() != H0); H->StepStride = 2;
+	H->MaxBodiesPerSource = 25;    TestTrue(TEXT("MaxBodiesPerSource 进哈希"), HashNow() != H0); H->MaxBodiesPerSource = 24;
+	H->MinFlowAccumRatio = 2.f;    TestTrue(TEXT("MinFlowAccumRatio 进哈希"), HashNow() != H0); H->MinFlowAccumRatio = 1.f;
+	H->HalfWidthRatio = 0.003f;    TestTrue(TEXT("HalfWidthRatio 进哈希"), HashNow() != H0); H->HalfWidthRatio = 0.0015f;
+	H->ThicknessVoxels = 2.f;      TestTrue(TEXT("ThicknessVoxels 进哈希"), HashNow() != H0); H->ThicknessVoxels = 1.f;
+	H->DecayPerVoxel = 0.00016f;   TestTrue(TEXT("DecayPerVoxel 进哈希"), HashNow() != H0); H->DecayPerVoxel = 0.00008f;
+	H->bMouthOnly = true;          TestTrue(TEXT("bMouthOnly 进哈希"), HashNow() != H0); H->bMouthOnly = false;
+	H->MouthCells = 4;             TestTrue(TEXT("MouthCells 进哈希"), HashNow() != H0); H->MouthCells = 3;
+	H->Hard = 0.5f;                TestTrue(TEXT("Hard 进哈希"), HashNow() != H0); H->Hard = 0.3f;
+	TestEqual(TEXT("翻完恢复原哈希"), HashNow(), H0);
 	return true;
 }
 
