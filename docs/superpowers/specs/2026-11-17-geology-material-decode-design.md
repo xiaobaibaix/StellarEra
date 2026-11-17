@@ -71,7 +71,9 @@ U1    = round(255 · Mask)
 | `RockColor` | float3 | 岩性色叠矿物色再叠线索色 |
 | `MineralCover` | float | 0–1，矿物覆盖度 |
 | `SurfaceMask` | float | 0–1，来自 `UV1.x` |
-| `Lithology` / `Mineral` / `Clue` / `ClueStrength` | float | 解码出的整数（供调试与后续扩展） |
+| `Debug` | float3 | 岩性色（调试用） |
+
+v1 只暴露 `Debug`（岩性色），暂不出 `Lithology` / `Mineral` / `Clue` / `ClueStrength` 四个整数输出；需要时后续再加。
 
 解码公式：
 

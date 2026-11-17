@@ -52,12 +52,21 @@ const TCHAR* GeoMaterialBuild::GetPlanetMaterialPath()
 #include "Materials/MaterialFunction.h"
 #include "Misc/PackageName.h"
 #include "UObject/Package.h"
+#include "UObject/UnrealType.h"
 #include "UObject/SavePackage.h"
 
 namespace
 {
 	// 名字带 Geo 前缀是必须的：UBT 的 unity 构建会把本文件与其它材质构建器拼进同一翻译单元，
 	// 两个匿名 namespace 合并后同名的 AddExpression / AddConstant 直接 C2084 重定义。
+
+	/** 由名字派生固定 GUID：随机 Guid 会让「重建一次」把资产字节全部改一遍，diff 里全是噪声。 */
+	FGuid GeoStableGuid(const TCHAR* Kind, const TCHAR* Name)
+	{
+		const FString Key = FString::Printf(TEXT("%s:%s"), Kind, Name);
+		return FGuid(GetTypeHash(Key), GetTypeHash(Key + TEXT("#1")),
+			GetTypeHash(Key + TEXT("#2")), GetTypeHash(Key + TEXT("#3")));
+	}
 
 	struct FGeoGraph
 	{
@@ -78,6 +87,9 @@ namespace
 			Expr->Material = Material;
 			Expr->MaterialExpressionEditorX = PosX;
 			Expr->MaterialExpressionEditorY = PosY;
+			// 节点 Guid 也要固定：随机值会写进 uasset，重建一次 diff 全是噪声。
+			const FString NodeKey = FString::Printf(TEXT("%s@%d,%d"), *Owner->GetPathName(), PosX, PosY);
+			Expr->MaterialExpressionGuid = GeoStableGuid(TEXT("Node"), *NodeKey);
 			Collection().AddExpression(Expr);
 			return Expr;
 		}
@@ -87,6 +99,14 @@ namespace
 	{
 		Input.Expression = Source;
 		Input.OutputIndex = OutputIndex;
+	}
+
+	template <typename TExpression>
+	void GeoSetStableId(TExpression* Expr, const TCHAR* Kind, const TCHAR* Name)
+	{
+		Expr->Id = GeoStableGuid(Kind, Name);
+		// bForce=false：上面已给有效 Id，这里只是兜底，不会再生成随机值。
+		Expr->ConditionallyGenerateId(false);
 	}
 
 	UMaterialExpressionConstant* GeoConstant(FGeoGraph& Graph, float Value, int32 PosX, int32 PosY)
@@ -178,6 +198,13 @@ namespace
 		}
 
 		TAsset* Asset = FindObject<TAsset>(Package, AssetName);
+		if (!Asset && FPackageName::DoesPackageExist(PackagePath))
+		{
+			// 先读盘：拿到旧图才能判断这次重建是否真的改了；否则每次都新建对象再落盘，
+			// 同样的图也会因为对象名后缀/导入表顺序写出不同字节。
+			Asset = LoadObject<TAsset>(nullptr,
+				*FString::Printf(TEXT("%s.%s"), PackagePath, AssetName), nullptr, LOAD_NoWarn | LOAD_Quiet);
+		}
 		if (!Asset)
 		{
 			Asset = NewObject<TAsset>(Package, AssetName, RF_Public | RF_Standalone);
@@ -187,6 +214,11 @@ namespace
 			OutError = FString::Printf(TEXT("NewObject 失败：%s"), AssetName);
 			return nullptr;
 		}
+		// 磁盘上已有同名文件时，新建的内存包 IsFullyLoaded() 为 false，SavePackage 会以「只加载了一部分」拒绝保存。
+		// 本包内容全由本函数生成，没有待完成的加载。
+		Package->MarkAsFullyLoaded();
+		// 包 Guid 随包汇总信息一起落盘；不固定的话每次重建资产字节都不同。
+		Package->SetPersistentGuid(GeoStableGuid(TEXT("Package"), PackagePath));
 		return Asset;
 	}
 
@@ -197,6 +229,8 @@ namespace
 		const FString PackageFileName = FPackageName::LongPackageNameToFilename(
 			PackagePath, FPackageName::GetAssetPackageExtension());
 
+		// 失败只回 false + 错误串：调用方（命令/测试）负责打印，这里再弹窗会挂住无头进程。
+		// SAVE_NoError 的代价是错误细节不进日志，所以失败串里至少带上文件名。
 		FSavePackageArgs SaveArgs;
 		SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
 		SaveArgs.SaveFlags = SAVE_NoError;
@@ -219,20 +253,20 @@ namespace
 		VertexColor->InputType = FunctionInput_Vector4;
 		VertexColor->PreviewValue = FVector4f(0.f, 0.f, 0.f, 1.f);
 		VertexColor->SortPriority = 0;
-		VertexColor->ConditionallyGenerateId(true);
+		GeoSetStableId(VertexColor, TEXT("Input"), TEXT("VertexColor"));
 
 		UMaterialExpressionFunctionInput* Uv1 = Graph.Add<UMaterialExpressionFunctionInput>(-1600, -400);
 		Uv1->InputName = TEXT("UV1");
 		Uv1->InputType = FunctionInput_Vector2;
 		Uv1->PreviewValue = FVector4f(1.f, 1.f, 0.f, 0.f);
 		Uv1->SortPriority = 1;
-		Uv1->ConditionallyGenerateId(true);
+		GeoSetStableId(Uv1, TEXT("Input"), TEXT("UV1"));
 
 		UMaterialExpressionFunctionInput* Palette = Graph.Add<UMaterialExpressionFunctionInput>(-1600, -200);
 		Palette->InputName = TEXT("GeoPalette");
 		Palette->InputType = FunctionInput_Texture2D;
 		Palette->SortPriority = 2;
-		Palette->ConditionallyGenerateId(true);
+		GeoSetStableId(Palette, TEXT("Input"), TEXT("GeoPalette"));
 
 		// 顶点属性在三角形内插值，编号会出现中间值；floor(x·255+0.5) 取最近再硬切，
 		// 侵入体与围岩才保持硬接触。Grade 与 G 用原始通道（它们本来就是 0–1）。
@@ -299,25 +333,25 @@ namespace
 		OutRock->OutputName = TEXT("RockColor");
 		OutRock->SortPriority = 0;
 		GeoWire(OutRock->A, RockRgb);
-		OutRock->ConditionallyGenerateId(true);
+		GeoSetStableId(OutRock, TEXT("Output"), TEXT("RockColor"));
 
 		UMaterialExpressionFunctionOutput* OutCover = Graph.Add<UMaterialExpressionFunctionOutput>(400, -400);
 		OutCover->OutputName = TEXT("MineralCover");
 		OutCover->SortPriority = 1;
 		GeoWire(OutCover->A, MineralCover);
-		OutCover->ConditionallyGenerateId(true);
+		GeoSetStableId(OutCover, TEXT("Output"), TEXT("MineralCover"));
 
 		UMaterialExpressionFunctionOutput* OutMask = Graph.Add<UMaterialExpressionFunctionOutput>(400, -300);
 		OutMask->OutputName = TEXT("SurfaceMask");
 		OutMask->SortPriority = 2;
 		GeoWire(OutMask->A, SurfaceMask);
-		OutMask->ConditionallyGenerateId(true);
+		GeoSetStableId(OutMask, TEXT("Output"), TEXT("SurfaceMask"));
 
 		UMaterialExpressionFunctionOutput* OutDebug = Graph.Add<UMaterialExpressionFunctionOutput>(400, -200);
 		OutDebug->OutputName = TEXT("Debug");
 		OutDebug->SortPriority = 3;
 		GeoWire(OutDebug->A, LithRgb);
-		OutDebug->ConditionallyGenerateId(true);
+		GeoSetStableId(OutDebug, TEXT("Output"), TEXT("Debug"));
 
 		Function->Description = TEXT("解顶点色里的地质编码：岩性/矿物/线索三行调色板合成岩石色、矿物覆盖度与地表遮罩。");
 		return true;
@@ -378,16 +412,20 @@ namespace
 			Graph.Add<UMaterialExpressionTextureObjectParameter>(-1600, -300);
 		Palette->ParameterName = TEXT("GeoPalette");
 		Palette->SamplerType = SAMPLERTYPE_Color;
+		// 参数 GUID 默认随机生成并落盘，必须固定，否则每次重建资产都变。
+		Palette->ExpressionGUID = GeoStableGuid(TEXT("Param"), TEXT("GeoPalette"));
 
 		UMaterialExpressionTextureSampleParameterCube* BiomeCube =
 			Graph.Add<UMaterialExpressionTextureSampleParameterCube>(-900, 400);
 		BiomeCube->ParameterName = TEXT("BiomeCube");
 		BiomeCube->SamplerType = SAMPLERTYPE_Color;
+		BiomeCube->ExpressionGUID = GeoStableGuid(TEXT("Param"), TEXT("BiomeCube"));
 
 		UMaterialExpressionScalarParameter* Blend =
 			Graph.Add<UMaterialExpressionScalarParameter>(-900, 600);
 		Blend->ParameterName = TEXT("BiomeCubeBlend");
 		Blend->DefaultValue = 1.f;
+		Blend->ExpressionGUID = GeoStableGuid(TEXT("Param"), TEXT("BiomeCubeBlend"));
 
 		UMaterialExpressionVertexColor* VertexColor = Graph.Add<UMaterialExpressionVertexColor>(-1600, -700);
 
@@ -459,6 +497,79 @@ namespace
 		return true;
 	}
 
+	/**
+	 * 语义签名：只取连线（按集合下标）与属性值，不取对象名/导入表顺序。
+	 * 用来判断「重建结果是否与已加载的资产一致」——一致就不落盘，避免每次保存把引擎内部的
+	 * 导入表排序/对象名后缀变化写进资产（同样的图两次保存字节不同）。
+	 */
+	FString GeoGraphSignature(const FMaterialExpressionCollection& Collection)
+	{
+		TMap<const UMaterialExpression*, int32> Indices;
+		for (int32 Index = 0; Index < Collection.Expressions.Num(); ++Index)
+		{
+			Indices.Add(Collection.Expressions[Index], Index);
+		}
+
+		auto ConnectionIndex = [&Indices](const UMaterialExpression* Source) -> int32
+		{
+			const int32* Found = Source ? Indices.Find(Source) : nullptr;
+			return Found ? *Found : -1;
+		};
+
+		FString Signature;
+		for (const UMaterialExpression* Expression : Collection.Expressions)
+		{
+			Signature += Expression->GetClass()->GetName();
+			Signature += FString::Printf(TEXT("@%d,%d|"), Expression->MaterialExpressionEditorX,
+				Expression->MaterialExpressionEditorY);
+
+			// 函数调用的 FunctionInputs/FunctionOutputs 里嵌着瞬态对象指针，ExportText 会写进对象名，
+			// 这里只记函数路径与每条输入的连线。
+			if (const UMaterialExpressionMaterialFunctionCall* Call =
+				Cast<UMaterialExpressionMaterialFunctionCall>(Expression))
+			{
+				Signature += Call->MaterialFunction ? Call->MaterialFunction->GetPathName() : TEXT("-");
+				for (const FFunctionExpressionInput& FunctionInput : Call->FunctionInputs)
+				{
+					Signature += FString::Printf(TEXT("(%s:%d,%d)"),
+						*FunctionInput.Input.InputName.ToString(),
+						ConnectionIndex(FunctionInput.Input.Expression), FunctionInput.Input.OutputIndex);
+				}
+				Signature += TEXT(";");
+				continue;
+			}
+
+			for (TFieldIterator<FProperty> It(Expression->GetClass()); It; ++It)
+			{
+				FProperty* Property = *It;
+				if (Property->HasAnyPropertyFlags(CPF_Transient | CPF_DuplicateTransient))
+				{
+					continue;
+				}
+				if (CastField<FObjectPropertyBase>(Property))
+				{
+					continue;
+				}
+				if (const FStructProperty* StructProperty = CastField<FStructProperty>(Property))
+				{
+					// FExpressionInput 在 C++ 侧是普通 struct（UHT 侧是 noexport USTRUCT），只能按反射名识别。
+					if (StructProperty->Struct && StructProperty->Struct->GetFName() == FName(TEXT("ExpressionInput")))
+					{
+						const FExpressionInput* Input = StructProperty->ContainerPtrToValuePtr<FExpressionInput>(Expression);
+						Signature += FString::Printf(TEXT("%s:%d,%d;"), *Property->GetName(),
+							ConnectionIndex(Input->Expression), Input->OutputIndex);
+						continue;
+					}
+				}
+				FString Value;
+				Property->ExportText_InContainer(0, Value, Expression, Expression, nullptr, PPF_None);
+				Signature += FString::Printf(TEXT("%s=%s;"), *Property->GetName(), *Value);
+			}
+			Signature += TEXT("|");
+		}
+		return Signature;
+	}
+
 	FAutoConsoleCommandWithWorldAndArgs GBuildGeoMaterialsCommand(
 		TEXT("StellarEra.BuildGeoMaterials"),
 		TEXT("重建 /Game/Code/Planet/Materials 下的 MF_GeoDecode 与 M_GeoPlanet。改完通道布局后跑一次。"),
@@ -491,17 +602,38 @@ bool GeoMaterialBuild::BuildAll(FString& OutError)
 	{
 		return false;
 	}
+
+	const bool bFunctionOnDisk = FPackageName::DoesPackageExist(GeoDecodeFunctionPath);
+	const FString PreviousFunctionSignature = Function->GetExpressionCollection().Expressions.Num() > 0
+		? GeoGraphSignature(Function->GetExpressionCollection()) : FString();
+
 	Function->PreEditChange(nullptr);
 	Function->GetExpressionCollection().Empty();
 	if (!BuildDecodeFunction(Function, OutError))
 	{
 		return false;
 	}
-	Function->PostEditChange();
-	Function->UpdateFromFunctionResource();
-	if (!GeoSaveAsset(Function, GeoDecodeFunctionPath, OutError))
+
+	// 图没变又已有资产就不落盘：引擎按对象名后缀/导入表顺序序列化，同样的图重建一次字节也会变。
+	if (!bFunctionOnDisk
+		|| PreviousFunctionSignature != GeoGraphSignature(Function->GetExpressionCollection()))
 	{
-		return false;
+		Function->PostEditChange();
+		Function->UpdateFromFunctionResource();
+		// StateId 决定调用方是否重编；引擎默认随机生成，重建一次就换一次。按节点集合派生，内容变了才变。
+		{
+			FString GraphKey;
+			for (const UMaterialExpression* Expr : Function->GetExpressionCollection().Expressions)
+			{
+				GraphKey += Expr->GetClass()->GetName();
+				GraphKey += Expr->MaterialExpressionGuid.ToString();
+			}
+			Function->StateId = GeoStableGuid(TEXT("FunctionState"), *GraphKey);
+		}
+		if (!GeoSaveAsset(Function, GeoDecodeFunctionPath, OutError))
+		{
+			return false;
+		}
 	}
 
 	UMaterial* Material = GeoFindOrCreateAsset<UMaterial>(
@@ -510,14 +642,41 @@ bool GeoMaterialBuild::BuildAll(FString& OutError)
 	{
 		return false;
 	}
+
+	const bool bMaterialOnDisk = FPackageName::DoesPackageExist(GeoPlanetMaterialPath);
+	const FString PreviousMaterialSignature = Material->GetExpressionCollection().Expressions.Num() > 0
+		? GeoGraphSignature(Material->GetExpressionCollection()) : FString();
+
 	Material->PreEditChange(nullptr);
 	Material->GetExpressionCollection().Empty();
 	if (!BuildPlanetMaterial(Material, Function, OutError))
 	{
 		return false;
 	}
-	Material->PostEditChange();
-	return GeoSaveAsset(Material, GeoPlanetMaterialPath, OutError);
+
+	if (!bMaterialOnDisk
+		|| PreviousMaterialSignature != GeoGraphSignature(Material->GetExpressionCollection()))
+	{
+		Material->PostEditChange();
+		{
+			FString GraphKey;
+			for (const UMaterialExpression* Expr : Material->GetExpressionCollection().Expressions)
+			{
+				GraphKey += Expr->GetClass()->GetName();
+				GraphKey += Expr->MaterialExpressionGuid.ToString();
+			}
+			Material->StateId = GeoStableGuid(TEXT("MaterialState"), *GraphKey);
+			// LightingGuid 私有且没有 setter，但同样随材质变更随机换值并落盘；只能反射写回。
+			if (FProperty* LightingProperty =
+				FindFProperty<FProperty>(UMaterialInterface::StaticClass(), TEXT("LightingGuid")))
+			{
+				*static_cast<FGuid*>(LightingProperty->ContainerPtrToValuePtr<void>(Material)) =
+					GeoStableGuid(TEXT("MaterialLighting"), *GraphKey);
+			}
+		}
+		return GeoSaveAsset(Material, GeoPlanetMaterialPath, OutError);
+	}
+	return true;
 }
 
 #endif // WITH_EDITOR

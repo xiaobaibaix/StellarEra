@@ -159,14 +159,17 @@ bool FGeoPaletteLUTTest::RunTest(const FString& Parameters)
 }
 
 // 材质图无法单测：只冒烟「资产在、函数调用指向 MF、参数齐、重建幂等」。视觉验收才是主判据。
+// 表达式 API 与 BuildAll 都是 WITH_EDITOR-only，而 WITH_DEV_AUTOMATION_TESTS 在 Game 目标同样为 1。
+#if WITH_EDITOR
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoMaterialAssetsTest, "StellarEra.Planet.Geo.Material.Assets",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-#if WITH_EDITOR
 bool FGeoMaterialAssetsTest::RunTest(const FString& Parameters)
 {
+	// 先求值再拼消息：Printf 参数里的调用顺序没有保证。
 	FString Error;
-	if (!TestTrue(FString::Printf(TEXT("BuildAll 成功：%s"), *Error), GeoMaterialBuild::BuildAll(Error)))
+	const bool bBuilt = GeoMaterialBuild::BuildAll(Error);
+	if (!TestTrue(FString::Printf(TEXT("BuildAll 成功：%s"), *Error), bBuilt))
 	{
 		return false;
 	}
