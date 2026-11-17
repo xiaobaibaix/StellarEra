@@ -1,5 +1,6 @@
 ﻿// 阶段 6c-2：盆地沉积与煤。
 #include "CoreMinimal.h"
+#include "HAL/PlatformTime.h"
 #include "Misc/AutomationTest.h"
 #include "GeoField2D.h"
 #include "GeoMineralRule.h"
@@ -8,6 +9,7 @@
 #include "GeoPrimitive.h"
 #include "GeoRng.h"
 #include "GeoVolcano.h"
+#include "PlanetBakePipeline.h"
 #include "PlanetBakeTypes.h"
 #include "PlanetRecipeConfig.h"
 #include "Stage02Plates.h"
@@ -15,6 +17,7 @@
 #include "Stage04Magmatism.h"
 #include "Stage05Climate.h"
 #include "Stage06Erosion.h"
+#include "Stage06bExposure.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -564,6 +567,195 @@ bool FGeoStage06c2CoalDepthTest::RunTest(const FString& Parameters)
 		Bad += FMath::Abs(double(Body.Center.Size()) - Expected) > 0.6 ? 1 : 0;
 	}
 	TestEqual(TEXT("中心半径 = R + Elev - Depth - Thickness/2（±0.6 体素）"), Bad, 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06c2CoalContinentalTest, "StellarEra.Planet.Geo.Stage06c2.CoalContinental",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage06c2CoalContinentalTest::RunTest(const FString& Parameters)
+{
+	FGeoCoalRule Rule;
+	FGeoScatterOutput Oceanic;
+	Stage06c2ScatterCoal(Stage06c2MakeCoal(0.8f, 5.f, false), Rule, Oceanic);
+	TestTrue(TEXT("大陆度 0.2 ≤ MaxContinental=0.5：有片"), Oceanic.Bodies.Num() > 0);
+
+	FStage06c2CoalField Continental = Stage06c2MakeCoal(0.8f, 5.f, false);
+	Continental.F.ContinentalMask.Fill([](const FVector3f&) { return 0.9f; }, true);
+	FGeoScatterOutput Rejected;
+	Stage06c2ScatterCoal(Continental, Rule, Rejected);
+	TestEqual(TEXT("大陆度 0.9 > MaxContinental=0.5：0 片"), Rejected.Bodies.Num(), 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06c2CoalOrientationTest, "StellarEra.Planet.Geo.Stage06c2.CoalOrientation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage06c2CoalOrientationTest::RunTest(const FString& Parameters)
+{
+	FGeoCoalRule Rule;
+	FGeoScatterOutput Out;
+	Stage06c2ScatterCoal(Stage06c2MakeCoal(0.8f, 5.f, false), Rule, Out);
+	if (!TestTrue(TEXT("有片才谈朝向"), Out.Bodies.Num() > 0)) { return false; }
+
+	const float CosLimit = FMath::Cos(FMath::DegreesToRadians(5.f));
+	int32 Bad = 0;
+	for (const FGeoPrimitive& Body : Out.Bodies)
+	{
+		const FVector3f Normal = Body.Rotation.RotateVector(FVector3f::ZAxisVector).GetSafeNormal();
+		Bad += FVector3f::DotProduct(Normal, Body.Center.GetSafeNormal()) < CosLimit ? 1 : 0;
+	}
+	TestEqual(TEXT("每片局部 Z 轴与自身中心方向夹角 ≤ 5°"), Bad, 0);
+	return true;
+}
+
+namespace
+{
+	/**
+	 * 按管线的执行方式手动跑一个阶段：Bake 完立刻跑挂在该阶段的撒矿器。
+	 * 派生随机流逐位照抄 FPlanetBakePipeline::Bake，测的就是生产那条路径。
+	 */
+	void Stage06c2BakeOne(const FPlanetRecipeConfig& C, FPlanetBakeFields& F, FPlanetBakeReport& R,
+		const IPlanetStage& Stage)
+	{
+		FPlanetBakeContext Ctx{ C, F, FGeoRng::Derive(C.Seed, Stage.GetStageIndex(), 0), R };
+		Stage.Bake(Ctx);
+		for (const TSharedPtr<const IGeoMineralRule>& Rule : C.MineralRules)
+		{
+			if (!Rule || Rule->GetStage() != Stage.GetStageIndex()) { continue; }
+			const uint64 Purpose = GeoHash::Combine(GeoHash::Combine(GeoHash::Str("scatter"), Rule->HashParams()),
+				uint64(Rule->SeedOffset));
+			FGeoScatterContext SC{ C, F, FGeoRng::Derive(C.Seed, Stage.GetStageIndex(), Purpose), R.Errors };
+			FGeoScatterOutput Out;
+			Rule->Scatter(SC, Out);
+			for (FGeoPrimitive& B : Out.Bodies) { B.MineralId = Rule->MineralId; F.Primitives.Add(B); }
+			for (FGeoMineralOverlay& O : Out.Overlays) { O.MineralId = Rule->MineralId; F.MineralOverlays.Add(MoveTemp(O)); }
+		}
+	}
+
+	/**
+	 * 2→7 全手动烘焙（含阶段 7 后的撒矿器），结束时场还活着，测试才数得到 BasinMask。
+	 * 阶段 1 只写圈层剖面，2–7 的代码都不读它，所以从 2 起。
+	 */
+	void Stage06c2BakeToExposure(const FPlanetRecipeConfig& C, FPlanetBakeFields& F, FPlanetBakeReport& R)
+	{
+		const FStage02Plates S2; Stage06c2BakeOne(C, F, R, S2);
+		const FStage03Terrain S3; Stage06c2BakeOne(C, F, R, S3);
+		const FStage04Magmatism S4; Stage06c2BakeOne(C, F, R, S4);
+		const FStage05Climate S5; Stage06c2BakeOne(C, F, R, S5);
+		const FStage06Erosion S6; Stage06c2BakeOne(C, F, R, S6);
+		const FStage06bExposure S7; Stage06c2BakeOne(C, F, R, S7);
+	}
+
+	/** 两条阶段 7 规则：盆地环带蒸发岩（编号 30）与湿热低地煤（编号 31）。 */
+	FPlanetRecipeConfig Stage06c2MarginRecipe(TSharedPtr<const IGeoMineralRule>* OutBasin = nullptr)
+	{
+		FPlanetRecipeConfig C; C.FaceRes = 512; C.bSingleThreadBake = true;
+		TSharedPtr<FGeoBasinDepositRule> Basin = MakeShared<FGeoBasinDepositRule>();
+		Basin->MineralId = 30;
+		Basin->P.RingOuter = 0.6f;
+		TSharedPtr<FGeoCoalRule> Coal = MakeShared<FGeoCoalRule>();
+		Coal->MineralId = 31;
+		C.MineralRules = { Basin, Coal };
+		if (OutBasin) { *OutBasin = Basin; }
+		return C;
+	}
+
+	int32 Stage06c2CountBodies(const TArray<FGeoPrimitive>& P, uint8 MineralId)
+	{
+		int32 N = 0;
+		for (const FGeoPrimitive& B : P) { N += B.MineralId == MineralId ? 1 : 0; }
+		return N;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06c2PipelineTest, "StellarEra.Planet.Geo.Stage06c2.Pipeline",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage06c2PipelineTest::RunTest(const FString& Parameters)
+{
+	TSharedPtr<const IGeoMineralRule> BasinOwner;
+	const FPlanetRecipeConfig C = Stage06c2MarginRecipe(&BasinOwner);
+
+	const double T0 = FPlatformTime::Seconds();
+	FPlanetBakeReport R;
+	const TSharedPtr<const FPlanetSnapshot> Snap = FPlanetBakePipeline::MakeDefault().Bake(C, R);
+	const double Seconds = FPlatformTime::Seconds() - T0;
+	if (!TestFalse(FString::Printf(TEXT("整管线无错误（%s）"), *FString::Join(R.Errors, TEXT(" | "))), R.HasErrors())) { return false; }
+	if (!TestNotNull(TEXT("产出快照"), Snap.Get())) { return false; }
+
+	const TArray<FGeoPrimitive>& Prims = Snap->Primitives.GetPrimitives();
+	const int32 Evaporites = Stage06c2CountBodies(Prims, 30);
+	const int32 Coals = Stage06c2CountBodies(Prims, 31);
+
+	// 快照里没有 BasinMask：同配方再手动跑一遍 2→7，留住场才数得了内流盆地格。
+	FPlanetBakeFields F; FPlanetBakeReport ManualR;
+	const double T1 = FPlatformTime::Seconds();
+	Stage06c2BakeToExposure(C, F, ManualR);
+	const double ManualSeconds = FPlatformTime::Seconds() - T1;
+	if (!TestFalse(FString::Printf(TEXT("手动烘焙无错误（%s）"), *FString::Join(ManualR.Errors, TEXT(" | "))), ManualR.HasErrors())) { return false; }
+	const int32 Res = F.BasinMask.Res;
+	int32 Endorheic = 0;
+	for (int32 Face = 0; Face < 6; ++Face)
+	for (int32 Y = 0; Y < Res; ++Y)
+	for (int32 X = 0; X < Res; ++X)
+	{
+		Endorheic += F.BasinMask.At(Face, X, Y) == 2.f ? 1 : 0;
+	}
+	const int32 ManualEvaporites = Stage06c2CountBodies(F.Primitives, 30);
+	const int32 ManualCoals = Stage06c2CountBodies(F.Primitives, 31);
+
+	AddInfo(FString::Printf(TEXT("FaceRes %d 整管线 %.2f s，原语 %d（蒸发岩 %d，煤 %d）；手动链 %.2f s，内流盆地格 %d（蒸发岩 %d，煤 %d）"),
+		C.FaceRes, Seconds, Prims.Num(), Evaporites, Coals, ManualSeconds, Endorheic, ManualEvaporites, ManualCoals));
+	TestTrue(TEXT("有煤产出"), Coals > 0);
+	if (Endorheic > 0)
+	{
+		TestTrue(TEXT("有内流盆地格：盆地蒸发岩产出 > 0"), Evaporites > 0);
+	}
+	else
+	{
+		// 规范 §9：本种子没有内流盆地时蒸发岩为 0 是合法结果，不判失败。
+		AddInfo(TEXT("本种子没有内流盆地格，蒸发岩按规范 §9 跳过（不判失败）"));
+	}
+	TestEqual(TEXT("手动链煤片数与管线一致"), ManualCoals, Coals);
+	TestEqual(TEXT("手动链蒸发岩片数与管线一致"), ManualEvaporites, Evaporites);
+	TestTrue(TEXT("盆地沉积规则阶段号是 7"), BasinOwner.IsValid() && BasinOwner->GetStage() == 7);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoStage06c2DeterminismTest, "StellarEra.Planet.Geo.Stage06c2.Determinism",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoStage06c2DeterminismTest::RunTest(const FString& Parameters)
+{
+	FPlanetRecipeConfig C = Stage06c2MarginRecipe();
+	// 三次烘焙只翻 bSingleThreadBake，其余字段原样：哈希不同只可能是并行度改变结果。
+	auto Bake = [&C](bool bSingle, double& OutSeconds)
+	{
+		C.bSingleThreadBake = bSingle;
+		FPlanetBakeReport R;
+		const double T0 = FPlatformTime::Seconds();
+		TSharedPtr<const FPlanetSnapshot> Out = FPlanetBakePipeline::MakeDefault().Bake(C, R);
+		OutSeconds = FPlatformTime::Seconds() - T0;
+		return R.HasErrors() ? TSharedPtr<const FPlanetSnapshot>() : Out;
+	};
+
+	double T1 = 0.0, T2 = 0.0, T3 = 0.0;
+	const TSharedPtr<const FPlanetSnapshot> S1 = Bake(true, T1);
+	const TSharedPtr<const FPlanetSnapshot> S2 = Bake(true, T2);
+	const TSharedPtr<const FPlanetSnapshot> S3 = Bake(false, T3);
+	if (!TestTrue(TEXT("单线程两次烘焙都成功"), S1.IsValid() && S2.IsValid())) { return false; }
+	if (!TestTrue(TEXT("多线程烘焙成功"), S3.IsValid())) { return false; }
+
+	const uint64 H1 = S1->Primitives.Hash();
+	const TArray<FGeoPrimitive>& Prims = S1->Primitives.GetPrimitives();
+	AddInfo(FString::Printf(TEXT("原语 %d（蒸发岩 %d，煤 %d）哈希 %016llx；单线程 %.2f/%.2f s，多线程 %.2f s"),
+		Prims.Num(), Stage06c2CountBodies(Prims, 30), Stage06c2CountBodies(Prims, 31),
+		static_cast<unsigned long long>(H1), T1, T2, T3));
+	TestTrue(TEXT("煤非空，哈希对比不是空转"), Stage06c2CountBodies(Prims, 31) > 0);
+	TestTrue(TEXT("哈希非零"), H1 != 0);
+	TestEqual(TEXT("同配方两次烘焙原语哈希一致"), int64(S2->Primitives.Hash()), int64(H1));
+	TestEqual(TEXT("单线程与多线程原语哈希一致"), int64(S3->Primitives.Hash()), int64(H1));
 	return true;
 }
 
