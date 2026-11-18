@@ -4,7 +4,7 @@
 
 ## 仓库状态
 
-- 分支 `geo-pipeline`，HEAD `9f9bf54`（旧地形栈、旧矿物栈都已删，行星统一走 geo 管线）。
+- 分支 `geo-pipeline`，HEAD `c581943`（旧地形栈、旧矿物栈都已删，行星统一走 geo 管线）。
 - 全量自动化测试 **294 条全过**（`Automation RunTests StellarEra`，约 6 分钟）；删旧矿物栈带走了 73 条。
 - 未提交（工作区）：`Content/Code/Maps/GeoPlanetMap.umap`、`GeoTestMap.umap`、
   `DA_GeoRecipe_Archipelago.uasset`、`DA_MineralCatalog.uasset`、`Content/Code/Maps/Saves/PlanetVoxel/GeoPlanetMap/`。
@@ -33,11 +33,17 @@
 
 ## 本轮新增：阶段开关（调试）
 
-11 个开关，全部放在各自阶段分类的收尾（不是单独一栏）：
+分类名全中文（`阶段1|圈层` … `阶段6b|出露`），开关分两层：
 
-- `bRunStage1..7`（`StageN|...` 最后一段）：关掉即整段跳过，该段全部参数带
-  `EditCondition` 自动置灰。
-- `bScatterStage2/3/4/7`（撒矿所在段）：只控制该阶段的撒矿器，岩体/火山照样生成。
+- **总开关** `bRunStage1..7` 直接放在阶段标题正下方（`Category = "阶段N"`），关掉即整段跳过，
+  该段全部参数带 `EditCondition` 自动置灰。
+- **子分组开关** 放在对应折叠的第一项：`bRunStage1Moho`（莫霍面）、`bRunStage4Volcano`（火山）、
+  `bRunStage4Intrusion`（侵入）；该段参数是链式条件 `bRunStage4 && bRunStage4Volcano`。
+  只给这三段加，因为其余子分组是后面阶段的地基（`板块`/`大陆`）或本来就是单分组。
+- `bScatterStage2/3/4/7` 仍在撒矿所在段的收尾，只管撒矿器。
+
+子开关落到 POD：`Sphere.bMoho`（关掉=莫霍面填 0）、`Volcano.bVolcanoes`（只跳过放置，高程照写）、
+`Intrusion.bIntrusions`（只跳过岩体，蚀变阈值照写），三者都进 `Hash()`。
 
 行星上新增 `Geo Recipe Override`（Instanced），可在行星细节里直接改全部参数与开关，不经过资产。关掉前面的阶段后，后面阶段读不到它的场会在校验里报错——这是有意的。
 
