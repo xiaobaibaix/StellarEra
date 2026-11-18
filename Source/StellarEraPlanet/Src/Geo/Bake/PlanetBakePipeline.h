@@ -16,7 +16,7 @@ public:
 	FPlanetBakePipeline& operator=(FPlanetBakePipeline&&);
 
 	void AddStage(TUniquePtr<IPlanetStage> Stage);
-	bool Validate(FPlanetBakeReport& Report) const;
+	bool Validate(FPlanetBakeReport& Report, uint32 DisabledStages = 0) const;
 	/** 校验失败或任一阶段写了 Error 时返回空。 */
 	TSharedPtr<const FPlanetSnapshot> Bake(const FPlanetRecipeConfig& Config, FPlanetBakeReport& Report) const;
 

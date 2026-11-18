@@ -21,10 +21,8 @@ class UPlanetGeoGenerator;
 class UPlanetRecipe;
 struct FPlanetSnapshot;
 class UVoxelSimpleInvokerComponent;
-class UPlanetGeologyPreset;
 class UTextureCube;
 class UTexture2D;
-class FPlanetGeologyField;
 
 /**
  * 开箱即用的行星 Actor。**直接继承 AVoxelWorld** 而非持有子对象：UE 的变换只沿
@@ -113,9 +111,6 @@ public:
 	 */
 	float GetVoxelSurfaceRadiusCmAtDirection(const FVector& WorldDirection) const;
 
-	/** 旧矿物栈的接口，保留给星图；地质流水线的行星用快照，这里恒为 nullptr。 */
-	TSharedPtr<const FPlanetGeologyField> GetGeologyField();
-
 	/**
 	 * 世界空间射线 → 行星**体素表面**命中点（LOD0，与渲染 LOD 无关）。星图用：摄像机
 	 * 离地表几千公里、LineTrace 打不到。先解析求交，再由该点做体素符号行进，误差
@@ -132,13 +127,8 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet", meta = (ClampMin = "16"))
 	float Radius = 100.f;
 
-	/** 球体表面颜色，以顶点色传给材质。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Surface")
-	FLinearColor SurfaceColor = FLinearColor(0.18f, 0.42f, 0.16f);
-
-	/** 地质预设资产。空 = 这颗行星没有矿。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Geology")
-	TObjectPtr<UPlanetGeologyPreset> GeologyAsset;
+	/** 表面兜底色：岩性与矿物由材质解码，只有矿物预览这类旧调用方还要一个底色。 */
+	static FLinearColor GetSurfaceColor() { return FLinearColor(0.18f, 0.42f, 0.16f); }
 
 	//////////////////////////////////////////////////////////////////////////
 	// 新地质流水线
@@ -149,6 +139,13 @@ public:
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Geo")
 	TObjectPtr<UPlanetRecipe> GeoRecipe;
+
+	/**
+	 * 非空 = 用这份内联配方覆盖 Geo Recipe：阶段开关与全部参数都在行星上直接改，
+	 * 不经过资产。空 = 用 Geo Recipe 指向的资产。
+	 */
+	UPROPERTY(EditAnywhere, Instanced, Category = "Planet|Geo")
+	TObjectPtr<UPlanetRecipe> GeoRecipeOverride;
 
 	/** geo 模式的体素调试着色。默认 None：RGB 写真实地质编码，材质才解得出来；调试分色仍可从下拉框选。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Geo")
@@ -186,52 +183,18 @@ public:
 	FName GetVolumeLayerId() const { return ParseGeoDebugLayerLabel(GeoDebugVolumeLayer); }
 
 	UFUNCTION(BlueprintPure, Category = "Planet|Geo")
-	bool IsGeoMode() const { return GeoRecipe != nullptr; }
+	bool IsGeoMode() const { return GeoRecipe != nullptr || GeoRecipeOverride != nullptr; }
 
 	/** 当前地质快照；烘焙完成前为空。 */
 	TSharedPtr<const FPlanetSnapshot> GetGeoSnapshot() const { return GeoSnapshot; }
 
-	/**
-	 * GeologyAsset 变化时广播。镜像方（UPlanetMineralViewComponent）订阅以保持同步；
-	 * 用委托而非直接调用，是因为行星 Actor 不能反向 include Minerals，否则成环。
-	 */
-	DECLARE_MULTICAST_DELEGATE(FOnPlanetGeologyAssetChanged);
-	FOnPlanetGeologyAssetChanged OnGeologyAssetChanged;
-
-	/**
-	 * 旧字段，只用于加载时迁移（JSON 预设名）。**默认值 "earth" 必须保留**：旧关卡
-	 * 从未序列化过它、值一直来自 CDO，删掉默认值会让迁移条件恒假、老关卡丢矿。
-	 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet|Geology",
-		meta = (DeprecatedProperty))
-	FString GeologyPreset = TEXT("earth");
-
-	/** 重新取地质场并重建这颗行星：改完预设资产后从这里应用。 */
-	UFUNCTION(BlueprintCallable, Category = "Planet|Geology",
+	/** 重新烘这颗行星（改完配方后从这里应用）。 */
+	UFUNCTION(BlueprintCallable, Category = "Planet|Geo",
 		meta = (CallInEditor, DisplayName = "重建行星（应用地质预设改动）"))
 	void ReloadGeology();
 
-	/** 当前地质预设资产（供编辑器预览订阅；Task 5 接入）。 */
-	UFUNCTION(BlueprintPure, Category = "Planet|Geology")
-	UPlanetGeologyPreset* GetGeologyPresetAsset() const { return GeologyAsset; }
-
-	/**
-	 * 旧字段名 → 预设资产路径（`earth` → `/Game/.../DA_Geology_Earth`），空名返回
-	 * 空路径。纯函数，便于测试。
-	 */
-	static FSoftObjectPath MakeLegacyGeologyAssetPath(const FString& LegacyName);
-
 	//////////////////////////////////////////////////////////////////////////
 	// 性能
-
-	/**
-	 * 行星全局 LOD 基准：整颗星都细分到该 LOD，值越大越粗。-1 = 按半径自动推导
-	 * （三角边长约半径 1/16）。没有它，轨道视角下唯一的 LOD 来源是摄像机短距
-	 * Invoker，区块会塌到八叉树底部。只在改动时同步一次到 invoker（含抬高 MaxLOD），
-	 * 之后面板里手改的 invoker 值归用户，重建不再覆盖。
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Performance", meta = (ClampMin = "-1", ClampMax = "26"))
-	int32 OrbitLOD = -1;
 
 	/**
 	 * 无视 World Partition 流送单元常驻加载。按空间加载时，摄像机跨界会销毁重建
@@ -247,19 +210,25 @@ public:
 	 * geo 模式下的生成器。加载时重建；名字不能叫 Generator —— 基类同名成员是交给
 	 * 渲染器的 FVoxelGeneratorPicker，RebuildPlanet 负责把前者指向后者。
 	 */
-	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "Planet|Geo")
+	UPROPERTY(Transient, BlueprintReadOnly)
 	TObjectPtr<UPlanetGeoGenerator> GeoGenerator;
 
-	/** 以球心为中心的 LOD Invoker。挂在基类的 WorldRoot 下，随之变换。 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet")
+	/**
+	 * 以球心为中心的 LOD Invoker。挂在基类的 WorldRoot 下，随之变换。
+	 * 不加 VisibleAnywhere：组件指针会被细节面板内联展开，把组件自己的分类铺到 Actor 上。
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Planet")
 	TObjectPtr<UVoxelSimpleInvokerComponent> LODInvoker;
 
-	/** 自建大气的天光：按玩家视角算天空立方图喂关卡 SkyLight。缺了环境光就永远是同一张静态图。 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet")
+	/**
+	 * 自建大气的天光：按玩家视角算天空立方图喂关卡 SkyLight。缺了环境光就永远是同一张静态图。
+	 * 同样不加 VisibleAnywhere（理由见 LODInvoker）。
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Planet")
 	TObjectPtr<UPlanetSkyLightComponent> PlanetSkyLight;
 
 	/** 运行期烘焙的 biome cubemap（瞬态：每次重建重烘，不落盘）。 */
-	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "Planet|Color")
+	UPROPERTY(Transient, BlueprintReadOnly)
 	TObjectPtr<UTextureCube> BiomeCubemap;
 
 	/** 地质调色板 LUT（瞬态：随快照矿物表重建）。材质参数 `GeoPalette`。 */
@@ -340,11 +309,11 @@ private:
 	/** 含 Actor 等比缩放的半径（体素数）。 */
 	float GetScaledRadiusVoxels() const;
 
-	/** OrbitLOD 的解析结果：-1 时按半径自动推导，否则钳到 [0, 26]。 */
+	/** 行星 LOD 档位：按半径自动推导（三角边长约半径 1/16）。 */
 	int32 ComputeOrbitLOD() const;
 
 	/**
-	 * LOD to Set 只在 OrbitLOD 改动（含首次）时写，面板手改后归用户、重建不再覆盖；
+	 * LOD to Set 只在首次同步时写，之后面板手改的值归用户、重建不再覆盖；
 	 * LOD Range 是几何量，始终跟半径走。不影响世界几何，故在哈希守卫之前调用，
 	 * 拖动星球时每帧都跑。
 	 */
@@ -394,10 +363,9 @@ private:
 
 	/**
 	 * invoker 同步状态：用来区分「值没变」和「用户在面板里手改了」。
-	 * 手改过的 LOD to Set 归用户，重建不再覆盖；改 OrbitLOD 才重新接管。
+	 * 手改过的 LOD to Set 归用户，重建不再覆盖。
 	 */
 	bool bLODInvokerSynced = false;
-	int32 LastAppliedOrbitLOD = INDEX_NONE;
 	float LastAppliedRangeSource = -1.f;
 	int32 LastWrittenLODToSet = INDEX_NONE;
 

@@ -26,30 +26,30 @@ public:
 	UPlanetSkyLightComponent();
 
 	/** 立方图边长。漫反射只吃低阶 SH，16 足够；8 更省，32 肉眼看不出差别。 */
-	UPROPERTY(EditAnywhere, Category = "StellarEra|SkyLight", meta = (ClampMin = "4", ClampMax = "64"))
+	UPROPERTY(EditAnywhere, Category = "Planet|SkyLight", meta = (ClampMin = "4", ClampMax = "64"))
 	int32 CubeResolution = 16;
 
 	/** 两次重算的最小间隔（秒）。每次重算要新建一张立方图并触发一次 GPU 卷积。 */
-	UPROPERTY(EditAnywhere, Category = "StellarEra|SkyLight", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, Category = "Planet|SkyLight", meta = (ClampMin = "0.0"))
 	float UpdateIntervalSeconds = 0.2f;
 
 	/** 星空/银河的平均辐亮（线性值）。夜面与深空的环境光全靠它，调到 0 就是纯黑。 */
-	UPROPERTY(EditAnywhere, Category = "StellarEra|SkyLight")
+	UPROPERTY(EditAnywhere, Category = "Planet|SkyLight")
 	FLinearColor SpaceSkyRadiance = FLinearColor(0.008f, 0.010f, 0.020f, 1.0f);
 
 	/** 与壳着色器的亮度校准倍率。画面亮度对不上时调它，不要去改物理量。 */
-	UPROPERTY(EditAnywhere, Category = "StellarEra|SkyLight", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, Category = "Planet|SkyLight", meta = (ClampMin = "0.0"))
 	float BrightnessScale = 1.0f;
 
 	/**
 	 * 编辑器世界里也按视口相机重算，让编辑预览的亮度与 PIE 一致。关掉就退回关卡里
 	 * 那张静态立方图 —— 只在排查「编辑器为什么变慢/变亮」时用。
 	 */
-	UPROPERTY(EditAnywhere, Category = "StellarEra|SkyLight")
+	UPROPERTY(EditAnywhere, Category = "Planet|SkyLight")
 	bool bUpdateInEditorWorld = true;
 
 	/** 立即重算并推送一次，忽略节流。调试与手动触发用。 */
-	UFUNCTION(BlueprintCallable, Category = "StellarEra|SkyLight")
+	UFUNCTION(BlueprintCallable, Category = "Planet|SkyLight")
 	void RefreshNow();
 
 	/**

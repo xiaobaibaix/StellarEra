@@ -28,20 +28,6 @@ struct FStarMapBodyInfo
 	bool bExertsGravity = false;
 };
 
-/** 矿物观察图例的一行。纯数据，不含 UObject 引用。 */
-struct FMineralLegendEntry
-{
-	FString DisplayName;
-
-	/** 色块颜色 —— 与球内该元素矿体的显示色一致。 */
-	FLinearColor Color = FLinearColor::White;
-
-	/** 该元素在行星总含量里的份额（0..1，各行相加约为 1）。 */
-	float Abundance = 0.f;
-
-	/** 当前是否显示。关掉的行整行变暗。 */
-	bool bVisible = true;
-};
 
 /**
  * 星图模式的信息 UI 控制系统。不 Tick、不保存跨帧状态：每帧由
@@ -65,13 +51,6 @@ public:
 	/** 格式化成面板行；**第一行是名字**，其余是属性。选中与悬停共用。 */
 	static TArray<FString> FormatBodyInfoLines(const FStarMapBodyInfo& Info);
 
-	/**
-	 * 矿物观察图例的文本行：标题「矿物观察 — 行星名」，其后每元素一行
-	 * 「名称  百分比  开/关」，最后一行是操作提示。纯函数，便于无头测试。
-	 */
-	static TArray<FString> FormatMineralLegendLines(
-		const FString& PlanetName,
-		TArrayView<const FMineralLegendEntry> Entries);
 
 	/** 天体表面重力，单位 m/s²。质量或半径无效时返回 0。 */
 	static double ComputeSurfaceGravityMps2(double MassEarth, double RadiusKm);
@@ -84,9 +63,4 @@ private:
 		float AnchorRadiusPx,
 		const FVector2D& ViewportSizePx);
 
-	void DrawMineralLegend(
-		AStellarEraHUD& Hud,
-		const FString& PlanetName,
-		const TArray<FMineralLegendEntry>& Entries,
-		const FVector2D& ViewportSizePx);
 };

@@ -644,7 +644,7 @@ bool FStellarEraStarMapBlueprintPawnTest::RunTest(const FString& Parameters)
 }
 
 // 星图里左 / 右 / 中三个键各管什么（纯函数，OnLookInput 调它）。右键改的是视线朝向
-// 而非绕行位置；左键被编辑 / 矿物透视借走后，绕行改由中键承担。
+// 而非绕行位置；左键被编辑借走后，绕行改由中键承担。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapLookDispatchTest,
 	"StellarEra.StarMap.LookDispatch",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -653,32 +653,28 @@ bool FStellarEraStarMapLookDispatchTest::RunTest(const FString& Parameters)
 {
 	using EMode = EStarMapLookMode;
 
-	// 参数顺序：(右键, 左键, 中键, 编辑模式, 连续挖, 矿物透视)
-	auto Resolve = [](bool bRight, bool bLeft, bool bMiddle, bool bEdit, bool bDig, bool bMineral)
+	// 参数顺序：(右键, 左键, 中键, 编辑模式, 连续挖)
+	auto Resolve = [](bool bRight, bool bLeft, bool bMiddle, bool bEdit, bool bDig)
 	{
-		return UStarMapCameraInputComponent::ResolveLookMode(bRight, bLeft, bMiddle, bEdit, bDig, bMineral);
+		return UStarMapCameraInputComponent::ResolveLookMode(bRight, bLeft, bMiddle, bEdit, bDig);
 	};
 
-	TestTrue(TEXT("普通星图 左键绕行"), Resolve(false, true, false, false, false, false) == EMode::Orbit);
-	TestTrue(TEXT("普通星图 右键转头"), Resolve(true, false, false, false, false, false) == EMode::Aim);
-	TestTrue(TEXT("普通星图 中键绕行"), Resolve(false, false, true, false, false, false) == EMode::Orbit);
+	TestTrue(TEXT("普通星图 左键绕行"), Resolve(false, true, false, false, false) == EMode::Orbit);
+	TestTrue(TEXT("普通星图 右键转头"), Resolve(true, false, false, false, false) == EMode::Aim);
+	TestTrue(TEXT("普通星图 中键绕行"), Resolve(false, false, true, false, false) == EMode::Orbit);
 
-	TestTrue(TEXT("编辑模式 左键不转"), Resolve(false, true, false, true, false, false) == EMode::None);
-	TestTrue(TEXT("编辑模式 右键转头"), Resolve(true, false, false, true, false, false) == EMode::Aim);
-	TestTrue(TEXT("编辑模式 中键绕行"), Resolve(false, false, true, true, false, false) == EMode::Orbit);
+	TestTrue(TEXT("编辑模式 左键不转"), Resolve(false, true, false, true, false) == EMode::None);
+	TestTrue(TEXT("编辑模式 右键转头"), Resolve(true, false, false, true, false) == EMode::Aim);
+	TestTrue(TEXT("编辑模式 中键绕行"), Resolve(false, false, true, true, false) == EMode::Orbit);
 
-	TestTrue(TEXT("矿物透视 左键不转"), Resolve(false, true, false, false, false, true) == EMode::None);
-	TestTrue(TEXT("矿物透视 右键转头"), Resolve(true, false, false, false, false, true) == EMode::Aim);
-	TestTrue(TEXT("矿物透视 中键绕行"), Resolve(false, false, true, false, false, true) == EMode::Orbit);
+	TestTrue(TEXT("连续挖 左键不转"), Resolve(false, true, false, true, true) == EMode::None);
+	TestTrue(TEXT("连续挖 右键不转头"), Resolve(true, false, false, true, true) == EMode::None);
+	TestTrue(TEXT("连续挖 中键不转"), Resolve(false, false, true, true, true) == EMode::None);
 
-	TestTrue(TEXT("连续挖 左键不转"), Resolve(false, true, false, true, true, false) == EMode::None);
-	TestTrue(TEXT("连续挖 右键不转头"), Resolve(true, false, false, true, true, false) == EMode::None);
-	TestTrue(TEXT("连续挖 中键不转"), Resolve(false, false, true, true, true, false) == EMode::None);
+	TestTrue(TEXT("左右同按 右键优先"), Resolve(true, true, false, false, false) == EMode::Aim);
+	TestTrue(TEXT("右中同按 右键优先"), Resolve(true, false, true, false, false) == EMode::Aim);
 
-	TestTrue(TEXT("左右同按 右键优先"), Resolve(true, true, false, false, false, false) == EMode::Aim);
-	TestTrue(TEXT("右中同按 右键优先"), Resolve(true, false, true, false, false, false) == EMode::Aim);
-
-	TestTrue(TEXT("没按键 不动"), Resolve(false, false, false, false, false, false) == EMode::None);
+	TestTrue(TEXT("没按键 不动"), Resolve(false, false, false, false, false) == EMode::None);
 
 	return true;
 }

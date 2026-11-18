@@ -28,13 +28,14 @@ TArray<const IPlanetStage*> FPlanetBakePipeline::Sorted() const
 	return Out;
 }
 
-bool FPlanetBakePipeline::Validate(FPlanetBakeReport& Report) const
+bool FPlanetBakePipeline::Validate(FPlanetBakeReport& Report, const uint32 DisabledStages) const
 {
 	EPlanetField Written = EPlanetField::None;
 	bool bOk = true;
 	const IPlanetStage* Prev = nullptr;
 	for (const IPlanetStage* S : Sorted())
 	{
+		if (DisabledStages & (1u << (S->GetStageIndex() - 1))) { continue; }
 		// 同号阶段会派生出相同的随机流，且执行先后取决于添加顺序，必须拒绝。
 		if (Prev && Prev->GetStageIndex() == S->GetStageIndex())
 		{
@@ -57,7 +58,7 @@ bool FPlanetBakePipeline::Validate(FPlanetBakeReport& Report) const
 
 TSharedPtr<const FPlanetSnapshot> FPlanetBakePipeline::Bake(const FPlanetRecipeConfig& Config, FPlanetBakeReport& Report) const
 {
-	if (!Validate(Report)) { return nullptr; }
+	if (!Validate(Report, Config.DisabledStages)) { return nullptr; }
 
 	// 报告可能被复用：只认本次烘焙新增的错误。
 	const int32 ErrorCount = Report.Errors.Num();
@@ -72,6 +73,7 @@ TSharedPtr<const FPlanetSnapshot> FPlanetBakePipeline::Bake(const FPlanetRecipeC
 	FPlanetBakeFields Fields;
 	for (const IPlanetStage* S : Sorted())
 	{
+		if (Config.DisabledStages & (1u << (S->GetStageIndex() - 1))) { continue; }
 		const double T0 = FPlatformTime::Seconds();
 		FPlanetBakeContext Ctx{ Config, Fields, FGeoRng::Derive(Config.Seed, S->GetStageIndex(), 0), Report };
 		S->Bake(Ctx);
@@ -94,7 +96,11 @@ TSharedPtr<const FPlanetSnapshot> FPlanetBakePipeline::Bake(const FPlanetRecipeC
 	// 先导出调试场：下面的 MoveTemp 会把 Fields 搬空。
 	if (Config.bKeepDebugFields)
 	{
-		for (const IPlanetStage* S : Sorted()) { S->ExportDebugFields(Fields, Snap->DebugFields); }
+		for (const IPlanetStage* S : Sorted())
+		{
+			if (Config.DisabledStages & (1u << (S->GetStageIndex() - 1))) { continue; }
+			S->ExportDebugFields(Fields, Snap->DebugFields);
+		}
 	}
 	Snap->R0 = Config.Radius;
 	Snap->Radial = MoveTemp(Fields.Radial);

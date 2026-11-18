@@ -35,7 +35,7 @@ struct FGeoPlateOverride
 	float DirectionDeg = 0.f;
 };
 
-UCLASS(BlueprintType)
+UCLASS(BlueprintType, DefaultToInstanced, EditInlineNew)
 class STELLARERAPLANET_API UPlanetRecipe : public UPrimaryDataAsset
 {
 	GENERATED_BODY()
@@ -650,6 +650,20 @@ public:
 	/** 撒矿器列表：一项一种成矿规律，可增删、排序、复制；同一种可叠加多份（用种子偏移错开）。 */
 	UPROPERTY(EditAnywhere, Instanced, Category = "Minerals")
 	TArray<TObjectPtr<UGeoMineralScatterer>> MineralScatterers;
+
+	/**
+	 * 阶段开关（调试用）：关掉某段后它整段跳过，用来逐级叠加、对比每段对这颗星的影响。
+	 * 关掉前面的阶段后，后面读不到它写的场，烘焙会在校验里直接报错而不是出一颗坏星。
+	 */
+	UPROPERTY(EditAnywhere, Category = "Stages") bool bRunStage1 = true;
+	UPROPERTY(EditAnywhere, Category = "Stages") bool bRunStage2 = true;
+	UPROPERTY(EditAnywhere, Category = "Stages") bool bRunStage3 = true;
+	UPROPERTY(EditAnywhere, Category = "Stages") bool bRunStage4 = true;
+	UPROPERTY(EditAnywhere, Category = "Stages") bool bRunStage5 = true;
+	UPROPERTY(EditAnywhere, Category = "Stages") bool bRunStage6 = true;
+	UPROPERTY(EditAnywhere, Category = "Stages") bool bRunStage7 = true;
+	/** 撒矿（含 4c 原生矿与 6c 沉积矿）：关掉 = 只出地形不出矿。 */
+	UPROPERTY(EditAnywhere, Category = "Stages") bool bRunMineralScatterers = true;
 
 	/** 拷成烘焙用的 POD。半径由行星给（行星是半径的唯一真源），配方本身不存。 */
 	FPlanetRecipeConfig ToConfig(double RadiusVoxels) const;

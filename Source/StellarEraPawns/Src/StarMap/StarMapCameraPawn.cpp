@@ -9,7 +9,6 @@
 #include "GameFramework/PlayerController.h"
 #include "PlanetCharacter.h"
 #include "PlanetEditComponent.h"
-#include "PlanetMineralViewComponent.h"
 #include "PlanetSurfaceRay.h"
 #include "SpaceshipPawn.h"
 #include "StarMapCameraInputComponent.h"
@@ -140,80 +139,6 @@ UPlanetEditComponent* AStarMapCameraPawn::GetPlanetEditComponent() const
 	return FindComponentByClass<UPlanetEditComponent>();
 }
 
-FString AStarMapCameraPawn::ToggleMineralView()
-{
-	if (ActiveMineralView)
-	{
-		ExitMineralViewIfActive();
-		return FString();
-	}
-
-	UCosmosSimulationSubsystem* Subsystem = GetWorld()
-		? GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>()
-		: nullptr;
-	AVoxelPlanetActor* Planet = Subsystem
-		? Cast<AVoxelPlanetActor>(Subsystem->GetSelectedBody())
-		: nullptr;
-	UPlanetMineralViewComponent* MineralView =
-		Planet ? Planet->FindComponentByClass<UPlanetMineralViewComponent>() : nullptr;
-
-	// 失败原因回给输入组件，由它经 HUD 弹提示（本 Pawn 不直接碰屏幕）。
-	if (!MineralView)
-	{
-		return TEXT("矿物观察只支持行星");
-	}
-
-	if (!MineralView->Activate(Planet))
-	{
-		// 失败只有三种：没有地质场、采样参数非法、观察体/材质创建失败
-		// （后两种会先打 Error 日志）。
-		return TEXT("该行星没有矿物分布");
-	}
-
-	// 观察里左键只点图例、右键转视角：若此前按过 G，先退出编辑模式。
-	if (UPlanetEditComponent* Edit = GetPlanetEditComponent())
-	{
-		if (Edit->IsEditMode())
-		{
-			Edit->SetEditMode(false);
-		}
-	}
-
-	// 只拉远、不改朝向：按 H 前看哪儿，进入后还是那个角度。
-	// 倍率与按 M 进场聚焦行星共用，两种进入方式构图一致。
-	FocusOn(Planet, PlanetFocusRadiusScale * Planet->GetSurfaceRadiusCm());
-
-	ActiveMineralView = MineralView;
-	return FString();
-}
-
-void AStarMapCameraPawn::ExitMineralViewIfActive()
-{
-	if (!ActiveMineralView)
-	{
-		return;
-	}
-
-	ActiveMineralView->Deactivate();
-	ActiveMineralView = nullptr;
-}
-
-void AStarMapCameraPawn::ToggleMineralElement(const int32 Index)
-{
-	if (ActiveMineralView)
-	{
-		ActiveMineralView->ToggleElement(Index);
-	}
-}
-
-void AStarMapCameraPawn::ShowAllMineralElements()
-{
-	if (ActiveMineralView)
-	{
-		ActiveMineralView->SetAllElementsVisible(true);
-	}
-}
-
 bool AStarMapCameraPawn::EnterStarMap(APawn* From, APlayerController* PC)
 {
 	if (!From || !PC || !GetWorld())
@@ -275,9 +200,6 @@ void AStarMapCameraPawn::ExitStarMap()
 	{
 		return;
 	}
-
-	// 先退矿物透视再换 Pawn：它隐藏了行星网格、关了碰撞与大气，必须在恢复视角之前还原。
-	ExitMineralViewIfActive();
 
 	Subsystem->SetSelectedBody(nullptr);
 	Subsystem->SetStarMapActive(false);

@@ -3,7 +3,6 @@
 #include "StellarEraPlayerController.h"
 
 #include "PlanetCharacter.h"
-#include "PlanetMineralViewComponent.h"
 #include "StarMapUISystem.h"
 #include "PlanetEditBrush.h"
 #include "PlanetEditComponent.h"
@@ -77,15 +76,7 @@ void AStellarEraPlayerController::BeginPlay()
 
 void AStellarEraPlayerController::OnPossess(APawn* InPawn)
 {
-	// 先拍下旧 Pawn：Super 会 UnPossess 并清空 GetPawn()，之后找不回刚换下的星图相机。
-	APawn* const PreviousPossessed = GetPawn();
 	Super::OnPossess(InPawn);
-
-	// 换 Pawn（登船 / 离船 / 进出星图）一律退出矿物透视；会话状态住在相机 Pawn 上。
-	if (AStarMapCameraPawn* PreviousCamera = Cast<AStarMapCameraPawn>(PreviousPossessed))
-	{
-		PreviousCamera->ExitMineralViewIfActive();
-	}
 
 	// 换视点：只有新 Pawn 的体素调用器参与 LOD 与碰撞。所有换 Pawn 路径都收口在这里。
 	ApplyViewpointInvokerGate(GetWorld(), InPawn);
@@ -187,26 +178,6 @@ void AStellarEraPlayerController::ForceExitEditMode(APawn* InPawn)
 void AStellarEraPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);
-
-	// 矿物透视绑在选中的行星上，改选就命令相机退出；换 Pawn 的退出在 OnPossess 收口，
-	// 相机不 Tick，这条巡检只能留在这里。
-	if (AStarMapCameraPawn* Camera = Cast<AStarMapCameraPawn>(GetPawn()))
-	{
-		if (UPlanetMineralViewComponent* MineralView = Camera->GetActiveMineralView())
-		{
-			UCosmosSimulationSubsystem* ViewSubsystem = GetWorld()
-				? GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>()
-				: nullptr;
-			// 视图行星本身也要非空：两颗都为空时 == 会判成「同一颗」，视图就退不出去。
-			const AVoxelPlanetActor* ViewPlanet = MineralView->GetViewPlanet();
-			const bool bSamePlanet = ViewSubsystem && ViewPlanet != nullptr &&
-				ViewSubsystem->GetSelectedBody() == ViewPlanet;
-			if (!bSamePlanet)
-			{
-				Camera->ExitMineralViewIfActive();
-			}
-		}
-	}
 
 	// 提示只在“站在飞船旁”时出现，所以每帧重算一次距离。
 	if (const APlanetCharacter* PawnCharacter = Cast<APlanetCharacter>(GetPawn()))

@@ -12,7 +12,6 @@ class AVoxelPlanetActor;
 class UCameraComponent;
 class UCosmosSimulationSubsystem;
 class UPlanetEditComponent;
-class UPlanetMineralViewComponent;
 class UStarMapCameraInputComponent;
 class UVoxelSimpleInvokerComponent;
 
@@ -61,28 +60,6 @@ public:
 
 	/** 星图模式的行星编辑组件，由蓝图子类 BP_StarMapCameraPawn 挂载；原生实例没有编辑功能。 */
 	UPlanetEditComponent* GetPlanetEditComponent() const;
-
-	// ── 矿物透视 ──
-
-	/**
-	 * H 键：进入 / 退出矿物透视，需选中带透视组件的体素行星。退出途径：再按 H、退出星图、
-	 * 换 Pawn 或选中变化。@return 失败原因（成功或无操作时为空）。
-	 */
-	FString ToggleMineralView();
-
-	/** 退出矿物透视（幂等）。状态住在相机上，换 Pawn 时由控制器命令相机执行。 */
-	void ExitMineralViewIfActive();
-
-	bool IsMineralViewActive() const { return ActiveMineralView != nullptr; }
-
-	/** 当前激活的矿物透视组件；未激活时为空。控制器用它转发给星图 UI 画图例。 */
-	UPlanetMineralViewComponent* GetActiveMineralView() const { return ActiveMineralView; }
-
-	/** 数字键 1..9：切换第 Index 个元素的显示（下标从 0 起；未激活时空操作）。 */
-	void ToggleMineralElement(int32 Index);
-
-	/** 数字键 0：全部打开（未激活时空操作）。 */
-	void ShowAllMineralElements();
 
 	/** 焦点是行星时相机拉远的倍率（地表半径 × 本值）。控制器按 M 进场聚焦时用。 */
 	double GetPlanetFocusRadiusScale() const { return PlanetFocusRadiusScale; }
@@ -341,10 +318,6 @@ protected:
 	 */
 	UPROPERTY(Transient)
 	TWeakObjectPtr<AActor> LastSeenSelected;
-
-	/** 当前激活的矿物透视组件。行星销毁时 GC 会把它置空。 */
-	UPROPERTY(Transient, VisibleAnywhere, Category = "StarMap|State")
-	TObjectPtr<UPlanetMineralViewComponent> ActiveMineralView;
 
 	// ── 可调参数 ──
 

@@ -11,7 +11,6 @@
 #include "VoxelPlanetTerrainModule.generated.h"
 
 class FVoxelGeneratorInstance;
-class FPlanetGeologyField;
 class FPlanetHydrologyField;
 
 /**
@@ -28,9 +27,6 @@ struct FVoxelPlanetTerrainContext
 
 	/** 基准色。纯球模块直接用它；自带配色的模块可当兜底色或忽略。 */
 	FLinearColor BaseColor = FLinearColor(0.18f, 0.42f, 0.16f);
-
-	/** 地质场；空 = 没有矿。只读、构造后不可变，可安全在后台体素线程共享。 */
-	TSharedPtr<const FPlanetGeologyField> Geology;
 
 	/** 水文场；空 = 没有水（纯球模块或未重写 GetWaterConfig）。只读、不可变，密度场靠它下切河道。 */
 	TSharedPtr<const FPlanetHydrologyField> Hydrology;

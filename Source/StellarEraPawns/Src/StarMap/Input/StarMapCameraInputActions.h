@@ -47,18 +47,6 @@ struct STELLARERAPAWNS_API FStarMapCameraInputActions
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> BrushSize;
 
-	/** 矿物透视开关（H）。 */
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> MineralViewToggle;
-
-	/** 数字键 1..9：按下标切换元素显示。下标 = 运行期元素顺序。 */
-	UPROPERTY(Transient)
-	TArray<TObjectPtr<UInputAction>> MineralFilter;
-
-	/** 数字键 0：全部打开。 */
-	UPROPERTY(Transient)
-	TObjectPtr<UInputAction> MineralShowAll;
-
 	/** 主键（鼠标左键）：选中天体 / 拖拽绕行。按下与松开的位移区分两者。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> StarMapSelect;

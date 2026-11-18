@@ -51,8 +51,7 @@ public:
 		bool bLeftHeld,
 		bool bMiddleHeld,
 		bool bEditMode,
-		bool bContinuousDigging,
-		bool bActiveMineralView);
+		bool bContinuousDigging);
 
 private:
 	/** 所属相机；组件只可能挂在星图相机上。 */
@@ -73,15 +72,6 @@ private:
 
 	/** `[` / `]`：编辑模式下调笔刷尺寸（±1，按住 Ctrl ×10）。非编辑模式下无反应。 */
 	void OnBrushSize(const FInputActionValue& Value);
-
-	/** H 键：进入 / 退出矿物透视。状态与逻辑都在相机 Pawn 上。 */
-	void OnMineralViewToggle(const FInputActionValue& Value);
-
-	/** 数字键 1..9：切换第 ElementIndex 个元素（下标从 0 起）。 */
-	void OnMineralFilter(const FInputActionValue& Value, int32 ElementIndex);
-
-	/** 数字键 0：全部打开。 */
-	void OnMineralShowAll(const FInputActionValue& Value);
 
 	/** 左键按下：笔刷操作 → 记录按下位置。与松开的位移一起区分点选与拖拽。 */
 	void OnStarMapSelectStarted(const FInputActionValue& Value);

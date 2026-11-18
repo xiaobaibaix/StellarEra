@@ -162,6 +162,11 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 	C.Exposure.bExposure = bExposure;
 	C.Exposure.LiftScale = LiftScale;
 	C.Exposure.MaxLiftRatio = MaxLiftRatio;
+	const bool StageOn[7] = { bRunStage1, bRunStage2, bRunStage3, bRunStage4, bRunStage5, bRunStage6, bRunStage7 };
+	for (uint32 i = 0; i < 7; ++i)
+	{
+		if (!StageOn[i]) { C.DisabledStages |= (1u << i); }
+	}
 	if (MineralCatalog)
 	{
 		for (const FGeoMineralDef& D : MineralCatalog->Minerals)
@@ -171,7 +176,7 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 	}
 	for (const UGeoMineralScatterer* S : MineralScatterers)
 	{
-		if (!S || !S->bEnabled) { continue; }
+		if (!bRunMineralScatterers || !S || !S->bEnabled) { continue; }
 		const int32 Index = MineralCatalog ? MineralCatalog->FindIndex(S->Mineral) : INDEX_NONE;
 		if (Index == INDEX_NONE || Index >= 255)
 		{

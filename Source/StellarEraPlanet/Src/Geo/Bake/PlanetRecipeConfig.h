@@ -237,6 +237,8 @@ struct FPlanetRecipeConfig
 	bool bSingleThreadBake = false;
 	/** 编辑器调试图层用：快照额外保留阶段中间场（约 12 MB）。不进哈希，运行时恒为 false。 */
 	bool bKeepDebugFields = false;
+	/** 调试用阶段开关（位 = 阶段号 − 1）。被禁用的阶段整段跳过，后续阶段若读它的场会在校验里报错。 */
+	uint32 DisabledStages = 0;
 	FPlanetSphereParams Sphere;
 	FPlanetPlateParams Plates;
 	FPlanetContinentParams Continents;
@@ -256,6 +258,7 @@ struct FPlanetRecipeConfig
 		uint64 H = GeoHash::Float(float(Radius));
 		H = GeoHash::Combine(H, Seed);
 		H = GeoHash::Combine(H, uint64(FaceRes));
+		H = GeoHash::Combine(H, uint64(DisabledStages));
 		const float S[6] = { Sphere.CrustRatio, Sphere.UpperMantleRatio, Sphere.TransitionRatio,
 			Sphere.MantleOuterRatio, Sphere.OuterCoreRatio, Sphere.MohoWobbleRatio };
 		for (const float V : S) { H = GeoHash::Combine(H, GeoHash::Float(V)); }

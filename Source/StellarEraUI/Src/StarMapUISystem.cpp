@@ -8,8 +8,6 @@
 #include "StarMapCameraPawn.h"
 #include "StarMapPicking.h"
 #include "StellarEraHUD.h"
-#include "PlanetMineralViewComponent.h"
-#include "PlanetGeologyField.h"
 #include "VoxelPlanetActor.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
@@ -178,37 +176,6 @@ TArray<FString> UStarMapUISystem::FormatBodyInfoLines(const FStarMapBodyInfo& In
 	return Lines;
 }
 
-TArray<FString> UStarMapUISystem::FormatMineralLegendLines(
-	const FString& PlanetName,
-	TArrayView<const FMineralLegendEntry> Entries)
-{
-	TArray<FString> Lines;
-	Lines.Reserve(Entries.Num() + 2);
-
-	Lines.Add(FString::Printf(TEXT("矿物观察 — %s"), *PlanetName));
-
-	if (Entries.Num() == 0)
-	{
-		Lines.Add(TEXT("（无矿物元素）"));
-	}
-	else
-	{
-		for (const FMineralLegendEntry& Entry : Entries)
-		{
-			const FString Name = Entry.DisplayName.IsEmpty()
-				? FString(TEXT("?"))
-				: Entry.DisplayName;
-			const int32 Percent = FMath::RoundToInt(
-				FMath::Clamp(Entry.Abundance, 0.f, 1.f) * 100.f);
-			Lines.Add(FString::Printf(TEXT("%s  %d%%  %s"), *Name, Percent,
-				Entry.bVisible ? TEXT("开") : TEXT("关")));
-		}
-	}
-
-	Lines.Add(TEXT("H 退出   点击图例/数字键筛选   右键拖转视角   滚轮缩放"));
-	return Lines;
-}
-
 void UStarMapUISystem::Draw(AStellarEraHUD& Hud, APlayerController& PlayerController)
 {
 	const FVector2D ViewportSize = Hud.GetViewportSize();
@@ -285,39 +252,6 @@ void UStarMapUISystem::Draw(AStellarEraHUD& Hud, APlayerController& PlayerContro
 		if (BuildBodyInfo(Hovered, Info))
 		{
 			DrawBodyPanel(Hud, Info, MousePosition, 0.f, ViewportSize);
-		}
-	}
-
-	// 矿物观察图例：固定左上角，画在最后（压在所有天体面板之上）。
-	UPlanetMineralViewComponent* MineralView =
-		Camera ? Camera->GetActiveMineralView() : nullptr;
-	if (MineralView)
-	{
-		AVoxelPlanetActor* ViewPlanet = MineralView->GetViewPlanet();
-		if (ViewPlanet)
-		{
-			const TArray<FPlanetGeologyElement>& Elements = MineralView->GetElements();
-			const TSharedPtr<const FPlanetGeologyField> Geology = MineralView->GetGeologyField();
-			const float TotalAbundance = Geology.IsValid()
-				? FMath::Max(Geology->GetTotalAbundance(), 1e-6f)
-				: 1.f;
-
-			TArray<FMineralLegendEntry> Entries;
-			Entries.Reserve(Elements.Num());
-			for (int32 ElementIndex = 0; ElementIndex < Elements.Num(); ++ElementIndex)
-			{
-				const FPlanetGeologyElement& Element = Elements[ElementIndex];
-				FMineralLegendEntry& Entry = Entries.AddDefaulted_GetRef();
-				Entry.DisplayName = Element.DisplayName.IsEmpty()
-					? Element.Id
-					: Element.DisplayName;
-				Entry.Color = Element.Color;
-				Entry.Abundance = Element.Abundance / TotalAbundance;
-				Entry.bVisible = MineralView->IsElementVisible(ElementIndex);
-			}
-
-			DrawMineralLegend(
-				Hud, ViewPlanet->GetActorNameOrLabel(), Entries, ViewportSize);
 		}
 	}
 }
@@ -397,90 +331,4 @@ void UStarMapUISystem::DrawBodyPanel(
 		Hud.DrawText(Lines[Index], White, Rect.X + Padding, CursorY, Font, TextScale);
 		CursorY += LineHeight + LineSpacing;
 	}
-}
-
-void UStarMapUISystem::DrawMineralLegend(
-	AStellarEraHUD& Hud,
-	const FString& PlanetName,
-	const TArray<FMineralLegendEntry>& Entries,
-	const FVector2D& ViewportSizePx)
-{
-	UFont* Font = GEngine ? GEngine->GetMediumFont() : nullptr;
-	if (!Font)
-	{
-		return;
-	}
-
-	const TArray<FString> Lines = FormatMineralLegendLines(PlanetName, Entries);
-	if (Lines.Num() < 3)
-	{
-		return;
-	}
-
-	constexpr float TextScale = 1.f;
-	constexpr float SwatchSize = 14.f;
-	constexpr float SwatchGap = 8.f;
-
-	FStarMapPanelRect Panel;
-	TArray<FStarMapPanelRect> RowRects;
-	StarMapPanelLayout::ComputeMineralLegendLayout(ViewportSizePx, Entries.Num(), Panel, RowRects);
-
-	const FLinearColor Background(0.f, 0.f, 0.f, 0.65f);
-	const FLinearColor Gold(1.f, 0.85f, 0.30f, 1.f);
-	const FLinearColor White(1.f, 1.f, 1.f, 1.f);
-	const FLinearColor Dim(0.75f, 0.75f, 0.75f, 1.f);
-
-	Hud.DrawRect(Background, Panel.X, Panel.Y, Panel.W, Panel.H);
-	Hud.DrawRect(Gold, Panel.X, Panel.Y, Panel.W, MineralLegendLayout::SeparatorThickness);
-	Hud.DrawRect(Gold, Panel.X, Panel.Y + Panel.H - MineralLegendLayout::SeparatorThickness,
-		Panel.W, MineralLegendLayout::SeparatorThickness);
-	Hud.DrawRect(Gold, Panel.X, Panel.Y, MineralLegendLayout::SeparatorThickness, Panel.H);
-	Hud.DrawRect(Gold, Panel.X + Panel.W - MineralLegendLayout::SeparatorThickness, Panel.Y,
-		MineralLegendLayout::SeparatorThickness, Panel.H);
-
-	const float TitleY = Panel.Y + MineralLegendLayout::Padding;
-	Hud.DrawText(Lines[0], Gold, Panel.X + MineralLegendLayout::Padding, TitleY,
-		Font, TextScale);
-
-	const float SeparatorY = TitleY + MineralLegendLayout::TitleLineHeight
-		+ MineralLegendLayout::SeparatorSpacing;
-	Hud.DrawRect(Gold, Panel.X + MineralLegendLayout::Padding, SeparatorY,
-		Panel.W - MineralLegendLayout::Padding * 2.f,
-		MineralLegendLayout::SeparatorThickness);
-
-	if (Entries.Num() > 0)
-	{
-		for (int32 Index = 0; Index < Entries.Num(); ++Index)
-		{
-			const FMineralLegendEntry& Entry = Entries[Index];
-			const FStarMapPanelRect& Row = RowRects[Index];
-			const float SwatchY = Row.Y + (Row.H - SwatchSize) * 0.5f;
-
-			// 关掉的元素整行变暗：色块压到 35% 亮度，文字用 Dim。
-			const FLinearColor SwatchColor = Entry.bVisible
-				? Entry.Color
-				: FLinearColor(Entry.Color.R * 0.35f, Entry.Color.G * 0.35f,
-					Entry.Color.B * 0.35f, Entry.Color.A);
-			Hud.DrawRect(SwatchColor, Panel.X + MineralLegendLayout::Padding, SwatchY,
-				SwatchSize, SwatchSize);
-			Hud.DrawText(Lines[Index + 1], Entry.bVisible ? White : Dim,
-				Panel.X + MineralLegendLayout::Padding + SwatchSize + SwatchGap,
-				Row.Y, Font, TextScale);
-		}
-	}
-	else
-	{
-		Hud.DrawText(Lines[1], Dim, Panel.X + MineralLegendLayout::Padding,
-			RowRects[0].Y, Font, TextScale);
-	}
-
-	// 提示行贴面板底：行数变化时提示不跟着上下跳。落点由布局命名空间给出，
-	// 与高度预算同源，避免两处算式漂移。
-	const float HintY = MineralLegendLayout::HintTextTopY(Panel);
-	Hud.DrawRect(Gold, Panel.X + MineralLegendLayout::Padding,
-		MineralLegendLayout::HintSeparatorY(Panel),
-		Panel.W - MineralLegendLayout::Padding * 2.f,
-		MineralLegendLayout::SeparatorThickness);
-	Hud.DrawText(Lines.Last(), Dim, Panel.X + MineralLegendLayout::Padding, HintY,
-		Font, TextScale);
 }

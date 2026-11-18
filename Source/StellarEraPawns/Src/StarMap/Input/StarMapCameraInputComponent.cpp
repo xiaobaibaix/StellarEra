@@ -12,7 +12,6 @@
 #include "InputCoreTypes.h"
 #include "PlanetEditComponent.h"
 #include "PlanetEditUI.h"
-#include "PlanetMineralViewComponent.h"
 #include "SessionCommands.h"
 #include "StarMapCameraInputActions.h"
 #include "StarMapCameraPawn.h"
@@ -56,8 +55,7 @@ EStarMapLookMode UStarMapCameraInputComponent::ResolveLookMode(
 	const bool bLeftHeld,
 	const bool bMiddleHeld,
 	const bool bEditMode,
-	const bool bContinuousDigging,
-	const bool bActiveMineralView)
+	const bool bContinuousDigging)
 {
 	// 连续挖期间一个键都不放行：视角一动，屏幕射线跟着变，挖掘点就漂（转头也算）。
 	if (bContinuousDigging)
@@ -71,14 +69,14 @@ EStarMapLookMode UStarMapCameraInputComponent::ResolveLookMode(
 		return EStarMapLookMode::Aim;
 	}
 
-	// 中键绕行不看模式：编辑 / 矿物透视下左键被借走时，它就是唯一的绕行键。
+	// 中键绕行不看模式：编辑模式下左键被借走时，它就是唯一的绕行键。
 	if (bMiddleHeld)
 	{
 		return EStarMapLookMode::Orbit;
 	}
 
-	// 左键在编辑模式与矿物透视（图例点击）里已被借走，这两种状态下什么都不做。
-	if (bLeftHeld && !bEditMode && !bActiveMineralView)
+	// 左键在编辑模式里已被借走，此状态下什么都不做。
+	if (bLeftHeld && !bEditMode)
 	{
 		return EStarMapLookMode::Orbit;
 	}
@@ -124,17 +122,6 @@ void UStarMapCameraInputComponent::Bind(UInputComponent* PlayerInputComponent)
 	EnhancedInput->BindAction(Input.EditModeToggle, ETriggerEvent::Started, this, &UStarMapCameraInputComponent::OnEditModeToggle);
 	EnhancedInput->BindAction(Input.BrushSize, ETriggerEvent::Started, this, &UStarMapCameraInputComponent::OnBrushSize);
 
-	// 矿物透视（H）与数字键只在本相机被操控时有意义，会话状态也住在相机 Pawn 上。
-	EnhancedInput->BindAction(Input.MineralViewToggle, ETriggerEvent::Started,
-		this, &UStarMapCameraInputComponent::OnMineralViewToggle);
-	for (int32 ElementIndex = 0; ElementIndex < Input.MineralFilter.Num(); ++ElementIndex)
-	{
-		EnhancedInput->BindAction(Input.MineralFilter[ElementIndex], ETriggerEvent::Started,
-			this, &UStarMapCameraInputComponent::OnMineralFilter, ElementIndex);
-	}
-	EnhancedInput->BindAction(Input.MineralShowAll, ETriggerEvent::Started,
-		this, &UStarMapCameraInputComponent::OnMineralShowAll);
-
 	// M 必须绑在这里，否则进了星图就没有「按 M 退出」的入口（此刻 Possess 的是本相机）。
 	EnhancedInput->BindAction(Input.StarMapSelect, ETriggerEvent::Started,
 		this, &UStarMapCameraInputComponent::OnStarMapSelectStarted);
@@ -166,8 +153,7 @@ void UStarMapCameraInputComponent::OnLookInput(const FInputActionValue& Value)
 		bSelectHeld,
 		bMiddleHeld,
 		Edit != nullptr,
-		Edit && Edit->IsContinuousDigging(),
-		Pawn->IsMineralViewActive()))
+		Edit && Edit->IsContinuousDigging()))
 	{
 	case EStarMapLookMode::Orbit:
 		Pawn->OrbitLook(DeltaYaw, DeltaPitch);
@@ -215,8 +201,7 @@ void UStarMapCameraInputComponent::OnEditModeToggle(const FInputActionValue& Val
 {
 	AStarMapCameraPawn* Pawn = GetPawn();
 
-	// 矿物透视下左键归图例：编辑模式会抢左键并改写体素，所以直接忽略切换。
-	if (!Pawn || Pawn->IsMineralViewActive())
+	if (!Pawn)
 	{
 		return;
 	}
@@ -251,39 +236,6 @@ void UStarMapCameraInputComponent::OnBrushSize(const FInputActionValue& Value)
 	}
 }
 
-void UStarMapCameraInputComponent::OnMineralViewToggle(const FInputActionValue& Value)
-{
-	AStarMapCameraPawn* Pawn = GetPawn();
-	if (!Pawn)
-	{
-		return;
-	}
-
-	// 进不去时原因由相机 Pawn 返回，提示走本组件已有的 HUD 通道（与笔刷提示同一条）。
-	const FString Failure = Pawn->ToggleMineralView();
-	if (!Failure.IsEmpty())
-	{
-		ShowNotice(Failure);
-	}
-}
-
-void UStarMapCameraInputComponent::OnMineralFilter(
-	const FInputActionValue& Value, const int32 ElementIndex)
-{
-	if (AStarMapCameraPawn* Pawn = GetPawn())
-	{
-		Pawn->ToggleMineralElement(ElementIndex);
-	}
-}
-
-void UStarMapCameraInputComponent::OnMineralShowAll(const FInputActionValue& Value)
-{
-	if (AStarMapCameraPawn* Pawn = GetPawn())
-	{
-		Pawn->ShowAllMineralElements();
-	}
-}
-
 void UStarMapCameraInputComponent::OnStarMapSelectStarted(const FInputActionValue& Value)
 {
 	AStarMapCameraPawn* Pawn = GetPawn();
@@ -292,8 +244,8 @@ void UStarMapCameraInputComponent::OnStarMapSelectStarted(const FInputActionValu
 		return;
 	}
 
-	// 编辑模式：按钮优先，其次一次笔刷操作（按钮命中不能顺带挖到脚下）。矿物透视期间左键归图例。
-	UPlanetEditComponent* Edit = Pawn->IsMineralViewActive() ? nullptr : GetEditComponentInEditMode();
+	// 编辑模式：按钮优先，其次一次笔刷操作（按钮命中不能顺带挖到脚下）。
+	UPlanetEditComponent* Edit = GetEditComponentInEditMode();
 	if (Edit)
 	{
 		APlayerController* PC = GetPlayerController();
@@ -355,39 +307,6 @@ void UStarMapCameraInputComponent::OnStarMapSelectStarted(const FInputActionValu
 		return;
 	}
 
-	if (UPlanetMineralViewComponent* MineralView = Pawn->GetActiveMineralView())
-	{
-		APlayerController* PC = GetPlayerController();
-		double MouseX = 0.0;
-		double MouseY = 0.0;
-		if (!PC || !PC->GetMousePosition(MouseX, MouseY))
-		{
-			return;
-		}
-
-		// 与绘制同一份纯函数：视口尺寸从控制器查（Canvas 只在 PostRender 有效）。
-		int32 ViewportSizeX = 0;
-		int32 ViewportSizeY = 0;
-		PC->GetViewportSize(ViewportSizeX, ViewportSizeY);
-		const FVector2D ViewportSize(
-			static_cast<float>(ViewportSizeX), static_cast<float>(ViewportSizeY));
-
-		FStarMapPanelRect Panel;
-		TArray<FStarMapPanelRect> RowRects;
-		StarMapPanelLayout::ComputeMineralLegendLayout(
-			ViewportSize, MineralView->NumElements(), Panel, RowRects);
-
-		const int32 RowIndex = StarMapPanelLayout::HitTestMineralLegendRow(
-			RowRects, FVector2D(MouseX, MouseY));
-		if (RowRects.IsValidIndex(RowIndex))
-		{
-			MineralView->ToggleElement(RowIndex);
-		}
-
-		// 观察模式下左键不再拾取天体，也不转视角（转视角归右键）。
-		return;
-	}
-
 	// 用 double 重载只为少一次转换；引擎内部是 `float X, Y` 再展宽，精度上并不占便宜。
 	double MouseX = 0.0;
 	double MouseY = 0.0;
@@ -414,12 +333,6 @@ void UStarMapCameraInputComponent::OnStarMapSelectCompleted(const FInputActionVa
 	AStarMapCameraPawn* Pawn = GetPawn();
 	if (!Pawn)
 	{
-		return;
-	}
-
-	if (Pawn->GetActiveMineralView())
-	{
-		// 观察模式下左键只用来点图例，松手不做任何事。
 		return;
 	}
 

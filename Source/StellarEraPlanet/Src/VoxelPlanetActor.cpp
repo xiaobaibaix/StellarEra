@@ -11,8 +11,6 @@
 #include "VoxelGenerators/VoxelGeneratorPicker.h"
 #include "VoxelComponents/VoxelInvokerComponent.h"
 #include "PlanetSurfaceGridComponent.h"
-#include "PlanetGeologyField.h"
-#include "PlanetGeologyPreset.h"
 #include "Sky/PlanetSkyLightComponent.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -203,12 +201,8 @@ float AVoxelPlanetActor::GetScaledRadiusVoxels() const
 
 int32 AVoxelPlanetActor::ComputeOrbitLOD() const
 {
-	if (OrbitLOD >= 0)
-	{
-		return FMath::Clamp(OrbitLOD, 0, 26);
-	}
-	// 自动档：最粗三角边长（2^LOD 体素）约半径 1/16，弦高误差 ~R/2048。
-	// 1km 星得 LOD 6（64m 边长），100m 星得 LOD 3。想要更粗就填显式值。
+	// 最粗三角边长（2^LOD 体素）约半径 1/16，弦高误差 ~R/2048。
+	// 1km 星得 LOD 6（64m 边长），100m 星得 LOD 3。
 	const float ScaledRadius = FMath::Max(GetScaledRadiusVoxels(), 1.f);
 	return FMath::Clamp(FMath::RoundToInt(FMath::Log2(ScaledRadius / 16.f)), 0, 8);
 }
@@ -224,30 +218,27 @@ void AVoxelPlanetActor::RefreshLODInvoker()
 	const float RangeSource = GetScaledRadiusVoxels() * FMath::Max(VoxelSize, 0.0001f);
 	const int32 DesiredLOD = ComputeOrbitLOD();
 
-	// geo 模式下「手改优先」这条规则不成立：BP 上填的 LODToSet 是按旧半径调的，配方把半径
-	// 放大 40 倍后它会把整片 invoker 范围压到 2^LOD 体素块，撞 voxel.renderer.
-	// MaxRenderOctreeChunks 后渲染八叉树直接停更（日志 "Render octree update was stopped!"）。
+	// geo 模式下比自动档更细会把整片 invoker 范围压到 2^LOD 体素块，撞
+	// voxel.renderer.MaxRenderOctreeChunks 后渲染八叉树停更。不替用户改值，只提示。
 	if (IsGeoMode() && LODInvoker->LODToSet >= 0 && LODInvoker->LODToSet < DesiredLOD)
 	{
-		UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor %s: 行星 invoker LOD %d 比自动档 %d 更细，夹到自动"),
+		UE_LOG(LogTemp, Warning,
+			TEXT("AVoxelPlanetActor %s: 行星 invoker LOD %d 比自动档 %d 更细；若出现 Render octree update was stopped! 就调大 voxel.renderer.MaxRenderOctreeChunks"),
 			*GetName(), LODInvoker->LODToSet, DesiredLOD);
-		LODInvoker->LODToSet = DesiredLOD;
 	}
 
 	const bool bFirstSync = !bLODInvokerSynced;
-	const bool bOrbitLODChanged = !bFirstSync && LastAppliedOrbitLOD != OrbitLOD;
 	const bool bRangeSourceChanged = bFirstSync || !FMath::IsNearlyEqual(LastAppliedRangeSource, RangeSource);
 	// 值还等于上次写入的 → 归系统；被人改过 → 归用户，之后不再覆盖。首次同步没有历史可比，
 	// 拿系统值当基准 —— 否则第一次手改会被「首次同步」吞掉。
 	const bool bHandEdited = LODInvoker->LODToSet != (bFirstSync ? DesiredLOD : LastWrittenLODToSet);
 
-	if (!bOrbitLODChanged && !bRangeSourceChanged && !bHandEdited)
+	if (!bRangeSourceChanged && !bHandEdited)
 	{
 		return;
 	}
 
 	bLODInvokerSynced = true;
-	LastAppliedOrbitLOD = OrbitLOD;
 	LastAppliedRangeSource = RangeSource;
 
 	if (bRangeSourceChanged)
@@ -256,13 +247,13 @@ void AVoxelPlanetActor::RefreshLODInvoker()
 		LODInvoker->LODRange = RangeSource * 1.25f + 1000.f;
 	}
 
-	// LOD to Set 只在 OrbitLOD 改动（含首次）时由系统写；命中手改就采纳用户的值。
+	// LOD to Set 只在首次同步时由系统写；之后面板里手改的值归用户，重建不再覆盖。
 	if (bHandEdited)
 	{
 		// Invoker 自身没有 PostEditChangeProperty 刷新，这里顺手让它立刻生效。
 		LastWrittenLODToSet = LODInvoker->LODToSet;
 	}
-	else if (bFirstSync || bOrbitLODChanged)
+	else if (bFirstSync)
 	{
 		LODInvoker->LODToSet = DesiredLOD;
 		LastWrittenLODToSet = DesiredLOD;
@@ -634,8 +625,9 @@ void AVoxelPlanetActor::OnAnyObjectPropertyChanged(UObject* Object, FPropertyCha
 {
 	// 拖动滑条时每帧都会来一次：只在松手（ValueSet）时重烘，否则会排起一长串 1–3 s 的烘焙。
 	// 撒矿器是配方的子对象、矿物目录是另一份资产：改它们也要重烘。
-	const bool bMine = GeoRecipe && Object && (Object == GeoRecipe || Object->IsIn(GeoRecipe)
-		|| Object == GeoRecipe->MineralCatalog.Get());
+	const UPlanetRecipe* Recipe = GeoRecipeOverride ? GeoRecipeOverride.Get() : GeoRecipe.Get();
+	const bool bMine = Recipe && Object && (Object == Recipe || Object->IsIn(Recipe)
+		|| Object == Recipe->MineralCatalog.Get());
 	if (!bMine || !GetWorld() || Event.ChangeType == EPropertyChangeType::Interactive)
 	{
 		return;
@@ -657,15 +649,7 @@ void AVoxelPlanetActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyCh
 	// 下拉选中的是「中文名（Id）」标签，这里立刻规范成标签形式；老值（裸 Id）也一并升级。
 	NormalizeGeoDebugLayerNames();
 
-	// 地质预设换了要通知镜像方（矿物组件上的槽），否则先改行星再选组件会看到
-	// 过期值。新的预设仍需按「重建行星」才生效。
-	if (PropertyChangedEvent.GetPropertyName()
-		== GET_MEMBER_NAME_CHECKED(AVoxelPlanetActor, GeologyAsset))
-	{
-		OnGeologyAssetChanged.Broadcast();
-	}
-
-	if (GeoRecipe && ApplyGeoDebugOverlay() && IsCreated())
+	if (IsGeoMode() && ApplyGeoDebugOverlay() && IsCreated())
 	{
 		UVoxelBlueprintLibrary::ApplyNewMaterials(this);
 	}
@@ -690,7 +674,7 @@ void AVoxelPlanetActor::RebuildPlanet()
 	RepairLegacyRootComponent();
 
 	// LOD 档位由半径派生，必须先于哈希修正。
-	if (GeoRecipe)
+	if (IsGeoMode())
 	{
 		SyncGeoDimensions();
 	}
@@ -712,7 +696,7 @@ void AVoxelPlanetActor::RebuildPlanet()
 	UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor: 重建 %s（参数哈希 %llu）"), *GetName(), ParamsHash);
 
 	// 所有行星都走地质流水线；没挂配方的旧关卡不建世界。
-	if (!GeoRecipe)
+	if (!IsGeoMode())
 	{
 		return;
 	}
@@ -722,15 +706,14 @@ void AVoxelPlanetActor::RebuildPlanet()
 
 void AVoxelPlanetActor::SyncGeoDimensions()
 {
-	if (!GeoRecipe)
+	if (!IsGeoMode())
 	{
 		return;
 	}
 
 	// 半径换量级后，按旧尺度调的 LOD 档位全部失效：MaxLOD 6 配 40000 体素半径会让渲染
 	// 八叉树撞 voxel.renderer.MaxRenderOctreeChunks（100 万，报 "Render octree update
-	// was stopped!"）。MaxLOD 只封顶「最粗」，调大不伤近处细节；比自动档更细的 OrbitLOD
-	// 则会把整片 invoker 范围压到 8 体素块，必须交回自动档。
+	// was stopped!"）。MaxLOD 只封顶「最粗」，调大不伤近处细节。
 	const float AutoLODRadius = FMath::Max(GetScaledRadiusVoxels(), 1.f);
 	const int32 AutoLOD = FMath::Clamp(
 		FMath::RoundToInt(FMath::Log2(AutoLODRadius / 16.f)), 0, 8);
@@ -740,24 +723,19 @@ void AVoxelPlanetActor::SyncGeoDimensions()
 			*GetName(), MaxLOD, AutoLOD + 4, AutoLODRadius);
 		MaxLOD = AutoLOD + 4;
 	}
-	if (OrbitLOD >= 0 && OrbitLOD < AutoLOD)
-	{
-		UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor %s: OrbitLOD %d 比自动档 %d 更细，改回自动"),
-			*GetName(), OrbitLOD, AutoLOD);
-		OrbitLOD = -1;
-	}
 }
 
 void AVoxelPlanetActor::StartGeoBake()
 {
-	if (bGeoBakeInFlight || !GeoRecipe)
+	const UPlanetRecipe* Recipe = GeoRecipeOverride ? GeoRecipeOverride.Get() : GeoRecipe.Get();
+	if (bGeoBakeInFlight || !Recipe)
 	{
 		return;
 	}
 	bGeoBakeInFlight = true;
 
 	// ToConfig 是唯一一次碰 UObject：烘焙线程只拿 POD。
-	FPlanetRecipeConfig Config = GeoRecipe->ToConfig(double(GetScaledRadiusVoxels()));
+	FPlanetRecipeConfig Config = Recipe->ToConfig(double(GetScaledRadiusVoxels()));
 	// 编辑器里多留一份中间场给调试图层；打包后的游戏不需要，也不该多占 12 MB。
 	Config.bKeepDebugFields = GIsEditor;
 	TWeakObjectPtr<AVoxelPlanetActor> WeakThis(this);
@@ -925,7 +903,7 @@ void AVoxelPlanetActor::InvalidateAndRebuild()
 	LastParamsHash = 0;
 
 	// geo 模式的「地形参数」就是配方内容：配方没有哈希，只能丢快照重烘。
-	if (GeoRecipe)
+	if (IsGeoMode())
 	{
 		GeoSnapshot.Reset();
 		bGeoBakeFailed = false;
@@ -1175,28 +1153,6 @@ void AVoxelPlanetActor::PostLoad()
 	}
 	NormalizeGeoDebugLayerNames();
 
-	// 迁移：旧关卡存的是 JSON 预设名，找不到资产就保留字符串、不报错（资产可能还没建）。
-	// 同步 TryLoad 是有意取舍：一次性编辑器迁移、预设只有几 KB；将来运行时依赖须改异步。
-	if (!GeologyAsset && !GeologyPreset.IsEmpty())
-	{
-		const FSoftObjectPath LegacyPath = MakeLegacyGeologyAssetPath(GeologyPreset);
-		if (UPlanetGeologyPreset* Loaded = Cast<UPlanetGeologyPreset>(LegacyPath.TryLoad()))
-		{
-			GeologyAsset = Loaded;
-			UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor::PostLoad: %s 的地质预设 '%s' → %s"),
-				*GetName(), *GeologyPreset, *LegacyPath.ToString());
-			// 迁移成功后清空旧字段并持久化：之后不再重复迁移；作者清空 GeologyAsset
-			// 后也才能真正得到无矿行星，而不是下次加载又被迁回 earth。
-			GeologyPreset.Reset();
-		}
-	}
-}
-
-FSoftObjectPath AVoxelPlanetActor::MakeLegacyGeologyAssetPath(const FString& LegacyName)
-{
-	// 转发而非自己拼：路径规则只有一份，迁移目标必须与 CreateEarthGeologyPreset
-	// 建的资产逐字一致，否则旧关卡永久没矿。
-	return UPlanetGeologyPreset::MakeAssetPath(LegacyName);
 }
 
 void AVoxelPlanetActor::ReloadGeology()
@@ -1341,12 +1297,6 @@ float AVoxelPlanetActor::GetVoxelSurfaceRadiusCmAtDirection(const FVector& World
 
 	// 边界是两格的中点，误差 ≤ 1 体素。
 	return static_cast<float>((AnalyticRadiusVoxels + BoundaryStep) * VoxelSize);
-}
-
-TSharedPtr<const FPlanetGeologyField> AVoxelPlanetActor::GetGeologyField()
-{
-	// 旧矿物栈的接口，保留给星图；地质流水线的行星用快照，不经这里。
-	return nullptr;
 }
 
 bool AVoxelPlanetActor::RaycastSurfaceCm(
@@ -1523,8 +1473,7 @@ uint64 AVoxelPlanetActor::ComputeParamsHash() const
 {
 	// 对推入生成器的每项设置做 FNV-1a 并混入派生缩放半径；每字段单独混合，避免填充
 	// 字节漏进哈希。刻意不含 VoxelSize/MaxLOD/NumberOfThreads/VoxelMaterial（基类直接
-	// 重建，再哈希会重建两次）与 OrbitLOD（单独处理）；VoxelSize 另由 RebuildPlanet
-	// 单独比较以刷新水面。
+	// 重建，再哈希会重建两次）；LOD 档位由 RefreshLODInvoker 单独处理。
 	uint64 Hash = 1469598103934665603ULL;
 	// 形参名别叫 Data：会遮蔽基类私有成员 AVoxelWorld::Data，触发 C4458（警告即错误）。
 	const auto Mix = [&Hash](const void* Source, int64 Size)
@@ -1541,16 +1490,19 @@ uint64 AVoxelPlanetActor::ComputeParamsHash() const
 	const float ScaledRadius = GetScaledRadiusVoxels();
 	Mix(&ScaledRadius, sizeof(ScaledRadius));
 
-	Mix(&SurfaceColor, sizeof(SurfaceColor));
-
-	// 按资产路径混合不混指针；也不混 Revision —— 改预设内容靠显式的「重建行星」。
-	const FString GeologyAssetPath = GeologyAsset ? GeologyAsset->GetPathName() : FString();
-	Mix(*GeologyAssetPath, GeologyAssetPath.Len() * sizeof(TCHAR));
-
 	// geo 模式：配方混路径（改内容走 InvalidateAndRebuild 重烘），再混快照内容哈希 ——
 	// 烘焙完成那一刻哈希必变，世界才会被建起来。
-	const FString GeoRecipePath = GeoRecipe ? GeoRecipe->GetPathName() : FString();
-	Mix(*GeoRecipePath, GeoRecipePath.Len() * sizeof(TCHAR));
+	// 内联覆盖按内容哈希：它不是资产，没有稳定路径。
+	if (GeoRecipeOverride)
+	{
+		const uint64 OverrideHash = GeoRecipeOverride->ToConfig(double(GetScaledRadiusVoxels())).Hash();
+		Mix(&OverrideHash, sizeof(OverrideHash));
+	}
+	else
+	{
+		const FString GeoRecipePath = GeoRecipe ? GeoRecipe->GetPathName() : FString();
+		Mix(*GeoRecipePath, GeoRecipePath.Len() * sizeof(TCHAR));
+	}
 	const uint64 GeoContentHash = GeoSnapshot.IsValid() ? GeoSnapshot->ContentHash : 0;
 	Mix(&GeoContentHash, sizeof(GeoContentHash));
 	Mix(&GeoDebugColor, sizeof(GeoDebugColor));

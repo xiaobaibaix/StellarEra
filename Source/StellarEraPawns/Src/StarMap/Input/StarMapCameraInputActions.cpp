@@ -19,17 +19,8 @@ void FStarMapCameraInputActions::Build(UObject* Outer, UInputMappingContext* Con
 	Zoom = StellarEraInput::MakeAction(Outer, TEXT("IA_StarMap_Zoom"), EInputActionValueType::Axis1D);
 	EditModeToggle = StellarEraInput::MakeAction(Outer, TEXT("IA_StarMap_EditModeToggle"), EInputActionValueType::Boolean);
 	BrushSize = StellarEraInput::MakeAction(Outer, TEXT("IA_StarMap_BrushSize"), EInputActionValueType::Axis1D);
-	MineralViewToggle = StellarEraInput::MakeAction(Outer, TEXT("IA_StarMap_MineralViewToggle"), EInputActionValueType::Boolean);
-	MineralShowAll = StellarEraInput::MakeAction(Outer, TEXT("IA_StarMap_MineralShowAll"), EInputActionValueType::Boolean);
 	StarMapSelect = StellarEraInput::MakeAction(Outer, TEXT("IA_StarMap_Select"), EInputActionValueType::Boolean);
 	StarMapToggle = StellarEraInput::MakeAction(Outer, TEXT("IA_StarMap_StarMapToggle"), EInputActionValueType::Boolean);
-	MineralFilter.Reset();
-	for (int32 Slot = 1; Slot <= 9; ++Slot)
-	{
-		MineralFilter.Add(StellarEraInput::MakeAction(Outer,
-			*FString::Printf(TEXT("IA_StarMap_MineralFilter%d"), Slot),
-			EInputActionValueType::Boolean));
-	}
 
 	// 右键 = 转头，中键 = 绕行。两个键都要各映射成布尔动作 —— Look 只有位移，
 	// 分不清按的是哪个键。
@@ -51,19 +42,6 @@ void FStarMapCameraInputActions::Build(UObject* Outer, UInputMappingContext* Con
 	StellarEraInput::MapKey(Context, BrushSize, EKeys::LeftBracket, { StellarEraInput::MakeNegate(Outer) });
 	StellarEraInput::MapKey(Context, BrushSize, EKeys::Hyphen, { StellarEraInput::MakeNegate(Outer) });
 	StellarEraInput::MapKey(Context, BrushSize, EKeys::Subtract, { StellarEraInput::MakeNegate(Outer) });
-
-	// 矿物透视：H 进出；数字键 1..9 切换前 9 个元素，0 全部打开。
-	StellarEraInput::MapKey(Context, MineralViewToggle, EKeys::H);
-
-	const FKey DigitKeys[] = {
-		EKeys::One, EKeys::Two, EKeys::Three, EKeys::Four, EKeys::Five,
-		EKeys::Six, EKeys::Seven, EKeys::Eight, EKeys::Nine
-	};
-	for (int32 Slot = 0; Slot < MineralFilter.Num(); ++Slot)
-	{
-		StellarEraInput::MapKey(Context, MineralFilter[Slot], DigitKeys[Slot]);
-	}
-	StellarEraInput::MapKey(Context, MineralShowAll, EKeys::Zero);
 
 	// 左键选择 / M 在角色 / 飞船表里也各有一份（进星图的入口）；同一 IMC 里谁被
 	// Possess 谁那条生效。
