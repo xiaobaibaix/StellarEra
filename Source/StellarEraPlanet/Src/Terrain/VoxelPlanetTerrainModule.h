@@ -68,10 +68,4 @@ public:
 
 	/** 水体配置。false = 不要水；OutConfig 在 false 时仍是合法默认值，调用方不必分支。 */
 	virtual bool GetWaterConfig(FPlanetWaterConfig& OutConfig) const;
-
-#if WITH_EDITOR
-	/** 改了地形参数要重建引用它的行星 —— RebuildPlanet 只认自己的属性，
-	 * 资产参数变化它毫不知情，看起来像「参数没生效」。 */
-	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
-#endif
 };

@@ -16,9 +16,7 @@
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
 class UPlanetSurfaceGridComponent;
-class UPlanetWaterComponent;
 class UPlanetSkyLightComponent;
-class UVoxelPlanetTerrainModule;
 class UPlanetGeoGenerator;
 class UPlanetRecipe;
 struct FPlanetSnapshot;
@@ -138,17 +136,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Surface")
 	FLinearColor SurfaceColor = FLinearColor(0.18f, 0.42f, 0.16f);
 
-	//////////////////////////////////////////////////////////////////////////
-	// 地形
-
-	/**
-	 * 决定这颗行星地形形态的模块，空 = 光滑球。模块是**可共享资产**：多颗行星可
-	 * 引用同一份，改参数一起变；行星的位置 / 半径由本 Actor 决定。模块自带的配色
-	 * 会盖过 SurfaceColor，纯球模块没有配色。
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Terrain")
-	TObjectPtr<UVoxelPlanetTerrainModule> Terrain;
-
 	/** 地质预设资产。空 = 这颗行星没有矿。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Geology")
 	TObjectPtr<UPlanetGeologyPreset> GeologyAsset;
@@ -158,7 +145,7 @@ public:
 
 	/**
 	 * 非空 = 这颗星由新地质流水线生成：地形取自配方；半径用本 Actor 的 Radius、体素尺寸用 VoxelSize（配方不存），
-	 * Terrain、GeologyAsset、水文、biome cubemap 旁路。烘焙在后台线程完成后再建世界。
+	 * GeologyAsset、水文、biome cubemap 旁路。烘焙在后台线程完成后再建世界。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Geo")
 	TObjectPtr<UPlanetRecipe> GeoRecipe;
@@ -206,7 +193,7 @@ public:
 
 	/**
 	 * GeologyAsset 变化时广播。镜像方（UPlanetMineralViewComponent）订阅以保持同步；
-	 * 用委托而非直接调用，是因为 Terrain 不能反向 include Minerals，否则成环。
+	 * 用委托而非直接调用，是因为行星 Actor 不能反向 include Minerals，否则成环。
 	 */
 	DECLARE_MULTICAST_DELEGATE(FOnPlanetGeologyAssetChanged);
 	FOnPlanetGeologyAssetChanged OnGeologyAssetChanged;
@@ -266,10 +253,6 @@ public:
 	/** 以球心为中心的 LOD Invoker。挂在基类的 WorldRoot 下，随之变换。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet")
 	TObjectPtr<UVoxelSimpleInvokerComponent> LODInvoker;
-
-	/** 行星水面。构造函数里创建，挂在根组件下面。 */
-	UPROPERTY(Transient, VisibleAnywhere, Category = "水体")
-	TObjectPtr<UPlanetWaterComponent> WaterComponent;
 
 	/** 自建大气的天光：按玩家视角算天空立方图喂关卡 SkyLight。缺了环境光就永远是同一张静态图。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet")
@@ -400,9 +383,6 @@ private:
 	/** 按快照矿物表建 / 复用 LUT 纹理并绑到 MID 的 `GeoPalette`；无快照时什么都不做。 */
 	void BindGeoPalette(UMaterialInstanceDynamic* MID);
 
-	/** 按当前水文场重建水面。没有水的行星会拆掉全部分量。 */
-	void RebuildWater();
-
 	/** 上次建 LUT 用的矿物表哈希；变了才重建纹理。非 UPROPERTY：瞬态缓存不落盘。 */
 	uint64 GeoPaletteHash = 0;
 
@@ -420,13 +400,6 @@ private:
 	int32 LastAppliedOrbitLOD = INDEX_NONE;
 	float LastAppliedRangeSource = -1.f;
 	int32 LastWrittenLODToSet = INDEX_NONE;
-
-	/**
-	 * 上次重建水面用的 VoxelSize（cm）；-1 = 从没建过。VoxelSize 刻意不进
-	 * ComputeParamsHash，但水面要用它折算厘米，所以 RebuildPlanet 在哈希守卫之前
-	 * 单独比较 —— 否则只改 VoxelSize 时水面会停在旧尺寸、与地形错位。
-	 */
-	float LastWaterVoxelSize = -1.f;
 
 	/**
 	 * 后台存档任务；无效 = 没有在跑。存 TFuture 是为了 EndPlay 能先等它结束再做

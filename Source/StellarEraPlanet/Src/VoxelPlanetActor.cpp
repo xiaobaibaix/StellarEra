@@ -10,13 +10,9 @@
 #include "VoxelWorldRootComponent.h"
 #include "VoxelGenerators/VoxelGeneratorPicker.h"
 #include "VoxelComponents/VoxelInvokerComponent.h"
-#include "VoxelPlanetTerrainModule.h"
 #include "PlanetSurfaceGridComponent.h"
 #include "PlanetGeologyField.h"
 #include "PlanetGeologyPreset.h"
-#include "PlanetWaterComponent.h"
-#include "PlanetHydrologyField.h"
-#include "PlanetHydrologyGrid.h"
 #include "Sky/PlanetSkyLightComponent.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -183,9 +179,6 @@ AVoxelPlanetActor::AVoxelPlanetActor()
 	// 占位值，RebuildPlanet 会按半径重算。
 	LODInvoker->LODToSet = 6;
 	LODInvoker->LODRange = 150000.f;
-
-	// 水面组件；海洋/湖泊/河流分量由它自己在重建时创建。
-	WaterComponent = CreateDefaultSubobject<UPlanetWaterComponent>(TEXT("PlanetWater"));
 
 	// 天光不是可选项：没有它环境光永远是同一张静态立方图。骨架留 C++，蓝图不用管。
 	PlanetSkyLight = CreateDefaultSubobject<UPlanetSkyLightComponent>(TEXT("PlanetSkyLight"));
@@ -706,13 +699,6 @@ void AVoxelPlanetActor::RebuildPlanet()
 	// 函数自带值没变就早退。
 	RefreshLODInvoker();
 
-	// 水面也有自己的刷新路径，同样在哈希守卫之前：VoxelSize 不进哈希、只触发基类
-	// 重建，IsCreated() 仍为真，守卫会早退；但水面要用它折算厘米，不补就停在旧尺寸。
-	if (!FMath::IsNearlyEqual(LastWaterVoxelSize, VoxelSize))
-	{
-		RebuildWater();
-	}
-
 	// 细节面板一次编辑会同时触发 PostEditChangeProperty 和 OnConstruction；
 	// 没有守卫就重建两次，生成时间翻倍。复查 IsCreated() 保证全新世界总能构建。
 	const uint64 ParamsHash = ComputeParamsHash();
@@ -860,8 +846,6 @@ void AVoxelPlanetActor::RebuildGeoPlanet()
 	GeoGenerator->VolumeLayer = GetVolumeLayerId();
 	// 材质必须在建世界前就位：渲染器创建时快照它。
 	ApplyGeoDebugOverlay();
-	// 水面同样在建世界前装好：编辑器世界在 Toggle() 早退，晚装就永远看不到。
-	RebuildWater();
 
 	// 与旧路径同一收紧策略：边长收到半径 3 倍并取 2 的幂。
 	SetWorldSize(FMath::RoundUpToPowerOfTwo(FMath::CeilToInt(GetScaledRadiusVoxels() * 3.f)));
@@ -903,57 +887,6 @@ void AVoxelPlanetActor::RebuildGeoPlanet()
 	}
 
 	CreateWorld(FVoxelWorldCreateInfo());
-}
-
-void AVoxelPlanetActor::RebuildWater()
-{
-	// 记下本次尺寸：RebuildPlanet 在哈希守卫前拿它比较（组件判空之前也要记）。
-	LastWaterVoxelSize = VoxelSize;
-
-	if (!WaterComponent)
-	{
-		return;
-	}
-
-	// 根组件可能晚于组件出现（RepairLegacyRootComponent），附着放在这里做一次。
-	if (!WaterComponent->GetAttachParent() && GetRootComponent())
-	{
-		WaterComponent->AttachToComponent(
-			GetRootComponent(), FAttachmentTransformRules::KeepRelativeTransform);
-	}
-
-	FPlanetWaterConfig Config;
-
-	// 只合成海面：陆地格水位=地形（构建器跳过），海洋格水位=海平面。
-	TSharedPtr<FPlanetHydrologyField> Field;
-	if (GeoSnapshot.IsValid())
-	{
-		const int32 Res = 128;
-		const int32 Size = PlanetHydrologyGrid::PaddedSize(Res);
-		const float Sea = float(GeoSnapshot->R0);
-		TArray<float> Level, Carve, River;
-		Level.SetNumUninitialized(6 * Size * Size);
-		Carve.Init(0.f, 6 * Size * Size);
-		River.Init(0.f, 6 * Size * Size);
-		// 水位是绝对半径（体素）：海洋格抬到海面，陆地格等于地形（构建器跳过）。
-		for (int32 Face = 0; Face < 6; ++Face)
-		for (int32 Y = 0; Y < Size; ++Y)
-		for (int32 X = 0; X < Size; ++X)
-		{
-			const FVector Dir = PlanetHydrologyGrid::CellDirection(Face, X, Y, Res);
-			const float H = float(GeoSnapshot->R0) + GeoSnapshot->Elevation.Sample(FVector3f(Dir));
-			Level[PlanetHydrologyGrid::CellIndex(Face, X, Y, Res)] = FMath::Max(H, Sea);
-		}
-		Field = FPlanetHydrologyField::Create(Res, Sea, 0.f,
-			MoveTemp(Level), MoveTemp(Carve), MoveTemp(River),
-			TArray<FPlanetLakeBasin>(), TArray<FPlanetRiverPolyline>());
-	}
-	WaterComponent->RebuildWater(
-		Field.Get(),
-		Config,
-		double(VoxelSize),
-		double(GetScaledRadiusVoxels()),
-		/*Terrain=*/nullptr);
 }
 
 void AVoxelPlanetActor::PreSave(FObjectPreSaveContext ObjectSaveContext)
@@ -1609,11 +1542,6 @@ uint64 AVoxelPlanetActor::ComputeParamsHash() const
 	Mix(&ScaledRadius, sizeof(ScaledRadius));
 
 	Mix(&SurfaceColor, sizeof(SurfaceColor));
-
-	// 按资产路径混合：混指针会在重载后（地址变、资产没变）破坏哈希。这里只覆盖
-	// 「换了模块」；改模块自身参数由它的 PostEditChangeProperty 走 InvalidateAndRebuild。
-	const FString TerrainPath = Terrain ? Terrain->GetPathName() : FString();
-	Mix(*TerrainPath, TerrainPath.Len() * sizeof(TCHAR));
 
 	// 按资产路径混合不混指针；也不混 Revision —— 改预设内容靠显式的「重建行星」。
 	const FString GeologyAssetPath = GeologyAsset ? GeologyAsset->GetPathName() : FString();

@@ -402,13 +402,9 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraPlanetEditGridDefaultsTest,
 
 bool FStellarEraPlanetEditGridDefaultsTest::RunTest(const FString& Parameters)
 {
-	// EditGrid 由蓝图挂载，原生类上没有，要看 BP_VoxelPlanet 的 SCS 模板；查 CDO 是错的。
-	const UPlanetSurfaceGridComponent* Grid =
-		Cast<UPlanetSurfaceGridComponent>(
-			StellarEraTest::FindBlueprintComponentTemplate(
-				TEXT("/Game/Code/Planet/BP_VoxelPlanet.BP_VoxelPlanet"),
-				UPlanetSurfaceGridComponent::StaticClass()));
-	if (!TestNotNull(TEXT("BP_VoxelPlanet 蓝图里挂着 EditGrid"), Grid))
+	// 蓝图已不再挂 EditGrid，默认值只剩组件 CDO 一处。
+	const UPlanetSurfaceGridComponent* Grid = GetDefault<UPlanetSurfaceGridComponent>();
+	if (!TestNotNull(TEXT("UPlanetSurfaceGridComponent CDO"), Grid))
 	{
 		return false;
 	}
