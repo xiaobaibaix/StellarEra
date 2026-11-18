@@ -16,6 +16,7 @@
 #include "PlanetGeologyPreset.h"
 #include "PlanetWaterComponent.h"
 #include "PlanetHydrologyField.h"
+#include "PlanetHydrologyGrid.h"
 #include "Sky/PlanetSkyLightComponent.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -928,17 +929,20 @@ void AVoxelPlanetActor::RebuildWater()
 	if (GeoSnapshot.IsValid())
 	{
 		const int32 Res = 128;
+		const int32 Size = PlanetHydrologyGrid::PaddedSize(Res);
 		const float Sea = float(GeoSnapshot->R0);
 		TArray<float> Level, Carve, River;
-		Level.SetNumUninitialized(6 * Res * Res);
-		Carve.Init(0.f, 6 * Res * Res);
-		River.Init(0.f, 6 * Res * Res);
+		Level.SetNumUninitialized(6 * Size * Size);
+		Carve.Init(0.f, 6 * Size * Size);
+		River.Init(0.f, 6 * Size * Size);
+		// 水位是绝对半径（体素）：海洋格抬到海面，陆地格等于地形（构建器跳过）。
 		for (int32 Face = 0; Face < 6; ++Face)
-		for (int32 Y = 0; Y < Res; ++Y)
-		for (int32 X = 0; X < Res; ++X)
+		for (int32 Y = 0; Y < Size; ++Y)
+		for (int32 X = 0; X < Size; ++X)
 		{
-			const float H = float(GeoSnapshot->R0) + GeoSnapshot->Elevation.Sample(GeoSnapshot->Elevation.TexelDir(Face, X, Y));
-			Level[(Face * Res + Y) * Res + X] = FMath::Max(H, Sea);
+			const FVector Dir = PlanetHydrologyGrid::CellDirection(Face, X, Y, Res);
+			const float H = float(GeoSnapshot->R0) + GeoSnapshot->Elevation.Sample(FVector3f(Dir));
+			Level[PlanetHydrologyGrid::CellIndex(Face, X, Y, Res)] = FMath::Max(H, Sea);
 		}
 		Field = FPlanetHydrologyField::Create(Res, Sea, 0.f,
 			MoveTemp(Level), MoveTemp(Carve), MoveTemp(River),
