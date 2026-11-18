@@ -228,6 +228,43 @@ struct FPlanetExposureParams
 	float MaxLiftRatio = 0.02f;  // 单个原语最大抬升（占 R），防止极端剥蚀把矿整体顶到地表
 };
 
+/** 阶段 3A 沉积盖层：盖层厚度按低洼程度缩放，岩性按累计份额分带。 */
+struct FPlanetStrataParams
+{
+	bool bStrata = true;                  // 整段开关
+	float MaxThicknessRatio = 0.01f;      // 最厚盖层占 R（R=40000 时 400 体素）
+	float LowlandCutoff = 0.45f;          // 高出海平面不到「这块星球的陆高跨度 × 它」才算低地
+	float SandstoneShare = 0.45f;         // 累计份额：砂岩 [0, 0.45)
+	float ShaleShare = 0.72f;             // 页岩 [0.45, 0.72)，其余石灰岩
+	float PatchFrequency = 4.f;           // 盖层斑块噪声基频（方向单位）
+	int32 PatchOctaves = 3;
+};
+
+/** 阶段 3B 构造变形变质：断层沿板块边界，变质级看造山带与埋深。 */
+struct FPlanetTectonicParams
+{
+	bool bTectonics = true;               // 整段开关
+	float FaultWidthRatio = 0.012f;       // 断层带半宽（方向单位）
+	float FoldWavelengthRatio = 0.03f;    // 褶皱场基波长（方向单位）
+	float FaultScarpRatio = 0.f;          // 断层崖抬升（占 R）；默认只出线索不抬地形
+	float MetamorphicDepthRatio = 0.09f;  // 比这更深的岩石按变质处理（占 R）
+	float MarbleThreshold = 0.55f;        // 变质级高于它，石灰岩记作大理岩
+	float OrogenBoost = 0.6f;             // 造山带对变质级的加权：山越高变质越强
+};
+
+/** 阶段 7 表生风化：湿热、平缓、长期暴露最厚；沙漠与陡坡近零。 */
+struct FPlanetWeatheringParams
+{
+	bool bWeathering = true;              // 整段开关
+	float MaxDepthRatio = 0.002f;         // 最厚风化壳占 R（R=40000 时 80 体素）
+	float TemperatureWeight = 0.5f;       // 温度 / 降水对风化的权重
+	float PrecipitationWeight = 0.5f;
+	float SlopePenalty = 0.8f;            // 坡度扣减强度：1 = 陡坡直接归零
+	float LateriteTemp = 0.7f;            // 红土：温度高于它
+	float LateritePrecip = 0.5f;          // 红土：降水高于它
+	float KaolinTemp = 0.45f;             // 高岭土：花岗岩 + 温度高于它
+};
+
 struct FPlanetRecipeConfig
 {
 	/** 半径（体素），由行星填；烘焙全程以体素为单位，与体素厘米尺寸无关。 */
@@ -251,6 +288,9 @@ struct FPlanetRecipeConfig
 	FPlanetClimateParams Climate;
 	FPlanetHydroParams Hydro;
 	FPlanetExposureParams Exposure;
+	FPlanetStrataParams Strata;
+	FPlanetTectonicParams Tectonics;
+	FPlanetWeatheringParams Weathering;
 	/** 撒矿规则（来自配方的撒矿器列表，已过滤掉停用项）。规则不可变，后台线程只读。 */
 	TArray<TSharedPtr<const IGeoMineralRule>> MineralRules;
 	/** 矿物调色板，只供显示，不进哈希。 */
@@ -332,6 +372,18 @@ struct FPlanetRecipeConfig
 		H = GeoHash::Combine(H, uint64(Hydro.bRivers));
 		H = GeoHash::Combine(H, uint64(Exposure.bExposure));
 		H = GeoHash::Combine(H, GeoHash::Combine(GeoHash::Float(Exposure.LiftScale), GeoHash::Float(Exposure.MaxLiftRatio)));
+		H = GeoHash::Combine(H, uint64(Strata.bStrata));
+		const float StF[6] = { Strata.MaxThicknessRatio, Strata.LowlandCutoff, Strata.SandstoneShare, Strata.ShaleShare,
+			Strata.PatchFrequency, float(Strata.PatchOctaves) };
+		for (const float V : StF) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
+		H = GeoHash::Combine(H, uint64(Tectonics.bTectonics));
+		const float TcF[6] = { Tectonics.FaultWidthRatio, Tectonics.FoldWavelengthRatio, Tectonics.FaultScarpRatio,
+			Tectonics.MetamorphicDepthRatio, Tectonics.MarbleThreshold, Tectonics.OrogenBoost };
+		for (const float V : TcF) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
+		H = GeoHash::Combine(H, uint64(Weathering.bWeathering));
+		const float WeF[7] = { Weathering.MaxDepthRatio, Weathering.TemperatureWeight, Weathering.PrecipitationWeight,
+			Weathering.SlopePenalty, Weathering.LateriteTemp, Weathering.LateritePrecip, Weathering.KaolinTemp };
+		for (const float V : WeF) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 		for (const TSharedPtr<const IGeoMineralRule>& Rule : MineralRules)
 		{
 			if (Rule) { H = GeoHash::Combine(H, Rule->Hash()); }

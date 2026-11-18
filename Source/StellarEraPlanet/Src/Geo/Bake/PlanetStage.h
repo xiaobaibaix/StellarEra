@@ -9,8 +9,10 @@ class IPlanetStage
 public:
 	virtual ~IPlanetStage() = default;
 	virtual FName GetName() const = 0;
-	/** 执行顺序；也是派生随机流的阶段号，改它会改变整颗星。 */
+	/** 阶段号：派生随机流与「禁用阶段」位都用它，必须唯一。 */
 	virtual uint32 GetStageIndex() const = 0;
+	/** 执行顺序。默认等于阶段号；3A/3B 用它插在 3 与 4 之间而不占用别人的阶段号。 */
+	virtual float GetOrder() const { return float(GetStageIndex()); }
 	virtual EPlanetField GetReads() const = 0;
 	virtual EPlanetField GetWrites() const = 0;
 	virtual void Bake(FPlanetBakeContext& Ctx) const = 0;

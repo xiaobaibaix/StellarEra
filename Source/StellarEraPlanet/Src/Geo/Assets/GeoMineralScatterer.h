@@ -523,3 +523,88 @@ public:
 
 	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
 };
+
+/** 毯层挂在哪张场上（3A 看盖层岩性，7 看土壤类型，3B 看变质级 / 断层）。 */
+UENUM()
+enum class EGeoBlanketHostUI : uint8
+{
+	StrataLithology UMETA(DisplayName = "盖层岩性"),
+	Soil            UMETA(DisplayName = "土壤类型"),
+	Metamorphic     UMETA(DisplayName = "变质级"),
+	Fault           UMETA(DisplayName = "断层带"),
+	Marble          UMETA(DisplayName = "大理岩"),
+};
+
+/** 地表毯层：盖层 / 土壤 / 变质 / 断层上的一片薄皮。铝土、红土镍、高岭土、煤、蒸发岩、铀、石墨都走这条。 */
+UCLASS(meta = (DisplayName = "地表毯层（3A / 3B / 7）"))
+class STELLARERAPLANET_API UGeoBlanketScatterer : public UGeoMineralScatterer
+{
+	GENERATED_BODY()
+
+public:
+	/** 挂在哪张场上。 */
+	UPROPERTY(EditAnywhere, Category = "Rule")
+	EGeoBlanketHostUI Host = EGeoBlanketHostUI::Soil;
+	/** 岩性 / 土壤编号（16 砂岩、17 页岩、18 石灰岩；土壤 1 红土、2 高岭、3 温带、4 干旱）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "255"))
+	int32 HostValue = 1;
+	/** 变质级 / 断层强度的下限。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "1"))
+	float MinGrade = 0.f;
+	/** 大理岩门槛：石灰岩 + 变质级高于它。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "1"))
+	float Threshold = 0.55f;
+	/** 达标处撒矿的概率。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "1"))
+	float Chance = 0.6f;
+	/** 薄皮厚度（体素）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1", ClampMax = "40"))
+	float DepthVoxels = 3.f;
+	/** 在哪个阶段之后运行：9 = 3A，10 = 3B，8 = 7。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1", ClampMax = "10"))
+	int32 RuleStage = 8;
+
+	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
+};
+
+/** 次生富集：斑岩铜之类的宿主矿体上方、潜水面附近的一条水平富集毯。 */
+UCLASS(meta = (DisplayName = "次生富集（7）"))
+class STELLARERAPLANET_API UGeoSupergeneScatterer : public UGeoMineralScatterer
+{
+	GENERATED_BODY()
+
+public:
+	/** 宿主矿物的中文名，必须与矿物目录里的名字一致。 */
+	UPROPERTY(EditAnywhere, Category = "Rule")
+	FName HostMineral = TEXT("斑岩铜");
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "200"))
+	float DepthBelowSurface = 20.f;
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1", ClampMax = "100"))
+	float ThicknessVoxels = 12.f;
+	/** 水平范围相对宿主的放大倍数：必须 >= 1，富集毯不能比矿体还宽。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1", ClampMax = "2"))
+	float HostMargin = 1.1f;
+
+	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
+};
+
+/** 铁帽：硫化物矿体露头处的地表铁染，没剥蚀到矿体就没有。 */
+UCLASS(meta = (DisplayName = "铁帽（7）"))
+class STELLARERAPLANET_API UGeoGossanScatterer : public UGeoMineralScatterer
+{
+	GENERATED_BODY()
+
+public:
+	/** 宿主矿物的中文名，必须与矿物目录里的名字一致。 */
+	UPROPERTY(EditAnywhere, Category = "Rule")
+	FName HostMineral = TEXT("斑岩铜");
+	/** 宿主顶面离地表不超过它才算露头。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "0", ClampMax = "50"))
+	float MaxDepthVoxels = 6.f;
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1", ClampMax = "20"))
+	float CapDepthVoxels = 2.f;
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1", ClampMax = "2"))
+	float RadiusScale = 1.15f;
+
+	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
+};

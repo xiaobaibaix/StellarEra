@@ -9,6 +9,9 @@
 #include "Stage05Climate.h"
 #include "Stage06Erosion.h"
 #include "Stage06bExposure.h"
+#include "Stage03aSediments.h"
+#include "Stage03bTectonics.h"
+#include "Stage07Weathering.h"
 
 FPlanetBakePipeline::FPlanetBakePipeline() = default;
 FPlanetBakePipeline::~FPlanetBakePipeline() = default;
@@ -24,7 +27,7 @@ TArray<const IPlanetStage*> FPlanetBakePipeline::Sorted() const
 {
 	TArray<const IPlanetStage*> Out;
 	for (const TUniquePtr<IPlanetStage>& S : Stages) { Out.Add(S.Get()); }
-	Out.StableSort([](const IPlanetStage& A, const IPlanetStage& B) { return A.GetStageIndex() < B.GetStageIndex(); });
+	Out.StableSort([](const IPlanetStage& A, const IPlanetStage& B) { return A.GetOrder() < B.GetOrder(); });
 	return Out;
 }
 
@@ -115,6 +118,14 @@ TSharedPtr<const FPlanetSnapshot> FPlanetBakePipeline::Bake(const FPlanetRecipeC
 	const bool bHasElevation = Fields.Elevation.Res > 0;
 	Snap->Elevation = MoveTemp(Fields.Elevation);
 	Snap->CrustSplitElevation = Fields.CrustSplitElevation;
+	Snap->StrataThickness = MoveTemp(Fields.StrataThickness);
+	Snap->StrataType = MoveTemp(Fields.StrataType);
+	Snap->FaultMask = MoveTemp(Fields.FaultMask);
+	Snap->FoldField = MoveTemp(Fields.FoldField);
+	Snap->MetamorphicGrade = MoveTemp(Fields.MetamorphicGrade);
+	Snap->WeatheringDepth = MoveTemp(Fields.WeatheringDepth);
+	Snap->SoilType = MoveTemp(Fields.SoilType);
+	Snap->MarbleThreshold = Config.Tectonics.MarbleThreshold;
 	if (bHasElevation)
 	{
 		Snap->MinSurfaceRadius = Snap->R0 + double(Fields.MinElevation);
@@ -135,10 +146,13 @@ FPlanetBakePipeline FPlanetBakePipeline::MakeDefault()
 	P.AddStage(MakeUnique<FStage01Sphere>());
 	P.AddStage(MakeUnique<FStage02Plates>());
 	P.AddStage(MakeUnique<FStage03Terrain>());
+	P.AddStage(MakeUnique<FStage03aSediments>());
+	P.AddStage(MakeUnique<FStage03bTectonics>());
 	P.AddStage(MakeUnique<FStage04Magmatism>());
 	P.AddStage(MakeUnique<FStage05Climate>());
 	P.AddStage(MakeUnique<FStage06Erosion>());
 	P.AddStage(MakeUnique<FStage06bExposure>());
+	P.AddStage(MakeUnique<FStage07Weathering>());
 	return P;
 }
 

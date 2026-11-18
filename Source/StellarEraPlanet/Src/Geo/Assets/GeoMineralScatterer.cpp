@@ -1,6 +1,7 @@
 ﻿#include "GeoMineralScatterer.h"
 #include "GeoMineralCatalog.h"
 #include "GeoMineralRules.h"
+#include "GeoSurfaceDepositRules.h"
 #include "PlanetRecipe.h"
 
 TArray<FName> UGeoMineralScatterer::GetMineralOptions() const
@@ -168,5 +169,40 @@ TSharedPtr<IGeoMineralRule> UGeoCoalScatterer::MakeRule() const
 	R->P.ThicknessVoxels = ThicknessVoxels;
 	R->P.DepthVoxels = DepthVoxels;
 	R->P.Hard = Hard;
+	return R;
+}
+
+TSharedPtr<IGeoMineralRule> UGeoBlanketScatterer::MakeRule() const
+{
+	TSharedPtr<FGeoBlanketRule> R = MakeShared<FGeoBlanketRule>();
+	R->P.Host = EGeoBlanketHost(uint8(Host));
+	R->P.HostValue = HostValue;
+	R->P.MinGrade = MinGrade;
+	R->P.Threshold = Threshold;
+	R->P.Chance = Chance;
+	R->P.DepthVoxels = DepthVoxels;
+	R->Stage = uint32(RuleStage);
+	return R;
+}
+
+TSharedPtr<IGeoMineralRule> UGeoSupergeneScatterer::MakeRule() const
+{
+	TSharedPtr<FGeoSupergeneRule> R = MakeShared<FGeoSupergeneRule>();
+	R->HostMineral = HostMineral;
+	R->DepthBelowSurface = DepthBelowSurface;
+	R->ThicknessVoxels = ThicknessVoxels;
+	R->HostMargin = HostMargin;
+	R->Stage = 8;
+	return R;
+}
+
+TSharedPtr<IGeoMineralRule> UGeoGossanScatterer::MakeRule() const
+{
+	TSharedPtr<FGeoGossanRule> R = MakeShared<FGeoGossanRule>();
+	R->HostMineral = HostMineral;
+	R->MaxDepthVoxels = MaxDepthVoxels;
+	R->CapDepthVoxels = CapDepthVoxels;
+	R->RadiusScale = RadiusScale;
+	R->Stage = 8;
 	return R;
 }

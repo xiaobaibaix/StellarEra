@@ -28,7 +28,7 @@ bool FGeoEvalStage02Test::RunTest(const FString& Parameters)
 	FPlanetBakeReport Report;
 	const TSharedPtr<const FPlanetSnapshot> Snap = FPlanetBakePipeline::MakeDefault().Bake(Config, Report);
 	if (!TestTrue(TEXT("默认管线（阶段 1–5）烘焙成功"), Snap.IsValid())) { return false; }
-	TestEqual(TEXT("默认管线含七个阶段"), FPlanetBakePipeline::MakeDefault().Sorted().Num(), 7);
+	TestEqual(TEXT("默认管线含十个阶段"), FPlanetBakePipeline::MakeDefault().Sorted().Num(), 10);
 
 	FGeoRng Rng = FGeoRng::Derive(21, 0, 0);
 
@@ -80,7 +80,9 @@ bool FGeoEvalStage02Test::RunTest(const FString& Parameters)
 			if (E > 50.f)
 			{
 				++Land;
-				BadLand += Lithology != GeoLithology::ContinentalCrust ? 1 : 0;
+				// 3A 会让地表几十格变成沉积岩：陆壳的判据要连同盖层一起认。
+				const bool bLandLitho = Lithology == GeoLithology::ContinentalCrust || Lithology == GeoLithology::Sandstone || Lithology == GeoLithology::Shale || Lithology == GeoLithology::Limestone || Lithology == GeoLithology::Marble;
+				BadLand += bLandLitho ? 0 : 1;
 			}
 			else
 			{

@@ -24,6 +24,9 @@ enum class EPlanetField : uint32
 	Climate     = 1 << 8,   // Temperature / Precipitation / WindDir / Biome / ClimateLand
 	Hydro       = 1 << 9,   // FlowAccum / BasinMask / BasinId / ErosionDepth / RiverMask / FlowNext
 	Exposure    = 1 << 10,  // Primitives 里的 Exposure / RawDepthBefore（原地改写）
+	Strata      = 1 << 11,  // StrataThickness / StrataType（阶段 3A）
+	Tectonics   = 1 << 12,  // FaultMask / FoldField / MetamorphicGrade（阶段 3B）
+	Weathering  = 1 << 13,  // WeatheringDepth / SoilType（阶段 7）
 };
 ENUM_CLASS_FLAGS(EPlanetField);
 
@@ -67,6 +70,13 @@ struct FPlanetBakeFields
 	FGeoField2D FlowNext;
 	/** 洼地编号（0..洼地数-1），-1 = 不在洼地。按洼地分组，盆地沉积才不会把不同盆地的物源混在一起。 */
 	FGeoField2D BasinId;
+
+	// 阶段 3A：沉积盖层，宏观场（MacroRes）。厚度单位体素，类型存 GeoLithology 编号（0 无）。
+	FGeoField2D StrataThickness, StrataType;
+	// 阶段 3B：构造变形变质。FaultMask 是到断层的归一化距离（1 = 远），变质级 0–1。
+	FGeoField2D FaultMask, FoldField, MetamorphicGrade;
+	// 阶段 7：表生风化。壳厚单位体素，土壤类型 0 无 / 1 红土 / 2 高岭 / 3 温带 / 4 干旱壳。
+	FGeoField2D WeatheringDepth, SoilType;
 };
 
 struct FPlanetBakeReport

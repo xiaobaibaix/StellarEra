@@ -21,6 +21,24 @@ namespace PlanetMaterialEval
 			Out.Lithology = E < S.CrustSplitElevation ? GeoLithology::OceanicCrust : GeoLithology::ContinentalCrust;
 		}
 
+		// 3A 沉积盖层：只改最上面这层皮。放在矿体查询之前，穿层的矿脉仍然优先。
+		if (S.StrataType.Res > 0)
+		{
+			const double Below = S.R0 + double(E) - D;
+			const float Cover = S.StrataThickness.Sample(Dir);
+			if (Cover > 0.f && Below <= double(Cover))
+			{
+				const uint8 T = uint8(FMath::Clamp(FMath::RoundToInt(S.StrataType.SampleNearest(Dir)), 0, 255));
+				if (T != 0) { Out.Lithology = T; }
+			}
+		}
+		// 3B：石灰岩埋进造山带够深就是大理岩。
+		if (S.MetamorphicGrade.Res > 0 && Out.Lithology == GeoLithology::Limestone
+			&& S.MetamorphicGrade.Sample(Dir) > S.MarbleThreshold)
+		{
+			Out.Lithology = GeoLithology::Marble;
+		}
+
 		// 矿体现在同时携带岩性与蚀变：一次查询按 矿 > 岩性 > 蚀变 的优先级落地，量级不同不互斥。
 		if (!S.Primitives.IsEmpty())
 		{

@@ -43,6 +43,13 @@ struct STELLARERAPLANET_API FPlanetSnapshot
 	/** 矿物调色板（编号 − 1 为下标），只供显示。 */
 	TArray<FGeoMineralInfo> Minerals;
 
+	// 3A / 3B / 7 的宏观场（MacroRes）：材质求值与调试图层读，Res==0 表示该阶段没跑。
+	FGeoField2D StrataThickness, StrataType;
+	FGeoField2D FaultMask, FoldField, MetamorphicGrade;
+	FGeoField2D WeatheringDepth, SoilType;
+	/** 石灰岩转大理岩的变质级门槛：与烘焙参数同源，材质求值不读配置。 */
+	float MarbleThreshold = 0.55f;
+
 	FColor MineralColor(uint8 Id) const { return Minerals.IsValidIndex(int32(Id) - 1) ? Minerals[Id - 1].Color : FColor(255, 0, 255); }
 	FString MineralName(uint8 Id) const
 	{

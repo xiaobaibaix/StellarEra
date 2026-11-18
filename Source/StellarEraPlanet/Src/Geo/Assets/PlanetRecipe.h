@@ -674,6 +674,72 @@ public:
 	/** 阶段 7 的撒矿（6c-1 砂矿 / 6c-2 蒸发岩与煤）。 */
 	UPROPERTY(EditAnywhere, Category = "阶段6b|出露", meta = (EditCondition = "bRunStage7")) bool bScatterStage7 = true;
 
+	// 阶段 3A：沉积盖层。盖在低地上，给层控铅锌、古煤、蒸发岩、砂岩型铀提供宿主。
+	/** 阶段 3A（沉积盖层）总开关。 */
+	UPROPERTY(EditAnywhere, Category = "阶段3A") bool bRunStage9 = true;
+	/** 最厚盖层占半径比例：R=40000 时 0.01 约 400 体素。 */
+	UPROPERTY(EditAnywhere, Category = "阶段3A|盖层", meta = (EditCondition = "bRunStage9", ClampMin = "0", ClampMax = "0.05"))
+	float MaxStrataThicknessRatio = 0.01f;
+	/** 低地上限：高出海平面不到「陆高跨度 × 它」的地方才盖。 */
+	UPROPERTY(EditAnywhere, Category = "阶段3A|盖层", meta = (EditCondition = "bRunStage9", ClampMin = "0.05", ClampMax = "1"))
+	float StrataLowlandCutoff = 0.45f;
+	/** 砂岩占盖层的份额上限（0–1）。 */
+	UPROPERTY(EditAnywhere, Category = "阶段3A|盖层", meta = (EditCondition = "bRunStage9", ClampMin = "0", ClampMax = "1"))
+	float StrataSandstoneShare = 0.45f;
+	/** 砂岩 + 页岩的累计份额上限；再往上是石灰岩。 */
+	UPROPERTY(EditAnywhere, Category = "阶段3A|盖层", meta = (EditCondition = "bRunStage9", ClampMin = "0", ClampMax = "1"))
+	float StrataShaleShare = 0.72f;
+	/** 阶段 3A 的撒矿（层控铅锌 / 古煤 / 古蒸发岩 / 砂岩型铀）。 */
+	UPROPERTY(EditAnywhere, Category = "阶段3A|盖层", meta = (EditCondition = "bRunStage9")) bool bScatterStage9 = true;
+
+	// 阶段 3B：构造变形变质。断层带与变质级。
+	/** 阶段 3B（构造变形变质）总开关。 */
+	UPROPERTY(EditAnywhere, Category = "阶段3B") bool bRunStage10 = true;
+	/** 断层带半宽（方向单位）。 */
+	UPROPERTY(EditAnywhere, Category = "阶段3B|变质", meta = (EditCondition = "bRunStage10", ClampMin = "0.001", ClampMax = "0.05"))
+	float FaultWidthRatio = 0.012f;
+	/** 褶皱场基波长（方向单位）。 */
+	UPROPERTY(EditAnywhere, Category = "阶段3B|变质", meta = (EditCondition = "bRunStage10", ClampMin = "0.005", ClampMax = "0.2"))
+	float FoldWavelengthRatio = 0.03f;
+	/** 埋深超过它（占 R）的岩石按变质处理。 */
+	UPROPERTY(EditAnywhere, Category = "阶段3B|变质", meta = (EditCondition = "bRunStage10", ClampMin = "0", ClampMax = "0.3"))
+	float MetamorphicDepthRatio = 0.09f;
+	/** 石灰岩转大理岩的变质级门槛。 */
+	UPROPERTY(EditAnywhere, Category = "阶段3B|变质", meta = (EditCondition = "bRunStage10", ClampMin = "0", ClampMax = "1"))
+	float MarbleThreshold = 0.55f;
+	/** 造山带对变质级的加权。 */
+	UPROPERTY(EditAnywhere, Category = "阶段3B|变质", meta = (EditCondition = "bRunStage10", ClampMin = "0", ClampMax = "2"))
+	float OrogenBoost = 0.6f;
+	/** 阶段 3B 的撒矿（造山型金 / 石墨 / 大理岩）。 */
+	UPROPERTY(EditAnywhere, Category = "阶段3B|变质", meta = (EditCondition = "bRunStage10")) bool bScatterStage10 = true;
+
+	// 阶段 7：表生风化。只改最外面一层皮与土壤类型。
+	/** 阶段 7（表生风化）总开关。 */
+	UPROPERTY(EditAnywhere, Category = "阶段7") bool bRunStage8 = true;
+	/** 最厚风化壳占半径比例：R=40000 时 0.002 约 80 体素。 */
+	UPROPERTY(EditAnywhere, Category = "阶段7|风化", meta = (EditCondition = "bRunStage8", ClampMin = "0", ClampMax = "0.02"))
+	float WeatheringMaxDepthRatio = 0.002f;
+	/** 温度对风化强度的权重。 */
+	UPROPERTY(EditAnywhere, Category = "阶段7|风化", meta = (EditCondition = "bRunStage8", ClampMin = "0", ClampMax = "1"))
+	float WeatheringTemperatureWeight = 0.5f;
+	/** 降水对风化强度的权重。 */
+	UPROPERTY(EditAnywhere, Category = "阶段7|风化", meta = (EditCondition = "bRunStage8", ClampMin = "0", ClampMax = "1"))
+	float WeatheringPrecipitationWeight = 0.5f;
+	/** 坡度扣减强度：1 = 陡坡直接没有风化壳。 */
+	UPROPERTY(EditAnywhere, Category = "阶段7|风化", meta = (EditCondition = "bRunStage8", ClampMin = "0", ClampMax = "1"))
+	float WeatheringSlopePenalty = 0.8f;
+	/** 红土的温度门槛。 */
+	UPROPERTY(EditAnywhere, Category = "阶段7|风化", meta = (EditCondition = "bRunStage8", ClampMin = "0", ClampMax = "1"))
+	float LateriteTemp = 0.7f;
+	/** 红土的降水门槛。 */
+	UPROPERTY(EditAnywhere, Category = "阶段7|风化", meta = (EditCondition = "bRunStage8", ClampMin = "0", ClampMax = "1"))
+	float LateritePrecip = 0.5f;
+	/** 高岭土的温度门槛。 */
+	UPROPERTY(EditAnywhere, Category = "阶段7|风化", meta = (EditCondition = "bRunStage8", ClampMin = "0", ClampMax = "1"))
+	float KaolinTemp = 0.45f;
+	/** 阶段 7 的撒矿（铝土矿 / 红土镍 / 次生铜 / 铁帽 / 高岭土）。 */
+	UPROPERTY(EditAnywhere, Category = "阶段7|风化", meta = (EditCondition = "bRunStage8")) bool bScatterStage8 = true;
+
 	/** 矿物目录：编号、中文名、调试色。撒矿器只引用这里的编号。 */
 	UPROPERTY(EditAnywhere, Category = "Minerals")
 	TObjectPtr<UGeoMineralCatalog> MineralCatalog;

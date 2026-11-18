@@ -14,6 +14,9 @@
 #include "PlanetRecipeConfig.h"
 #include "Stage02Plates.h"
 #include "Stage03Terrain.h"
+#include "Stage03aSediments.h"
+#include "Stage03bTectonics.h"
+#include "Stage07Weathering.h"
 #include "Stage04Magmatism.h"
 #include "Stage05Climate.h"
 #include "Stage06Erosion.h"
@@ -750,10 +753,13 @@ namespace
 		OutStageIndices.Reset();
 		const FStage02Plates S2; Stage06c2BakeOne(C, F, R, S2); OutStageIndices.Add(S2.GetStageIndex());
 		const FStage03Terrain S3; Stage06c2BakeOne(C, F, R, S3); OutStageIndices.Add(S3.GetStageIndex());
+		const FStage03aSediments S3A; Stage06c2BakeOne(C, F, R, S3A); OutStageIndices.Add(S3A.GetStageIndex());
+		const FStage03bTectonics S3B; Stage06c2BakeOne(C, F, R, S3B); OutStageIndices.Add(S3B.GetStageIndex());
 		const FStage04Magmatism S4; Stage06c2BakeOne(C, F, R, S4); OutStageIndices.Add(S4.GetStageIndex());
 		const FStage05Climate S5; Stage06c2BakeOne(C, F, R, S5); OutStageIndices.Add(S5.GetStageIndex());
 		const FStage06Erosion S6; Stage06c2BakeOne(C, F, R, S6); OutStageIndices.Add(S6.GetStageIndex());
 		const FStage06bExposure S7; Stage06c2BakeOne(C, F, R, S7); OutStageIndices.Add(S7.GetStageIndex());
+		const FStage07Weathering S8; Stage06c2BakeOne(C, F, R, S8); OutStageIndices.Add(S8.GetStageIndex());
 	}
 
 	/** 两条阶段 7 规则：盆地环带蒸发岩（编号 30）与湿热低地煤（编号 31）。 */

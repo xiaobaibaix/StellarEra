@@ -17,14 +17,18 @@ namespace GeoLithology
 	// 侵入体岩性：只在地壳内有意义，深度剖面里不会出现。
 	constexpr uint8 Granite = 9, Diorite = 10, Gabbro = 11, Peridotite = 12, Kimberlite = 13, LayeredMafic = 14;
 	constexpr uint8 Carbonatite = 15;
-	constexpr uint8 Count = 16;
+	// 3A 沉积盖层：只出现在地表最上面的覆盖层里。
+	constexpr uint8 Sandstone = 16, Shale = 17, Limestone = 18;
+	// 3B 变质：石灰岩在变质级足够高时按大理岩出岩性。
+	constexpr uint8 Marble = 19;
+	constexpr uint8 Count = 20;
 
 	inline const TCHAR* DisplayName(uint8 Id)
 	{
 		static const TCHAR* Names[Count] = { TEXT("无"), TEXT("地壳"), TEXT("上地幔"), TEXT("过渡带"),
 			TEXT("下地幔"), TEXT("外核"), TEXT("内核"), TEXT("陆壳"), TEXT("洋壳"),
 			TEXT("花岗岩"), TEXT("闪长岩"), TEXT("辉长岩"), TEXT("橄榄岩"), TEXT("金伯利岩"), TEXT("层状镁铁岩"),
-			TEXT("碳酸岩") };
+			TEXT("碳酸岩"), TEXT("砂岩"), TEXT("页岩"), TEXT("石灰岩"), TEXT("大理岩") };
 		return Id < Count ? Names[Id] : Names[0];
 	}
 
@@ -38,7 +42,8 @@ namespace GeoLithology
 			FColor(150, 130, 110), FColor(150, 130, 110),
 			FColor(190, 120, 140), FColor(150, 140, 150), FColor(90, 100, 110),
 			FColor(60, 110, 80), FColor(110, 60, 130), FColor(70, 80, 90),
-			FColor(200, 180, 210) };
+			FColor(200, 180, 210),
+			FColor(220, 190, 130), FColor(110, 120, 100), FColor(210, 210, 200), FColor(235, 235, 240) };
 		return Id < Count ? Colors[Id] : Colors[0];
 	}
 }

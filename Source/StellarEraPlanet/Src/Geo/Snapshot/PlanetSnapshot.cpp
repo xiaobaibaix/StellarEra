@@ -29,6 +29,14 @@ void FPlanetSnapshot::FinalizeHash()
 		const double Deepest = double(P.Center.Size()) - double(P.Radii.GetMax());
 		PrimitiveDepthMaxRatio = FMath::Max(PrimitiveDepthMaxRatio, float((R0 - Deepest) / FMath::Max(R0, 1.0)));
 	}
+	H = GeoHash::Combine(H, StrataThickness.Hash());
+	H = GeoHash::Combine(H, StrataType.Hash());
+	H = GeoHash::Combine(H, FaultMask.Hash());
+	H = GeoHash::Combine(H, FoldField.Hash());
+	H = GeoHash::Combine(H, MetamorphicGrade.Hash());
+	H = GeoHash::Combine(H, WeatheringDepth.Hash());
+	H = GeoHash::Combine(H, SoilType.Hash());
+	H = GeoHash::Combine(H, GeoHash::Float(MarbleThreshold));
 	for (const float B : AlterBands) { H = GeoHash::Combine(H, GeoHash::Float(B)); }
 	H = GeoHash::Combine(H, HashDouble(MinSurfaceRadius));
 	H = GeoHash::Combine(H, HashDouble(MaxSurfaceRadius));

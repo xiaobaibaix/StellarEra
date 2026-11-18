@@ -166,10 +166,31 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 	C.Exposure.bExposure = bExposure;
 	C.Exposure.LiftScale = LiftScale;
 	C.Exposure.MaxLiftRatio = MaxLiftRatio;
-	const bool StageOn[7] = { bRunStage1, bRunStage2, bRunStage3, bRunStage4, bRunStage5, bRunStage6, bRunStage7 };
+	C.Strata.bStrata = bRunStage9;
+	C.Strata.MaxThicknessRatio = MaxStrataThicknessRatio;
+	C.Strata.LowlandCutoff = StrataLowlandCutoff;
+	C.Strata.SandstoneShare = StrataSandstoneShare;
+	C.Strata.ShaleShare = StrataShaleShare;
+	C.Tectonics.bTectonics = bRunStage10;
+	C.Tectonics.FaultWidthRatio = FaultWidthRatio;
+	C.Tectonics.FoldWavelengthRatio = FoldWavelengthRatio;
+	C.Tectonics.MetamorphicDepthRatio = MetamorphicDepthRatio;
+	C.Tectonics.MarbleThreshold = MarbleThreshold;
+	C.Tectonics.OrogenBoost = OrogenBoost;
+	C.Weathering.bWeathering = bRunStage8;
+	C.Weathering.MaxDepthRatio = WeatheringMaxDepthRatio;
+	C.Weathering.TemperatureWeight = WeatheringTemperatureWeight;
+	C.Weathering.PrecipitationWeight = WeatheringPrecipitationWeight;
+	C.Weathering.SlopePenalty = WeatheringSlopePenalty;
+	C.Weathering.LateriteTemp = LateriteTemp;
+	C.Weathering.LateritePrecip = LateritePrecip;
+	C.Weathering.KaolinTemp = KaolinTemp;
+	const bool StageOn[10] = { bRunStage1, bRunStage2, bRunStage3, bRunStage4, bRunStage5, bRunStage6, bRunStage7,
+		bRunStage8, bRunStage9, bRunStage10 };
 	const uint32 ScatterStages = (bScatterStage2 ? 1u << 1 : 0u) | (bScatterStage3 ? 1u << 2 : 0u)
-		| (bScatterStage4 ? 1u << 3 : 0u) | (bScatterStage7 ? 1u << 6 : 0u);
-	for (uint32 i = 0; i < 7; ++i)
+		| (bScatterStage4 ? 1u << 3 : 0u) | (bScatterStage7 ? 1u << 6 : 0u)
+		| (bScatterStage8 ? 1u << 7 : 0u) | (bScatterStage9 ? 1u << 8 : 0u) | (bScatterStage10 ? 1u << 9 : 0u);
+	for (uint32 i = 0; i < 10; ++i)
 	{
 		if (!StageOn[i]) { C.DisabledStages |= (1u << i); }
 	}
