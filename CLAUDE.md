@@ -236,6 +236,7 @@ N 体数据分四层，**编辑器里只填人类单位**：
 
 ## 编码约定
 - Epic 命名：`A`/`U`/`F`/`E`/`I`/`T` 前缀，布尔 `bXxx`，UObject 指针 `TObjectPtr<>`。
+- **组件名一律驼峰**：`CreateDefaultSubobject` 的字符串名、组件 UPROPERTY 变量名、蓝图组件变量名都只含字母数字（`PlanetSkyLight`、`LODInvoker`），不写空格、下划线、括号等符号。蓝图组件树渲染成 `变量名 (对象名)`，名字里再带符号只会叠出噪声。
 - 每个 UObject 类写 `GENERATED_BODY()`，头文件用 `#pragma once`。
 - 含中文的 `.h`/`.cpp` 存 **UTF-8 with BOM**，否则 MSVC 按 GBK 读会产生假 IntelliSense 错误。
 - 不要统一换行符：仓库本来就是 CRLF/LF 混合，`autocrlf=true` 下 CRLF 是稳定态。
