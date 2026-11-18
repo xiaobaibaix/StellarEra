@@ -4,7 +4,7 @@
 
 ## 仓库状态
 
-- 分支 `geo-pipeline`，HEAD `f1f662b`（旧地形栈已删，行星统一走 geo 管线）。
+- 分支 `geo-pipeline`，HEAD `2e6cede`（旧地形栈已删，海面恢复，行星统一走 geo 管线）。
 - 全量自动化测试 **367 条全过**（`Automation RunTests StellarEra`，约 10 分钟）。
 - 未提交（工作区）：`Content/Code/Maps/GeoPlanetMap.umap`、`GeoTestMap.umap`、
   `DA_GeoRecipe_Archipelago.uasset`、`DA_MineralCatalog.uasset`、`Content/Code/Maps/Saves/PlanetVoxel/GeoPlanetMap/`。
@@ -42,7 +42,7 @@
 - 元素映射 / 资源层。
 
 迁移后的已知缺口：
-- **geo 行星没有海面水**：水面组件只接过旧水文场，新管线尚未接入；`UniverseMap` 换管线后海面消失。
+- geo 行星的海面已由 `RebuildWater` 现场合成的海面水文场恢复（只有海洋，无湖/河）。
 - 旧矿物栈（`Minerals/…`）与星图 UI 仍在用，未迁移。
 
 材质解码 v1 的已知限制：
