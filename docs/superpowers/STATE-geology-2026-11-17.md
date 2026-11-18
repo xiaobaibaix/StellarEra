@@ -4,8 +4,8 @@
 
 ## 仓库状态
 
-- 分支 `geo-pipeline`，HEAD `2e6cede`（旧地形栈已删，海面恢复，行星统一走 geo 管线）。
-- 全量自动化测试 **367 条全过**（`Automation RunTests StellarEra`，约 10 分钟）。
+- 分支 `geo-pipeline`，HEAD `6e19623`（旧地形栈、旧矿物栈都已删，行星统一走 geo 管线）。
+- 全量自动化测试 **294 条全过**（`Automation RunTests StellarEra`，约 6 分钟）；删旧矿物栈带走了 73 条。
 - 未提交（工作区）：`Content/Code/Maps/GeoPlanetMap.umap`、`GeoTestMap.umap`、
   `DA_GeoRecipe_Archipelago.uasset`、`DA_MineralCatalog.uasset`、`Content/Code/Maps/Saves/PlanetVoxel/GeoPlanetMap/`。
   **这两个资产是 4c 与 6c 的挂载（现为 24 种矿、24 个撒矿器），回退会丢**；配方资产里混着用户早前的未提交改动，所以一直没代提交。
@@ -31,6 +31,10 @@
 
 阶段号：1 球、2 板块、3 地形、4 岩浆（含 4a/4b/4c）、5 气候、6 侵蚀（6a/6b/6c-1/6c-2）、7 出露（6b 占 7，风化壳将来用 8）。
 
+## 本轮新增：阶段开关（调试）
+
+配方资产 `Stages` 分类下有 8 个开关（Stage1..7 + 撒矿），关掉即整段跳过；行星上新增 `Geo Recipe Override`（Instanced），可在行星细节里直接改全部参数与开关，不经过资产。关掉前面的阶段后，后面阶段读不到它的场会在校验里报错——这是有意的。
+
 ## 下一步：阶段 7 表生风化（主线最后一段）
 
 上位规格 `docs/superpowers/specs/2026-11-12-geology-pipeline/07-weathering.md`：铝土矿、红土镍、次生富集铜、铁帽、高岭土；输出 `WeatheringDepth` / `SoilType`。
@@ -43,7 +47,7 @@
 
 迁移后的已知缺口：
 - 水面组件（`UPlanetWaterComponent`）已按用户要求从行星 Actor 摘除（`e11999a`）：海面不再显示，`Water/` 组件类与其测试保留、未实例化。`Terrain` 字段与 `UVoxelPlanetTerrainModule::PostEditChangeProperty` 同时删除。
-- 旧矿物栈（`Minerals/…`）与星图 UI 仍在用，未迁移。
+- 旧矿物栈与星图矿物透视已整体删除（`6e19623`）；`DA_Geology_*`、矿物材质等资产变成无引用，待你决定去留。
 
 材质解码 v1 的已知限制：
 - 地表「生物群系」混合尚未生效：实机里行星表面直接显示岩性色（`U1` 遮罩在材质侧读出 0，疑为体素网格未把 UV1 传给材质）。挖开 / 剖面显示岩性色已成立。
