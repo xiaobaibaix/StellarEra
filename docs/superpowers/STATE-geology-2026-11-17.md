@@ -4,7 +4,7 @@
 
 ## 仓库状态
 
-- 分支 `geo-pipeline`，HEAD `6e19623`（旧地形栈、旧矿物栈都已删，行星统一走 geo 管线）。
+- 分支 `geo-pipeline`，HEAD `9f9bf54`（旧地形栈、旧矿物栈都已删，行星统一走 geo 管线）。
 - 全量自动化测试 **294 条全过**（`Automation RunTests StellarEra`，约 6 分钟）；删旧矿物栈带走了 73 条。
 - 未提交（工作区）：`Content/Code/Maps/GeoPlanetMap.umap`、`GeoTestMap.umap`、
   `DA_GeoRecipe_Archipelago.uasset`、`DA_MineralCatalog.uasset`、`Content/Code/Maps/Saves/PlanetVoxel/GeoPlanetMap/`。
@@ -33,7 +33,13 @@
 
 ## 本轮新增：阶段开关（调试）
 
-配方资产 `Stages` 分类下有 8 个开关（Stage1..7 + 撒矿），关掉即整段跳过；行星上新增 `Geo Recipe Override`（Instanced），可在行星细节里直接改全部参数与开关，不经过资产。关掉前面的阶段后，后面阶段读不到它的场会在校验里报错——这是有意的。
+11 个开关，全部放在各自阶段分类的收尾（不是单独一栏）：
+
+- `bRunStage1..7`（`StageN|...` 最后一段）：关掉即整段跳过，该段全部参数带
+  `EditCondition` 自动置灰。
+- `bScatterStage2/3/4/7`（撒矿所在段）：只控制该阶段的撒矿器，岩体/火山照样生成。
+
+行星上新增 `Geo Recipe Override`（Instanced），可在行星细节里直接改全部参数与开关，不经过资产。关掉前面的阶段后，后面阶段读不到它的场会在校验里报错——这是有意的。
 
 ## 下一步：阶段 7 表生风化（主线最后一段）
 
