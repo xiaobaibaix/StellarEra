@@ -4,8 +4,8 @@
 
 ## 仓库状态
 
-- 分支 `geo-pipeline`，HEAD `c581943`（旧地形栈、旧矿物栈都已删，行星统一走 geo 管线）。
-- 全量自动化测试 **294 条全过**（`Automation RunTests StellarEra`，约 6 分钟）；删旧矿物栈带走了 73 条。
+- 分支 `geo-pipeline`，HEAD `4e34d0c`（旧地形栈、旧矿物栈都已删，行星统一走 geo 管线）。
+- 全量自动化测试 **298 条全过**（`Automation RunTests StellarEra`，约 6 分钟）；删旧矿物栈带走了 73 条。
 - 未提交（工作区）：`Content/Code/Maps/GeoPlanetMap.umap`、`GeoTestMap.umap`、
   `DA_GeoRecipe_Archipelago.uasset`、`DA_MineralCatalog.uasset`、`Content/Code/Maps/Saves/PlanetVoxel/GeoPlanetMap/`。
   **这两个资产是 4c 与 6c 的挂载（现为 24 种矿、24 个撒矿器），回退会丢**；配方资产里混着用户早前的未提交改动，所以一直没代提交。
@@ -47,7 +47,7 @@
 
 行星上新增 `Geo Recipe Override`（Instanced），可在行星细节里直接改全部参数与开关，不经过资产。关掉前面的阶段后，后面阶段读不到它的场会在校验里报错——这是有意的。
 
-## 下一步：阶段 7 表生风化（主线最后一段）
+## 已完成：阶段 7 / 3A / 3B（2026-11-19）
 
 上位规格 `docs/superpowers/specs/2026-11-12-geology-pipeline/07-weathering.md`：铝土矿、红土镍、次生富集铜、铁帽、高岭土；输出 `WeatheringDepth` / `SoilType`。
 所需数据都已就位：`ErosionDepth`、`Temperature`、`Precipitation`、`Exposure`、`Primitives`。
