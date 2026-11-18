@@ -42,7 +42,7 @@
 - 元素映射 / 资源层。
 
 迁移后的已知缺口：
-- geo 行星的海面已由 `RebuildWater` 现场合成的海面水文场恢复（只有海洋，无湖/河）。
+- 水面组件（`UPlanetWaterComponent`）已按用户要求从行星 Actor 摘除（`e11999a`）：海面不再显示，`Water/` 组件类与其测试保留、未实例化。`Terrain` 字段与 `UVoxelPlanetTerrainModule::PostEditChangeProperty` 同时删除。
 - 旧矿物栈（`Minerals/…`）与星图 UI 仍在用，未迁移。
 
 材质解码 v1 的已知限制：
