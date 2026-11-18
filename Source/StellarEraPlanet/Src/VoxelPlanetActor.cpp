@@ -15,6 +15,7 @@
 #include "PlanetGeologyField.h"
 #include "PlanetGeologyPreset.h"
 #include "PlanetWaterComponent.h"
+#include "PlanetHydrologyField.h"
 #include "Sky/PlanetSkyLightComponent.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -922,9 +923,29 @@ void AVoxelPlanetActor::RebuildWater()
 
 	FPlanetWaterConfig Config;
 
-	// 地质流水线没有水文场：传空 → 组件拆掉全部分量。
+	// 只合成海面：陆地格水位=地形（构建器跳过），海洋格水位=海平面。
+	TSharedPtr<FPlanetHydrologyField> Field;
+	if (GeoSnapshot.IsValid())
+	{
+		const int32 Res = 128;
+		const float Sea = float(GeoSnapshot->R0);
+		TArray<float> Level, Carve, River;
+		Level.SetNumUninitialized(6 * Res * Res);
+		Carve.Init(0.f, 6 * Res * Res);
+		River.Init(0.f, 6 * Res * Res);
+		for (int32 Face = 0; Face < 6; ++Face)
+		for (int32 Y = 0; Y < Res; ++Y)
+		for (int32 X = 0; X < Res; ++X)
+		{
+			const float H = float(GeoSnapshot->R0) + GeoSnapshot->Elevation.Sample(GeoSnapshot->Elevation.TexelDir(Face, X, Y));
+			Level[(Face * Res + Y) * Res + X] = FMath::Max(H, Sea);
+		}
+		Field = FPlanetHydrologyField::Create(Res, Sea, 0.f,
+			MoveTemp(Level), MoveTemp(Carve), MoveTemp(River),
+			TArray<FPlanetLakeBasin>(), TArray<FPlanetRiverPolyline>());
+	}
 	WaterComponent->RebuildWater(
-		/*Field=*/nullptr,
+		Field.Get(),
 		Config,
 		double(VoxelSize),
 		double(GetScaledRadiusVoxels()),
