@@ -253,7 +253,11 @@ void FStage04Magmatism::Bake(FPlanetBakeContext& Ctx) const
 		Ctx.Report.Errors.Add(TEXT("[地质] 阶段 4：缺阶段 2/3 的高程、板块或地形场"));
 		return;
 	}
-	Stage04::PlaceVolcanoes(Ctx.Config, F, F.Volcanoes);
+	// 关掉火山只跳过放置：下面的叠加循环遇到空表自然写 0，高程与字段形状不变。
+	if (Ctx.Config.Volcano.bVolcanoes)
+	{
+		Stage04::PlaceVolcanoes(Ctx.Config, F, F.Volcanoes);
+	}
 
 	const FPlanetRecipeConfig& Cfg = Ctx.Config;
 	const EParallelForFlags PF = Cfg.bSingleThreadBake ? EParallelForFlags::ForceSingleThread : EParallelForFlags::None;
@@ -371,7 +375,10 @@ void FStage04Magmatism::Bake(FPlanetBakeContext& Ctx) const
 
 	// 4b 读的是叠完火山的最终高程：侵入体顶深要相对真实地表量，否则弧下的岩株会埋在锥里。
 	// 阈值无条件写：关掉蚀变时没有晕原语，阈值不影响任何求值。
-	Stage04b::PlaceIntrusions(Cfg, F, F.Primitives);
+	if (Cfg.Intrusion.bIntrusions)
+	{
+		Stage04b::PlaceIntrusions(Cfg, F, F.Primitives);
+	}
 	F.AlterBands[0] = Cfg.Intrusion.AlterKeratiticBand;
 	F.AlterBands[1] = Cfg.Intrusion.AlterSericiticBand;
 	F.AlterBands[2] = Cfg.Intrusion.AlterArgillicBand;

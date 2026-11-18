@@ -15,6 +15,7 @@ struct FPlanetSphereParams
 	/** 莫霍面（地壳 / 地幔分界）起伏幅度占半径比例。必须 < 地壳与上地幔厚度的一半。 */
 	float MohoWobbleRatio = 0.01f;
 	int32 WobbleOctaves = 3;              // 莫霍面起伏噪声层数
+	bool bMoho = true;                    // 关掉时莫霍面按正球面处理（该场填 0）
 };
 
 /** 单块板块的运动覆盖：按板块编号（查看器「板块编号」图层可读）单独指定速度 / 方向。 */
@@ -99,6 +100,7 @@ struct FPlanetTerrainParams
 
 struct FPlanetVolcanoParams
 {
+	bool bVolcanoes = true;               // 整段火山开关；关掉时只跳过放置，高程场照常生成
 	bool bArcVolcanoes = true;            // 俯冲弧层状火山
 	bool bHotspots = true;                // 热点盾状火山链
 	bool bFloodBasalt = true;             // 大陆裂谷溢流玄武岩台地
@@ -130,6 +132,7 @@ struct FPlanetVolcanoParams
 /** 阶段 4b 地下侵入体：尺度同样是占半径的比例，深度 = 比例 × Radius 体素。 */
 struct FPlanetIntrusionParams
 {
+	bool bIntrusions = true;              // 整段岩体开关；关掉时蚀变阈值照写
 	bool bBatholiths = true;              // 岩基：弧火山段下方的大花岗岩体
 	bool bStocks = true;                  // 岩株：每座弧火山正下方的小侵入体（4c 斑岩铜宿主）
 	bool bDikes = true;                   // 岩墙：裂谷处近垂直的薄板
@@ -263,6 +266,7 @@ struct FPlanetRecipeConfig
 			Sphere.MantleOuterRatio, Sphere.OuterCoreRatio, Sphere.MohoWobbleRatio };
 		for (const float V : S) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 		H = GeoHash::Combine(H, uint64(Sphere.WobbleOctaves));
+		H = GeoHash::Combine(H, uint64(Sphere.bMoho));
 		H = GeoHash::Combine(H, uint64(Plates.PlateCount));
 		H = GeoHash::Combine(H, uint64(Plates.WarpOctaves));
 		const float P[11] = { Plates.PlateWeightMin, Plates.PlateWeightMax, Plates.WarpAmp,
@@ -290,7 +294,7 @@ struct FPlanetRecipeConfig
 		for (const float V : Tr) { H = GeoHash::Combine(H, GeoHash::Float(V)); }
 		const FPlanetVolcanoParams& Vp = Volcano;
 		H = GeoHash::Combine(H, uint64(Vp.bArcVolcanoes) | (uint64(Vp.bHotspots) << 1) | (uint64(Vp.bFloodBasalt) << 2)
-			| (uint64(Vp.bCalderas) << 3) | (uint64(Vp.bCinderCones) << 4));
+			| (uint64(Vp.bCalderas) << 3) | (uint64(Vp.bCinderCones) << 4) | (uint64(Vp.bVolcanoes) << 5));
 		H = GeoHash::Combine(H, uint64(uint32(Vp.HotspotCount)) | (uint64(uint32(Vp.HotspotChainLength)) << 32));
 		H = GeoHash::Combine(H, uint64(uint32(Vp.CinderPerVolcano)));
 		const float Vo[18] = { Vp.StratoBaseRatio, Vp.StratoHeightRatio, Vp.StratoCraterRatio, Vp.CraterDepthRatio, Vp.ArcSpacingRatio,
@@ -301,7 +305,7 @@ struct FPlanetRecipeConfig
 		const FPlanetIntrusionParams& In = Intrusion;
 		H = GeoHash::Combine(H, uint64(In.bBatholiths) | (uint64(In.bStocks) << 1) | (uint64(In.bDikes) << 2)
 			| (uint64(In.bSills) << 3) | (uint64(In.bLayeredIntrusions) << 4) | (uint64(In.bKimberlites) << 5)
-			| (uint64(In.bAlteration) << 6) | (uint64(In.bCarbonatites) << 7));
+			| (uint64(In.bAlteration) << 6) | (uint64(In.bCarbonatites) << 7) | (uint64(In.bIntrusions) << 8));
 		H = GeoHash::Combine(H, uint64(uint32(In.BatholithMinVolcanoes)) | (uint64(uint32(In.DikePerRift)) << 32));
 		H = GeoHash::Combine(H, uint64(uint32(In.LayeredCount)) | (uint64(uint32(In.KimberliteMax)) << 32));
 		const float InF[28] = { In.BatholithLongRatio, In.BatholithShortRatio, In.BatholithThickRatio, In.BatholithTopDepthRatio,

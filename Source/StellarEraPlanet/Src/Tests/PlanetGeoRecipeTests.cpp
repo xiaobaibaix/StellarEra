@@ -322,6 +322,39 @@ bool FGeoRecipeTest::RunTest(const FString& Parameters)
 	Probe = C2; Probe.Exposure.bExposure = !C2.Exposure.bExposure; TestTrue(TEXT("bExposure 进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Exposure.LiftScale = 1.13f;            TestTrue(TEXT("LiftScale 进哈希"), Probe.Hash() != Base);
 	Probe = C2; Probe.Exposure.MaxLiftRatio = 0.021f;        TestTrue(TEXT("MaxLiftRatio 进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Sphere.bMoho = false;                  TestTrue(TEXT("莫霍面开关进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Volcano.bVolcanoes = false;            TestTrue(TEXT("火山整段开关进哈希"), Probe.Hash() != Base);
+	Probe = C2; Probe.Intrusion.bIntrusions = false;         TestTrue(TEXT("岩体整段开关进哈希"), Probe.Hash() != Base);
+
+	// 子分组开关必须真的落到 POD，否则面板上拨了没反应。
+	// 逐个翻转：三个输入同时关掉的话，接错字段也全是 false，断言抓不到。
+	{
+		UPlanetRecipe* R3 = NewObject<UPlanetRecipe>();
+		const FPlanetRecipeConfig ON = R3->ToConfig(40000.0);
+		TestTrue(TEXT("默认莫霍面开"), ON.Sphere.bMoho);
+		TestTrue(TEXT("默认火山开"), ON.Volcano.bVolcanoes);
+		TestTrue(TEXT("默认岩体开"), ON.Intrusion.bIntrusions);
+		TestEqual(TEXT("默认莫霍面幅度不被清零"), ON.Sphere.MohoWobbleRatio, R3->MohoWobbleRatio);
+
+		R3->bRunStage1Moho = false;
+		const FPlanetRecipeConfig OffMoho = R3->ToConfig(40000.0);
+		TestFalse(TEXT("bRunStage1Moho → Sphere.bMoho"), OffMoho.Sphere.bMoho);
+		TestEqual(TEXT("关莫霍面 → 幅度归零（撒矿钳制同源）"), OffMoho.Sphere.MohoWobbleRatio, 0.f);
+		TestTrue(TEXT("只关莫霍面不影响火山"), OffMoho.Volcano.bVolcanoes);
+		TestTrue(TEXT("只关莫霍面不影响岩体"), OffMoho.Intrusion.bIntrusions);
+
+		R3->bRunStage1Moho = true; R3->bRunStage4Volcano = false;
+		const FPlanetRecipeConfig OffVolcano = R3->ToConfig(40000.0);
+		TestFalse(TEXT("bRunStage4Volcano → Volcano.bVolcanoes"), OffVolcano.Volcano.bVolcanoes);
+		TestTrue(TEXT("只关火山不影响岩体"), OffVolcano.Intrusion.bIntrusions);
+		TestTrue(TEXT("只关火山不影响莫霍面"), OffVolcano.Sphere.bMoho);
+
+		R3->bRunStage4Volcano = true; R3->bRunStage4Intrusion = false;
+		const FPlanetRecipeConfig OffIntrusion = R3->ToConfig(40000.0);
+		TestFalse(TEXT("bRunStage4Intrusion → Intrusion.bIntrusions"), OffIntrusion.Intrusion.bIntrusions);
+		TestTrue(TEXT("只关岩体不影响火山"), OffIntrusion.Volcano.bVolcanoes);
+		TestTrue(TEXT("只关岩体不影响莫霍面"), OffIntrusion.Sphere.bMoho);
+	}
 	return true;
 }
 

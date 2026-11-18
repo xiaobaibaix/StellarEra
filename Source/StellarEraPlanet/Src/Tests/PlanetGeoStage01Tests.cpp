@@ -64,6 +64,28 @@ bool FGeoStage01Test::RunTest(const FString& Parameters)
 	TooWobbly.Sphere.MohoWobbleRatio = 0.1f;   // 上地幔厚 0.13，半厚 0.065
 	FPlanetBakeReport R4;
 	TestFalse(TEXT("起伏超过相邻层半厚 → 拒绝烘焙"), FPlanetBakePipeline::MakeDefault().Bake(TooWobbly, R4).IsValid());
+
+	// 关掉莫霍面：层序照旧，只有起伏归零。
+	FPlanetRecipeConfig NoMoho = Config;
+	NoMoho.Sphere.bMoho = false;
+	NoMoho.Sphere.MohoWobbleRatio = 0.f;
+	FPlanetBakeReport R5;
+	const TSharedPtr<const FPlanetSnapshot> SnapNoMoho = FPlanetBakePipeline::MakeDefault().Bake(NoMoho, R5);
+	TestTrue(TEXT("关莫霍面仍能烘焙"), SnapNoMoho.IsValid());
+	if (SnapNoMoho.IsValid())
+	{
+		TestEqual(TEXT("层数不变"), SnapNoMoho->Radial.Layers.Num(), 6);
+		TestEqual(TEXT("地壳层起伏归零"), SnapNoMoho->Radial.Layers[0].WobbleRatio, 0.f);
+		FGeoRng RngFlat = FGeoRng::Derive(11, 1, 0);
+		float MaxAbs = 0.f;
+		for (int32 i = 0; i < 64; ++i)
+		{
+			const float Z = RngFlat.Range(-1.f, 1.f), Phi = RngFlat.Range(0.f, 2.f * PI), S = FMath::Sqrt(1.f - Z * Z);
+			MaxAbs = FMath::Max(MaxAbs, FMath::Abs(SnapNoMoho->MohoWobble.Sample(
+				FVector3f(FVector3d(S * FMath::Cos(Phi), S * FMath::Sin(Phi), Z)))));
+		}
+		TestTrue(FString::Printf(TEXT("起伏场全 0 (MaxAbs=%f)"), MaxAbs), MaxAbs == 0.f);
+	}
 	return true;
 }
 

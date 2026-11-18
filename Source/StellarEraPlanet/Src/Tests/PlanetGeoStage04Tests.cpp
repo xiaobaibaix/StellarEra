@@ -169,6 +169,24 @@ bool FGeoStage04PlacementTest::RunTest(const FString& Parameters)
 	Off([](FPlanetVolcanoParams& P) { P.bFloodBasalt = false; }, EGeoVolcanoKind::FloodBasalt, TEXT("溢流玄武岩"));
 	Off([](FPlanetVolcanoParams& P) { P.bCalderas = false; }, EGeoVolcanoKind::Caldera, TEXT("破火山口"));
 	Off([](FPlanetVolcanoParams& P) { P.bCinderCones = false; }, EGeoVolcanoKind::CinderCone, TEXT("渣锥"));
+
+	// 子分组整段开关：关火山只剩空点表、高程停在阶段 3；关岩体则火山照常、原语为空。
+	{
+		FPlanetRecipeConfig NoVol = C; NoVol.Volcano.bVolcanoes = false;
+		FPlanetBakeFields Fv; FPlanetBakeReport Rv;
+		const FGeoField2D BeforeV = Stage04TestBake(NoVol, Fv, Rv);
+		TestFalse(TEXT("关火山无错误"), Rv.HasErrors());
+		TestEqual(TEXT("关火山 → 0 座"), Fv.Volcanoes.Num(), 0);
+		TestTrue(TEXT("关火山 → 高程与阶段 3 一致"), Fv.Elevation.Hash() == BeforeV.Hash());
+	}
+	{
+		FPlanetRecipeConfig NoIntr = C; NoIntr.Intrusion.bIntrusions = false;
+		FPlanetBakeFields Fi; FPlanetBakeReport Ri;
+		Stage04TestBake(NoIntr, Fi, Ri);
+		TestFalse(TEXT("关岩体无错误"), Ri.HasErrors());
+		TestTrue(TEXT("关岩体 → 火山照常"), Fi.Volcanoes.Num() > 0);
+		TestEqual(TEXT("关岩体 → 原语为空"), Fi.Primitives.Num(), 0);
+	}
 	return true;
 }
 

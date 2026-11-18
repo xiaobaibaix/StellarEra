@@ -16,8 +16,10 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 	C.Sphere.TransitionRatio = TransitionRatio;
 	C.Sphere.MantleOuterRatio = MantleOuterRatio;
 	C.Sphere.OuterCoreRatio = OuterCoreRatio;
-	C.Sphere.MohoWobbleRatio = MohoWobbleRatio;
+	// 关掉莫霍面时要把幅度一起归零：撒矿的地壳底钳制只读这个值，只填零场会让两者对不上。
+	C.Sphere.MohoWobbleRatio = bRunStage1Moho ? MohoWobbleRatio : 0.f;
 	C.Sphere.WobbleOctaves = WobbleOctaves;
+	C.Sphere.bMoho = bRunStage1Moho;
 	// 只覆盖暴露项，其余形状常数保持 FPlanetContinentParams 默认。
 	C.Plates.PlateCount = PlateCount;
 	C.Plates.WarpAmp = BoundaryWarp;
@@ -59,6 +61,7 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 	C.Terrain.OldOrogenCoverage = OldOrogenCoverage;
 	C.Terrain.OldOrogenGapFraction = OldOrogenGapFraction;
 	C.Terrain.OldOrogenWidthVariation = OldOrogenWidthVariation;
+	C.Volcano.bVolcanoes = bRunStage4Volcano;
 	C.Volcano.bArcVolcanoes = bArcVolcanoes;
 	C.Volcano.bHotspots = bHotspots;
 	C.Volcano.bFloodBasalt = bFloodBasalt;
@@ -85,6 +88,7 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 	C.Volcano.CinderPerVolcano = CinderPerVolcano;
 	C.Volcano.CinderBaseRatio = CinderBaseRatio;
 	C.Volcano.CinderHeightRatio = CinderHeightRatio;
+	C.Intrusion.bIntrusions = bRunStage4Intrusion;
 	C.Intrusion.bBatholiths = bBatholiths;
 	C.Intrusion.bStocks = bStocks;
 	C.Intrusion.bDikes = bDikes;

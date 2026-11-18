@@ -17,7 +17,10 @@ void FStage01Sphere::Bake(FPlanetBakeContext& Ctx) const
 	const float Bottoms[6] = { S.CrustRatio, S.UpperMantleRatio, S.TransitionRatio, S.MantleOuterRatio, S.OuterCoreRatio, 1.f };
 	const uint8 Ids[6] = { GeoLithology::Crust, GeoLithology::UpperMantle, GeoLithology::Transition,
 		GeoLithology::LowerMantle, GeoLithology::OuterCore, GeoLithology::InnerCore };
-	const float Wobbles[6] = { S.MohoWobbleRatio, DeepWobbleRatio, DeepWobbleRatio, DeepWobbleRatio, DeepWobbleRatio, 0.f };
+	// 关掉莫霍面就等于把地壳/地幔界面拉直：层级与岩性照旧，只把起伏置 0。
+	const bool bMoho = S.bMoho;
+	const float MohoAmp = bMoho ? S.MohoWobbleRatio : 0.f;
+	const float Wobbles[6] = { MohoAmp, DeepWobbleRatio, DeepWobbleRatio, DeepWobbleRatio, DeepWobbleRatio, 0.f };
 
 	float Top = 0.f;
 	for (int32 i = 0; i < 6; ++i)
@@ -48,9 +51,9 @@ void FStage01Sphere::Bake(FPlanetBakeContext& Ctx) const
 	const int32 Octaves = FMath::Clamp(S.WobbleOctaves, 1, 6);
 	Ctx.Fields.MohoWobble.Init(FMath::Clamp(Ctx.Config.FaceRes / 4, 32, 256));
 	// 方向乘 2：整个球面约 2 个低频波长，莫霍面起伏是大陆尺度的。
-	Ctx.Fields.MohoWobble.Fill([NoiseSeed, Octaves](const FVector3f& Dir)
+	Ctx.Fields.MohoWobble.Fill([NoiseSeed, Octaves, bMoho](const FVector3f& Dir)
 	{
-		return GeoNoise::Fbm3(NoiseSeed, Dir * 2.f, Octaves);
+		return bMoho ? GeoNoise::Fbm3(NoiseSeed, Dir * 2.f, Octaves) : 0.f;
 	}, Ctx.Config.bSingleThreadBake);
 }
 
