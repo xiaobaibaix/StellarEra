@@ -4,7 +4,7 @@
 
 ## 仓库状态
 
-- 分支 `geo-pipeline`，HEAD `4e34d0c`（旧地形栈、旧矿物栈都已删，行星统一走 geo 管线）。
+- 分支 `geo-pipeline`，HEAD `f36c44f`（旧地形栈、旧矿物栈都已删，行星统一走 geo 管线）。
 - 全量自动化测试 **298 条全过**（`Automation RunTests StellarEra`，约 6 分钟）；删旧矿物栈带走了 73 条。
 - 未提交（工作区）：`Content/Code/Maps/GeoPlanetMap.umap`、`GeoTestMap.umap`、
   `DA_GeoRecipe_Archipelago.uasset`、`DA_MineralCatalog.uasset`、`Content/Code/Maps/Saves/PlanetVoxel/GeoPlanetMap/`。
@@ -49,12 +49,22 @@
 
 ## 已完成：阶段 7 / 3A / 3B（2026-11-19）
 
-上位规格 `docs/superpowers/specs/2026-11-12-geology-pipeline/07-weathering.md`：铝土矿、红土镍、次生富集铜、铁帽、高岭土；输出 `WeatheringDepth` / `SoilType`。
-所需数据都已就位：`ErosionDepth`、`Temperature`、`Precipitation`、`Exposure`、`Primitives`。
+| 阶段 | 类 | 内容 |
+|---|---|---|
+| 7 | `FStage07Weathering`（阶段号 8） | 风化壳厚度 = 温湿 × (1 − 坡度)，土壤分红土 / 高岭 / 温带 / 干旱；`WeatheringDepth` `SoilType` |
+| 3A | `FStage03aSediments`（9，顺序 3.5） | 低地盖砂岩 / 页岩 / 石灰岩，只写厚度与类型；材质求值在地表这层改岩性 |
+| 3B | `FStage03bTectonics`（10，顺序 3.6） | 断层带（剪切 / 挤压边界）、褶皱噪声、变质级；石灰岩过门槛变大理岩 |
 
-主线之后还剩两条可选支线与两项非阶段交付：
-- 3A 沉积盖层（石灰岩/砂岩/页岩）→ 层控铅锌、古煤、古蒸发岩、砂岩型铀；矽卡岩依赖它。
-- 3B 构造变形变质 → 造山型金、石墨、大理岩。
+插队靠新加的 `IPlanetStage::GetOrder()`（默认等于阶段号）：3A/3B 要跑在 3 与 4 之间，
+但阶段号必须唯一（随机流与禁用位都用它）。
+
+成矿规律只新增三个类：`FGeoBlanketRule`（毯层，按盖层岩性 / 土壤 / 变质级 / 断层 / 大理岩挂）、
+`FGeoSupergeneRule`（次生富集，宿主矿体上方）、`FGeoGossanRule`（铁帽，宿主出露才有）。
+矿物目录 24 → 34 种，配方各加对应撒矿器（8 毯层 + 1 次生 + 1 铁帽）。
+
+仍未做：
+- **材质颜色**：红土 / 铁帽 / 沉积岩目前只在调试图层与矿层里体现，`M_GeoPlanet` 还没读土壤与盖层。
+- 矽卡岩（要石灰岩 + 侵入体接触带）。
 - 元素映射 / 资源层。
 
 迁移后的已知缺口：
