@@ -4,8 +4,8 @@
 
 ## 仓库状态
 
-- 分支 `geo-pipeline`，HEAD `a35d814`（材质解码 v1：U1 遮罩 + 调色板 LUT + MF_GeoDecode/M_GeoPlanet）。
-- 全量自动化测试 **384 条全过**（`Automation RunTests StellarEra`，约 10 分钟）。
+- 分支 `geo-pipeline`，HEAD `f1f662b`（旧地形栈已删，行星统一走 geo 管线）。
+- 全量自动化测试 **367 条全过**（`Automation RunTests StellarEra`，约 10 分钟）。
 - 未提交（工作区）：`Content/Code/Maps/GeoPlanetMap.umap`、`GeoTestMap.umap`、
   `DA_GeoRecipe_Archipelago.uasset`、`DA_MineralCatalog.uasset`、`Content/Code/Maps/Saves/PlanetVoxel/GeoPlanetMap/`。
   **这两个资产是 4c 与 6c 的挂载（现为 24 种矿、24 个撒矿器），回退会丢**；配方资产里混着用户早前的未提交改动，所以一直没代提交。
@@ -26,6 +26,7 @@
 | 6b | `FStage06bExposure` | 按剥蚀深度把岩体 / 矿体 / 蚀变晕径向上抬（跟随者复制宿主位移向量）、夹到地表、写 `Exposure` / `RawDepthBefore` + 两图层 |
 | 6c-1 | `FGeoPlacerRule` + `UGeoPlacerScatterer` | 阶段 6a 导出 `FlowNext`；砂矿按「上游原生矿 + 沿流追踪」撒 1 体素薄层，品位沿流程指数衰减；`bMouthOnly` 撒滨海重砂。目录 18 种矿、配方 18 个撒矿器 |
 | 6c-2 | `FGeoBasinDepositRule` + `FGeoCoalRule` | 阶段 6a 导出 `BasinId`；内流盆地按归一化半径环带撒蒸发岩四环（各自一个矿物），可选火山门槛撒锂盐；煤在湿热、低平、近海的陆地撒略埋薄层。目录 24 种矿、配方 24 个撒矿器 |
+| 迁移 | `UniverseMap` + 旧地形删除 | `UniverseMap` 行星改挂 `DA_GeoRecipe_Earthlike`；删除旧噪声/球体地形与旧生成器 12 个文件、`InstallBiomeMaterial` 全路径 |
 | 材质 | `MF_GeoDecode` + `M_GeoPlanet` | 生成器写 `U1` 表面遮罩；运行时 256×3 调色板 LUT（岩性/矿物/线索）；材质解码岩性色、矿物覆盖、线索染色；`StellarEra.BuildGeoMaterials` 代码重建材质资产 |
 
 阶段号：1 球、2 板块、3 地形、4 岩浆（含 4a/4b/4c）、5 气候、6 侵蚀（6a/6b/6c-1/6c-2）、7 出露（6b 占 7，风化壳将来用 8）。
@@ -39,6 +40,10 @@
 - 3A 沉积盖层（石灰岩/砂岩/页岩）→ 层控铅锌、古煤、古蒸发岩、砂岩型铀；矽卡岩依赖它。
 - 3B 构造变形变质 → 造山型金、石墨、大理岩。
 - 元素映射 / 资源层。
+
+迁移后的已知缺口：
+- **geo 行星没有海面水**：水面组件只接过旧水文场，新管线尚未接入；`UniverseMap` 换管线后海面消失。
+- 旧矿物栈（`Minerals/…`）与星图 UI 仍在用，未迁移。
 
 材质解码 v1 的已知限制：
 - 地表「生物群系」混合尚未生效：实机里行星表面直接显示岩性色（`U1` 遮罩在材质侧读出 0，疑为体素网格未把 UV1 传给材质）。挖开 / 剖面显示岩性色已成立。
