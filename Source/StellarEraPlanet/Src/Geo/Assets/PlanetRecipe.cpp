@@ -163,6 +163,8 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 	C.Exposure.LiftScale = LiftScale;
 	C.Exposure.MaxLiftRatio = MaxLiftRatio;
 	const bool StageOn[7] = { bRunStage1, bRunStage2, bRunStage3, bRunStage4, bRunStage5, bRunStage6, bRunStage7 };
+	const uint32 ScatterStages = (bScatterStage2 ? 1u << 1 : 0u) | (bScatterStage3 ? 1u << 2 : 0u)
+		| (bScatterStage4 ? 1u << 3 : 0u) | (bScatterStage7 ? 1u << 6 : 0u);
 	for (uint32 i = 0; i < 7; ++i)
 	{
 		if (!StageOn[i]) { C.DisabledStages |= (1u << i); }
@@ -176,7 +178,7 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 	}
 	for (const UGeoMineralScatterer* S : MineralScatterers)
 	{
-		if (!bRunMineralScatterers || !S || !S->bEnabled) { continue; }
+		if (!S || !S->bEnabled) { continue; }
 		const int32 Index = MineralCatalog ? MineralCatalog->FindIndex(S->Mineral) : INDEX_NONE;
 		if (Index == INDEX_NONE || Index >= 255)
 		{
@@ -186,6 +188,8 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 		}
 		TSharedPtr<IGeoMineralRule> Rule = S->MakeRule();
 		if (!Rule) { continue; }
+		// 撒矿按阶段开关：规则挂在哪一段，就由那一段的 bScatterStageN 决定。
+		if (!((ScatterStages >> (Rule->GetStage() - 1)) & 1u)) { continue; }
 		Rule->MineralId = uint8(Index + 1);
 		Rule->SeedOffset = uint32(S->SeedOffset);
 		Rule->GradeMin = uint8(FMath::Clamp(S->GradeMin, 1, 255));
