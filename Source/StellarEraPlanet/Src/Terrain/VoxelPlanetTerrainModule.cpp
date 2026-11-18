@@ -4,14 +4,14 @@
 #include "VoxelPlanetTerrainModule.h"
 
 #include "VoxelPlanetActor.h"
-#include "VoxelPlanetSphereTerrain.h"
+#include "VoxelGenerators/VoxelEmptyGenerator.h"
 #include "UObject/UObjectIterator.h"
 
-TVoxelSharedRef<FVoxelGeneratorInstance> UVoxelPlanetTerrainModule::GetInstance(const FVoxelPlanetTerrainContext& Context)
+TVoxelSharedRef<FVoxelGeneratorInstance> UVoxelPlanetTerrainModule::GetInstance(const FVoxelPlanetTerrainContext& /*Context*/)
 {
-	// 基类兜底返回纯球。用 checkNoEntry 而非 check：编辑器误建空模块不该炸掉关卡。
+	// 基类没有地形；用 checkNoEntry 而非 check：编辑器误建空模块不该炸掉关卡。
 	checkNoEntry();
-	return MakeVoxelShared<FVoxelPlanetSphereTerrainInstance>(Context);
+	return MakeVoxelShared<FVoxelEmptyGeneratorInstance>();
 }
 
 float UVoxelPlanetTerrainModule::GetMinSurfaceRadiusVoxels(const FVoxelPlanetTerrainContext& Context) const

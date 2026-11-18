@@ -3,11 +3,6 @@
 
 #include "PlanetBiomeCubemap.h"
 
-#include "PlanetGeologyField.h"
-#include "PlanetHydrologyField.h"
-#include "Engine/TextureCube.h"
-#include "TextureResource.h"
-
 /**
  * 面 → 主轴 / u 轴 / v 轴，与 D3D 立方体贴图约定逐项对应。写成表因为烘焙与逆映射
  * 共用；写两遍必有一个符号写岔，而符号错只表现为某两面颜色对调，很难查。
@@ -80,106 +75,4 @@ void PlanetBiomeCubemap::DirectionToFaceUV(
 
 	OutU = float((Sc + 1.0) * 0.5);
 	OutV = float((Tc + 1.0) * 0.5);
-}
-
-void PlanetBiomeCubemap::BakeFaceColors(
-	const FPlanetNoiseParams& Params,
-	const FPlanetGeologyField* Geology,
-	const FPlanetHydrologyField* Hydrology,
-	double Radius,
-	int32 Face,
-	int32 Resolution,
-	TArray<FColor>& OutColors)
-{
-	OutColors.Reset();
-	if (Resolution <= 0)
-	{
-		return;
-	}
-
-	OutColors.SetNumUninitialized(Resolution * Resolution);
-
-	for (int32 Y = 0; Y < Resolution; ++Y)
-	{
-		// 取像素中心：不然第一行/第一列会落在面的边界上，正反映射都不稳定。
-		const float V = (float(Y) + 0.5f) / float(Resolution);
-		for (int32 X = 0; X < Resolution; ++X)
-		{
-			const float U = (float(X) + 0.5f) / float(Resolution);
-			const FVector Dir = FaceUVToDirection(Face, U, V);
-
-			// 深度参数只喂地质采样：取该方向真实地表半径，传 0 或 Radius 都会让矿脉色偏。
-			const float RawOffset = ComputeRawPlanetOffset(Params, Dir);
-			// 与生成器采样地表时用的是同一式：基准半径 − 下切。地质色的深度因此不会偏。
-			const double CarveDepth = Hydrology ? double(Hydrology->Sample(Dir).CarveDepth) : 0.0;
-			const double BaseSurface =
-				Radius + double(Params.Amplitude) * double(RawOffset) - CarveDepth;
-			double SurfaceRadius = BaseSurface;
-			if (Geology)
-			{
-				// 与 GetSurfaceRadiusVoxels 同样的不动点迭代一次。
-				SurfaceRadius += double(Geology->SampleGeometryDelta(Dir, Radius - BaseSurface));
-			}
-
-			const FLinearColor Color = ComputePlanetSurfaceColor(
-				Params, Geology, Hydrology, Radius, Dir, SurfaceRadius);
-
-			// 存 sRGB 编码值、贴图侧 SRGB=true 解回线性：顶点色存的是线性值，
-			// 否则材质 Lerp 两端差一次 gamma，权重 0↔1 之间整颗星会亮暗一遍。
-			OutColors[Y * Resolution + X] = Color.ToFColor(true);
-		}
-	}
-}
-
-UTextureCube* PlanetBiomeCubemap::BakeTexture(
-	const FPlanetNoiseParams& Params,
-	const FPlanetGeologyField* Geology,
-	const FPlanetHydrologyField* Hydrology,
-	double Radius,
-	int32 Resolution)
-{
-	if (Resolution <= 0)
-	{
-		return nullptr;
-	}
-
-	UTextureCube* Texture = UTextureCube::CreateTransient(
-		Resolution, Resolution, PF_B8G8R8A8, NAME_None);
-	if (!Texture || Texture->GetPlatformData() == nullptr || Texture->GetPlatformData()->Mips.Num() == 0)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("PlanetBiomeCubemap: 创建 %d 的 cubemap 失败"), Resolution);
-		return nullptr;
-	}
-
-	// 数据是 sRGB 编码值，贴图必须 SRGB=true 解回线性。**不要**设
-	// CompressionSettings：瞬态贴图不压缩，设了反而可能把 SRGB 关掉。
-	Texture->SRGB = true;
-	Texture->Filter = TF_Bilinear;
-
-	// 直接写 Mips[0] 的 BulkData，不用 LockMip：CreateTransient 后还没有 RHI 资源，
-	// 写完再 UpdateResource 少一次往返，也不需要 RHI 线程配合。
-	FTexture2DMipMap& Mip = Texture->GetPlatformData()->Mips[0];
-	const int64 FaceBytes = int64(Resolution) * int64(Resolution) * sizeof(FColor);
-
-	uint8* Dest = static_cast<uint8*>(Mip.BulkData.Lock(LOCK_READ_WRITE));
-	if (Dest == nullptr)
-	{
-		Mip.BulkData.Unlock();
-		UE_LOG(LogTemp, Warning, TEXT("PlanetBiomeCubemap: cubemap 数据加锁失败"));
-		return nullptr;
-	}
-
-	TArray<FColor> FaceColors;
-	for (int32 Face = 0; Face < NumFaces; ++Face)
-	{
-		BakeFaceColors(Params, Geology, Hydrology, Radius, Face, Resolution, FaceColors);
-
-		// 六个面在 BulkData 里按面序首尾相接（CreateTransient 的分配就是这个布局）。
-		FMemory::Memcpy(Dest + int64(Face) * FaceBytes, FaceColors.GetData(), FaceBytes);
-	}
-
-	Mip.BulkData.Unlock();
-
-	Texture->UpdateResource();
-	return Texture;
 }

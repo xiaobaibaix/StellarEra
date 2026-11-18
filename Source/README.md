@@ -22,8 +22,8 @@ StellarEraPlanet/
     ├── VoxelPlanetActor.h         头与源**同目录并列**
     ├── VoxelPlanetActor.cpp
     ├── Terrain/                   按功能分子目录，里面也是 .h/.cpp 并列
-    │   ├── VoxelPlanetGenerator.h
-    │   ├── VoxelPlanetGenerator.cpp
+    │   ├── VoxelPlanetTerrainModule.h
+    │   ├── VoxelPlanetTerrainModule.cpp
     │   └── ...
     ├── Atmosphere/  Minerals/  Edit/
     └── Tests/                     自动化测试（*Tests.cpp 只放这里）
@@ -32,7 +32,7 @@ StellarEraPlanet/
 - **模块入口的两个文件跟 `Build.cs` 并排**，`Src/` 里只有业务代码，不会被入口文件搅混。
 - **头文件与源文件同目录**，改一个功能时打开的目录里 `.h`/`.cpp` 都在，不用两边跳。
 - `Src/` 及每个子目录都会自动进头文件搜索路径（见 `StellarEraPlanet.Build.cs`
-  里的循环），所以 `#include "VoxelPlanetGenerator.h"` 这种裸文件名全项目可用；
+  里的循环），所以 `#include "VoxelPlanetActor.h"` 这种裸文件名全项目可用；
   **新增子目录不需要改 Build.cs**。
 
 ---
@@ -163,7 +163,7 @@ StellarEraCosmos/Src/
 
 | 你想做的事 | 打开这个文件 |
 |---|---|
-| 改地形起伏 | `StellarEraPlanet/Src/Terrain/VoxelPlanetNoiseTerrain.cpp` |
+| 改地形起伏 | `StellarEraPlanet/Src/Geo/Bake/Stages/Stage03Terrain.cpp` |
 | 改星球移动/缩放 | `StellarEraPlanet/Src/VoxelPlanetActor.cpp` |
 | 改大气颜色/高度 | `StellarEraPlanet/Src/Atmosphere/PlanetAtmosphereMaterialBuilder.cpp` |
 | 改水文（河谷 / 湖泊） | `StellarEraPlanet/Src/Hydrology/PlanetHydrologyBake.cpp` |

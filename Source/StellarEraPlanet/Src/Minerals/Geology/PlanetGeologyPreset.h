@@ -101,7 +101,7 @@ struct STELLARERAPLANET_API FPlanetGeologyElementParams
 };
 
 /**
- * 一颗行星的地质预设，唯一数据源。消费链：AVoxelPlanetActor::GeologyAsset → UVoxelPlanetGenerator::GeologyPreset
+ * 一颗行星的地质预设，唯一数据源。消费链：AVoxelPlanetActor::GeologyAsset → UPlanetMineralViewComponent
  * → FPlanetGeologyField::BuildFromPreset；改完资产调 ReloadGeology 重建。元素数组顺序 = 采样顺序 = 图例顺序 = 矿体组件下标。
  */
 UCLASS(BlueprintType)

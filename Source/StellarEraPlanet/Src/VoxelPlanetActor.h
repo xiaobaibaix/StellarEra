@@ -1,5 +1,5 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
-// 将 UVoxelPlanetGenerator 封装为可直接摆放的 Actor。
+// 把地质流水线的快照封装为可直接摆放的 Actor。
 
 #pragma once
 
@@ -18,7 +18,6 @@ class UMaterialInstanceDynamic;
 class UPlanetSurfaceGridComponent;
 class UPlanetWaterComponent;
 class UPlanetSkyLightComponent;
-class UVoxelPlanetGenerator;
 class UVoxelPlanetTerrainModule;
 class UPlanetGeoGenerator;
 class UPlanetRecipe;
@@ -116,7 +115,7 @@ public:
 	 */
 	float GetVoxelSurfaceRadiusCmAtDirection(const FVector& WorldDirection) const;
 
-	/** 行星的地质场。生成器还没建好时为 nullptr。 */
+	/** 旧矿物栈的接口，保留给星图；地质流水线的行星用快照，这里恒为 nullptr。 */
 	TSharedPtr<const FPlanetGeologyField> GetGeologyField();
 
 	/**
@@ -138,25 +137,6 @@ public:
 	/** 球体表面颜色，以顶点色传给材质。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Surface")
 	FLinearColor SurfaceColor = FLinearColor(0.18f, 0.42f, 0.16f);
-
-	//////////////////////////////////////////////////////////////////////////
-	// biome cubemap（颜色与网格密度解耦）
-
-	/**
-	 * biome cubemap 每面分辨率，0 = 关闭（只剩顶点色）。顶点色只在网格采样点上，
-	 * 粗 LOD 下按海拔分带会在 LOD 边界整块翻面（见 PlanetBiomeCubemap.h）；烘到
-	 * cubemap 后颜色与网格密度无关。只对噪声地形生效，只在重建时烘焙。
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Color", meta = (ClampMin = "0", ClampMax = "2048"))
-	int32 BiomeCubemapResolution = 256;
-
-	/**
-	 * 顶点色与 cubemap 色的混合权重（材质参数 `BiomeCubeBlend`）。1 = 完全查表
-	 * （粗 LOD 平滑，近处也只剩 cubemap 分辨率），0 = 回到顶点色（接缝在）。
-	 * **默认 1**：接缝是要治的问题；想保留近处细节可调到 0.7 左右。
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Color", meta = (ClampMin = "0", ClampMax = "1"))
-	float BiomeCubemapBlend = 1.f;
 
 	//////////////////////////////////////////////////////////////////////////
 	// 地形
@@ -277,13 +257,9 @@ public:
 	// 运行时
 
 	/**
-	 * 当前驱动此行星的生成器实例，加载时重建。名字不能叫 Generator —— 基类同名
-	 * 成员是交给渲染器的 FVoxelGeneratorPicker，RebuildPlanet 负责把前者指向后者。
+	 * geo 模式下的生成器。加载时重建；名字不能叫 Generator —— 基类同名成员是交给
+	 * 渲染器的 FVoxelGeneratorPicker，RebuildPlanet 负责把前者指向后者。
 	 */
-	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "Planet")
-	TObjectPtr<UVoxelPlanetGenerator> PlanetGenerator;
-
-	/** geo 模式下的生成器；与 PlanetGenerator 互斥。 */
 	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "Planet|Geo")
 	TObjectPtr<UPlanetGeoGenerator> GeoGenerator;
 
@@ -361,7 +337,6 @@ public:
 	{
 		GeoSnapshot = MoveTemp(InSnapshot);
 	}
-	bool InstallBiomeMaterialForTest(bool bForceBake) { return InstallBiomeMaterial(bForceBake); }
 	bool ApplyGeoDebugOverlayForTest() { return ApplyGeoDebugOverlay(); }
 #endif
 
@@ -422,30 +397,17 @@ private:
 	FDelegateHandle RecipeChangedHandle;
 #endif
 
-	/**
-	 * 烘焙 biome cubemap 并把材质实例装进 VoxelMaterial。bForceBake true = 无条件
-	 * 重烘（地形参数变了）；false = 只在无贴图或分辨率变化时重烘。返回 VoxelMaterial
-	 * 是否**被换掉**，调用方据此决定是否 ApplyNewMaterials。
-	 */
-	bool InstallBiomeMaterial(bool bForceBake);
-
 	/** 按快照矿物表建 / 复用 LUT 纹理并绑到 MID 的 `GeoPalette`；无快照时什么都不做。 */
 	void BindGeoPalette(UMaterialInstanceDynamic* MID);
 
 	/** 按当前水文场重建水面。没有水的行星会拆掉全部分量。 */
 	void RebuildWater();
 
-	/** 上次烘焙用的分辨率。-1 = 从没烘过。 */
-	int32 BakedCubemapResolution = -1;
-
 	/** 上次建 LUT 用的矿物表哈希；变了才重建纹理。非 UPROPERTY：瞬态缓存不落盘。 */
 	uint64 GeoPaletteHash = 0;
 
 	/** PreSave 把 VoxelMaterial 换回 BaseVoxelMaterial 了，PostSaveRoot 负责换回来。 */
 	bool bRestoreVoxelMaterialAfterSave = false;
-
-	/** 烘焙失败的警告只刷一次。 */
-	bool bLoggedBiomeBakeFailure = false;
 
 	/** 上次 RebuildPlanet 构建世界所用的哈希。哈希不变则跳过重建。 */
 	uint64 LastParamsHash = 0;

@@ -19,8 +19,7 @@ using UnrealBuildTool;
 //   Src/Tests        本模块的全部自动化测试（*Tests.cpp 只能出现在这里）
 //
 // Voxel 必须是 **Public** 依赖：本模块多个头直接 include 插件头
-// （VoxelPlanetActor.h、VoxelPlanetGenerator.h、VoxelPlanetNoiseTerrain.h、
-// VoxelPlanetSphereTerrain.h、VoxelPlanetTerrainModule.h、
+// （VoxelPlanetActor.h、VoxelPlanetTerrainModule.h、
 // AlwaysLocalVoxelInvokerComponent.h）并继承插件类型
 // （AVoxelPlanetActor : public AVoxelWorld），下游模块要用这些类型
 // 就必须拿到插件的包含路径 —— 依赖声明为 Public 才会向下游传递。

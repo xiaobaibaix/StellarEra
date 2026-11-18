@@ -13,8 +13,6 @@
 #include "VoxelItemStack.h"
 #include "VoxelPlanetActor.h"
 #include "PlanetSnapshot.h"
-#include "VoxelPlanetGenerator.h"
-#include "VoxelPlanetNoiseTerrain.h"
 #include "PlanetRecipe.h"
 #include "GeoMaterialBuilder.h"
 #include "Materials/Material.h"
@@ -246,80 +244,7 @@ bool FGeoMaterialAssetsTest::RunTest(const FString& Parameters)
 }
 #endif // WITH_EDITOR
 
-// LUT 必须真的挂到 MID 上且 Outer 是瞬态包：UNPROPERTY 的瞬态纹理会被 GC 收走，
-// Outer 指向 Actor 则会被材质管理器钉住，切图时 World Memory Leaks 直接 Fatal。
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoMaterialActorLUTTest, "StellarEra.Planet.Geo.Material.ActorLUT",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-
-bool FGeoMaterialActorLUTTest::RunTest(const FString& Parameters)
-{
-	// 不 SpawnActor：构造/OnConstruction 会建整个体素世界，无头下极慢。InstallBiomeMaterial
-	// 只碰材质与贴图，未注册的 Actor 够用（PlanetMineralViewTests 也这么装）。
-	AVoxelPlanetActor* Planet = NewObject<AVoxelPlanetActor>(GetTransientPackage());
-	if (!TestNotNull(TEXT("行星 Actor"), Planet)) { return false; }
-
-	// 默认必须不改色、不剖切：打开关卡就该是正常星球，调试层只能显式开启。
-	TestEqual(TEXT("默认不改色"), Planet->GeoDebugColor, EPlanetGeoDebugColor::None);
-	TestTrue(TEXT("默认无剖切图层"), Planet->GeoDebugVolumeLayer.IsNone());
-
-	TSharedPtr<FPlanetSnapshot> Snap = MakeShared<FPlanetSnapshot>();
-	Snap->R0 = 1000.0;
-	Snap->MinSurfaceRadius = Snap->MaxSurfaceRadius = Snap->R0;
-	for (int32 Index = 0; Index < 2; ++Index)
-	{
-		FGeoMineralInfo Mineral;
-		Mineral.Name = FString::Printf(TEXT("矿%d"), Index);
-		Mineral.Color = FColor(uint8(20 + Index * 60), 180, uint8(90 - Index * 40));
-		Snap->Minerals.Add(Mineral);
-	}
-	Snap->FinalizeHash();
-	Planet->SetGeoSnapshotForTest(Snap);
-
-	// 最小生成器 + 噪声地形：InstallBiomeMaterial 在这两样齐了之后才走到设参数那段。
-	// cubemap 分辨率压到 4 只为省烘焙时间，调色板尺寸与它无关。
-	Planet->BiomeCubemapResolution = 4;
-	UVoxelPlanetGenerator* Generator = NewObject<UVoxelPlanetGenerator>(GetTransientPackage());
-	UVoxelPlanetNoiseTerrain* Terrain = NewObject<UVoxelPlanetNoiseTerrain>(GetTransientPackage());
-	if (!TestNotNull(TEXT("生成器"), Generator) || !TestNotNull(TEXT("噪声地形"), Terrain)) { return false; }
-	Generator->Terrain = Terrain;
-	Planet->PlanetGenerator = Generator;
-	Planet->VoxelMaterial = NewObject<UMaterial>(GetTransientPackage());
-
-	Planet->InstallBiomeMaterialForTest(/*bForceBake=*/true);
-	if (!TestNotNull(TEXT("biome MID"), Planet->BiomeMaterial.Get())) { return false; }
-
-	UTexture* Bound = nullptr;
-	const bool bFound = Planet->BiomeMaterial->GetTextureParameterValue(
-		FMaterialParameterInfo(TEXT("GeoPalette")), Bound);
-	TestTrue(TEXT("MID 上有 GeoPalette 纹理参数"), bFound);
-	UTexture2D* LUT = Cast<UTexture2D>(Bound);
-	if (!TestNotNull(TEXT("GeoPalette 是 Texture2D"), LUT)) { return false; }
-
-	TestEqual(TEXT("LUT 宽 256"), LUT->GetSizeX(), GeoPalette::Width);
-	TestEqual(TEXT("LUT 高 3"), LUT->GetSizeY(), GeoPalette::Rows);
-	TestTrue(TEXT("纹理 Outer 不是行星 Actor"), LUT->GetOuter() != Planet);
-	TestTrue(TEXT("纹理 Outer 是瞬态包"), LUT->GetOuter() == GetTransientPackage());
-	TestTrue(TEXT("LUT 是 sRGB"), LUT->SRGB);
-	TestTrue(TEXT("最近邻采样（双线性会把矿色与 0 号黑混开）"), LUT->Filter == TF_Nearest);
-	TestTrue(TEXT("U 方向钳制（Wrap 会让 255 号绕回 0）"), LUT->AddressX == TA_Clamp);
-	TestTrue(TEXT("V 方向钳制"), LUT->AddressY == TA_Clamp);
-
-	// Mip0 逐字节对照纯函数：FColor 的内存布局就是 BGRA。
-	const TArray<FColor> Expected = GeoPalette::BuildLUT(Snap->Minerals);
-	FTexture2DMipMap& Mip = LUT->GetPlatformData()->Mips[0];
-	const FColor* Pixels = static_cast<const FColor*>(Mip.BulkData.Lock(LOCK_READ_ONLY));
-	if (TestNotNull(TEXT("Mip0 可加锁读取"), Pixels))
-	{
-		TestEqual(TEXT("岩性 1 号像素与 BuildLUT 一致"),
-			Pixels[1].ToPackedARGB(), Expected[1].ToPackedARGB());
-		TestEqual(TEXT("矿物 1 号像素与 BuildLUT 一致"),
-			Pixels[GeoPalette::Width + 1].ToPackedARGB(), Expected[GeoPalette::Width + 1].ToPackedARGB());
-		Mip.BulkData.Unlock();
-	}
-	return true;
-}
-
-// geo 行星不走 InstallBiomeMaterial：材质必须由 ApplyGeoDebugOverlay 装，否则调色板与 BiomeCube
+// geo 行星的材质必须由 ApplyGeoDebugOverlay 装，否则调色板与 BiomeCube
 // 在唯一有快照的模式里全是死代码（地表一片黑 / 岩性解不出来）。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoMaterialActorGeoTest, "StellarEra.Planet.Geo.Material.ActorGeoMaterial",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -361,6 +286,25 @@ bool FGeoMaterialActorGeoTest::RunTest(const FString& Parameters)
 	{
 		TestEqual(TEXT("LUT 宽 256"), LUT->GetSizeX(), GeoPalette::Width);
 		TestEqual(TEXT("LUT 高 3"), LUT->GetSizeY(), GeoPalette::Rows);
+		TestTrue(TEXT("纹理 Outer 是瞬态包"), LUT->GetOuter() == GetTransientPackage());
+		TestTrue(TEXT("LUT 是 sRGB"), LUT->SRGB);
+		TestTrue(TEXT("最近邻采样（双线性会把矿色与 0 号黑混开）"), LUT->Filter == TF_Nearest);
+		TestTrue(TEXT("U 方向钳制（Wrap 会让 255 号绕回 0）"), LUT->AddressX == TA_Clamp);
+		TestTrue(TEXT("V 方向钳制"), LUT->AddressY == TA_Clamp);
+
+		// Mip0 逐字节对照纯函数：FColor 的内存布局就是 BGRA。
+		const TArray<FColor> Expected = GeoPalette::BuildLUT(Snap->Minerals);
+		FTexture2DMipMap& Mip = LUT->GetPlatformData()->Mips[0];
+		const FColor* Pixels = static_cast<const FColor*>(Mip.BulkData.Lock(LOCK_READ_ONLY));
+		if (TestNotNull(TEXT("Mip0 可加锁读取"), Pixels))
+		{
+			TestEqual(TEXT("岩性 1 号像素与 BuildLUT 一致"),
+				Pixels[1].ToPackedARGB(), Expected[1].ToPackedARGB());
+			TestEqual(TEXT("矿物 1 号像素与 BuildLUT 一致"),
+				Pixels[GeoPalette::Width + 1].ToPackedARGB(),
+				Expected[GeoPalette::Width + 1].ToPackedARGB());
+			Mip.BulkData.Unlock();
+		}
 	}
 
 	UTexture* Cube = nullptr;

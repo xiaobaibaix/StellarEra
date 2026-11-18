@@ -1,5 +1,5 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
-// 将 UVoxelPlanetGenerator 封装为可直接摆放的 Actor。
+// 把地质流水线的快照封装为可直接摆放的 Actor。
 
 #include "VoxelPlanetActor.h"
 
@@ -10,16 +10,12 @@
 #include "VoxelWorldRootComponent.h"
 #include "VoxelGenerators/VoxelGeneratorPicker.h"
 #include "VoxelComponents/VoxelInvokerComponent.h"
-#include "VoxelPlanetGenerator.h"
 #include "VoxelPlanetTerrainModule.h"
 #include "PlanetSurfaceGridComponent.h"
 #include "PlanetGeologyField.h"
 #include "PlanetGeologyPreset.h"
 #include "PlanetWaterComponent.h"
 #include "Sky/PlanetSkyLightComponent.h"
-// biome cubemap：配色按方向烘成贴图，材质逐像素查表 —— 颜色与网格密度解耦。
-#include "PlanetBiomeCubemap.h"
-#include "VoxelPlanetNoiseTerrain.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Engine/TextureCube.h"
@@ -674,13 +670,6 @@ void AVoxelPlanetActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyCh
 		OnGeologyAssetChanged.Broadcast();
 	}
 
-	// 分辨率/混合权重只改瞬态贴图与材质参数，不该推倒体素世界：先不强制重烘
-	// 安装一次，随后 RebuildPlanet 因哈希未变早退。也覆盖用户换 VoxelMaterial 的情况。
-	if (InstallBiomeMaterial(/*bForceBake=*/false) && IsCreated())
-	{
-		UVoxelBlueprintLibrary::ApplyNewMaterials(this);
-	}
-
 	if (GeoRecipe && ApplyGeoDebugOverlay() && IsCreated())
 	{
 		UVoxelBlueprintLibrary::ApplyNewMaterials(this);
@@ -717,8 +706,7 @@ void AVoxelPlanetActor::RebuildPlanet()
 
 	// 水面也有自己的刷新路径，同样在哈希守卫之前：VoxelSize 不进哈希、只触发基类
 	// 重建，IsCreated() 仍为真，守卫会早退；但水面要用它折算厘米，不补就停在旧尺寸。
-	// 水文场以体素为单位、与 VoxelSize 无关，首次重建时生成器未建，由 3.6 建水面。
-	if (PlanetGenerator && !FMath::IsNearlyEqual(LastWaterVoxelSize, VoxelSize))
+	if (!FMath::IsNearlyEqual(LastWaterVoxelSize, VoxelSize))
 	{
 		RebuildWater();
 	}
@@ -735,121 +723,13 @@ void AVoxelPlanetActor::RebuildPlanet()
 	// 重建一次打一行：拖动星球不应产生新行，每帧刷屏即哈希守卫失效。
 	UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor: 重建 %s（参数哈希 %llu）"), *GetName(), ParamsHash);
 
-	if (GeoRecipe)
+	// 所有行星都走地质流水线；没挂配方的旧关卡不建世界。
+	if (!GeoRecipe)
 	{
-		RebuildGeoPlanet();
 		return;
 	}
 
-	if (!PlanetGenerator)
-	{
-		PlanetGenerator = NewObject<UVoxelPlanetGenerator>(this, TEXT("VoxelPlanetGenerator"));
-	}
-
-	// --- 1. 把参数推入生成器 ---
-	PlanetGenerator->Radius = GetScaledRadiusVoxels();
-	// 球心锚在体素世界的局部原点，而体素世界就是本 Actor，所以球心恒在 Actor
-	// 原点、移动与重建无关。早先的 GetCenterInVoxels（逆变换 Actor 位置）正是
-	// 「移动即重建」的来源。
-	PlanetGenerator->Center = FVector::ZeroVector;
-	PlanetGenerator->SurfaceColor = SurfaceColor;
-	// 模块是「这种地形」，不带位置尺寸，同一份资产可喂给任意多颗行星。
-	PlanetGenerator->Terrain = Terrain;
-	// 地质预设与地形模块一样，是「这颗行星」的参数。
-	PlanetGenerator->GeologyPreset = GeologyAsset;
-
-	// --- 1.5 水文场 ---
-	// 必须在 FVoxelGeneratorPicker 之前：密度场要读 Context.Hydrology 才知道
-	// 哪里下切。烘焙同步（512 分辨率 0.5–1 s），只在缓存键变化时发生。
-	PlanetGenerator->RefreshHydrology();
-
-	// --- 2. 把世界边长收到刚好裹住星球 ---
-	// WorldSize 默认 32768 体素而星球只占 6%，ShouldSubdivideByDistance 会把整个立方体
-	// 强行切到 MaxLOD 层（4096 chunk / ~5 万任务）。收紧到半径 3 倍并取 2 的幂后降到 8。
-	// 必须在 CreateWorld / Toggle 之前。
-	const int32 DesiredWorldSize = FMath::RoundUpToPowerOfTwo(
-		FMath::CeilToInt(GetScaledRadiusVoxels() * 3.f));
-	SetWorldSize(DesiredWorldSize);
-
-	// 材质无须在此赋值（VoxelMaterial 是本 Actor 属性），但必须在 CreateWorld 前
-	// 就位：渲染器会在创建时快照它，缺材质会记 Invalid VoxelMaterial 并渲染成灰。
-
-	// Type=Object 交出参数已设好的活实例；Type=Class 会改所有行星共享的 CDO。
-	Generator = FVoxelGeneratorPicker(PlanetGenerator.Get());
-
-	// --- 3. 把生效的八叉树参数钉进日志 ---
-	// 「任务只涨不落」没法从屏幕计数定位，必须知道实际生效的世界边长。根 Height
-	// 就是 RenderOctreeDepth，与 MaxLOD 的差决定被强行切几层。别删这行日志。
-	UE_LOG(LogTemp, Log,
-		TEXT("AVoxelPlanetActor: 体素世界边长 %u 体素（RenderOctreeDepth %d），星球半径 %.0f 体素，MaxLOD %d，行星 invoker LOD %d 范围 %.0f 厘米"),
-		WorldSizeInVoxel, RenderOctreeDepth,
-		GetScaledRadiusVoxels(), MaxLOD,
-		LODInvoker ? LODInvoker->LODToSet : -1,
-		LODInvoker ? LODInvoker->LODRange : 0.f);
-
-	// --- 3.5 biome cubemap ---
-	//
-	// 必须排在 CreateWorld / Toggle 之前（渲染器在创建时快照材质）；但放在哈希
-	// 守卫之后 —— 烘焙很重，拖动星球时本函数每帧被调，只有真正重建才烘一次。
-	InstallBiomeMaterial(/*bForceBake=*/true);
-
-	// --- 3.6 水面 ---
-	//
-	// 排在 CreateWorld 之前：编辑器世界会在 Toggle() 早退，而水面只依赖水文场；
-	// 不提前装好，编辑器视口里永远看不到水。
-	RebuildWater();
-
-	// --- 4. 重建世界，让新生成器生效 ---
-	// CreateWorld 会报 already created 并保留旧生成器（参数在创建时快照），
-	// 不先 DestroyWorld 的话参数编辑被静默忽略。
-	if (IsCreated())
-	{
-		DestroyWorld();
-	}
-
-#if WITH_EDITOR
-	// 编辑器世界必须走插件的 Toggle() 而非直接 CreateWorld()：OnPreBeginPIE 在
-	// Preview 下会拆世界，OnEndPIE 只在 bIsToggled 为真时建回来，而只有 Toggle()
-	// 会置真 —— 否则 PIE 结束后整颗星消失。编辑器 Actor 默认不 Tick，无法兜底。
-	// 只在编辑器世界这样做：Toggle() 会把 PlayType 设成 Preview。
-	if (GetWorld() && GetWorld()->WorldType == EWorldType::Editor)
-	{
-		Toggle();
-		return;
-	}
-#endif
-
-	// --- 5. 先统一建世界线程池，再建世界 ---
-	// 插件约定多体素世界要外部先建全局池，各世界 bCreateGlobalPool=false 只复用；
-	// 否则建池责任落到第一个跑到的行星上，刷 already created / global pool isn't created。
-	// 只对 game/PIE 世界建，编辑器走 Toggle() 自建预览池。
-	UWorld* const World = GetWorld();
-	if (World && World->IsGameWorld())
-	{
-		bCreateGlobalPool = false;
-		if (!UVoxelBlueprintLibrary::IsWorldVoxelPoolCreated(World))
-		{
-			UVoxelBlueprintLibrary::CreateWorldVoxelThreadPool(
-				World,
-				PriorityCategories,
-				PriorityOffsets,
-				NumberOfThreads,
-				bConstantPriorities);
-		}
-	}
-
-	// --- 6. 存档 ---
-	// CreateWorld 内部同步走 LoadFromSaveObject，代价几乎全在装填、取决于存档格式
-	// （见文件顶部 ResaveAll）：144 MB 在 Special 格式 34 s、普通格式 3.4 s。
-	// 要治的是格式，不是挪线程。
-	CreateWorld(FVoxelWorldCreateInfo());
-
-	// 世界重建后表面网格采样全部作废。只刷新网格、**不**调 NotifyVoxelEdited()：
-	// 重建不是编辑，不能标脏触发保存。
-	if (UPlanetSurfaceGridComponent* Grid = FindEditGrid())
-	{
-		Grid->NotifyVoxelEdited();
-	}
+	RebuildGeoPlanet();
 }
 
 void AVoxelPlanetActor::SyncGeoDimensions()
@@ -978,6 +858,8 @@ void AVoxelPlanetActor::RebuildGeoPlanet()
 	GeoGenerator->VolumeLayer = GetVolumeLayerId();
 	// 材质必须在建世界前就位：渲染器创建时快照它。
 	ApplyGeoDebugOverlay();
+	// 水面同样在建世界前装好：编辑器世界在 Toggle() 早退，晚装就永远看不到。
+	RebuildWater();
 
 	// 与旧路径同一收紧策略：边长收到半径 3 倍并取 2 的幂。
 	SetWorldSize(FMath::RoundUpToPowerOfTwo(FMath::CeilToInt(GetScaledRadiusVoxels() * 3.f)));
@@ -1021,114 +903,6 @@ void AVoxelPlanetActor::RebuildGeoPlanet()
 	CreateWorld(FVoxelWorldCreateInfo());
 }
 
-bool AVoxelPlanetActor::InstallBiomeMaterial(bool bForceBake)
-{
-	if (BiomeCubemapResolution <= 0)
-	{
-		return false;
-	}
-
-	// 生成器还没建 = 世界从没建过，等真正的重建再烘。
-	if (!PlanetGenerator)
-	{
-		return false;
-	}
-
-	const UVoxelPlanetNoiseTerrain* NoiseTerrain =
-		Cast<UVoxelPlanetNoiseTerrain>(PlanetGenerator->Terrain);
-	if (!NoiseTerrain)
-	{
-		// 纯球模块没有配色，颜色来自 SurfaceColor 顶点色，不需要 cubemap。
-		return false;
-	}
-
-	// 父材质永远是用户设的那个：VoxelMaterial 此刻可能还指着上次重建留下的 MID。
-	if (!BiomeMaterial || VoxelMaterial != BiomeMaterial)
-	{
-		BaseVoxelMaterial = StripMaterialInstanceDynamic(VoxelMaterial);
-
-		// PIE 复制关卡时 VoxelMaterial 被拷成上一轮 MID 的副本，BiomeMaterial /
-		// BaseVoxelMaterial 被清空；副本的父还指着真材质，剥不出才退回类默认值。
-		if (!BaseVoxelMaterial)
-		{
-			const AVoxelPlanetActor* Defaults = GetClass()->GetDefaultObject<AVoxelPlanetActor>();
-			if (Defaults)
-			{
-				BaseVoxelMaterial = StripMaterialInstanceDynamic(Defaults->VoxelMaterial);
-			}
-		}
-	}
-	if (!BaseVoxelMaterial)
-	{
-		// 用户没设材质时世界本就该报 Invalid VoxelMaterial，插一脚只会变成纯色星。
-		return false;
-	}
-
-	if (bForceBake || !BiomeCubemap || BakedCubemapResolution != BiomeCubemapResolution)
-	{
-		const double BakeStart = FPlatformTime::Seconds();
-
-		UTextureCube* Cube = PlanetBiomeCubemap::BakeTexture(
-			NoiseTerrain->MakeParams(),
-			PlanetGenerator->GetGeology().Get(),
-			PlanetGenerator->GetHydrology().Get(),
-			double(GetScaledRadiusVoxels()),
-			BiomeCubemapResolution);
-
-		if (!Cube)
-		{
-			if (!bLoggedBiomeBakeFailure)
-			{
-				bLoggedBiomeBakeFailure = true;
-				UE_LOG(LogTemp, Warning,
-					TEXT("AVoxelPlanetActor %s: biome cubemap 烘焙失败（分辨率 %d），本颗星继续用顶点色。"),
-					*GetName(), BiomeCubemapResolution);
-			}
-			return false;
-		}
-
-		BiomeCubemap = Cube;
-		BakedCubemapResolution = BiomeCubemapResolution;
-
-		// 打一行耗时：这是「烘焙到底贵不贵」的唯一可观测证据。
-		UE_LOG(LogTemp, Log,
-			TEXT("AVoxelPlanetActor %s: biome cubemap %d² × 6 面烘焙完成，用时 %.1f 毫秒"),
-			*GetName(), BiomeCubemapResolution,
-			(FPlatformTime::Seconds() - BakeStart) * 1000.0);
-	}
-
-	// 非 geo 行星继续用用户材质：M_GeoPlanet 解的是地质编码，而噪声地形的顶点 RGB 是普通颜色、U1=0，
-	// 换过去整颗星会变成解码垃圾。只有 ApplyGeoDebugOverlay 才允许选 M_GeoPlanet。
-	if (!BiomeMaterial || BiomeMaterial->Parent != BaseVoxelMaterial)
-	{
-		BiomeMaterial = CreateBiomeMaterialMID(BaseVoxelMaterial);
-		if (!BiomeMaterial)
-		{
-			return false;
-		}
-
-		// 父材质类型不被接受时 Create 不返回 null，而是留下 Parent 为空的 MID；
-		// 交给插件会在 VoxelRenderUtilities.cpp:518 ensure、整星变灰。宁可继续用顶点色。
-		if (!BiomeMaterial->Parent)
-		{
-			UE_LOG(LogTemp, Warning,
-				TEXT("AVoxelPlanetActor %s: 无法为用户材质 %s 创建 biome MID（父材质被拒绝），本颗星继续用顶点色。"),
-				*GetName(), *GetNameSafe(BaseVoxelMaterial));
-			BiomeMaterial = nullptr;
-			return false;
-		}
-	}
-
-	// 参数名须与 M_PlanetVertexColor 对得上；材质里没有时静默不生效（回到纯顶点色）。
-	BiomeMaterial->SetTextureParameterValue(TEXT("BiomeCube"), BiomeCubemap);
-	BiomeMaterial->SetScalarParameterValue(TEXT("BiomeCubeBlend"), BiomeCubemapBlend);
-	BindGeoPalette(BiomeMaterial);
-
-	const bool bSwitched = (VoxelMaterial != BiomeMaterial);
-	VoxelMaterial = BiomeMaterial;
-	return bSwitched;
-}
-
 void AVoxelPlanetActor::RebuildWater()
 {
 	// 记下本次尺寸：RebuildPlanet 在哈希守卫前拿它比较（组件判空之前也要记）。
@@ -1147,19 +921,14 @@ void AVoxelPlanetActor::RebuildWater()
 	}
 
 	FPlanetWaterConfig Config;
-	const bool bHasWater = PlanetGenerator
-		&& PlanetGenerator->Terrain
-		&& PlanetGenerator->Terrain->GetWaterConfig(Config)
-		&& PlanetGenerator->GetHydrology().IsValid();
 
-	// 地形模块也传下去：湖泊的 2 格余量要采样地表高度，否则水面悬在岸外。
-	// 没有水时传空 → 组件会拆掉全部分量。
+	// 地质流水线没有水文场：传空 → 组件拆掉全部分量。
 	WaterComponent->RebuildWater(
-		bHasWater ? PlanetGenerator->GetHydrology().Get() : nullptr,
+		/*Field=*/nullptr,
 		Config,
 		double(VoxelSize),
 		double(GetScaledRadiusVoxels()),
-		bHasWater ? PlanetGenerator->Terrain.Get() : nullptr);
+		/*Terrain=*/nullptr);
 }
 
 void AVoxelPlanetActor::PreSave(FObjectPreSaveContext ObjectSaveContext)
@@ -1193,12 +962,6 @@ void AVoxelPlanetActor::PostSaveRoot(FObjectPostSaveRootContext ObjectSaveContex
 
 void AVoxelPlanetActor::InvalidateAndRebuild()
 {
-	// 地形资产变了，水文场也过期；显式失效让「先失效、后重建」的顺序可见。
-	if (PlanetGenerator)
-	{
-		PlanetGenerator->InvalidateHydrology();
-	}
-
 	// 触发这次重建的是地形资产参数，不参与本 Actor 的哈希；不抹掉 LastParamsHash
 	// 守卫会吞掉重建。
 	LastParamsHash = 0;
@@ -1445,13 +1208,11 @@ void AVoxelPlanetActor::PostLoad()
 {
 	Super::PostLoad();
 
-	// CDO（Default__BP_VoxelPlanet_C）不持有生成器。CDO 上出现名为 VoxelPlanetGenerator
-	// 的子对象后，各行星的同名子对象会按名字把它当原型（UObjectArchetype.cpp:127），
-	// 保存外部 Actor 包时连带 harvest 出 "Illegal reference to private object"。
-	// 主防线是 RebuildPlanet 的「没有世界就早退」；这里清的是历史上已落盘的那份。
+	// CDO（Default__BP_VoxelPlanet_C）不持有生成器。CDO 上出现同名子对象后，各行星的
+	// 同名子对象会按名字把它当原型（UObjectArchetype.cpp:127），保存外部 Actor 包时连带
+	// harvest 出 "Illegal reference to private object"。这里清的是历史上已落盘的那份。
 	if (HasAnyFlags(RF_ClassDefaultObject))
 	{
-		PlanetGenerator = nullptr;
 		Generator = FVoxelGeneratorPicker();
 	}
 	NormalizeGeoDebugLayerNames();
@@ -1482,11 +1243,6 @@ FSoftObjectPath AVoxelPlanetActor::MakeLegacyGeologyAssetPath(const FString& Leg
 
 void AVoxelPlanetActor::ReloadGeology()
 {
-	// 预设在资产里的修订号变了，丢缓存后重建即可。
-	if (PlanetGenerator)
-	{
-		PlanetGenerator->InvalidateGeology();
-	}
 	InvalidateAndRebuild();
 }
 
@@ -1498,19 +1254,8 @@ float AVoxelPlanetActor::GetSurfaceRadiusCm() const
 
 float AVoxelPlanetActor::GetSurfaceRadiusCmAtDirection(const FVector& WorldDirection) const
 {
-	// geo 模式没有旧生成器可问，地表 = 快照的 R0 + 高程场。
-	if (GeoSnapshot.IsValid())
-	{
-		const FVector Direction = WorldDirection.GetSafeNormal();
-		if (!Direction.IsNearlyZero())
-		{
-			return float(PlanetShapeEval::SurfaceRadius(*GeoSnapshot, FVector3f(Direction))) * VoxelSize;
-		}
-		return GetSurfaceRadiusCm();
-	}
-
-	// 没挂模块（或生成器未建）时地表就是基准球面 —— 光滑球正是没有地形的样子。
-	if (!PlanetGenerator || !PlanetGenerator->Terrain)
+	// 地表 = 快照的 R0 + 高程场；快照未到时退回基准球面。
+	if (!GeoSnapshot.IsValid())
 	{
 		return GetSurfaceRadiusCm();
 	}
@@ -1521,28 +1266,18 @@ float AVoxelPlanetActor::GetSurfaceRadiusCmAtDirection(const FVector& WorldDirec
 		return GetSurfaceRadiusCm();
 	}
 
-	// 上下文由生成器统一构造：地质场必须与密度场那份相同，否则脚下与看到的地面不同。
-	const FVoxelPlanetTerrainContext Context = PlanetGenerator->MakeTerrainContext();
-
-	// 体素空间与世界空间之间只差一个等比缩放，没有旋转，方向可以原样传递。
-	return PlanetGenerator->Terrain->GetSurfaceRadiusVoxels(Context, Direction) * VoxelSize;
+	return float(PlanetShapeEval::SurfaceRadius(*GeoSnapshot, FVector3f(Direction))) * VoxelSize;
 }
 
 float AVoxelPlanetActor::GetMinSurfaceRadiusCm() const
 {
-	// 大气拿它当地面下界，geo 模式必须给真正的最低点，否则整层壳浮空/陷地。
-	if (GeoSnapshot.IsValid())
-	{
-		return float(GeoSnapshot->MinSurfaceRadius) * VoxelSize;
-	}
-
-	if (!PlanetGenerator || !PlanetGenerator->Terrain)
+	// 大气拿它当地面下界，必须给真正的最低点，否则整层壳浮空/陷地。
+	if (!GeoSnapshot.IsValid())
 	{
 		return GetSurfaceRadiusCm();
 	}
-	// 上下文里的半径与水文场是本次重建的快照，半径或水文一变这里跟着变。
-	const FVoxelPlanetTerrainContext Context = PlanetGenerator->MakeTerrainContext();
-	return PlanetGenerator->Terrain->GetMinSurfaceRadiusVoxels(Context) * VoxelSize;
+
+	return float(GeoSnapshot->MinSurfaceRadius) * VoxelSize;
 }
 
 float AVoxelPlanetActor::GetVoxelSurfaceRadiusCmAtDirection(const FVector& WorldDirection) const
@@ -1652,7 +1387,8 @@ float AVoxelPlanetActor::GetVoxelSurfaceRadiusCmAtDirection(const FVector& World
 
 TSharedPtr<const FPlanetGeologyField> AVoxelPlanetActor::GetGeologyField()
 {
-	return PlanetGenerator ? PlanetGenerator->GetGeology() : nullptr;
+	// 旧矿物栈的接口，保留给星图；地质流水线的行星用快照，不经这里。
+	return nullptr;
 }
 
 bool AVoxelPlanetActor::RaycastSurfaceCm(
@@ -1957,7 +1693,7 @@ bool AVoxelPlanetActor::ApplyGeoDebugOverlay()
 		return false;
 	}
 
-	// geo 行星没有噪声生物群系，且 **不走 InstallBiomeMaterial**：用 Biome 调试图层烘一张底图，
+	// geo 行星没有噪声生物群系：用 Biome 调试图层烘一张底图，
 	// 否则 M_GeoPlanet 的地表没有 BiomeCube 可采。叠加模式下仍烘用户选的图层，行为不变。
 	const FGeoDebugLayer* CubeLayer = bWantOverlay
 		? OverlayLayer

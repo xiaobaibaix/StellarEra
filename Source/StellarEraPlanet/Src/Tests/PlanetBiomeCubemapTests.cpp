@@ -1,36 +1,11 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
-// biome cubemap 的方向映射与烘焙：纯数学 + CPU，无 RHI。
+// biome cubemap 的方向映射：纯数学，无 RHI。
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "PlanetBiomeCubemap.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
-
-namespace
-{
-	/** 一套配色差异明显、且确定有海有陆的参数，避免测试断言依赖资产默认值。 */
-	FPlanetNoiseParams MakeTestParams()
-	{
-		FPlanetNoiseParams Params;
-		Params.Amplitude = 8.f;
-		Params.Frequency = 2.5f;
-		Params.Octaves = 4;
-		Params.SeaLevel = -0.35f;
-		Params.WaterDepthRange = 0.25f;
-		Params.SandToGrassHeight = 0.08f;
-		Params.GrassToRockHeight = 0.55f;
-		Params.PolarStart = 0.72f;
-
-		Params.DeepWaterColor = FLinearColor(0.02f, 0.06f, 0.22f);
-		Params.ShallowWaterColor = FLinearColor(0.05f, 0.22f, 0.38f);
-		Params.SandColor = FLinearColor(0.72f, 0.66f, 0.44f);
-		Params.GrassColor = FLinearColor(0.18f, 0.42f, 0.16f);
-		Params.RockColor = FLinearColor(0.32f, 0.29f, 0.26f);
-		Params.SnowColor = FLinearColor(0.92f, 0.94f, 0.97f);
-		return Params;
-	}
-}
 
 // 面 + UV → 方向 → 面 + UV 必须回到原处。这条钉的是**面表本身**（主轴/u 轴/v 轴符号）：
 // 任一轴写反，对应面就是镜像方向，而错误长得像「配色不对」，只看画面分不出。
@@ -111,87 +86,6 @@ bool FStellarEraBiomeCubeEdgeContinuityTest::RunTest(const FString& Parameters)
 		}
 	}
 
-	return true;
-}
-
-// 烘焙出的每个像素必须等于「同一方向上的地表配色」。这条钉烘焙侧接线：深度用哪个半径、
-// 像素中心怎么取、sRGB 怎么编码。任一处偏了材质与顶点色就不是同一套，接缝会从
-// 「采样密度差」变成「两套配色不一致」，且只在 LOD 切换瞬间可见。
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraBiomeCubeBakeMatchesColorTest,
-	"StellarEra.Planet.BiomeCubemap.BakeMatchesColorFunction",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-
-bool FStellarEraBiomeCubeBakeMatchesColorTest::RunTest(const FString& Parameters)
-{
-	const FPlanetNoiseParams Params = MakeTestParams();
-	const double Radius = 100.0;
-	const int32 Resolution = 16;
-
-	TArray<FColor> Colors;
-	PlanetBiomeCubemap::BakeFaceColors(
-		Params, /*Geology=*/nullptr, /*Hydrology=*/nullptr, Radius, /*Face=*/0, Resolution, Colors);
-
-	TestEqual(TEXT("像素数 = 分辨率²"), Colors.Num(), Resolution * Resolution);
-	if (Colors.Num() != Resolution * Resolution)
-	{
-		return false;
-	}
-
-	// 至少两种颜色：全同色意味着参数没生效（例如颜色字段被漏拷），而那条路径不报错、
-	// 只会让整颗星变成一片纯色。
-	TSet<uint32> UniqueColors;
-	for (const FColor& Color : Colors)
-	{
-		UniqueColors.Add(Color.ToPackedARGB());
-	}
-	TestTrue(TEXT("烘焙图不是纯色"), UniqueColors.Num() >= 2);
-
-	// 逐像素对照。独立重算一遍「方向 → 颜色」，而不是调烘焙函数自己。
-	bool bAllMatch = true;
-	for (int32 Y = 0; Y < Resolution; ++Y)
-	{
-		for (int32 X = 0; X < Resolution; ++X)
-		{
-			const FVector Direction = PlanetBiomeCubemap::FaceUVToDirection(
-				0,
-				(float(X) + 0.5f) / float(Resolution),
-				(float(Y) + 0.5f) / float(Resolution));
-
-			const double SurfaceRadius =
-				Radius + double(Params.Amplitude) * double(ComputeRawPlanetOffset(Params, Direction));
-			const FColor Expected = ComputePlanetSurfaceColor(
-				Params, nullptr, nullptr, Radius, Direction, SurfaceRadius).ToFColor(true);
-
-			if (Colors[Y * Resolution + X].ToPackedARGB() != Expected.ToPackedARGB())
-			{
-				bAllMatch = false;
-				AddError(FString::Printf(
-					TEXT("像素 (%d, %d) 与配色函数不一致：烘焙 %08x，重算 %08x"),
-					X, Y,
-					Colors[Y * Resolution + X].ToPackedARGB(),
-					Expected.ToPackedARGB()));
-			}
-		}
-	}
-	TestTrue(TEXT("每个像素都等于同方向的配色函数值"), bAllMatch);
-
-	return true;
-}
-
-// 非法分辨率必须交出空数组，而不是带着上一次的数据往下走（材质会当全黑，整星变暗且不报错）。
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraBiomeCubeZeroResolutionTest,
-	"StellarEra.Planet.BiomeCubemap.ZeroResolutionIsEmpty",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-
-bool FStellarEraBiomeCubeZeroResolutionTest::RunTest(const FString& Parameters)
-{
-	const FPlanetNoiseParams Params = MakeTestParams();
-
-	TArray<FColor> Colors;
-	Colors.Add(FColor::Red);
-	PlanetBiomeCubemap::BakeFaceColors(Params, nullptr, nullptr, 100.0, 0, 0, Colors);
-
-	TestEqual(TEXT("分辨率 0 → 空数组"), Colors.Num(), 0);
 	return true;
 }
 

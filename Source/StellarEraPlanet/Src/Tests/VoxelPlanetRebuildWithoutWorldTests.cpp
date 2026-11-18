@@ -32,11 +32,6 @@ bool FStellarEraPlanetRebuildWithoutWorldTest::RunTest(const FString& Parameters
 
 	TestFalse(TEXT("无世界宿主不应该建出体素世界"), CDO->IsCreated());
 
-	// 生成器也必须没被建出来：CDO 上出现一个同名的 VoxelPlanetGenerator 子对象，
-	// 会让关卡行星的同名子对象把它解析成 archetype，外部 Actor 包从此存不下去
-	// （Illegal reference to private object）。PostLoad 里也有同样的兜底。
-	TestNull(TEXT("CDO 不应该持有生成器"), CDO->PlanetGenerator);
-
 	return true;
 }
 
