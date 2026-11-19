@@ -63,9 +63,6 @@ private:
 	 */
 	void OnEditPrimary(const FInputActionValue& Value);
 
-	/** M：进星图。换 Possess 的实现住在控制器，经 IStellarEraSessionCommands 转发。 */
-	void OnStarMapToggle(const FInputActionValue& Value);
-
 	/** E：登船。实现同样在控制器上。 */
 	void OnInteract(const FInputActionValue& Value);
 
