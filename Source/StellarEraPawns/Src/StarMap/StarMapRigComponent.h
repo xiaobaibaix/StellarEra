@@ -65,6 +65,12 @@ public:
 	/** 左键拾取天体的像素容差。星图输入组件与 HUD 悬停查询共用。 */
 	float GetSelectionPixelRadius() const { return SelectionPixelRadius; }
 
+	/** 拉远上限（到焦点球心，厘米）。控制器与测试用；参数本身仍是 EditAnywhere。 */
+	double GetMaxOrbitDistanceCm() const { return MaxOrbitDistanceCm; }
+
+	/** 绕行灵敏度倍率上限，见 OrbitLookScale。 */
+	double GetMaxOrbitLookScale() const { return MaxOrbitLookScale; }
+
 	/** owner 上的行星编辑组件；飞船 / 角色都可能是蓝图挂的。 */
 	UPlanetEditComponent* GetPlanetEditComponent() const;
 

@@ -8,7 +8,6 @@
 #include "CosmosTrajectoryComponent.h"
 #include "PlanetEditComponent.h"
 #include "StarMapCameraInputComponent.h"
-#include "StarMapCameraPawn.h"
 #include "StarMapRigComponent.h"
 
 #include "BlueprintComponentTestHelpers.h"
@@ -364,7 +363,7 @@ bool FStellarEraStarMapOrbitLookScaleTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// 相机默认值：当前关卡三恒星在 ±200 AU、行星在 +400 AU（系统跨 600 AU），拉远上限必须
+// rig 默认值：当前关卡三恒星在 ±200 AU、行星在 +400 AU（系统跨 600 AU），拉远上限必须
 // 覆盖它；远距离拖拽倍率必须有硬上限，否则 1.2°/px × 8 在星系尺度上一拖整圈。
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapCameraDefaultsTest,
 	"StellarEra.StarMap.CameraDefaults",
@@ -372,7 +371,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapCameraDefaultsTest,
 
 bool FStellarEraStarMapCameraDefaultsTest::RunTest(const FString& Parameters)
 {
-	const AStarMapCameraPawn* Defaults = GetDefault<AStarMapCameraPawn>();
+	const UStarMapRigComponent* Defaults = GetDefault<UStarMapRigComponent>();
 	if (!TestNotNull(TEXT("相机 CDO"), Defaults))
 	{
 		return false;
