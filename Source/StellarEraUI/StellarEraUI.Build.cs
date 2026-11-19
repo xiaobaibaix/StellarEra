@@ -17,7 +17,7 @@ using UnrealBuildTool;
 // 不需要再向 Game 要接口。
 //
 // ── 关于 Voxel 依赖 ───────────────────────────────────────────────────
-// 这条依赖是星图相机头还住在本模块时留下的：它的
+// 这条依赖是星图头还住在本模块时留下的：它的
 // TObjectPtr<UVoxelSimpleInvokerComponent> UPROPERTY 让本模块的生成代码
 // 需要 Voxel 的 UClass（早先靠 StellarEraTerrain 的 **Public** 依赖传递；
 // 传递链断掉后链接期报 LNK2019: Z_Construct_UClass_UVoxelSimpleInvokerComponent）。

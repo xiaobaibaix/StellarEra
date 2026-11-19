@@ -11,8 +11,8 @@ AStarBodyActor::AStarBodyActor()
 {
 	PrimaryActorTick.bCanEverTick = false;
 
-	// 根是空场景组件而不是网格：×200000 视觉缩放会沿层级传给挂在根下的星图相机
-	// 与轨迹线。缩放只让 StarMesh 自己吃。
+	// 根是空场景组件而不是网格：×200000 视觉缩放会沿层级传给挂在根下的轨迹线。
+	// 缩放只让 StarMesh 自己吃。
 	StarRoot = CreateDefaultSubobject<USceneComponent>(TEXT("StarRoot"));
 	SetRootComponent(StarRoot);
 

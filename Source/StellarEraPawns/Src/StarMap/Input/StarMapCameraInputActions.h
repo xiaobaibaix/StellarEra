@@ -51,7 +51,7 @@ struct STELLARERAPAWNS_API FStarMapCameraInputActions
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> StarMapSelect;
 
-	/** 星图模式开关（M）。进星图后 Possess 的是本相机，它必须自己绑这条才退得出去。 */
+	/** 星图模式开关（M）。由 `UStarMapInputComponent` 在当前被 Possess 的 Pawn 上绑一次，只切 rig 状态。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> StarMapToggle;
 

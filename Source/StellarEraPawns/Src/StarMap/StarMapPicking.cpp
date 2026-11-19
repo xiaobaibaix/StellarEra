@@ -82,7 +82,7 @@ AActor* StarMapPicking::PickBodyUnderScreenPosition(
 	// 投影留在调用方，拾取函数才能是纯函数、才能无头测。
 	TArray<FStarMapScreenCandidate> Candidates;
 	Candidates.Reserve(Bodies.Num());
-	// 星图相机不再挂在天体上：全部注册天体都可点，别再加「有相机」过滤。
+	// 星图没有「天体须挂视点物」的过滤：全部注册天体都可点。
 	for (AActor* Body : Bodies)
 	{
 		FStarMapScreenCandidate Candidate;

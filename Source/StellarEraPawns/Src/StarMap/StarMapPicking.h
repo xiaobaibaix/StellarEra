@@ -31,7 +31,7 @@ namespace StarMapPicking
 
 	/**
 	 * 屏幕点下的已注册天体；没有返回空。所有注册天体都可被点中 ——
-	 * 星图相机不挂在天体上，焦点与「有没有相机」无关。
+	 * 星图视点不挂在天体上，焦点与「有没有视点物」无关。
 	 */
 	STELLARERAPAWNS_API AActor* PickBodyUnderScreenPosition(
 		const UWorld* World,

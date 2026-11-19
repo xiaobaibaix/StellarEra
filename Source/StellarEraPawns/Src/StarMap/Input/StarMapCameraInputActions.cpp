@@ -29,7 +29,7 @@ void FStarMapCameraInputActions::Build(UObject* Outer, UInputMappingContext* Con
 	StellarEraInput::MapKey(Context, LookMiddle, EKeys::MiddleMouseButton);
 
 	// 滚轮是轴键（每格 ±1），不是按键，所以映射到 Axis1D 的动作上直接取值。
-	// 不需要任何修饰器：方向约定（上滚 = 拉近）由星图相机自己的 AddZoom 负责。
+	// 不需要任何修饰器：方向约定（上滚 = 拉近）由 UStarMapRigComponent::AddZoom 负责。
 	StellarEraInput::MapKey(Context, Zoom, EKeys::MouseWheelAxis);
 
 	StellarEraInput::MapKey(Context, EditModeToggle, EKeys::G);

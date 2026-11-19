@@ -7,8 +7,8 @@
 #include "AlwaysLocalVoxelInvokerComponent.generated.h"
 
 /**
- * 永远算作「本地调用器」的体素调用器。插件默认绑 IsLocallyControlled，进星图
- * Possess 相机时飞船/角色的调用器会掉出 LOD，触发整棵八叉树重建并报 VoxelFree
+ * 永远算作「本地调用器」的体素调用器。插件默认绑 IsLocallyControlled，上下船等
+ * 换 Possess 时飞船/角色的调用器会掉出 LOD，触发整棵八叉树重建并报 VoxelFree
  * 的 ensure。这里固定返回 true：「归谁控制」与「该不该参与 LOD」是两件事。
  */
 UCLASS()

@@ -51,7 +51,7 @@ public class StellarEraPlanet : ModuleRules
 			"Core", "CoreUObject", "Engine", "Voxel",
 
 			// IVoxelViewpointInvokers 就在本模块的 Src/Invokers/ —— 实现它的是
-			// Pawns 的三个 Pawn 与 UI 的星图相机，它们都已 Public 依赖本模块，
+			// Pawns 的两个 Pawn（角色、飞船），它们都已 Public 依赖本模块，
 			// 而本模块的 AlwaysLocalVoxelInvokerComponent 提供配套的工具函数。
 			// （原 StellarEraCore 在 2026-10 拆掉，接口随体素接线层落到这里。）
 

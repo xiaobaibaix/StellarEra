@@ -59,7 +59,7 @@ bool FStellarEraStarMapInputWiringTest::RunTest(const FString& Parameters)
 	// 它有自己的 EnhancedActionEventBindings —— 读错容器会得到恒 0。
 	const TArray<TUniquePtr<FEnhancedInputActionEventBinding>>& Bindings = Input->GetActionEventBindings();
 
-	// 星图视角、编辑、选择与会话共十一条，
+	// 星图的 8 个动作共 11 条绑定（按住 / 松开各一条的算两条），
 	// 少一条就是某个键静默失灵。
 	int32 LookCount = 0;
 	int32 LookActivateCount = 0;

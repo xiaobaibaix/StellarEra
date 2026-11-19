@@ -59,7 +59,7 @@ private:
 
 	/**
 	 * 左键按下：只服务编辑（笔刷按钮 + 挖掘）。用角色表自己的 `EditPrimary`，
-	 * 不是星图相机那条 `StarMapSelect` —— 同一个键、语义不同，各造各的动作。
+	 * 不是星图那条 `StarMapSelect` —— 同一个键、语义不同，各造各的动作。
 	 */
 	void OnEditPrimary(const FInputActionValue& Value);
 

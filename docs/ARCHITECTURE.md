@@ -20,7 +20,7 @@
 |---:|---|---:|---:|---:|---|---|
 | L1 | `StellarEraPlanet` | 122 | 29293 | 30 | 一颗行星的全部：地形 / 水文 / 水面 / 大气 / 矿物（含地质场）/ 编辑与编辑按钮布局 / 体素接线 | Public: Voxel, GeometryCore / Private: AssetRegistry, GeometryFramework |
 | L2 | `StellarEraCosmos` | 18 | 7739 | 6 | N 体积分与编排、天体类型、轨迹 | Private: Planet |
-| L3 | `StellarEraPawns` | 44 | 9312 | 11 | 玩家能 possess 的：角色、飞船、星图相机（输入各自成 `Input/`） | Public: Cosmos, Planet, Voxel / Private: EnhancedInput, InputCore |
+| L3 | `StellarEraPawns` | 44 | 9312 | 11 | 玩家能 possess 的：角色、飞船（星图 rig / 输入是两者身上的组件） | Public: Cosmos, Planet, Voxel / Private: EnhancedInput, InputCore |
 | L4 | `StellarEraUI` | 10 | 2856 | 4 | HUD、星图面板、矿物图例 | Public: Planet, Pawns / Private: Cosmos, Voxel |
 | L5 | `StellarEra` | 12 | 3290 | 6 | GameMode、PlayerController、输入动作表聚合（primary game module） | Public: UI, Pawns / Private: Planet, Cosmos, Voxel, InputCore, EnhancedInput |
 | 编辑器 | `StellarEraPlanetEditor` | 4 | 398 | 0 | 地质查看器面板（Slate，Type=Editor，不进打包） | Public: Planet / Private: Slate, SlateCore, InputCore, UnrealEd, WorkspaceMenuStructure |
@@ -75,20 +75,20 @@ graph TD
 
 六条 Public 边：`StellarEra → UI`、`StellarEra → Pawns`、`UI → Planet`、`UI → Pawns`、
 `Pawns → Planet`、`Pawns → Cosmos`。其中 `StellarEra → Pawns` 是控制器的公开头逼出来的 ——
-它 include 了 `StarMap/Input/StarMapCameraInputComponent.h`（实现 `IStarMapLookContext`）、
-`StellarEraInputSource.h`（实现 `IStellarEraInputSource`）与 `Src/Input/StellarEraInputActions.h`
-（聚合三张 Pawn 表）；`UI → Pawns` 同理 —— `StarMapUISystem.h` include 了
+它 include 了 `StellarEraInputSource.h`（实现 `IStellarEraInputSource`）、`SessionCommands.h`
+（实现 `IStellarEraSessionCommands`）与 `Src/Input/StellarEraInputActions.h`（聚合三张 Pawn 表）；
+`UI → Pawns` 同理 —— `StarMapUISystem.h` include 了
 `StarMapPanelLayout.h`、`StellarEraHUD.h` include 了 `StellarEraNoticeSink.h`，两个头都在 Pawns。
 `Pawns → Planet` 是被 `IVoxelViewpointInvokers` 逼出来的
-—— 两个 Pawn 与星图相机都在**公开头**里继承它；`Pawns → Cosmos` 则因为飞船在公开头里
-实现 `ICosmosBody`、星图相机要调 `UCosmosSimulationSubsystem`（2026-11-06 抽出接口后才成立）。
+—— 两个 Pawn 都在**公开头**里继承它；`Pawns → Cosmos` 则因为飞船在公开头里
+实现 `ICosmosBody`（2026-11-06 抽出接口后才成立）。
 其余跨模块引用一律 Private。
 
 **单向，无环。** 三条曾经试图制造环的路，第一条已经还清，另两条仍按原判据处理：
 
 | 想搬的东西 | 会形成的环 | 现在的处理 |
 |---|---|---|
-| `AStarMapCameraPawn` → Pawns | ~~`Pawns → Cosmos → Pawns`~~（已还清） | 2026-11-06 抽出 `ICosmosBody`（`Cosmos/Src/CosmosBody.h`，由飞船实现）后相机已搬进 `Pawns/Src/StarMap/`，旧脚本路径由 `[CoreRedirects]` 兜底 |
+| 星图 rig → Pawns | ~~`Pawns → Cosmos → Pawns`~~（已还清） | 2026-11-06 抽出 `ICosmosBody`（`Cosmos/Src/CosmosBody.h`，由飞船实现）后星图相机搬进 `Pawns/Src/StarMap/`；2026-11-19 相机类删除，改为 `UStarMapRigComponent`，旧脚本路径仍由 `[CoreRedirects]` 兜底 |
 | UI 直接用 `CosmosSimulationSubsystem` | 已经是合法方向（UI 在上层），无需搬 | UI 私有依赖 Cosmos |
 | `IVoxelViewpointInvokers` 放 Cosmos | `Pawns → Cosmos`，而当时 Cosmos 私有依赖 Pawns | 放 Planet/Src/Invokers/，UI 与 Pawns 都已 Public 依赖 Planet |
 
@@ -175,10 +175,10 @@ Pawns 的三个功能面各自再分出 `Input/`：`Character` 4（+ `Animations
 `Cosmos/Src/NBody/` 是个例外：只有 3 个文件（`NBodySimulator.h/.cpp` + `CosmosTypes.h`），
 够不上「每族 ≥4 个」的门槛，但它是一个 1300 行的独立计算单元，且与编排层没有代码交集 ——
 判据的第二条「有没有第二类职责」在这里成立，所以还是分了出来。
-`Pawns/Src/StarMap/` 共 10 个文件：2026-11-06 整体搬来的星图相机（`StarMapCameraPawn`）、
-绘制与命中共用的纯几何（`StarMapPanelLayout` / `StarMapPicking`），以及它自己的 `Input/`
-（输入组件 + 动作表）。它们是一个功能族（星图视点），不是从某个大目录里拆出来的，
-因此不受这条门槛约束。
+`Pawns/Src/StarMap/` 共 10 个文件：星图 rig（`UStarMapRigComponent`，挂在飞船 / 角色上
+接管相机）、绘制与命中共用的纯几何（`StarMapPanelLayout` / `StarMapPicking`），以及
+`Input/`（`UStarMapInputComponent` + 动作表）。它们是一个功能族（星图视点），不是从
+某个大目录里拆出来的，因此不受这条门槛约束。
 
 ### 矿物域的层次（`Planet/Src/Minerals/`）
 
@@ -252,9 +252,8 @@ UCosmosSimulationSubsystem* Simulation =
 
 | 接口 | 位置 | 实现方 / 为什么放这 |
 |---|---|---|
-| `IVoxelViewpointInvokers` | `StellarEraPlanet/Src/Invokers/` | 实现方是 Pawns 的两个 Pawn 与星图相机（2026-11-06 起相机也在 `Pawns/Src/StarMap/`），使用方是 Controller。三方都已依赖 Planet，放这里不需要任何新依赖 |
+| `IVoxelViewpointInvokers` | `StellarEraPlanet/Src/Invokers/` | 实现方是 Pawns 的两个 Pawn（角色、飞船），使用方是 Controller。三方都已依赖 Planet，放这里不需要任何新依赖 |
 | `ICosmosBody` | `StellarEraCosmos/Src/CosmosBody.h` | 实现方是 `ASpaceshipPawn`（11 个纯虚）。Cosmos 是消费方且在低层（L2），放在 Cosmos 才不会让 `Pawns → Cosmos` 反向 |
-| `IStarMapLookContext` | `StellarEraPawns/Src/StarMap/Input/StarMapCameraInputComponent.h` | 实现方是 Controller（只剩 `ShowStarMapPrompt` 弹提示）。星图输入组件住 Pawns，弹提示要走接口 |
 | `IStarMapUIInputs` | `StellarEraUI/Src/` | 明确属于 UI 的使用方契约，由 Controller（L5）实现 |
 
 另外三条接口同理，只是不在跨层主路径上：`IStellarEraInputSource`（`Pawns/Src/StellarEraInputSource.h`，
@@ -281,22 +280,23 @@ Controller 实现，Pawn 按键后用它要求切星图 / 上下船）。
 
 ### 输入绑定：谁被操控谁绑
 
-三个可操控对象各有自己的输入组件；Pawn 的 `SetupPlayerInputComponent` 只做转发
-（`PlayerInput->Bind(InputComponent)`），回调本身不住在 Pawn 类里：
+角色 / 飞船各有自己的输入组件；星图的 `UStarMapInputComponent` 挂在两者身上。
+Pawn 的 `SetupPlayerInputComponent` 只做转发（`PlayerInput->Bind(InputComponent)`），
+回调本身不住在 Pawn 类里：
 
 | 可操控对象 | 输入组件 | 绑什么 |
 |---|---|---|
-| `APlanetCharacter` | `UPlanetCharacterInputComponent`（`Pawns/Src/Character/Input/`） | 移动、视角、跳跃、冲刺、缩放、右键点放 + E（登船）/ M / 左键（编辑模式挖掘） |
-| `ASpaceshipPawn` | `USpaceshipInputComponent`（`Pawns/Src/Spaceship/Input/`） | 视角、推力、滚转、升降、加速、巡航、调试视角、缩放 + E（离船）/ M |
-| `AStarMapCameraPawn` | `UStarMapCameraInputComponent`（`Pawns/Src/StarMap/Input/`） | 星图视角（绕行 / 转头）、缩放、编辑（G）与笔刷尺寸、矿物透视（H 与 0..9）、左键选择 / 拖拽、M（退出星图） |
+| `APlanetCharacter` | `UPlanetCharacterInputComponent`（`Pawns/Src/Character/Input/`） | 移动、视角、跳跃、冲刺、缩放、右键点放 + E（登船）/ 左键（编辑模式挖掘） |
+| `ASpaceshipPawn` | `USpaceshipInputComponent`（`Pawns/Src/Spaceship/Input/`） | 视角、推力、滚转、升降、加速、巡航、调试视角、缩放 + E（离船） |
+| 星图（挂在两个 Pawn 上） | `UStarMapInputComponent`（`Pawns/Src/StarMap/Input/`） | 星图视角（绕行 / 转头）、缩放、编辑（G）与笔刷尺寸、矿物透视（H 与 0..9）、左键选择 / 拖拽、M（进出星图） |
 
-`AStellarEraPlayerController` **一条动作都不绑**（`SetupInputComponent` 已删除）。M 必须同时绑在
-星图相机上 —— 进星图后 Possess 的是相机，不绑就没有退出的入口。E / M / 左键在每张需要它的
-表里各有一条动作，**语义**由各 Pawn 决定（同一个 E：角色登船、飞船离船），动作执行则经
-`IStellarEraSessionCommands` 回到控制器。
-星图的分派规则（`EStarMapLookMode`）、`UStarMapCameraInputComponent::ResolveLookMode` 与
-`IStarMapLookContext` 都放在 `StarMap/Input/StarMapCameraInputComponent.h` —— 星图的鼠标位移属于
-星图相机，不属于控制器。
+`AStellarEraPlayerController` **一条动作都不绑**（`SetupInputComponent` 已删除）。星图不换
+Possess：M 由 `UStarMapInputComponent` 在当前被 Possess 的 Pawn 上绑一次，只切
+`UStarMapRigComponent` 的状态。E / M / 左键在每张需要它的表里各有一条动作，**语义**由各
+Pawn 决定（同一个 E：角色登船、飞船离船），动作执行则经 `IStellarEraSessionCommands`
+回到控制器。
+星图的分派规则（`EStarMapLookMode`）与 `UStarMapInputComponent::ResolveLookMode` 都放在
+`StarMap/Input/StarMapInputComponent.h` —— 星图的鼠标位移属于星图输入组件，不属于控制器。
 
 动作表由控制器经 `IStellarEraInputSource` 交给 Pawn，所以控制器里没有按 Pawn 类型分派的
 `Cast`；新增一种可操控 Pawn 只需给它配一个 `*InputComponent`。
@@ -403,6 +403,7 @@ python Tools/check_architecture.py --tree
 | 同日 | **7 → 6 合并**：整个 `StellarEraGeology` 并入 `Planet/Src/Minerals/`，矿物成为完整目录 | 本文三之「矿物域的四层」 |
 | 同日 | **6 → 5 拆分**：`StellarEraCore` 拆掉。N 体求解器 + `CosmosTypes` 并入 Cosmos（唯一使用方），`IVoxelViewpointInvokers` 进 `Planet/Src/Invokers/`。项目自研代码不再有 L0 | 本文一、二 |
 | 2026-11-06 | 星图相机搬进 `Pawns/Src/StarMap/`（Cosmos 抽出 `ICosmosBody`）；动作表按 Pawn 拆成三张，控制器不再绑任何输入 | 本文二、四 |
+| 2026-11-19 | 删除星图相机类：`UStarMapRigComponent` 挂在飞船 / 角色上接管相机，`UStarMapInputComponent` 同理；进出星图不再换 Possess | 本文二、四 |
 | 同日 | 输入文件归拢到 `Character|Spaceship|StarMap/Input/` 与 `StellarEra/Src/Input/`；`PlanetEditUI` 从 UI 搬进 `Planet/Src/Edit/`；`StarMapPanelLayout` / `StarMapPicking` 抽成 Pawns 里的纯几何 | 本文三 |
 
 被推翻的方案保留在 `docs/archive/`（17 模块方案），**已标注作废，不要参照实现**。

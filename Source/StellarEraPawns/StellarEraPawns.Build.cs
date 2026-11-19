@@ -3,7 +3,7 @@
 using System.IO;
 using UnrealBuildTool;
 
-// 受控实体层：玩家能 possess 的 Pawn —— 行星角色、飞船、星图相机。
+// 受控实体层：玩家能 possess 的 Pawn —— 行星角色、飞船。
 //
 // 由原来的 StellarEraCharacter / StellarEraSpaceship 合并而来。
 // 它们的共同点是「被 AStellarEraPlayerController 通过 Possess 切换」，
@@ -11,7 +11,7 @@ using UnrealBuildTool;
 // IVoxelViewpointInvokers（换视点时要门控各自的体素调用器）。
 // 把两者放在一起，换视点的逻辑才有唯一的归属地。
 //
-// 星图相机在 Src/StarMap/：它依赖 Cosmos，而 Cosmos 曾经反向 Cast<ASpaceshipPawn>。
+// 星图 rig 在 Src/StarMap/：它依赖 Cosmos，而 Cosmos 曾经反向 Cast<ASpaceshipPawn>。
 // 抽出 ICosmosBody 之后那笔债还清，Pawns → Cosmos 才立得住。
 //
 // 目录按功能分组，.h 与 .cpp 同目录并列：
@@ -41,8 +41,8 @@ public class StellarEraPawns : ModuleRules
 		{
 			"Core", "CoreUObject", "Engine",
 
-			// 三个 Pawn 的头都继承 IVoxelViewpointInvokers，并且直接持有插件的
-			// 体素调用器组件（角色 / 星图相机用 UVoxelSimpleInvokerComponent，
+			// 两个 Pawn 的头都继承 IVoxelViewpointInvokers，并且直接持有插件的
+			// 体素调用器组件（角色用 UVoxelSimpleInvokerComponent，
 			// 飞船用 UVoxelInvokerWithPredictionComponent），所以插件头必须对
 			// 下游可见 —— Voxel 是 Public 依赖。
 			"Voxel",
@@ -53,7 +53,7 @@ public class StellarEraPawns : ModuleRules
 			// 下游 include 本模块的 Pawn 头时能找到它。（原 StellarEraCore 已拆除。）
 			"StellarEraPlanet",
 
-			// 飞船在公开头里实现 Cosmos 的 ICosmosBody，星图相机（Src/StarMap/）
+			// 飞船在公开头里实现 Cosmos 的 ICosmosBody，星图 rig（Src/StarMap/）
 			// 也要调 UCosmosSimulationSubsystem —— 下游 include 这些公开头时必须
 			// 找得到 Cosmos，所以是 Public 依赖。
 			"StellarEraCosmos",
@@ -61,9 +61,9 @@ public class StellarEraPawns : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			// 角色 / 飞船 / 星图相机各有自己的输入组件：经 IStellarEraInputSource
-			// 取自己那张表的动作，再绑到各自的回调上；Pawn 的
-			// SetupPlayerInputComponent 只做转发。
+			// 角色 / 飞船各有自己的输入组件；星图的 UStarMapInputComponent 挂在两者
+			// 身上。组件经 IStellarEraInputSource 取自己那张表的动作再绑回调，
+			// Pawn 的 SetupPlayerInputComponent 只做转发。
 			// 只有 .cpp 用到 EnhancedInput 的类型，公开头只前置声明 UInputAction，
 			// 所以是私有依赖。
 			"EnhancedInput",

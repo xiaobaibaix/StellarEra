@@ -17,7 +17,7 @@ class UCosmosBody : public UInterface
 
 /**
  * 受控天体（目前只有飞船）对模拟层暴露的接口。抽出来是因为 Cosmos 若直接
- * Cast<ASpaceshipPawn> 就被钉死在 Pawns 上，反过来挡住星图相机搬家（成环）。
+ * Cast<ASpaceshipPawn> 就被钉死在 Pawns 上，反过来挡住星图视点搬进 Pawns（成环）。
  * 声明在 Cosmos（消费方）、实现在 Pawns（ASpaceshipPawn），依赖方向与
  * IStellarEraNoticeSink 相反 —— 这次消费方在低层。
  */

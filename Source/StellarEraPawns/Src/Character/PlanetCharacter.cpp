@@ -150,7 +150,7 @@ APlanetCharacter::APlanetCharacter(const FObjectInitializer& ObjectInitializer)
 	Camera->SetupAttachment(SpringArm, USpringArmComponent::SocketName);
 	Camera->bUsePawnControlRotation = false;
 
-	// 用 AlwaysLocal 版：进星图时控制器 Possess 星图相机，普通调用器会当场掉出 LOD
+	// 用 AlwaysLocal 版：普通调用器跟 IsLocallyControlled 走，上下船换 Possess 会掉出 LOD、
 	// 触发整棵八叉树重建。详见 AlwaysLocalVoxelInvokerComponent.h。
 	VoxelInvoker = CreateDefaultSubobject<UAlwaysLocalVoxelInvokerComponent>(TEXT("VoxelInvoker"));
 	VoxelInvoker->SetupAttachment(GetCapsuleComponent());

@@ -952,7 +952,7 @@ bool FStellarEraPlanetEditContinuousDigTest::RunTest(const FString& Parameters)
 	Edit->SetContinuousDigging(true);
 	TestTrue(TEXT("开启后可读回"), Edit->IsContinuousDigging());
 
-	// 退出编辑模式必须顺手关掉连续挖：标志留着会让下次进编辑模式直接开挖，星图相机也会以为在连挖。
+	// 退出编辑模式必须顺手关掉连续挖：标志留着会让下次进编辑模式直接开挖，星图也会以为在连挖。
 	Edit->SetEditMode(true);
 	TestTrue(TEXT("进入编辑模式不改变连续挖状态"), Edit->IsContinuousDigging());
 	Edit->SetEditMode(false);

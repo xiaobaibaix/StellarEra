@@ -33,6 +33,6 @@ public:
 	/** 飞船那张表。 */
 	virtual const FSpaceshipInputActions& GetSpaceshipInputActions() = 0;
 
-	/** 星图相机那张表。 */
+	/** 星图那张表。 */
 	virtual const FStarMapCameraInputActions& GetStarMapCameraInputActions() = 0;
 };
