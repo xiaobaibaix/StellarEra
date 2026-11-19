@@ -23,7 +23,7 @@
 #include "GameFramework/PlayerController.h"
 #include "PlanetCharacterInputComponent.h"
 #include "StarMapRigComponent.h"
-#include "StarMapCameraInputComponent.h"
+#include "StarMapInputComponent.h"
 #include "SpaceshipPawn.h"
 
 namespace
@@ -219,7 +219,7 @@ APlanetCharacter::APlanetCharacter(const FObjectInitializer& ObjectInitializer)
 	PlayerInput = CreateDefaultSubobject<UPlanetCharacterInputComponent>(TEXT("PlayerInput"));
 
 	StarMapRig = CreateDefaultSubobject<UStarMapRigComponent>(TEXT("StarMapRig"));
-	StarMapInput = CreateDefaultSubobject<UStarMapCameraInputComponent>(TEXT("StarMapInput"));
+	StarMapInput = CreateDefaultSubobject<UStarMapInputComponent>(TEXT("StarMapInput"));
 }
 
 UPlanetEditComponent* APlanetCharacter::GetPlanetEditComponent() const

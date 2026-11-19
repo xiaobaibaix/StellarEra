@@ -1,38 +1,45 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 
-#include "StarMapCameraInputComponent.h"
+#include "StarMapInputComponent.h"
 
 #include "CosmosSimulationSubsystem.h"
 #include "EnhancedInputComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/HUD.h"
+#include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "InputActionValue.h"
 #include "InputCoreTypes.h"
 #include "PlanetEditComponent.h"
 #include "PlanetEditUI.h"
-#include "SessionCommands.h"
 #include "StarMapCameraInputActions.h"
-#include "StarMapCameraPawn.h"
-#include "StarMapPanelLayout.h"
 #include "StarMapPicking.h"
+#include "StarMapRigComponent.h"
 #include "StellarEraInputActionBuilder.h"
 #include "StellarEraInputSource.h"
 #include "StellarEraNoticeSink.h"
 
-AStarMapCameraPawn* UStarMapCameraInputComponent::GetPawn() const
+APawn* UStarMapInputComponent::GetPawn() const
 {
-	return Cast<AStarMapCameraPawn>(GetOwner());
+	APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	const UStarMapRigComponent* Rig = GetRig();
+	return (OwnerPawn && Rig && Rig->IsActive()) ? OwnerPawn : nullptr;
 }
 
-APlayerController* UStarMapCameraInputComponent::GetPlayerController() const
+UStarMapRigComponent* UStarMapInputComponent::GetRig() const
 {
-	const AStarMapCameraPawn* Pawn = GetPawn();
-	return Pawn ? Cast<APlayerController>(Pawn->GetController()) : nullptr;
+	const AActor* Owner = GetOwner();
+	return Owner ? Owner->FindComponentByClass<UStarMapRigComponent>() : nullptr;
 }
 
-void UStarMapCameraInputComponent::ShowNotice(const FString& Text) const
+APlayerController* UStarMapInputComponent::GetPlayerController() const
+{
+	const APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	return OwnerPawn ? Cast<APlayerController>(OwnerPawn->GetController()) : nullptr;
+}
+
+void UStarMapInputComponent::ShowNotice(const FString& Text) const
 {
 	// HUD 在 UI 模块（本模块的下游），只能走接口。没有 HUD 时静默跳过。
 	const APlayerController* PC = GetPlayerController();
@@ -43,14 +50,14 @@ void UStarMapCameraInputComponent::ShowNotice(const FString& Text) const
 	}
 }
 
-UPlanetEditComponent* UStarMapCameraInputComponent::GetEditComponentInEditMode() const
+UPlanetEditComponent* UStarMapInputComponent::GetEditComponentInEditMode() const
 {
-	const AStarMapCameraPawn* Pawn = GetPawn();
-	UPlanetEditComponent* Edit = Pawn ? Pawn->GetPlanetEditComponent() : nullptr;
+	const UStarMapRigComponent* Rig = GetRig();
+	UPlanetEditComponent* Edit = Rig ? Rig->GetPlanetEditComponent() : nullptr;
 	return Edit && Edit->IsEditMode() ? Edit : nullptr;
 }
 
-EStarMapLookMode UStarMapCameraInputComponent::ResolveLookMode(
+EStarMapLookMode UStarMapInputComponent::ResolveLookMode(
 	const bool bRightHeld,
 	const bool bLeftHeld,
 	const bool bMiddleHeld,
@@ -84,7 +91,7 @@ EStarMapLookMode UStarMapCameraInputComponent::ResolveLookMode(
 	return EStarMapLookMode::None;
 }
 
-void UStarMapCameraInputComponent::Bind(UInputComponent* PlayerInputComponent)
+void UStarMapInputComponent::Bind(UInputComponent* PlayerInputComponent)
 {
 	// 每次 Possess 都会重绑：按着鼠标切 Pawn 时松开事件送到别处，标志会永远停在 true，
 	// 一进星图没按键也在转视角；放在早退之前清一次。
@@ -92,52 +99,52 @@ void UStarMapCameraInputComponent::Bind(UInputComponent* PlayerInputComponent)
 	bMiddleHeld = false;
 	bSelectHeld = false;
 
-	AStarMapCameraPawn* Pawn = GetPawn();
+	APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	UStarMapRigComponent* Rig = GetRig();
 	UEnhancedInputComponent* EnhancedInput = Cast<UEnhancedInputComponent>(PlayerInputComponent);
-	IStellarEraInputSource* Source = Pawn ? Cast<IStellarEraInputSource>(Pawn->GetController()) : nullptr;
-	if (!Pawn || !EnhancedInput || !Source)
+	IStellarEraInputSource* Source =
+		OwnerPawn ? Cast<IStellarEraInputSource>(OwnerPawn->GetController()) : nullptr;
+	if (!OwnerPawn || !Rig || !EnhancedInput || !Source)
 	{
 		// 静默解绑等于「星图对键鼠完全没反应」——留一条 Error，别让它变成哑故障。
-		UE_LOG(LogTemp, Error, TEXT("[Input] AStarMapCameraPawn 绑定失败：Pawn=%s EnhancedInput=%s InputSource=%s Controller=%s"),
-			*GetNameSafe(Pawn),
-			EnhancedInput ? TEXT("是") : TEXT("否"),
-			Source ? TEXT("是") : TEXT("否"),
-			*GetNameSafe(Pawn ? Pawn->GetController() : nullptr));
+		UE_LOG(LogTemp, Error, TEXT("[Input] 星图输入绑定失败：Pawn=%s Rig=%s EnhancedInput=%s InputSource=%s"),
+			*GetNameSafe(OwnerPawn), Rig ? TEXT("是") : TEXT("否"),
+			EnhancedInput ? TEXT("是") : TEXT("否"), Source ? TEXT("是") : TEXT("否"));
 		return;
 	}
 
-	// 只取星图相机自己那张表：别的 Pawn 的动作不归这里管。左键选择 / M 也在这张表里。
+	// 只取星图自己那张表：别的 Pawn 的动作不归这里管。左键选择 / M 也在这张表里。
 	const FStarMapCameraInputActions& Input = Source->GetStarMapCameraInputActions();
 
-	EnhancedInput->BindAction(Input.Look, ETriggerEvent::Triggered, this, &UStarMapCameraInputComponent::OnLookInput);
-	EnhancedInput->BindAction(Input.LookActivate, ETriggerEvent::Started, this, &UStarMapCameraInputComponent::OnLookActivateStarted);
-	EnhancedInput->BindAction(Input.LookActivate, ETriggerEvent::Completed, this, &UStarMapCameraInputComponent::OnLookActivateCompleted);
-	EnhancedInput->BindAction(Input.LookMiddle, ETriggerEvent::Started, this, &UStarMapCameraInputComponent::OnLookMiddleStarted);
-	EnhancedInput->BindAction(Input.LookMiddle, ETriggerEvent::Completed, this, &UStarMapCameraInputComponent::OnLookMiddleCompleted);
+	EnhancedInput->BindAction(Input.Look, ETriggerEvent::Triggered, this, &UStarMapInputComponent::OnLookInput);
+	EnhancedInput->BindAction(Input.LookActivate, ETriggerEvent::Started, this, &UStarMapInputComponent::OnLookActivateStarted);
+	EnhancedInput->BindAction(Input.LookActivate, ETriggerEvent::Completed, this, &UStarMapInputComponent::OnLookActivateCompleted);
+	EnhancedInput->BindAction(Input.LookMiddle, ETriggerEvent::Started, this, &UStarMapInputComponent::OnLookMiddleStarted);
+	EnhancedInput->BindAction(Input.LookMiddle, ETriggerEvent::Completed, this, &UStarMapInputComponent::OnLookMiddleCompleted);
 
 	// 只绑 Triggered：滚轮每格是一次独立冲量，不滚就不产生值，没有 Completed 可收。
-	EnhancedInput->BindAction(Input.Zoom, ETriggerEvent::Triggered, this, &UStarMapCameraInputComponent::OnZoomInput);
+	EnhancedInput->BindAction(Input.Zoom, ETriggerEvent::Triggered, this, &UStarMapInputComponent::OnZoomInput);
 
 	// 只绑 Started：Axis1D 的 Triggered 按住时每帧触发，笔刷会瞬间冲到上限。
-	EnhancedInput->BindAction(Input.EditModeToggle, ETriggerEvent::Started, this, &UStarMapCameraInputComponent::OnEditModeToggle);
-	EnhancedInput->BindAction(Input.BrushSize, ETriggerEvent::Started, this, &UStarMapCameraInputComponent::OnBrushSize);
+	EnhancedInput->BindAction(Input.EditModeToggle, ETriggerEvent::Started, this, &UStarMapInputComponent::OnEditModeToggle);
+	EnhancedInput->BindAction(Input.BrushSize, ETriggerEvent::Started, this, &UStarMapInputComponent::OnBrushSize);
 
-	// M 必须绑在这里，否则进了星图就没有「按 M 退出」的入口（此刻 Possess 的是本相机）。
+	// M 只在这里绑：飞船 / 角色自己的那份已删，进退都走同一个 Toggle。
 	EnhancedInput->BindAction(Input.StarMapSelect, ETriggerEvent::Started,
-		this, &UStarMapCameraInputComponent::OnStarMapSelectStarted);
+		this, &UStarMapInputComponent::OnStarMapSelectStarted);
 	EnhancedInput->BindAction(Input.StarMapSelect, ETriggerEvent::Completed,
-		this, &UStarMapCameraInputComponent::OnStarMapSelectCompleted);
+		this, &UStarMapInputComponent::OnStarMapSelectCompleted);
 	EnhancedInput->BindAction(Input.StarMapToggle, ETriggerEvent::Started,
-		this, &UStarMapCameraInputComponent::OnStarMapToggle);
+		this, &UStarMapInputComponent::OnStarMapToggle);
 
 	// 绑定成功也给一条 Verbose：「没报错」不等于「绑上了」，无头跑时用它当正证据。
-	UE_LOG(LogTemp, Verbose, TEXT("[Input] AStarMapCameraPawn(%s) 已绑定星图相机输入"), *Pawn->GetName());
+	UE_LOG(LogTemp, Verbose, TEXT("[Input] %s 已绑定星图输入"), *OwnerPawn->GetName());
 }
 
-void UStarMapCameraInputComponent::OnLookInput(const FInputActionValue& Value)
+void UStarMapInputComponent::OnLookInput(const FInputActionValue& Value)
 {
-	AStarMapCameraPawn* Pawn = GetPawn();
-	if (!Pawn)
+	UStarMapRigComponent* Rig = GetRig();
+	if (!GetPawn() || !Rig)
 	{
 		return;
 	}
@@ -156,10 +163,10 @@ void UStarMapCameraInputComponent::OnLookInput(const FInputActionValue& Value)
 		Edit && Edit->IsContinuousDigging()))
 	{
 	case EStarMapLookMode::Orbit:
-		Pawn->OrbitLook(DeltaYaw, DeltaPitch);
+		Rig->OrbitLook(DeltaYaw, DeltaPitch);
 		break;
 	case EStarMapLookMode::Aim:
-		Pawn->AimLook(DeltaYaw, DeltaPitch);
+		Rig->AimLook(DeltaYaw, DeltaPitch);
 		break;
 	case EStarMapLookMode::None:
 	default:
@@ -167,55 +174,57 @@ void UStarMapCameraInputComponent::OnLookInput(const FInputActionValue& Value)
 	}
 }
 
-void UStarMapCameraInputComponent::OnLookActivateStarted(const FInputActionValue& Value)
+void UStarMapInputComponent::OnLookActivateStarted(const FInputActionValue& Value)
 {
 	// 「按住右键 = 转头」。角色的右键由 UPlanetCharacterInputComponent 自己绑同一个动作。
 	bLookHeld = true;
 }
 
-void UStarMapCameraInputComponent::OnLookActivateCompleted(const FInputActionValue& Value)
+void UStarMapInputComponent::OnLookActivateCompleted(const FInputActionValue& Value)
 {
 	bLookHeld = false;
 }
 
-void UStarMapCameraInputComponent::OnLookMiddleStarted(const FInputActionValue& Value)
+void UStarMapInputComponent::OnLookMiddleStarted(const FInputActionValue& Value)
 {
 	// 编辑模式下左键被借走时的绕行键，见 ResolveLookMode。
 	bMiddleHeld = true;
 }
 
-void UStarMapCameraInputComponent::OnLookMiddleCompleted(const FInputActionValue& Value)
+void UStarMapInputComponent::OnLookMiddleCompleted(const FInputActionValue& Value)
 {
 	bMiddleHeld = false;
 }
 
-void UStarMapCameraInputComponent::OnZoomInput(const FInputActionValue& Value)
+void UStarMapInputComponent::OnZoomInput(const FInputActionValue& Value)
 {
-	if (AStarMapCameraPawn* Pawn = GetPawn())
-	{
-		Pawn->AddZoom(Value.Get<float>());
-	}
-}
-
-void UStarMapCameraInputComponent::OnEditModeToggle(const FInputActionValue& Value)
-{
-	AStarMapCameraPawn* Pawn = GetPawn();
-
-	if (!Pawn)
+	UStarMapRigComponent* Rig = GetRig();
+	if (!GetPawn() || !Rig)
 	{
 		return;
 	}
 
-	if (UPlanetEditComponent* Edit = Pawn->GetPlanetEditComponent())
+	Rig->AddZoom(Value.Get<float>());
+}
+
+void UStarMapInputComponent::OnEditModeToggle(const FInputActionValue& Value)
+{
+	UStarMapRigComponent* Rig = GetRig();
+	if (!GetPawn() || !Rig)
+	{
+		return;
+	}
+
+	if (UPlanetEditComponent* Edit = Rig->GetPlanetEditComponent())
 	{
 		Edit->ToggleEditMode();
 	}
 }
 
-void UStarMapCameraInputComponent::OnBrushSize(const FInputActionValue& Value)
+void UStarMapInputComponent::OnBrushSize(const FInputActionValue& Value)
 {
-	AStarMapCameraPawn* Pawn = GetPawn();
-	if (!Pawn)
+	UStarMapRigComponent* Rig = GetRig();
+	if (!GetPawn() || !Rig)
 	{
 		return;
 	}
@@ -229,17 +238,17 @@ void UStarMapCameraInputComponent::OnBrushSize(const FInputActionValue& Value)
 	if (UPlanetEditComponent* Edit = GetEditComponentInEditMode())
 	{
 		// 星图区间跨到 1280，一档 10 体素要按一百多下 —— 按住 Ctrl 走 ×10 粗调。
-		APlayerController* PC = Cast<APlayerController>(Pawn->GetController());
+		APlayerController* PC = GetPlayerController();
 		const bool bCoarse = PC
 			&& (PC->IsInputKeyDown(EKeys::LeftControl) || PC->IsInputKeyDown(EKeys::RightControl));
 		Edit->AdjustBrushSizeByStep(Axis > 0.f, bCoarse);
 	}
 }
 
-void UStarMapCameraInputComponent::OnStarMapSelectStarted(const FInputActionValue& Value)
+void UStarMapInputComponent::OnStarMapSelectStarted(const FInputActionValue& Value)
 {
-	AStarMapCameraPawn* Pawn = GetPawn();
-	if (!Pawn)
+	UStarMapRigComponent* Rig = GetRig();
+	if (!GetPawn() || !Rig)
 	{
 		return;
 	}
@@ -317,10 +326,10 @@ void UStarMapCameraInputComponent::OnStarMapSelectStarted(const FInputActionValu
 	}
 }
 
-void UStarMapCameraInputComponent::OnStarMapSelectCompleted(const FInputActionValue& Value)
+void UStarMapInputComponent::OnStarMapSelectCompleted(const FInputActionValue& Value)
 {
 	// 连续挖必须在所有早退之前关掉：按下时命中行星走「消费点击」分支，bSelectHeld 没置位，
-	// 下面早退会跳过它。按当前 Pawn 查组件不会漏 —— 每条退出路径都经 SetEditMode(false) 顺手清掉。
+	// 下面早退会跳过它。按当前 rig 查组件不会漏 —— 每条退出路径都经 SetEditMode(false) 顺手清掉。
 	if (UPlanetEditComponent* Edit = GetEditComponentInEditMode())
 	{
 		Edit->SetContinuousDigging(false);
@@ -330,8 +339,8 @@ void UStarMapCameraInputComponent::OnStarMapSelectCompleted(const FInputActionVa
 		return;
 	}
 
-	AStarMapCameraPawn* Pawn = GetPawn();
-	if (!Pawn)
+	UStarMapRigComponent* Rig = GetRig();
+	if (!GetPawn() || !Rig)
 	{
 		return;
 	}
@@ -360,7 +369,7 @@ void UStarMapCameraInputComponent::OnStarMapSelectCompleted(const FInputActionVa
 
 	// 点空白什么都不做：取消选中会让相机停止跟随、丢失目标；要取消就明确地点回它自己。
 	AActor* Picked = StarMapPicking::PickBodyUnderScreenPosition(
-		GetWorld(), PC, FVector2D(MouseX, MouseY), Pawn->GetSelectionPixelRadius());
+		GetWorld(), PC, FVector2D(MouseX, MouseY), Rig->GetSelectionPixelRadius());
 	if (!Picked)
 	{
 		return;
@@ -377,11 +386,11 @@ void UStarMapCameraInputComponent::OnStarMapSelectCompleted(const FInputActionVa
 		Subsystem->GetSelectedBody() == Picked ? nullptr : Picked);
 }
 
-void UStarMapCameraInputComponent::OnStarMapToggle(const FInputActionValue& Value)
+void UStarMapInputComponent::OnStarMapToggle(const FInputActionValue& Value)
 {
-	// 退图不问控制器：相机自己记着是谁把它叫出来的，Possess 谁、混合多久都是它的事。
-	if (AStarMapCameraPawn* Pawn = GetPawn())
+	// 进退都走这一个入口：M 只在本组件绑了一次（飞船 / 角色自己的那份已删）。
+	if (UStarMapRigComponent* Rig = GetRig())
 	{
-		Pawn->ExitStarMap();
+		Rig->Toggle(GetPlayerController());
 	}
 }

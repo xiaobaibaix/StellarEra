@@ -15,7 +15,7 @@ class UPlanetCharacterInputComponent;
 class UPlanetEditComponent;
 class USkeletalMesh;
 class USpringArmComponent;
-class UStarMapCameraInputComponent;
+class UStarMapInputComponent;
 class UStarMapRigComponent;
 class UVoxelSimpleInvokerComponent;
 class UInputComponent;
@@ -137,9 +137,9 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "StarMap")
 	TObjectPtr<UStarMapRigComponent> StarMapRig;
 
-	/** 星图的键鼠输入；未激活时组件自身返回空 Pawn，全部回调空转。 */
+	/** 星图的键鼠输入；未激活时 GetPawn() 返回空，全部回调空转 —— 进出图只切 rig 状态，不换 Possess。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "StarMap")
-	TObjectPtr<UStarMapCameraInputComponent> StarMapInput;
+	TObjectPtr<UStarMapInputComponent> StarMapInput;
 
 	/** 体素 Invoker：行星自己的 Invoker 关掉了碰撞，脚下要生成碰撞体必须由角色自己带一个。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet")

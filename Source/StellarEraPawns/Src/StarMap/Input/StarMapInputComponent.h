@@ -1,16 +1,17 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
-// 星图相机的键鼠输入：绑在相机身上，代码不住在相机类里。
+// 星图的键鼠输入：与 rig 平级挂在飞船 / 角色身上，代码不住在 Pawn 类里。
 
 #pragma once
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
-#include "StarMapCameraInputComponent.generated.h"
+#include "StarMapInputComponent.generated.h"
 
 class APlayerController;
-class AStarMapCameraPawn;
+class APawn;
 class UInputComponent;
 class UPlanetEditComponent;
+class UStarMapRigComponent;
 struct FInputActionValue;
 
 /** 鼠标位移的去向：`Orbit` 绕焦点转（位置跟着变），`Aim` 只转朝向，`None` 编辑 / 连挖时不动。 */
@@ -22,16 +23,16 @@ enum class EStarMapLookMode : uint8
 };
 
 /**
- * AStarMapCameraPawn 的全部输入：绑定、回调、只服务输入的状态。与 USpaceshipInputComponent
- * 同形（一个 Bind() + 一组 On*Input）；三个 Pawn 各存一份 LookSensitivity，手感本就可以不同。
+ * 星图的全部输入：绑定、回调、只服务输入的状态。与 USpaceshipInputComponent 同形
+ * （一个 Bind() + 一组 On*Input）；星图与飞船、角色各存一份 LookSensitivity，手感本就可以不同。
  */
 UCLASS()
-class STELLARERAPAWNS_API UStarMapCameraInputComponent : public UActorComponent
+class STELLARERAPAWNS_API UStarMapInputComponent : public UActorComponent
 {
 	GENERATED_BODY()
 
 public:
-	/** 把控制器给的动作表绑到本组件上。由 AStarMapCameraPawn::SetupPlayerInputComponent 调用。 */
+	/** 把控制器给的动作表绑到本组件上。由飞船 / 角色的 SetupPlayerInputComponent 调用。 */
 	void Bind(UInputComponent* PlayerInputComponent);
 
 	/** 鼠标灵敏度（度/像素）。星图与飞船、角色各存一份，见类注释。 */
@@ -54,10 +55,13 @@ public:
 		bool bContinuousDigging);
 
 private:
-	/** 所属相机；组件只可能挂在星图相机上。 */
-	AStarMapCameraPawn* GetPawn() const;
+	/** 所属 Pawn；只在星图激活时返回，否则全部回调空转。 */
+	APawn* GetPawn() const;
 
-	/** 相机 Pawn 自己的编辑组件，且只在编辑模式下才返回。 */
+	/** owner 上的星图 rig。 */
+	UStarMapRigComponent* GetRig() const;
+
+	/** rig 所属 Pawn 上的编辑组件，且只在编辑模式下才返回。 */
 	UPlanetEditComponent* GetEditComponentInEditMode() const;
 
 	void OnLookInput(const FInputActionValue& Value);
@@ -67,7 +71,7 @@ private:
 	void OnLookMiddleCompleted(const FInputActionValue& Value);
 	void OnZoomInput(const FInputActionValue& Value);
 
-	/** G 键：切换星图相机的编辑模式。矿物透视开着时忽略（左键归图例）。 */
+	/** G 键：切换星图编辑模式。矿物透视开着时忽略（左键归图例）。 */
 	void OnEditModeToggle(const FInputActionValue& Value);
 
 	/** `[` / `]`：编辑模式下调笔刷尺寸（±1，按住 Ctrl ×10）。非编辑模式下无反应。 */
@@ -79,10 +83,10 @@ private:
 	/** 左键松开：位移没超阈值就拾取鼠标下的天体（再点一次取消选中）。 */
 	void OnStarMapSelectCompleted(const FInputActionValue& Value);
 
-	/** M：进 / 出星图。真正换 Possess 的实现住在控制器，经 IStellarEraSessionCommands 转发。 */
+	/** M：进 / 出星图；状态与相机都在 rig 里，本组件只负责转发。 */
 	void OnStarMapToggle(const FInputActionValue& Value);
 
-	/** 缓存的玩家控制器；拿不到时为空。 */
+	/** owner Pawn 的玩家控制器；拿不到时为空。 */
 	APlayerController* GetPlayerController() const;
 
 	/** 弹一条提示（HUD 在下游模块，只能走 IStellarEraNoticeSink）。 */

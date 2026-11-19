@@ -111,7 +111,7 @@ StellarEraPawns/Src/
 矿物透视会话状态也住在相机 Pawn 上，控制器只在换 Pawn / 退出星图 / 选中变化时命令它收尾。
 星图的分派规则
 `EStarMapLookMode` 与 `ResolveLookMode` 都在
-`StarMap/Input/StarMapCameraInputComponent.h`。
+`StarMap/Input/StarMapInputComponent.h`。
 
 > **星图相机在 `Src/StarMap/`。** 它依赖 Cosmos，而 Cosmos 曾经反向
 > `Cast<ASpaceshipPawn>`；抽出 `ICosmosBody` 之后方向才理顺。
@@ -176,7 +176,7 @@ StellarEraCosmos/Src/
 | 加一种新的矿脉形态 | 继承 `UPlanetGeologyDistribution`，实现 `BuildRuntime` |
 | 改角色球面行走手感 | `StellarEraPawns/Src/Character/PlanetCharacterMovementComponent.cpp` |
 | 改飞船推力/阻尼 | `StellarEraPawns/Src/Spaceship/SpaceshipPawn.cpp` |
-| 改星图相机速度/缩放 | `StellarEraPawns/Src/StarMap/StarMapCameraPawn.cpp`（速度曲线）/ `Src/StarMap/Input/StarMapCameraInputComponent.cpp`（缩放绑定） |
+| 改星图相机速度/缩放 | `StellarEraPawns/Src/StarMap/StarMapCameraPawn.cpp`（速度曲线）/ `Src/StarMap/Input/StarMapInputComponent.cpp`（缩放绑定） |
 | 改星图面板布局 / 拾取容差 | `StellarEraPawns/Src/StarMap/StarMapPanelLayout.cpp` / `StarMapPicking.cpp`（绘制与命中共用） |
 | 改 N 体积分稳定性 | `StellarEraCosmos/Src/NBodySimulator.cpp` |
 | 改模拟步长/时间流速 | `StellarEraCosmos/Src/CosmosSimulationSubsystem.h` 的 Config 段 |
@@ -184,8 +184,8 @@ StellarEraCosmos/Src/
 | 改 HUD 显示内容 | `StellarEraUI/Src/StellarEraHUD.cpp` |
 | 改星图交互 | `StellarEraUI/Src/StarMapUISystem.cpp` |
 | 改按键映射（哪个键是哪个动作） | 按归属找三张表各自的 `Build`：角色 `StellarEraPawns/Src/Character/Input/PlanetCharacterInputActions.cpp` / 飞船 `StellarEraPawns/Src/Spaceship/Input/SpaceshipInputActions.cpp` / 星图相机 `StellarEraPawns/Src/StarMap/Input/StarMapCameraInputActions.cpp`。E / M / 左键在需要它的表里各有一条（E：角色登船、飞船离船）；三张表由 `StellarEra/Src/Input/StellarEraInputActions.cpp` 的 `FStellarEraInputActions` 聚合构造 |
-| 改角色 / 飞船 / 星图相机对输入的响应 | `StellarEraPawns/Src/Character/Input/PlanetCharacterInputComponent.cpp` / `Src/Spaceship/Input/SpaceshipInputComponent.cpp` / `Src/StarMap/Input/StarMapCameraInputComponent.cpp`（三个输入组件都在 Pawn 的构造函数里 `CreateDefaultSubobject`，`SetupPlayerInputComponent` 只调 `Bind`） |
-| 改 E / M / 左键的绑定 | 控制器**不绑任何输入**（`SetupInputComponent` 已删除）；三个 Pawn 各绑自己表里的动作：角色 `Src/Character/Input/PlanetCharacterInputComponent.cpp`、飞船 `Src/Spaceship/Input/SpaceshipInputComponent.cpp`、星图相机 `Src/StarMap/Input/StarMapCameraInputComponent.cpp`。动作由控制器造，Pawn 经 `IStellarEraInputSource`（`StellarEraPawns/Src/StellarEraInputSource.h`）只取自己那张表；跨 Pawn 的 M（切星图）与 E（上下船）都由 Pawn 自己执行 —— 先经 `IStellarEraSessionCommands`（`Src/SessionCommands.h`）向控制器查询目标（M：`FindStarMapCameraFor`；E：`FindBoardableShipFrom` / `GetOrSpawnCrewCharacter`），机械动作在 `AStarMapCameraPawn::EnterStarMap` / `ExitStarMap` 与 `ASpaceshipPawn::Board` / `DisembarkCrew`，`Possess` 仍由控制器完成。退星图不问控制器：相机自己记着是谁把它叫出来的 |
+| 改角色 / 飞船 / 星图相机对输入的响应 | `StellarEraPawns/Src/Character/Input/PlanetCharacterInputComponent.cpp` / `Src/Spaceship/Input/SpaceshipInputComponent.cpp` / `Src/StarMap/Input/StarMapInputComponent.cpp`（三个输入组件都在 Pawn 的构造函数里 `CreateDefaultSubobject`，`SetupPlayerInputComponent` 只调 `Bind`） |
+| 改 E / M / 左键的绑定 | 控制器**不绑任何输入**（`SetupInputComponent` 已删除）；三个 Pawn 各绑自己表里的动作：角色 `Src/Character/Input/PlanetCharacterInputComponent.cpp`、飞船 `Src/Spaceship/Input/SpaceshipInputComponent.cpp`、星图相机 `Src/StarMap/Input/StarMapInputComponent.cpp`。动作由控制器造，Pawn 经 `IStellarEraInputSource`（`StellarEraPawns/Src/StellarEraInputSource.h`）只取自己那张表；跨 Pawn 的 M（切星图）与 E（上下船）都由 Pawn 自己执行 —— 先经 `IStellarEraSessionCommands`（`Src/SessionCommands.h`）向控制器查询目标（M：`FindStarMapCameraFor`；E：`FindBoardableShipFrom` / `GetOrSpawnCrewCharacter`），机械动作在 `AStarMapCameraPawn::EnterStarMap` / `ExitStarMap` 与 `ASpaceshipPawn::Board` / `DisembarkCrew`，`Possess` 仍由控制器完成。退星图不问控制器：相机自己记着是谁把它叫出来的 |
 
 ---
 

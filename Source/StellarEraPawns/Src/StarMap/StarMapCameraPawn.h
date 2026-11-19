@@ -13,7 +13,7 @@ class AVoxelPlanetActor;
 class UCameraComponent;
 class UCosmosSimulationSubsystem;
 class UPlanetEditComponent;
-class UStarMapCameraInputComponent;
+class UStarMapInputComponent;
 class UVoxelSimpleInvokerComponent;
 
 struct FPlanetEditTarget;
@@ -212,7 +212,7 @@ protected:
 
 	/** 键鼠输入。回调与输入状态都在组件里，本类只负责转发绑定。 */
 	UPROPERTY(VisibleAnywhere, Category = "Input")
-	TObjectPtr<UStarMapCameraInputComponent> PlayerInput;
+	TObjectPtr<UStarMapInputComponent> PlayerInput;
 
 	/**
 	 * 体素调用器：四档 LOD，配置与飞船一致。必须是 UAlwaysLocalVoxelInvokerComponent ——

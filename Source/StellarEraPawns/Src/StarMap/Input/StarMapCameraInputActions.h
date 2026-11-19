@@ -20,7 +20,7 @@ struct STELLARERAPAWNS_API FStarMapCameraInputActions
 {
 	GENERATED_BODY()
 
-	/** 鼠标位移。能不能用由相机按按住的键分派，见 UStarMapCameraInputComponent::ResolveLookMode。 */
+	/** 鼠标位移。能不能用由按住的键分派，见 UStarMapInputComponent::ResolveLookMode。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> Look;
 

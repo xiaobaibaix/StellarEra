@@ -19,7 +19,7 @@
 #include "VoxelViewpointInvokerUtils.h"
 #include "SpaceshipInputComponent.h"
 #include "StarMapRigComponent.h"
-#include "StarMapCameraInputComponent.h"
+#include "StarMapInputComponent.h"
 #include "GameFramework/PlayerController.h"
 
 namespace
@@ -154,7 +154,7 @@ ASpaceshipPawn::ASpaceshipPawn()
 	PlayerInput = CreateDefaultSubobject<USpaceshipInputComponent>(TEXT("PlayerInput"));
 
 	StarMapRig = CreateDefaultSubobject<UStarMapRigComponent>(TEXT("StarMapRig"));
-	StarMapInput = CreateDefaultSubobject<UStarMapCameraInputComponent>(TEXT("StarMapInput"));
+	StarMapInput = CreateDefaultSubobject<UStarMapInputComponent>(TEXT("StarMapInput"));
 }
 
 bool ASpaceshipPawn::IsStarMapActive() const

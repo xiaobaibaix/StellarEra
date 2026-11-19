@@ -7,7 +7,7 @@
 #include "CosmosSimulationSubsystem.h"
 #include "CosmosTrajectoryComponent.h"
 #include "PlanetEditComponent.h"
-#include "StarMapCameraInputComponent.h"
+#include "StarMapInputComponent.h"
 #include "StarMapRigComponent.h"
 
 #include "BlueprintComponentTestHelpers.h"
@@ -559,7 +559,7 @@ bool FStellarEraStarMapLookDispatchTest::RunTest(const FString& Parameters)
 	// 参数顺序：(右键, 左键, 中键, 编辑模式, 连续挖)
 	auto Resolve = [](bool bRight, bool bLeft, bool bMiddle, bool bEdit, bool bDig)
 	{
-		return UStarMapCameraInputComponent::ResolveLookMode(bRight, bLeft, bMiddle, bEdit, bDig);
+		return UStarMapInputComponent::ResolveLookMode(bRight, bLeft, bMiddle, bEdit, bDig);
 	};
 
 	TestTrue(TEXT("普通星图 左键绕行"), Resolve(false, true, false, false, false) == EMode::Orbit);

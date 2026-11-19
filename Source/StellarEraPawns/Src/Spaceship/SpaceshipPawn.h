@@ -19,7 +19,7 @@ class UStaticMesh;
 class UStaticMeshComponent;
 class UVoxelInvokerWithPredictionComponent;
 class USpaceshipInputComponent;
-class UStarMapCameraInputComponent;
+class UStarMapInputComponent;
 class UStarMapRigComponent;
 class UInputComponent;
 struct FInputActionValue;
@@ -458,9 +458,9 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "StarMap")
 	TObjectPtr<UStarMapRigComponent> StarMapRig;
 
-	/** 星图的键鼠输入；未激活时组件自身返回空 Pawn，全部回调空转。 */
+	/** 星图的键鼠输入；未激活时 GetPawn() 返回空，全部回调空转 —— 进出图只切 rig 状态，不换 Possess。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "StarMap")
-	TObjectPtr<UStarMapCameraInputComponent> StarMapInput;
+	TObjectPtr<UStarMapInputComponent> StarMapInput;
 
 	/**
 	 * B 键调试视角的落地检测球（线框）。单独做成组件是为了 tick 顺序：它跑在

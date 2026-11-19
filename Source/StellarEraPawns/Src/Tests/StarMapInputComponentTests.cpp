@@ -1,7 +1,7 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 
 #include "Misc/AutomationTest.h"
-#include "StarMapCameraInputComponent.h"
+#include "StarMapInputComponent.h"
 #include "StarMapCameraPawn.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -20,8 +20,8 @@ bool FStellarEraStarMapInputComponentWiringTest::RunTest(const FString& Paramete
 		return false;
 	}
 
-	const UStarMapCameraInputComponent* Input = CameraCDO->FindComponentByClass<UStarMapCameraInputComponent>();
-	if (!TestNotNull(TEXT("相机 CDO 上有 UStarMapCameraInputComponent"), Input))
+	const UStarMapInputComponent* Input = CameraCDO->FindComponentByClass<UStarMapInputComponent>();
+	if (!TestNotNull(TEXT("相机 CDO 上有 UStarMapInputComponent"), Input))
 	{
 		return false;
 	}

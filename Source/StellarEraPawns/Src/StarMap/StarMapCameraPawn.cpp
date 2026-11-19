@@ -11,7 +11,7 @@
 #include "PlanetEditComponent.h"
 #include "PlanetSurfaceRay.h"
 #include "SpaceshipPawn.h"
-#include "StarMapCameraInputComponent.h"
+#include "StarMapInputComponent.h"
 #include "StarMapPicking.h"
 #include "TimerManager.h"
 #include "VoxelPlanetActor.h"
@@ -31,7 +31,7 @@ AStarMapCameraPawn::AStarMapCameraPawn()
 	Camera->bUsePawnControlRotation = false;
 
 	// 星图的键鼠输入：与角色 / 飞船同构，回调住在组件里。
-	PlayerInput = CreateDefaultSubobject<UStarMapCameraInputComponent>(TEXT("PlayerInput"));
+	PlayerInput = CreateDefaultSubobject<UStarMapInputComponent>(TEXT("PlayerInput"));
 
 	// --- 体素调用器：四档 LOD，见头文件 ---
 	// 参数照抄飞船：两者交替出现在同一片地形，不一致会抖。AlwaysLocal 版避免 Possess 时挤掉飞船 / 角色的调用器。
