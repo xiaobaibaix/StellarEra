@@ -59,9 +59,8 @@ bool FStellarEraCharacterInputWiringTest::RunTest(const FString& Parameters)
 	// 它有自己的 EnhancedActionEventBindings —— 读错容器会得到恒 0。
 	const TArray<TUniquePtr<FEnhancedInputActionEventBinding>>& Bindings = Input->GetActionEventBindings();
 
-	// 十三条：移动 / 视角 / 跳 / 冲刺 / 缩放 / 编辑 / 笔刷 / 星图 / 交互 / 挖掘，
-	// 少一条就是某个键静默失灵。
-	if (!TestEqual(TEXT("角色绑定的动作数"), Bindings.Num(), 13))
+	// 23 条：角色表 12 条 + 星图输入组件 11 条，少一条就是某个键静默失灵。
+	if (!TestEqual(TEXT("角色绑定的动作数"), Bindings.Num(), 23))
 	{
 		return false;
 	}
@@ -74,7 +73,6 @@ bool FStellarEraCharacterInputWiringTest::RunTest(const FString& Parameters)
 	int32 ZoomCount = 0;
 	int32 EditModeCount = 0;
 	int32 BrushSizeCount = 0;
-	int32 StarMapToggleCount = 0;
 	int32 InteractCount = 0;
 	int32 StarMapSelectCount = 0;
 	for (const TUniquePtr<FEnhancedInputActionEventBinding>& Binding : Bindings)
@@ -89,7 +87,6 @@ bool FStellarEraCharacterInputWiringTest::RunTest(const FString& Parameters)
 		ZoomCount += ActionName == TEXT("IA_Character_Zoom") ? 1 : 0;
 		EditModeCount += ActionName == TEXT("IA_Character_EditModeToggle") ? 1 : 0;
 		BrushSizeCount += ActionName == TEXT("IA_Character_BrushSize") ? 1 : 0;
-		StarMapToggleCount += ActionName == TEXT("IA_Character_StarMapToggle") ? 1 : 0;
 		InteractCount += ActionName == TEXT("IA_Character_Interact") ? 1 : 0;
 		StarMapSelectCount += ActionName == TEXT("IA_Character_EditPrimary") ? 1 : 0;
 	}
@@ -102,7 +99,6 @@ bool FStellarEraCharacterInputWiringTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("IA_Character_Zoom 绑定数"), ZoomCount, 1);
 	TestEqual(TEXT("IA_Character_EditModeToggle 绑定数"), EditModeCount, 1);
 	TestEqual(TEXT("IA_Character_BrushSize 绑定数"), BrushSizeCount, 1);
-	TestEqual(TEXT("IA_Character_StarMapToggle 绑定数"), StarMapToggleCount, 1);
 	TestEqual(TEXT("IA_Character_Interact 绑定数"), InteractCount, 1);
 	TestEqual(TEXT("IA_Character_EditPrimary 绑定数（只有 Started）"), StarMapSelectCount, 1);
 

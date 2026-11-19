@@ -43,8 +43,8 @@ void FStarMapCameraInputActions::Build(UObject* Outer, UInputMappingContext* Con
 	StellarEraInput::MapKey(Context, BrushSize, EKeys::Hyphen, { StellarEraInput::MakeNegate(Outer) });
 	StellarEraInput::MapKey(Context, BrushSize, EKeys::Subtract, { StellarEraInput::MakeNegate(Outer) });
 
-	// 左键选择 / M 在角色 / 飞船表里也各有一份（进星图的入口）；同一 IMC 里谁被
-	// Possess 谁那条生效。
+	// StarMapSelect 只在本表；M 三张表都映进同一个 IMC，但只有 UStarMapInputComponent
+	// 绑它，所以按一次只切一次 rig。
 	StellarEraInput::MapKey(Context, StarMapSelect, EKeys::LeftMouseButton);
 	StellarEraInput::MapKey(Context, StarMapToggle, EKeys::M);
 }
