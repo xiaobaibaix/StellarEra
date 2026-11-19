@@ -162,12 +162,12 @@ void SGeoViewerPanel::Construct(const FArguments& InArgs)
 		if (bPan)
 		{
 			const float K = 0.0025f * View.Distance;
-			View.Pan += FVector2f(-Delta.X * K, Delta.Y * K);
+			View.Pan += FVector2f(Delta.X * K, -Delta.Y * K);
 		}
 		else
 		{
-			View.YawDeg -= Delta.X * 0.4f;
-			View.PitchDeg = FMath::Clamp(View.PitchDeg + Delta.Y * 0.4f, -89.f, 89.f);
+			View.YawDeg += Delta.X * 0.4f;
+			View.PitchDeg = FMath::Clamp(View.PitchDeg - Delta.Y * 0.4f, -89.f, 89.f);
 		}
 		MarkView3DDirty();
 	};
