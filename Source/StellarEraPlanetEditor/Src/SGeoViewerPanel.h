@@ -46,7 +46,8 @@ private:
 	PlanetGeoDebugView3D::FView View;
 	TArray<FVector3d> HitPos;
 	TArray<float> HitValues;
-	bool bShowMinerals = true;
+	/** 矿体 20× 放大要给每根光线做一次大范围 BVH 查询，静止出图 1.4 s；默认关，按需开。 */
+	bool bShowMinerals = false;
 	float MineralScale = 20.f;
 	bool bView3DDirty = true;
 	bool bView3DFull = false;
