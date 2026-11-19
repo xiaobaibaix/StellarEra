@@ -169,4 +169,36 @@ bool FGeoSupergeneTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoGossanTest, "StellarEra.Planet.Geo.Stage07.Gossan",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoGossanTest::RunTest(const FString& Parameters)
+{
+	// 铁帽的判据是「剥蚀到矿体」：深埋就没有，擦到地表才有。
+	FPlanetRecipeConfig C;
+	C.Radius = 40000.0;
+	C.Minerals.Add({ TEXT("斑岩铜"), FColor::Orange });
+
+	const auto CountAt = [&](float HostCenterR) -> int32
+	{
+		FPlanetBakeFields F;
+		F.Elevation.Init(64);
+		F.Elevation.Fill([](const FVector3f&) { return 0.f; });
+		FGeoPrimitive Host = FGeoPrimitive::MakeBlob(FVector3f(0.f, 0.f, HostCenterR), FVector3f(300.f, 200.f, 40.f), 0.1f);
+		Host.MineralId = 1;
+		F.Primitives.Add(Host);
+		TArray<FString> Errors;
+		FGeoScatterContext Ctx{ C, F, FGeoRng::Derive(1, 8, 0), Errors };
+		FGeoScatterOutput Out;
+		FGeoGossanRule Rule;
+		Rule.HostMineral = TEXT("斑岩铜");
+		Rule.Scatter(Ctx, Out);
+		return Out.Bodies.Num();
+	};
+
+	TestEqual(TEXT("深埋 960 体素的矿体没有铁帽"), CountAt(39000.f), 0);
+	TestEqual(TEXT("已擦到地表的矿体有铁帽"), CountAt(39990.f), 1);
+	return true;
+}
+
 #endif
