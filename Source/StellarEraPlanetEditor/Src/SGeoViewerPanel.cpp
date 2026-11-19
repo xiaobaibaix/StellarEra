@@ -167,7 +167,7 @@ void SGeoViewerPanel::Construct(const FArguments& InArgs)
 		else
 		{
 			View.YawDeg += Delta.X * 0.4f;
-			View.PitchDeg = FMath::Clamp(View.PitchDeg - Delta.Y * 0.4f, -89.f, 89.f);
+			View.PitchDeg = FMath::Clamp(View.PitchDeg + Delta.Y * 0.4f, -89.f, 89.f);
 		}
 		MarkView3DDirty();
 	};
@@ -450,9 +450,11 @@ void SGeoViewerPanel::Render3D(bool bFull)
 	const double T0 = FPlatformTime::Seconds();
 	const int32 Width = FMath::RoundToInt(View3DWidth);
 	const int32 Height = FMath::Max(1, FMath::RoundToInt(View3DWidth * 9.f / 16.f));
-	// 交互中按 1/4 宽高光线步进，只降采样不改宽高比：全分辨率每拖动一帧都太贵。
-	const int32 Scale = bFull ? 1 : 4;
-	const int32 RenderW = FMath::Max(1, Width / Scale), RenderH = FMath::Max(1, Height / Scale);
+	// 出图尺寸封顶：光线步进的代价 = 像素数 × 步数，面板再宽也不跟着涨；
+	// 显示仍按 Width×Height 拉伸，看不出模糊（切线时除外）。
+	const int32 MaxRenderW = bFull ? 640 : 320;
+	const int32 RenderW = FMath::Max(1, FMath::Min(Width, MaxRenderW));
+	const int32 RenderH = FMath::Max(1, FMath::RoundToInt(float(RenderW) * 9.f / 16.f));
 	PlanetGeoDebugView3D::FView V = View;
 	V.Steps = bFull ? 320 : 48;
 	V.MineralScale = bShowMinerals && !Layer->RayHits ? MineralScale : 0.f;
