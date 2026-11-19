@@ -201,4 +201,37 @@ bool FGeoGossanTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGeoSkarnTest, "StellarEra.Planet.Geo.Skarn",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGeoSkarnTest::RunTest(const FString& Parameters)
+{
+	// 矽卡岩只出现在「酸性侵入体 + 石灰岩」的接触带上，两者缺一没有。
+	FPlanetRecipeConfig C;
+	C.Radius = 40000.0;
+	const auto CountWith = [&](uint8 Lithology, uint8 Strata) -> int32
+	{
+		FPlanetBakeFields F;
+		F.StrataType.Init(64);
+		F.StrataType.Fill([Strata](const FVector3f&) { return float(Strata); });
+		F.StrataThickness.Init(64);
+		F.StrataThickness.Fill([](const FVector3f&) { return 300.f; });
+		FGeoPrimitive Intr = FGeoPrimitive::MakeBlob(FVector3f(0.f, 0.f, 39000.f), FVector3f(500.f, 400.f, 300.f), 0.1f);
+		Intr.LithologyId = Lithology;
+		F.Primitives.Add(Intr);
+		TArray<FString> Errors;
+		FGeoScatterContext Ctx{ C, F, FGeoRng::Derive(1, 4, 0), Errors };
+		FGeoScatterOutput Out;
+		FGeoSkarnRule Rule;
+		Rule.Scatter(Ctx, Out);
+		return Out.Bodies.Num();
+	};
+
+	TestEqual(TEXT("闪长岩 + 石灰岩 → 有矽卡岩"), CountWith(GeoLithology::Diorite, GeoLithology::Limestone), 1);
+	TestEqual(TEXT("花岗岩 + 石灰岩 → 有矽卡岩"), CountWith(GeoLithology::Granite, GeoLithology::Limestone), 1);
+	TestEqual(TEXT("闪长岩 + 砂岩 → 没有"), CountWith(GeoLithology::Diorite, GeoLithology::Sandstone), 0);
+	TestEqual(TEXT("橄榄岩 + 石灰岩 → 没有（超基性不成矽卡岩）"), CountWith(GeoLithology::Peridotite, GeoLithology::Limestone), 0);
+	return true;
+}
+
 #endif

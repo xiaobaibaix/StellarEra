@@ -123,6 +123,31 @@ void FGeoGossanRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) co
 	}
 }
 
+uint64 FGeoSkarnRule::HashParams() const
+{
+	uint64 H = GeoHash::Combine(GeoHash::Float(RadiusScale), GeoHash::Float(ThicknessVoxels));
+	return GeoHash::Combine(H, uint64(Stage));
+}
+
+void FGeoSkarnRule::Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const
+{
+	const FPlanetBakeFields& F = Ctx.Fields;
+	if (F.StrataType.Res <= 0) { return; }
+	for (const FGeoPrimitive& P : F.Primitives)
+	{
+		// 只有酸性 / 中酸性侵入体与碳酸盐岩接触才成矽卡岩。
+		if (P.LithologyId != GeoLithology::Granite && P.LithologyId != GeoLithology::Diorite) { continue; }
+		const FVector3f Dir = P.Center.GetSafeNormal();
+		if (FMath::RoundToInt(F.StrataType.SampleNearest(Dir)) != GeoLithology::Limestone) { continue; }
+		FGeoPrimitive Ring = FGeoPrimitive::MakeBlob(
+			FVector3f(Dir * float(P.Center.Size() + double(P.Radii.Z))),
+			FVector3f(FMath::Max(P.Radii.X, 1.f) * RadiusScale, FMath::Max(P.Radii.Y, 1.f) * RadiusScale, ThicknessVoxels * 0.5f),
+			0.25f);
+		Ring.Grade = RandomGrade(Ctx.Rng);
+		Out.Bodies.Add(Ring);
+	}
+}
+
 namespace GeoSurfaceDeposit
 {
 	uint8 FindMineralByName(const FGeoScatterContext& Ctx, const FName& Name)

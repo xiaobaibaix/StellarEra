@@ -206,3 +206,12 @@ TSharedPtr<IGeoMineralRule> UGeoGossanScatterer::MakeRule() const
 	R->Stage = 8;
 	return R;
 }
+
+TSharedPtr<IGeoMineralRule> UGeoSkarnScatterer::MakeRule() const
+{
+	TSharedPtr<FGeoSkarnRule> R = MakeShared<FGeoSkarnRule>();
+	R->RadiusScale = RadiusScale;
+	R->ThicknessVoxels = ThicknessVoxels;
+	R->Stage = 4;
+	return R;
+}

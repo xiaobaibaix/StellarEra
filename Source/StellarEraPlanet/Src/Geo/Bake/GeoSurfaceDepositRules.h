@@ -1,4 +1,4 @@
-// 3A / 3B / 7 的成矿规律：地表毯层、次生富集、铁帽。都是「贴着地表十几格的薄层」，
+﻿// 3A / 3B / 7 的成矿规律：地表毯层、次生富集、铁帽。都是「贴着地表十几格的薄层」，
 // 所以产出覆层（Overlay）而不是深部原语。
 #pragma once
 #include "CoreMinimal.h"
@@ -66,6 +66,19 @@ public:
 	virtual const TCHAR* GetRuleName() const override { return TEXT("铁帽"); }
 	virtual void Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const override;
 	uint32 Stage = 8;
+};
+
+/** 矽卡岩：酸性/中酸性侵入体与石灰岩接触带上的一圈交代矿。 */
+class FGeoSkarnRule final : public IGeoMineralRule
+{
+public:
+	float RadiusScale = 1.15f;      // 相对侵入体长轴的接触带半径
+	float ThicknessVoxels = 24.f;   // 接触带厚度
+	uint64 HashParams() const override;
+	virtual uint32 GetStage() const override { return Stage; }
+	virtual const TCHAR* GetRuleName() const override { return TEXT("矽卡岩"); }
+	virtual void Scatter(FGeoScatterContext& Ctx, FGeoScatterOutput& Out) const override;
+	uint32 Stage = 4;
 };
 
 namespace GeoSurfaceDeposit

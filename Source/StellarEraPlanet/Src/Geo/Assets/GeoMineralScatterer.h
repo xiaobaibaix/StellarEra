@@ -608,3 +608,20 @@ public:
 
 	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
 };
+
+/** 矽卡岩：侵入体与石灰岩接触带的交代矿，挂在阶段 4 之后。 */
+UCLASS(meta = (DisplayName = "矽卡岩（4）"))
+class STELLARERAPLANET_API UGeoSkarnScatterer : public UGeoMineralScatterer
+{
+	GENERATED_BODY()
+
+public:
+	/** 接触带半径相对侵入体长轴的倍数。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1", ClampMax = "3"))
+	float RadiusScale = 1.15f;
+	/** 接触带厚度（体素）。 */
+	UPROPERTY(EditAnywhere, Category = "Rule", meta = (ClampMin = "1", ClampMax = "120"))
+	float ThicknessVoxels = 24.f;
+
+	virtual TSharedPtr<IGeoMineralRule> MakeRule() const override;
+};
