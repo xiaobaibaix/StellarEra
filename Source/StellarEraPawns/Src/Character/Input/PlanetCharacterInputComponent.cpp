@@ -13,14 +13,15 @@
 #include "PlanetEditUI.h"
 #include "SessionCommands.h"
 #include "SpaceshipPawn.h"
-#include "StarMapCameraPawn.h"
 #include "StellarEraInputActionBuilder.h"
 #include "StellarEraInputSource.h"
 #include "StellarEraNoticeSink.h"
 
 APlanetCharacter* UPlanetCharacterInputComponent::GetPawn() const
 {
-	return Cast<APlanetCharacter>(GetOwner());
+	APlanetCharacter* OwnerPawn = Cast<APlanetCharacter>(GetOwner());
+	// 星图期间角色输入全停（M 由星图输入组件接），与旧版 Possess 换人等价。
+	return (OwnerPawn && !OwnerPawn->IsStarMapActive()) ? OwnerPawn : nullptr;
 }
 
 void UPlanetCharacterInputComponent::Bind(UInputComponent* PlayerInputComponent)
@@ -57,8 +58,7 @@ void UPlanetCharacterInputComponent::Bind(UInputComponent* PlayerInputComponent)
 	EnhancedInput->BindAction(Input.EditModeToggle, ETriggerEvent::Started, this, &UPlanetCharacterInputComponent::OnEditModeToggle);
 	EnhancedInput->BindAction(Input.BrushSize, ETriggerEvent::Started, this, &UPlanetCharacterInputComponent::OnBrushSize);
 
-	// E / M / 左键：角色表里各有一条，E 是登船；左键只绑 Started（编辑挖掘）。
-	EnhancedInput->BindAction(Input.StarMapToggle, ETriggerEvent::Started, this, &UPlanetCharacterInputComponent::OnStarMapToggle);
+	// E / 左键：角色表里各有一条，E 是登船；左键只绑 Started（编辑挖掘）。
 	EnhancedInput->BindAction(Input.Interact, ETriggerEvent::Started, this, &UPlanetCharacterInputComponent::OnInteract);
 	EnhancedInput->BindAction(Input.EditPrimary, ETriggerEvent::Started, this, &UPlanetCharacterInputComponent::OnEditPrimary);
 
@@ -336,33 +336,6 @@ void UPlanetCharacterInputComponent::OnEditPrimary(const FInputActionValue& Valu
 	{
 		Edit->DigAtScreenPosition(MousePosition);
 	}
-}
-
-void UPlanetCharacterInputComponent::OnStarMapToggle(const FInputActionValue& Value)
-{
-	APlanetCharacter* Pawn = GetPawn();
-	APlayerController* PC = GetPlayerController();
-	if (!Pawn || !PC)
-	{
-		return;
-	}
-
-	// 「从这颗星球上能借用哪台星图相机」由控制器回答（Game 模块，本模块看不到）。
-	IStellarEraSessionCommands* Commands = Cast<IStellarEraSessionCommands>(PC);
-	AStarMapCameraPawn* Camera = Commands ? Commands->FindStarMapCameraFor(Pawn) : nullptr;
-	if (!Camera)
-	{
-		return;
-	}
-
-	// 进星图前退出编辑模式：星图里左键是拾取，不能同时保留笔刷状态与网格。
-	if (UPlanetEditComponent* Edit = GetEditComponentInEditMode())
-	{
-		Edit->SetEditMode(false);
-	}
-
-	// 进场（含 Possess）归相机自己。
-	Camera->EnterStarMap(Pawn, PC);
 }
 
 void UPlanetCharacterInputComponent::OnInteract(const FInputActionValue& Value)

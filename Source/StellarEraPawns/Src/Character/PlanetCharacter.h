@@ -15,6 +15,8 @@ class UPlanetCharacterInputComponent;
 class UPlanetEditComponent;
 class USkeletalMesh;
 class USpringArmComponent;
+class UStarMapCameraInputComponent;
+class UStarMapRigComponent;
 class UVoxelSimpleInvokerComponent;
 class UInputComponent;
 struct FInputActionValue;
@@ -35,6 +37,9 @@ public:
 	virtual void OnConstruction(const FTransform& Transform) override;
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
+
+	/** 星图激活时把视点交给 rig；FP 相机由 rig 的 CalcView 整体覆盖。 */
+	virtual void CalcCamera(float DeltaSeconds, FMinimalViewInfo& OutResult) override;
 
 	/**
 	 * 绑角色自己的输入。引擎只在本地 Possess 时调用，动作表从控制器（`IStellarEraInputSource`）取。
@@ -95,6 +100,15 @@ public:
 	 */
 	UPlanetEditComponent* GetPlanetEditComponent() const;
 
+	/**
+	 * 把「屏幕射线 → 编辑目标」装回角色的普通射线解析器。星图进场换成行星解析器，
+	 * 退图时 rig 调本方法还原。
+	 */
+	void InstallEditTargetResolver();
+
+	/** 星图 rig 是否正在接管视点（含退图过渡）。 */
+	bool IsStarMapActive() const;
+
 	/** 查找行星时的最大距离（厘米）。默认 1000 公里，够覆盖任意单颗行星。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet")
 	float PlanetSearchRadius = 1.0e8f;
@@ -118,6 +132,14 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
 	TObjectPtr<UCameraComponent> Camera;
+
+	/** 星图 rig：进图后接管本 Pawn 的相机。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "StarMap")
+	TObjectPtr<UStarMapRigComponent> StarMapRig;
+
+	/** 星图的键鼠输入；未激活时组件自身返回空 Pawn，全部回调空转。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "StarMap")
+	TObjectPtr<UStarMapCameraInputComponent> StarMapInput;
 
 	/** 体素 Invoker：行星自己的 Invoker 关掉了碰撞，脚下要生成碰撞体必须由角色自己带一个。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet")

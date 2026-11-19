@@ -10,13 +10,14 @@
 #include "SessionCommands.h"
 #include "SpaceshipInputActions.h"
 #include "SpaceshipPawn.h"
-#include "StarMapCameraPawn.h"
 #include "StellarEraInputSource.h"
 #include "StellarEraNoticeSink.h"
 
 ASpaceshipPawn* USpaceshipInputComponent::GetPawn() const
 {
-	return Cast<ASpaceshipPawn>(GetOwner());
+	ASpaceshipPawn* OwnerPawn = Cast<ASpaceshipPawn>(GetOwner());
+	// 星图期间飞船输入全停（M 由星图输入组件接），与旧版 Possess 换人等价。
+	return (OwnerPawn && !OwnerPawn->IsStarMapActive()) ? OwnerPawn : nullptr;
 }
 
 void USpaceshipInputComponent::Bind(UInputComponent* PlayerInputComponent)
@@ -35,7 +36,7 @@ void USpaceshipInputComponent::Bind(UInputComponent* PlayerInputComponent)
 		return;
 	}
 
-	// 只取飞船自己那张表：别的 Pawn 的动作不归这里管；E / M 也在这张表里。
+	// 只取飞船自己那张表：别的 Pawn 的动作不归这里管；E 也在这张表里。
 	const FSpaceshipInputActions& Input = Source->GetSpaceshipInputActions();
 
 	EnhancedInput->BindAction(Input.Look, ETriggerEvent::Triggered, this, &USpaceshipInputComponent::OnLookInput);
@@ -58,8 +59,7 @@ void USpaceshipInputComponent::Bind(UInputComponent* PlayerInputComponent)
 	// 只绑 Triggered：滚轮每格是一次独立冲量，不滚就不产生值，没有 Completed 可收。
 	EnhancedInput->BindAction(Input.Zoom, ETriggerEvent::Triggered, this, &USpaceshipInputComponent::OnZoomInput);
 
-	// M 进星图、E 离船：两条都在飞船表里，由飞船自己接。
-	EnhancedInput->BindAction(Input.StarMapToggle, ETriggerEvent::Started, this, &USpaceshipInputComponent::OnStarMapToggle);
+	// E 离船：在飞船表里，由飞船自己接。
 	EnhancedInput->BindAction(Input.Interact, ETriggerEvent::Started, this, &USpaceshipInputComponent::OnInteract);
 
 	// 绑定成功也给一条 Verbose：「没报错」不等于「绑上了」，无头跑时用它当正证据。
@@ -190,27 +190,6 @@ void USpaceshipInputComponent::OnZoomInput(const FInputActionValue& Value)
 	}
 
 	Pawn->AddZoom(Value.Get<float>());
-}
-
-void USpaceshipInputComponent::OnStarMapToggle(const FInputActionValue& Value)
-{
-	ASpaceshipPawn* Pawn = GetPawn();
-	APlayerController* PC = Pawn ? Cast<APlayerController>(Pawn->GetController()) : nullptr;
-	if (!Pawn || !PC)
-	{
-		return;
-	}
-
-	// 「从这艘飞船能借用哪台星图相机」由控制器回答；飞船自己什么都不用挤出来。
-	IStellarEraSessionCommands* Commands = Cast<IStellarEraSessionCommands>(PC);
-	AStarMapCameraPawn* Camera = Commands ? Commands->FindStarMapCameraFor(Pawn) : nullptr;
-	if (!Camera)
-	{
-		return;
-	}
-
-	// 进场（含 Possess）归相机自己。飞船没有编辑模式，不用像角色那样先退出。
-	Camera->EnterStarMap(Pawn, PC);
 }
 
 void USpaceshipInputComponent::OnInteract(const FInputActionValue& Value)

@@ -22,6 +22,8 @@
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "PlanetCharacterInputComponent.h"
+#include "StarMapRigComponent.h"
+#include "StarMapCameraInputComponent.h"
 #include "SpaceshipPawn.h"
 
 namespace
@@ -215,12 +217,44 @@ APlanetCharacter::APlanetCharacter(const FObjectInitializer& ObjectInitializer)
 	}
 
 	PlayerInput = CreateDefaultSubobject<UPlanetCharacterInputComponent>(TEXT("PlayerInput"));
+
+	StarMapRig = CreateDefaultSubobject<UStarMapRigComponent>(TEXT("StarMapRig"));
+	StarMapInput = CreateDefaultSubobject<UStarMapCameraInputComponent>(TEXT("StarMapInput"));
 }
 
 UPlanetEditComponent* APlanetCharacter::GetPlanetEditComponent() const
 {
 	// 组件由蓝图挂载，这里现查不缓存：缓存时机在编辑器世界里不可靠，调用开销可忽略。
 	return FindComponentByClass<UPlanetEditComponent>();
+}
+
+void APlanetCharacter::InstallEditTargetResolver()
+{
+	if (UPlanetEditComponent* Edit = GetPlanetEditComponent())
+	{
+		Edit->SetTargetResolver(
+			[this](const FVector& RayOrigin, const FVector& RayDirection,
+				const float MaxDistanceCm, FPlanetEditTarget& OutTarget)
+			{
+				return TraceTargetForCharacter(
+					*this, PlanetActor.Get(), RayOrigin, RayDirection, MaxDistanceCm, OutTarget);
+			});
+	}
+}
+
+bool APlanetCharacter::IsStarMapActive() const
+{
+	return StarMapRig && StarMapRig->IsActive();
+}
+
+void APlanetCharacter::CalcCamera(float DeltaSeconds, FMinimalViewInfo& OutResult)
+{
+	Super::CalcCamera(DeltaSeconds, OutResult);
+
+	if (IsStarMapActive())
+	{
+		StarMapRig->CalcView(DeltaSeconds, OutResult);
+	}
 }
 
 void APlanetCharacter::ApplyCharacterMesh()
@@ -315,16 +349,7 @@ void APlanetCharacter::BeginPlay()
 
 	// 解析器必须在「找不到行星」的早退之前装好：它读 PlanetActor 的当前值而非安装时快照，
 	// 所以先装后查没有时序问题；反过来一旦此刻没找到行星，早退就把安装也跳过了。
-	if (UPlanetEditComponent* Edit = GetPlanetEditComponent())
-	{
-		Edit->SetTargetResolver(
-			[this](const FVector& RayOrigin, const FVector& RayDirection,
-				const float MaxDistanceCm, FPlanetEditTarget& OutTarget)
-			{
-				return TraceTargetForCharacter(
-					*this, PlanetActor.Get(), RayOrigin, RayDirection, MaxDistanceCm, OutTarget);
-			});
-	}
+	InstallEditTargetResolver();
 
 	// 调用器在 OnRegister 里自动启用，那时还没认过登船状态；这里按 bBoarded 重应用一次
 	// （关卡里就摆成船员的角色要关掉）。必须早于下面「找不到行星」的早退。
@@ -628,6 +653,11 @@ void APlanetCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 	if (PlayerInput)
 	{
 		PlayerInput->Bind(PlayerInputComponent);
+	}
+
+	if (StarMapInput)
+	{
+		StarMapInput->Bind(PlayerInputComponent);
 	}
 }
 

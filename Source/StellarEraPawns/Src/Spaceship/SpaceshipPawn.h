@@ -19,6 +19,8 @@ class UStaticMesh;
 class UStaticMeshComponent;
 class UVoxelInvokerWithPredictionComponent;
 class USpaceshipInputComponent;
+class UStarMapCameraInputComponent;
+class UStarMapRigComponent;
 class UInputComponent;
 struct FInputActionValue;
 
@@ -224,6 +226,9 @@ public:
 	void SetFreeLookActive(bool bActive);
 
 	bool IsFreeLookActive() const { return bFreeLookActive; }
+
+	/** 星图 rig 是否正在接管视点（含退图过渡）。 */
+	bool IsStarMapActive() const;
 
 	/**
 	 * 巡航开关（C）。开 = 关掉阻尼、速度不再衰减，但**推力照给**（否则到不了圆
@@ -448,6 +453,14 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
 	TObjectPtr<UCameraComponent> Camera;
+
+	/** 星图 rig：进图后接管本 Pawn 的相机。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "StarMap")
+	TObjectPtr<UStarMapRigComponent> StarMapRig;
+
+	/** 星图的键鼠输入；未激活时组件自身返回空 Pawn，全部回调空转。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "StarMap")
+	TObjectPtr<UStarMapCameraInputComponent> StarMapInput;
 
 	/**
 	 * B 键调试视角的落地检测球（线框）。单独做成组件是为了 tick 顺序：它跑在
