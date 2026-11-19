@@ -10,6 +10,7 @@
 #include "Styling/AppStyle.h"
 #include "VoxelPlanetActor.h"
 #include "Widgets/Images/SImage.h"
+#include "Async/Async.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SCheckBox.h"
 #include "Widgets/Input/SSlider.h"
@@ -448,21 +449,21 @@ void SGeoViewerPanel::Render3D(bool bFull)
 	const FGeoDebugLayer* Layer = GeoViewerLayer(LayerIndex);
 	if (!Snap || !Layer) { return; }
 	const double T0 = FPlatformTime::Seconds();
-	const int32 Width = FMath::RoundToInt(View3DWidth);
-	const int32 Height = FMath::Max(1, FMath::RoundToInt(View3DWidth * 9.f / 16.f));
-	// 出图尺寸封顶：光线步进的代价 = 像素数 × 步数，面板再宽也不跟着涨；
-	// 显示仍按 Width×Height 拉伸，看不出模糊（切线时除外）。
-	const int32 MaxRenderW = bFull ? 640 : 320;
-	const int32 RenderW = FMath::Max(1, FMath::Min(Width, MaxRenderW));
+	const int32 DisplayW = FMath::RoundToInt(View3DWidth);
+	const int32 DisplayH = FMath::Max(1, FMath::RoundToInt(View3DWidth * 9.f / 16.f));
+	// 出图尺寸封顶：代价 = 像素数 × 步数，面板再宽也不涨；显示按面板拉伸。
+	const int32 MaxRenderW = bFull ? 512 : 256;
+	const int32 RenderW = FMath::Max(1, FMath::Min(DisplayW, MaxRenderW));
 	const int32 RenderH = FMath::Max(1, FMath::RoundToInt(float(RenderW) * 9.f / 16.f));
 	PlanetGeoDebugView3D::FView V = View;
-	V.Steps = bFull ? 320 : 48;
-	V.MineralScale = bShowMinerals && !Layer->RayHits ? MineralScale : 0.f;
+	// 切面可见时每步都要做裁剪判断，步数就是唯一的大头：交互 32 步、静止 160 步。
+	V.Steps = bFull ? 160 : 32;
+	V.MineralScale = (bShowMinerals && !Layer->RayHits) ? MineralScale : 0.f;
 	TArray<FColor> Colors;
 	PlanetGeoDebugView3D::Render(*Snap, *Layer, OuterLayer(), V, RenderW, RenderH, Colors, &HitPos, &HitValues);
-	Upload(View3D, RenderW, RenderH, Colors, FVector2D(Width, Height));
+	Upload(View3D, RenderW, RenderH, Colors, FVector2D(DisplayW, DisplayH));
 	Status3D = FText::FromString(FString::Printf(TEXT("3D：左键拖动旋转 · 右键拖动平移 · 滚轮缩放   %d×%d，%.0f ms"),
-		Width, Height, (FPlatformTime::Seconds() - T0) * 1000.0));
+		RenderW, RenderH, (FPlatformTime::Seconds() - T0) * 1000.0));
 }
 
 void SGeoViewerPanel::Render()

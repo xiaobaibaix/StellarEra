@@ -2,6 +2,8 @@
 // 悬停读数、图例、导出 PNG。只消费 FPlanetBakePipeline::DefaultDebugLayers()，新阶段注册图层后自动出现。
 #pragma once
 #include "CoreMinimal.h"
+#include "HAL/CriticalSection.h"
+#include "HAL/ThreadSafeBool.h"
 #include "PlanetGeoDebugView3D.h"
 #include "Styling/SlateBrush.h"
 #include "UObject/StrongObjectPtr.h"
