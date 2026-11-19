@@ -171,11 +171,9 @@ void SGeoViewerPanel::Construct(const FArguments& InArgs)
 			View.YawDeg += Delta.X * 0.4f;
 			View.PitchDeg = FMath::Clamp(View.PitchDeg + Delta.Y * 0.4f, -89.f, 89.f);
 		}
-		// 拖动中不出图：单步要采两次场，一帧就是几百毫秒，谁都受不了。松手再画。
-		bDraggingView3D = true;
-		bView3DDirty = true;
+		// 交互那一遍 2 ms，拖动时就实时出图；贵的矿体查询只在静止那一遍做。
+		MarkView3DDirty();
 	};
-	OrbitImage->OnDragEnd = [this]() { bDraggingView3D = false; MarkView3DDirty(); };
 	OrbitImage->OnZoom = [this](float Wheel)
 	{
 		// 距离是到视线中心的，最近能贴到地表附近看细节。
@@ -379,7 +377,7 @@ void SGeoViewerPanel::Tick(const FGeometry& AllottedGeometry, const double InCur
 			MarkView3DDirty();
 		}
 	}
-	if (bView3DDirty && !bDraggingView3D)
+	if (bView3DDirty)
 	{
 		bView3DDirty = false;
 		Render3D(false);

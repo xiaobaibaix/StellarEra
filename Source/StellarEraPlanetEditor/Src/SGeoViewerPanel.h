@@ -49,7 +49,6 @@ private:
 	bool bShowMinerals = true;
 	float MineralScale = 20.f;
 	bool bView3DDirty = true;
-	bool bDraggingView3D = false;
 	bool bView3DFull = false;
 	/** 3D 图的渲染宽度跟随面板：布局每帧把可用宽度写进来。 */
 	float View3DWidth = 512.f;
