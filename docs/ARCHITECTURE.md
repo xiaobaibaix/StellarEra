@@ -88,7 +88,7 @@ graph TD
 
 | 想搬的东西 | 会形成的环 | 现在的处理 |
 |---|---|---|
-| 星图 rig → Pawns | ~~`Pawns → Cosmos → Pawns`~~（已还清） | 2026-11-06 抽出 `ICosmosBody`（`Cosmos/Src/CosmosBody.h`，由飞船实现）后星图相机搬进 `Pawns/Src/StarMap/`；2026-11-19 相机类删除，改为 `UStarMapRigComponent`，旧脚本路径仍由 `[CoreRedirects]` 兜底 |
+| 星图 rig → Pawns | ~~`Pawns → Cosmos → Pawns`~~（已还清） | 2026-11-06 抽出 `ICosmosBody`（`Cosmos/Src/CosmosBody.h`，由飞船实现）后星图相机搬进 `Pawns/Src/StarMap/`；2026-11-19 相机类删除，改为 `UStarMapRigComponent`；旧脚本路径的 redirect 保留（目标类已不存在） |
 | UI 直接用 `CosmosSimulationSubsystem` | 已经是合法方向（UI 在上层），无需搬 | UI 私有依赖 Cosmos |
 | `IVoxelViewpointInvokers` 放 Cosmos | `Pawns → Cosmos`，而当时 Cosmos 私有依赖 Pawns | 放 Planet/Src/Invokers/，UI 与 Pawns 都已 Public 依赖 Planet |
 

@@ -47,7 +47,8 @@ void FSpaceshipInputActions::Build(UObject* Outer, UInputMappingContext* Context
 	// 滚轮是轴键（每格 ±1）；方向约定（上滚 = 拉近）由 AddZoom 负责，不需要修饰器。
 	StellarEraInput::MapKey(Context, Zoom, EKeys::MouseWheelAxis);
 
-	// E 在角色表里也有一条；M 只在星图表里。真正响应的是被 Possess 那个 Pawn 绑的。
+	// E 在角色表里也有一条。M 三张表都映进同一个 IMC，但只有 UStarMapInputComponent
+	// 绑它（本表与角色表的绑定已删），所以按一次只切一次 rig。
 	StellarEraInput::MapKey(Context, Interact, EKeys::E);
 	StellarEraInput::MapKey(Context, StarMapToggle, EKeys::M);
 }

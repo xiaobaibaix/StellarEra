@@ -51,7 +51,7 @@ StellarEraPlanet/Src/
 ├── Terrain/                   地形长什么样：模块基类、噪声、纯球、适配器、生物群系配色
 ├── Hydrology/                 水文：烘焙（填洼 / 汇流 / 下切）、水位场与河流湖泊特征
 ├── Water/                     水面：跟随行星的动态网格组件、水面几何与材质
-├── Invokers/                  体素 LOD 调用器接线 + IVoxelViewpointInvokers（角色 / 飞船 / 相机共用）
+├── Invokers/                  体素 LOD 调用器接线 + IVoxelViewpointInvokers（角色 / 飞船实现）
 ├── Surface/                   星球这个球本身：解析射线、编辑经纬网格
 ├── Atmosphere/                大气组件与参数、星体组件与阴影遮罩
 ├── Sky/  Star/                天空材质、恒星材质（各一个编辑器期构建器）
@@ -85,7 +85,7 @@ Minerals/
 
 | 模块 | 行数 | 一句话 | 什么时候动它 |
 |---|---:|---|---|
-| `StellarEraPawns` | 9312 | 角色、飞船、星图 rig 与各自的输入组件 | 见下面的子目录表 |
+| `StellarEraPawns` | 9312 | 角色、飞船与各自的输入组件（星图 rig / 输入是两者身上的组件） | 见下面的子目录表 |
 
 ```
 StellarEraPawns/Src/
@@ -183,7 +183,7 @@ Pawns，手里也有玩家控制器，所以直接调，**不设接口** —— 
 | 改星图交互 | `StellarEraUI/Src/StarMapUISystem.cpp` |
 | 改按键映射（哪个键是哪个动作） | 按归属找三张表各自的 `Build`：角色 `StellarEraPawns/Src/Character/Input/PlanetCharacterInputActions.cpp` / 飞船 `StellarEraPawns/Src/Spaceship/Input/SpaceshipInputActions.cpp` / 星图 `StellarEraPawns/Src/StarMap/Input/StarMapCameraInputActions.cpp`。E / M / 左键在需要它的表里各有一条（E：角色登船、飞船离船）；三张表由 `StellarEra/Src/Input/StellarEraInputActions.cpp` 的 `FStellarEraInputActions` 聚合构造 |
 | 改角色 / 飞船 / 星图对输入的响应 | `StellarEraPawns/Src/Character/Input/PlanetCharacterInputComponent.cpp` / `Src/Spaceship/Input/SpaceshipInputComponent.cpp` / `Src/StarMap/Input/StarMapInputComponent.cpp`（输入组件都在 Pawn 的构造函数里 `CreateDefaultSubobject`，`SetupPlayerInputComponent` 只调 `Bind`） |
-| 改 E / M / 左键的绑定 | 控制器**不绑任何输入**（`SetupInputComponent` 已删除）；三个 Pawn 各绑自己表里的动作：角色 `Src/Character/Input/PlanetCharacterInputComponent.cpp`、飞船 `Src/Spaceship/Input/SpaceshipInputComponent.cpp`、星图 rig `Src/StarMap/Input/StarMapInputComponent.cpp`。动作由控制器造，Pawn 经 `IStellarEraInputSource`（`StellarEraPawns/Src/StellarEraInputSource.h`）只取自己那张表；跨 Pawn 的 M（切星图）与 E（上下船）都由 Pawn 自己执行 —— E 先经 `IStellarEraSessionCommands`（`Src/SessionCommands.h`）向控制器查询目标（`FindBoardableShipFrom` / `GetOrSpawnCrewCharacter`），M 直接调 `UStarMapRigComponent::Toggle`；登船 / 离船的机械动作是 `ASpaceshipPawn::Board` / `DisembarkCrew`，`Possess` 仍由控制器完成 |
+| 改 E / M / 左键的绑定 | 控制器**不绑任何输入**（`SetupInputComponent` 已删除）；角色 / 飞船各绑自己表里的动作（`Src/Character/Input/PlanetCharacterInputComponent.cpp` / `Src/Spaceship/Input/SpaceshipInputComponent.cpp`），星图动作由 `UStarMapInputComponent` 在当前被 Possess 的 Pawn 上绑（`Src/StarMap/Input/StarMapInputComponent.cpp`）。动作由控制器造，Pawn 经 `IStellarEraInputSource`（`StellarEraPawns/Src/StellarEraInputSource.h`）只取自己那张表；跨 Pawn 的 M（切星图）与 E（上下船）都由 Pawn 自己执行 —— E 先经 `IStellarEraSessionCommands`（`Src/SessionCommands.h`）向控制器查询目标（`FindBoardableShipFrom` / `GetOrSpawnCrewCharacter`），M 直接调 `UStarMapRigComponent::Toggle`；登船 / 离船的机械动作是 `ASpaceshipPawn::Board` / `DisembarkCrew`，`Possess` 仍由控制器完成 |
 
 ---
 
