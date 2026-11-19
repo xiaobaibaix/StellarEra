@@ -14,7 +14,6 @@
 #include "VoxelViewpointInvokers.h"
 #include "PlanetCharacter.h"
 #include "SpaceshipPawn.h"
-#include "StarMapCameraPawn.h"
 #include "StellarEraPlayerController.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -283,40 +282,6 @@ bool FStellarEraInvokerViewpointCharacterTest::RunTest(const FString& Parameters
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraInvokerViewpointStarMapTest,
-	"StellarEra.Planet.InvokerViewpoint.StarMap",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-
-bool FStellarEraInvokerViewpointStarMapTest::RunTest(const FString& Parameters)
-{
-	FScopedInvokerTestWorld Scoped;
-	if (!TestTrue(TEXT("测试世界"), Scoped.Create()))
-	{
-		return false;
-	}
-
-	AStarMapCameraPawn* Camera = Scoped.World->SpawnActor<AStarMapCameraPawn>(
-		AStarMapCameraPawn::StaticClass(), FTransform::Identity);
-	if (!TestNotNull(TEXT("星图相机"), Camera))
-	{
-		return false;
-	}
-
-	const TArray<UVoxelInvokerComponentBase*> Invokers = CollectInvokers(Camera);
-	if (!TestEqual(TEXT("星图相机的调用器个数"), Invokers.Num(), 4))
-	{
-		return false;
-	}
-
-	Camera->SetViewpointInvokersActive(false);
-	TestTrue(TEXT("非视点 → 四档一起关闭"), AllDisabled(Invokers));
-
-	Camera->SetViewpointInvokersActive(true);
-	TestTrue(TEXT("视点 → 四档一起打开"), AllEnabled(Invokers));
-
-	return true;
-}
-
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraInvokerViewpointGateTest,
 	"StellarEra.Planet.InvokerViewpoint.Gate",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -335,43 +300,34 @@ bool FStellarEraInvokerViewpointGateTest::RunTest(const FString& Parameters)
 		ASpaceshipPawn::StaticClass(), FTransform::Identity);
 	APlanetCharacter* Character = Scoped.World->SpawnActor<APlanetCharacter>(
 		APlanetCharacter::StaticClass(), FTransform::Identity);
-	AStarMapCameraPawn* Camera = Scoped.World->SpawnActor<AStarMapCameraPawn>(
-		AStarMapCameraPawn::StaticClass(), FTransform::Identity);
 	APawn* Plain = Scoped.World->SpawnActor<APawn>(
 		APawn::StaticClass(), FTransform::Identity);
 
 	if (!TestNotNull(TEXT("飞船"), Ship) || !TestNotNull(TEXT("角色"), Character) ||
-		!TestNotNull(TEXT("星图相机"), Camera) || !TestNotNull(TEXT("普通 Pawn"), Plain))
+		!TestNotNull(TEXT("普通 Pawn"), Plain))
 	{
 		return false;
 	}
 
 	const TArray<UVoxelInvokerComponentBase*> ShipInvokers = CollectInvokers(Ship);
 	const TArray<UVoxelInvokerComponentBase*> CharacterInvokers = CollectInvokers(Character);
-	const TArray<UVoxelInvokerComponentBase*> CameraInvokers = CollectInvokers(Camera);
 
 	// 视点 = 飞船
 	AStellarEraPlayerController::ApplyViewpointInvokerGate(Scoped.World, Ship);
 	TestTrue(TEXT("视点飞船 → 打开"), AllEnabled(ShipInvokers));
 	TestTrue(TEXT("角色 → 精简态（人站在地上，只留贴身碰撞）"),
 		IsCharacterReduced(CharacterInvokers, Character->GetStarMapInvokerRange()));
-	TestTrue(TEXT("星图相机 → 关闭"), AllDisabled(CameraInvokers));
 
 	// 视点 = 角色（下船）
 	AStellarEraPlayerController::ApplyViewpointInvokerGate(Scoped.World, Character);
 	TestTrue(TEXT("视点角色 → 打开"), AllEnabled(CharacterInvokers));
 	TestTrue(TEXT("飞船 → 关闭"), AllDisabled(ShipInvokers));
 
-	// 视点 = 星图相机（进星图）
-	AStellarEraPlayerController::ApplyViewpointInvokerGate(Scoped.World, Camera);
-	TestTrue(TEXT("视点星图 → 打开"), AllEnabled(CameraInvokers));
-	TestTrue(TEXT("角色 → 精简态（脚下碰撞不能回收）"),
-		IsCharacterReduced(CharacterInvokers, Character->GetStarMapInvokerRange()));
-	TestTrue(TEXT("飞船 → 关闭"), AllDisabled(ShipInvokers));
-
 	// 没有视点（OnUnPossess 路径）
 	AStellarEraPlayerController::ApplyViewpointInvokerGate(Scoped.World, nullptr);
-	TestTrue(TEXT("无视点 → 星图关闭"), AllDisabled(CameraInvokers));
+	TestTrue(TEXT("无视点 → 飞船关闭"), AllDisabled(ShipInvokers));
+	TestTrue(TEXT("无视点 → 角色回到精简态"),
+		IsCharacterReduced(CharacterInvokers, Character->GetStarMapInvokerRange()));
 
 	return true;
 }
