@@ -55,7 +55,7 @@ public:
 		bool bContinuousDigging);
 
 private:
-	/** 所属 Pawn；只在星图激活时返回，否则全部回调空转。 */
+	/** 所属 Pawn；只在星图激活时返回，除 M 外的回调据此空转。 */
 	APawn* GetPawn() const;
 
 	/** owner 上的星图 rig。 */

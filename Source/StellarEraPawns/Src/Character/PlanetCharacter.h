@@ -137,7 +137,7 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "StarMap")
 	TObjectPtr<UStarMapRigComponent> StarMapRig;
 
-	/** 星图的键鼠输入；未激活时 GetPawn() 返回空，全部回调空转 —— 进出图只切 rig 状态，不换 Possess。 */
+	/** 星图的键鼠输入；rig 未激活时动作回调空转，只有 M 仍生效 —— 进出图只切 rig 状态，不换 Possess。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "StarMap")
 	TObjectPtr<UStarMapInputComponent> StarMapInput;
 

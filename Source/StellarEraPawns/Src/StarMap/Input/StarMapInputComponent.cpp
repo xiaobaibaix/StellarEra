@@ -388,6 +388,9 @@ void UStarMapInputComponent::OnStarMapSelectCompleted(const FInputActionValue& V
 
 void UStarMapInputComponent::OnStarMapToggle(const FInputActionValue& Value)
 {
+	// 进出图都不换 Possess，Bind 的标志复位不再兜底：退图过渡中松开的左键会把 bSelectHeld 留成 true。
+	bSelectHeld = false;
+
 	// 进退都走这一个入口：M 只在本组件绑了一次（飞船 / 角色自己的那份已删）。
 	if (UStarMapRigComponent* Rig = GetRig())
 	{
