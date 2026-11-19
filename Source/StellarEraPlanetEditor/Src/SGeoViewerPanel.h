@@ -48,6 +48,11 @@ private:
 	float MineralScale = 20.f;
 	bool bView3DDirty = true;
 	bool bView3DFull = false;
+	/** 3D 图的渲染宽度跟随面板：布局每帧把可用宽度写进来。 */
+	float View3DWidth = 512.f;
+	/** 快照还没烘好时每秒重试一次，省得用户手点「刷新」。 */
+	double LastAutoRetry = 0.0;
+	bool bRendered = false;
 	double LastInteraction = 0.0;
 
 	void RefreshPlanets();

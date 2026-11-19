@@ -356,6 +356,24 @@ void SGeoViewerPanel::MarkView3DDirty()
 void SGeoViewerPanel::Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime)
 {
 	SCompoundWidget::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
+	// 3D 图占满面板：减掉右侧图例与边距，剩下的宽度按 16:9 出图。
+	const float Want = FMath::Clamp(float(AllottedGeometry.GetLocalSize().X) - 300.f, 320.f, 1600.f);
+	if (FMath::Abs(Want - View3DWidth) > 16.f)
+	{
+		View3DWidth = Want;
+		MarkView3DDirty();
+	}
+	// 烘焙是异步的：没烘完就每秒重试一次，烘好了自己出图。
+	if (!bRendered && FPlatformTime::Seconds() - LastAutoRetry > 1.0)
+	{
+		LastAutoRetry = FPlatformTime::Seconds();
+		if (CurrentSnapshot().IsValid())
+		{
+			RefreshPlanets();
+			Render();
+			MarkView3DDirty();
+		}
+	}
 	if (bView3DDirty)
 	{
 		bView3DDirty = false;
@@ -430,15 +448,19 @@ void SGeoViewerPanel::Render3D(bool bFull)
 	const FGeoDebugLayer* Layer = GeoViewerLayer(LayerIndex);
 	if (!Snap || !Layer) { return; }
 	const double T0 = FPlatformTime::Seconds();
-	const int32 Res = bFull ? GeoViewer3DFull : GeoViewer3DFast;
+	const int32 Width = FMath::RoundToInt(View3DWidth);
+	const int32 Height = FMath::Max(1, FMath::RoundToInt(View3DWidth * 9.f / 16.f));
+	// 交互中按 1/4 宽高光线步进，只降采样不改宽高比：全分辨率每拖动一帧都太贵。
+	const int32 Scale = bFull ? 1 : 4;
+	const int32 RenderW = FMath::Max(1, Width / Scale), RenderH = FMath::Max(1, Height / Scale);
 	PlanetGeoDebugView3D::FView V = View;
 	V.Steps = bFull ? 320 : 48;
 	V.MineralScale = bShowMinerals && !Layer->RayHits ? MineralScale : 0.f;
 	TArray<FColor> Colors;
-	PlanetGeoDebugView3D::Render(*Snap, *Layer, OuterLayer(), V, Res, Res, Colors, &HitPos, &HitValues);
-	Upload(View3D, Res, Res, Colors, FVector2D(GeoViewer3DFull, GeoViewer3DFull));
+	PlanetGeoDebugView3D::Render(*Snap, *Layer, OuterLayer(), V, RenderW, RenderH, Colors, &HitPos, &HitValues);
+	Upload(View3D, RenderW, RenderH, Colors, FVector2D(Width, Height));
 	Status3D = FText::FromString(FString::Printf(TEXT("3D：左键拖动旋转 · 右键拖动平移 · 滚轮缩放   %d×%d，%.0f ms"),
-		Res, Res, (FPlatformTime::Seconds() - T0) * 1000.0));
+		Width, Height, (FPlatformTime::Seconds() - T0) * 1000.0));
 }
 
 void SGeoViewerPanel::Render()
@@ -451,8 +473,10 @@ void SGeoViewerPanel::Render()
 			? TEXT("当前关卡没有挂配方的星球（GeoRecipe 为空），或还没烘焙完；点「刷新」重试。")
 			: TEXT("这颗星球还没烘焙完，稍后点「刷新」。"));
 		RebuildLegend();
+		bRendered = false;
 		return;
 	}
+	bRendered = true;
 	const double T0 = FPlatformTime::Seconds();
 	TArray<FColor> Colors;
 	PlanetGeoDebugRender::RenderMap(*Snap, *Layer, GeoViewerMapW, GeoViewerMapH, Colors, &Map.Values);
