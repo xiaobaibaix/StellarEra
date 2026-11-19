@@ -43,7 +43,7 @@ protected:
 
 	/**
 	 * 按当前 Possess 的 Pawn 切换鼠标模式：角色与飞船自由视角光标常驻、仅右键时捕获；
-	 * 飞船驾驶光标隐藏、永久捕获。OnPossess 与飞船 Tab 切换（PlayerTick 里检测）都走它。
+	 * 飞船驾驶光标隐藏、永久捕获。OnPossess、飞船 Tab 切换与星图进出都走它。
 	 */
 	void ApplyMouseModeForPawn(APawn* InPawn);
 
@@ -69,4 +69,7 @@ protected:
 private:
 	/** 上次按哪种飞船视角设的鼠标模式；与飞船当前状态不同时在 PlayerTick 里重设。 */
 	bool bAppliedShipFreeLook = false;
+
+	/** 上次按哪种星图状态设的鼠标模式；进出图不再换 Pawn，只能在 PlayerTick 里重设。 */
+	bool bAppliedStarMapActive = false;
 };

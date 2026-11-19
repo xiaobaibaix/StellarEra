@@ -12,11 +12,10 @@
 
 class APlanetCharacter;
 class ASpaceshipPawn;
-class AStarMapCameraPawn;
 
 /**
  * 两个跨模块接口的唯一实现点：IStellarEraInputSource（Pawn 取运行时动作表）与
- * IStellarEraSessionCommands（M / E 的对象查询）。声明在下游模块（Pawns），实现只能
+ * IStellarEraSessionCommands（E 的对象查询）。声明在下游模块（Pawns），实现只能
  * 落在 Game（最上层）；凑成一层基类是为了让新控制器子类不会漏掉。
  * 本层不生成角色，只做查询；除动作表外无状态。
  */
@@ -39,12 +38,6 @@ public:
 	//~ End IStellarEraInputSource Interface
 
 	//~ Begin IStellarEraSessionCommands Interface
-	/**
-	 * M（角色 / 飞船）：从 From 的参考行星上取那台星图相机；参考行星没挂相机时返回
-	 * nullptr（星图是行星的观察视角）。进场流程归 EnterStarMap，退图由相机自己记。
-	 */
-	virtual AStarMapCameraPawn* FindStarMapCameraFor(const APawn* From) const override;
-
 	/**
 	 * E（角色）：离 From 最近、且近到可以登船的飞船；没有则 nullptr。
 	 * 调用方拿到非空结果后自己 Ship->Board + Possess。

@@ -9,7 +9,6 @@
 
 #include "PlanetCharacter.h"
 #include "SpaceshipPawn.h"
-#include "StarMapCameraPawn.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // IStellarEraInputSource：三个 Pawn 的输入组件来取运行时构造的动作表。
@@ -34,16 +33,10 @@ const FStarMapCameraInputActions& AStellarEraPlayerControllerBase::GetStarMapCam
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// IStellarEraSessionCommands：M / E 的对象查询。
+// IStellarEraSessionCommands：E 的对象查询。
 //
 // 只回答「该换成谁」，机械动作在各自的 Pawn 上，`Possess` 由调用方做。
 // ─────────────────────────────────────────────────────────────────────────────
-
-AStarMapCameraPawn* AStellarEraPlayerControllerBase::FindStarMapCameraFor(const APawn* From) const
-{
-	// 本层只做转发，不存星图状态：谁进了星图、退图回谁，都由那台相机自己记。
-	return AStarMapCameraPawn::ResolvePlanetStarMapCamera(From);
-}
 
 ASpaceshipPawn* AStellarEraPlayerControllerBase::FindBoardableShipFrom(const APawn* From) const
 {

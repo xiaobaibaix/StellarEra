@@ -9,8 +9,8 @@
 #include "SpaceshipPawn.h"
 #include "StellarEraHUD.h"
 #include "CosmosSimulationSubsystem.h"
-#include "StarMapCameraPawn.h"
 #include "StarMapPicking.h"
+#include "StarMapRigComponent.h"
 #include "VoxelPlanetActor.h"
 #include "VoxelViewpointInvokers.h"
 #include "EnhancedInputSubsystems.h"
@@ -39,25 +39,18 @@ namespace
 		GEngine->AddOnScreenDebugMessage(PromptMessageKey, 0.f, FColor::Yellow, Text);
 	}
 
-	/** 任意 Pawn 上的编辑组件，不判模式。角色与星图相机各有一个。 */
+	/** 任意 Pawn 上的编辑组件，不判模式。角色与飞船各有一个。 */
 	UPlanetEditComponent* GetEditComponentForPawn(APawn* InPawn)
 	{
-		if (APlanetCharacter* PawnCharacter = Cast<APlanetCharacter>(InPawn))
-		{
-			return PawnCharacter->GetPlanetEditComponent();
-		}
-		if (AStarMapCameraPawn* StarMap = Cast<AStarMapCameraPawn>(InPawn))
-		{
-			return StarMap->GetPlanetEditComponent();
-		}
-		return nullptr;
+		// 角色与飞船都用组件查：谁是当前 Pawn 就查谁。
+		return InPawn ? InPawn->FindComponentByClass<UPlanetEditComponent>() : nullptr;
 	}
 }
 
 AStellarEraPlayerController::AStellarEraPlayerController()
 {
 	// 输入组件由 DefaultInput.ini 指定为 EnhancedInput 版；缺失时 Cast 会失败。
-	// 星图相机由行星的 Child Actor Component 提供，乘员由飞船提供；本类只查询。
+	// 星图 rig 挂在飞船 / 角色上，乘员由飞船提供；本类只查询。
 }
 
 void AStellarEraPlayerController::BeginPlay()
@@ -121,7 +114,8 @@ void AStellarEraPlayerController::ApplyMouseModeForPawn(APawn* InPawn)
 
 	// 飞船自由视角与走路同一套：光标常驻、按住右键环绕。
 	const bool bWalking = Cast<APlanetCharacter>(InPawn) != nullptr || bAppliedShipFreeLook;
-	const bool bStarMap = Cast<AStarMapCameraPawn>(InPawn) != nullptr;
+	const UStarMapRigComponent* Rig = InPawn ? InPawn->FindComponentByClass<UStarMapRigComponent>() : nullptr;
+	const bool bStarMap = Rig && Rig->IsActive();
 
 	// 驾驶时光标隐藏：鼠标就是操纵杆。星图里光标也要可见可点。
 	bShowMouseCursor = bWalking || bStarMap;
@@ -132,7 +126,17 @@ void AStellarEraPlayerController::ApplyMouseModeForPawn(APawn* InPawn)
 		return;
 	}
 
-	if (bWalking)
+	if (bStarMap)
+	{
+		// 星图必须有捕获：MouseDelta 累加整段包在 if (bViewportHasCapture) 里（SceneViewport.cpp:905）。
+		// 角色用右键版，星图要任意键版 CaptureDuringMouseDown（EngineBaseTypes.h:49）。
+		// 星图现在挂在当前 Pawn 上，必须排在走路分支之前，否则角色进图后左键拖不动。
+		SetInputMode(FInputModeGameAndUI()
+			.SetLockMouseToViewportBehavior(EMouseLockMode::LockOnCapture)
+			.SetHideCursorDuringCapture(false));
+		ViewportClient->SetMouseCaptureMode(EMouseCaptureMode::CaptureDuringMouseDown);
+	}
+	else if (bWalking)
 	{
 		// SetInputMode 一次做三件手写易漏的事：ReleaseMouseCapture（下船时视口还攥着
 		// 永久捕获）、SetHideCursorDuringCapture(false)（引擎捕获时会藏光标）、把捕获
@@ -144,15 +148,6 @@ void AStellarEraPlayerController::ApplyMouseModeForPawn(APawn* InPawn)
 		// 捕获是必需的：OnMouseMove 只在视口有捕获时累加位移，否则右键「按住了也没反应」。
 		// CaptureDuringRightMouseDown 让同一次右键既进 InputKey 又拿位移，松开自动放掉。
 		ViewportClient->SetMouseCaptureMode(EMouseCaptureMode::CaptureDuringRightMouseDown);
-	}
-	else if (bStarMap)
-	{
-		// 星图必须有捕获：MouseDelta 累加整段包在 if (bViewportHasCapture) 里（SceneViewport.cpp:905）。
-		// 角色用右键版，星图要任意键版 CaptureDuringMouseDown（EngineBaseTypes.h:49）。
-		SetInputMode(FInputModeGameAndUI()
-			.SetLockMouseToViewportBehavior(EMouseLockMode::LockOnCapture)
-			.SetHideCursorDuringCapture(false));
-		ViewportClient->SetMouseCaptureMode(EMouseCaptureMode::CaptureDuringMouseDown);
 	}
 	else
 	{
@@ -179,31 +174,44 @@ void AStellarEraPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);
 
-	// 提示只在“站在飞船旁”时出现，所以每帧重算一次距离。
-	if (const APlanetCharacter* PawnCharacter = Cast<APlanetCharacter>(GetPawn()))
+	// 星图进出不再走 Possess，鼠标模式只能在这里跟上；只在状态变化那一帧重设。
+	APawn* CurrentPawn = GetPawn();
+	const UStarMapRigComponent* Rig = CurrentPawn
+		? CurrentPawn->FindComponentByClass<UStarMapRigComponent>() : nullptr;
+	const bool bStarMapActive = Rig && Rig->IsActive();
+	if (bStarMapActive != bAppliedStarMapActive)
 	{
-		// 与按 E 的判定同源（FindBoardableShipFrom）：提示与执行不能各算一套。
-		if (FindBoardableShipFrom(PawnCharacter))
-		{
-			ShowPrompt(TEXT("按 E 登船"));
-		}
-	}
-	else if (ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(GetPawn()))
-	{
-		// Tab 只改飞船状态，鼠标模式在这里跟上；只在变化那一帧重设。
-		if (Ship->IsFreeLookActive() != bAppliedShipFreeLook)
-		{
-			ApplyMouseModeForPawn(Ship);
-		}
-
-		// 落地就提示，不要求舱里有角色：开局操控的就是飞船，角色第一次按 E 才生成。
-		if (Ship->IsLanded())
-		{
-			ShowPrompt(TEXT("按 E 离船"));
-		}
+		bAppliedStarMapActive = bStarMapActive;
+		ApplyMouseModeForPawn(CurrentPawn);
 	}
 
-	// 星图模式不在这里刷操作提示：每帧一条黄字像调试输出，且与星图 UI 重复。
+	// 星图期间不刷操作提示：星图 UI 自己会提示，E / Tab 那时也归星图输入。
+	if (!bStarMapActive)
+	{
+		// 提示只在“站在飞船旁”时出现，所以每帧重算一次距离。
+		if (const APlanetCharacter* PawnCharacter = Cast<APlanetCharacter>(CurrentPawn))
+		{
+			// 与按 E 的判定同源（FindBoardableShipFrom）：提示与执行不能各算一套。
+			if (FindBoardableShipFrom(PawnCharacter))
+			{
+				ShowPrompt(TEXT("按 E 登船"));
+			}
+		}
+		else if (ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(CurrentPawn))
+		{
+			// Tab 只改飞船状态，鼠标模式在这里跟上；只在变化那一帧重设。
+			if (Ship->IsFreeLookActive() != bAppliedShipFreeLook)
+			{
+				ApplyMouseModeForPawn(Ship);
+			}
+
+			// 落地就提示，不要求舱里有角色：开局操控的就是飞船，角色第一次按 E 才生成。
+			if (Ship->IsLanded())
+			{
+				ShowPrompt(TEXT("按 E 离船"));
+			}
+		}
+	}
 }
 
 void AStellarEraPlayerController::DebugDisembark()

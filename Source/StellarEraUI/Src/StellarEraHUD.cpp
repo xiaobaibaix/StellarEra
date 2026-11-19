@@ -5,12 +5,10 @@
 #include "CosmosOrbitComponent.h"
 #include "CosmosSimulationSubsystem.h"
 #include "CosmosTypes.h"
-#include "PlanetCharacter.h"
 #include "PlanetEditBrush.h"
 #include "PlanetEditComponent.h"
 #include "PlanetEditUI.h"
 #include "SpaceshipPawn.h"
-#include "StarMapCameraPawn.h"
 #include "StarMapUISystem.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
@@ -82,10 +80,13 @@ void AStellarEraHUD::DrawHUD()
 		DrawStatusPanel(Status, GravityKmPerS2);
 	}
 
-	// 星图模式的信息面板：只在当前 Pawn 是星图相机时画。
+	// 星图模式的信息面板：只看子系统标志，不再认 Pawn 类型。
 	if (APlayerController* PlayerController = GetOwningPlayerController())
 	{
-		if (Cast<AStarMapCameraPawn>(PlayerController->GetPawn()))
+		const UWorld* World = GetWorld();
+		const UCosmosSimulationSubsystem* Cosmos =
+			World ? World->GetSubsystem<UCosmosSimulationSubsystem>() : nullptr;
+		if (Cosmos && Cosmos->IsStarMapActive())
 		{
 			if (!StarMapUI)
 			{
@@ -95,7 +96,7 @@ void AStellarEraHUD::DrawHUD()
 		}
 	}
 
-	// 编辑模式面板：角色与星图相机共用同一个组件，谁开着就画谁的。
+	// 编辑模式面板：角色与飞船共用同一个组件，谁开着就画谁的。
 	if (const UPlanetEditComponent* Edit = GetViewedEditComponent())
 	{
 		DrawPlanetEditPanel(*Edit);
@@ -165,21 +166,8 @@ const UPlanetEditComponent* AStellarEraHUD::GetViewedEditComponent() const
 {
 	const APlayerController* PlayerController = GetOwningPlayerController();
 	APawn* ViewedPawn = PlayerController ? PlayerController->GetPawn() : nullptr;
-	if (!ViewedPawn)
-	{
-		return nullptr;
-	}
-
-	const UPlanetEditComponent* Edit = nullptr;
-	if (APlanetCharacter* Character = Cast<APlanetCharacter>(ViewedPawn))
-	{
-		Edit = Character->GetPlanetEditComponent();
-	}
-	else if (AStarMapCameraPawn* StarMap = Cast<AStarMapCameraPawn>(ViewedPawn))
-	{
-		Edit = StarMap->GetPlanetEditComponent();
-	}
-
+	const UPlanetEditComponent* Edit =
+		ViewedPawn ? ViewedPawn->FindComponentByClass<UPlanetEditComponent>() : nullptr;
 	return Edit && Edit->IsEditMode() ? Edit : nullptr;
 }
 

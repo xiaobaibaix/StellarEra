@@ -5,14 +5,15 @@
 #include "CosmosOrbitComponent.h"
 #include "CosmosSimulationSubsystem.h"
 #include "CosmosTypes.h"
-#include "StarMapCameraPawn.h"
 #include "StarMapPicking.h"
+#include "StarMapRigComponent.h"
 #include "StellarEraHUD.h"
 #include "VoxelPlanetActor.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 #include "Engine/Font.h"
 #include "Engine/World.h"
+#include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 
 bool UStarMapUISystem::BuildBodyInfo(AActor* Body, FStarMapBodyInfo& OutInfo)
@@ -193,9 +194,10 @@ void UStarMapUISystem::Draw(AStellarEraHUD& Hud, APlayerController& PlayerContro
 		return;
 	}
 
-	// 拾取容差与矿物透视都住在星图相机上。换 Pawn 的那一帧它可能还没切过去，
-	// 按空指针兜底即可。
-	const AStarMapCameraPawn* Camera = Cast<AStarMapCameraPawn>(PlayerController.GetPawn());
+	// 拾取容差住在星图 rig 上；不在星图 / 没挂 rig 时退回默认值。
+	const APawn* ViewedPawn = PlayerController.GetPawn();
+	const UStarMapRigComponent* Rig =
+		ViewedPawn ? ViewedPawn->FindComponentByClass<UStarMapRigComponent>() : nullptr;
 
 	AActor* Selected = Subsystem->GetSelectedBody();
 
@@ -211,14 +213,14 @@ void UStarMapUISystem::Draw(AStellarEraHUD& Hud, APlayerController& PlayerContro
 		MousePosition.X >= 0.0 && MousePosition.Y >= 0.0 &&
 		MousePosition.X <= ViewportSize.X && MousePosition.Y <= ViewportSize.Y;
 
-	// 拾取本身在 Pawns（相机输入组件与这里共用同一份）；容差取相机上的值，
-	// 相机不在手上时退回默认值。
+	// 拾取本身在 Pawns（星图输入组件与这里共用同一份）；容差取 rig 上的值，
+	// 没挂 rig 时退回默认值。
 	AActor* Hovered = nullptr;
 	if (bMouseInside)
 	{
-		const float PixelTolerance = Camera
-			? Camera->GetSelectionPixelRadius()
-			: StarMapPicking::DefaultPixelTolerance;
+		const float PixelTolerance = Rig
+			? Rig->GetSelectionPixelRadius()
+			: 20.f;
 		Hovered = StarMapPicking::PickBodyUnderScreenPosition(
 			World, &PlayerController, MousePosition, PixelTolerance);
 	}

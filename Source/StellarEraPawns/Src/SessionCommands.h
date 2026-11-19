@@ -10,7 +10,6 @@
 class APlanetCharacter;
 class APawn;
 class ASpaceshipPawn;
-class AStarMapCameraPawn;
 
 UINTERFACE(MinimalAPI, meta = (CannotImplementInterfaceInBlueprint))
 class UStellarEraSessionCommands : public UInterface
@@ -28,12 +27,6 @@ class STELLARERAPAWNS_API IStellarEraSessionCommands
 	GENERATED_BODY()
 
 public:
-	/**
-	 * M（角色 / 飞船）：从 From 能进入的星图相机；进不去返回 nullptr。
-	 * 拿到后调用方自己 `Camera->EnterStarMap(From, PC)`；退图不走本接口。
-	 */
-	virtual AStarMapCameraPawn* FindStarMapCameraFor(const APawn* From) const = 0;
-
 	/**
 	 * E（角色）：离 From 最近且够近可登船的飞船；没有返回 nullptr。
 	 * 判定放控制器是因为「关卡里有哪些飞船」是关卡级知识。
