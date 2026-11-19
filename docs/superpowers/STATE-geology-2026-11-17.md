@@ -4,8 +4,8 @@
 
 ## 仓库状态
 
-- 分支 `geo-pipeline`，HEAD `f36c44f`（旧地形栈、旧矿物栈都已删，行星统一走 geo 管线）。
-- 全量自动化测试 **298 条全过**（`Automation RunTests StellarEra`，约 6 分钟）；删旧矿物栈带走了 73 条。
+- 分支 `geo-pipeline`，HEAD `c773b0a`（旧地形栈、旧矿物栈都已删，行星统一走 geo 管线）。
+- 全量自动化测试 **299 条全过**（`Automation RunTests StellarEra`，约 6 分钟）；删旧矿物栈带走了 73 条。
 - 未提交（工作区）：`Content/Code/Maps/GeoPlanetMap.umap`、`GeoTestMap.umap`、
   `DA_GeoRecipe_Archipelago.uasset`、`DA_MineralCatalog.uasset`、`Content/Code/Maps/Saves/PlanetVoxel/GeoPlanetMap/`。
   **这两个资产是 4c 与 6c 的挂载（现为 24 种矿、24 个撒矿器），回退会丢**；配方资产里混着用户早前的未提交改动，所以一直没代提交。
@@ -62,14 +62,17 @@
 `FGeoSupergeneRule`（次生富集，宿主矿体上方）、`FGeoGossanRule`（铁帽，宿主出露才有）。
 矿物目录 24 → 34 种，配方各加对应撒矿器（8 毯层 + 1 次生 + 1 铁帽）。
 
+矽卡岩已补：`FGeoSkarnRule` 挂在阶段 4 之后，酸性/中酸性侵入体与石灰岩接触带才出。
+
 仍未做：
-- **材质颜色**：红土 / 铁帽 / 沉积岩目前只在调试图层与矿层里体现，`M_GeoPlanet` 还没读土壤与盖层。
-- 矽卡岩（要石灰岩 + 侵入体接触带）。
+- **土壤颜色**：沉积岩与大理岩走既有岩性调色板，颜色已经生效；红土 / 干旱壳只做了
+  `SoilType` 场与调试图层，材质没读——要加第 4 行调色板与 V1 通道，改 `MF_GeoDecode`。
 - 元素映射 / 资源层。
 
 迁移后的已知缺口：
 - 水面组件（`UPlanetWaterComponent`）已按用户要求从行星 Actor 摘除（`e11999a`）：海面不再显示，`Water/` 组件类与其测试保留、未实例化。`Terrain` 字段与 `UVoxelPlanetTerrainModule::PostEditChangeProperty` 同时删除。
-- 旧矿物栈与星图矿物透视已整体删除（`6e19623`）；`DA_Geology_*`、矿物材质等资产变成无引用，待你决定去留。
+- 旧矿物栈与星图矿物透视已整体删除（`6e19623`）；`DA_Geology_*` 与 `DA_Terrain_*`、
+  `M_MineralBlock` 共 8 个无引用资产已在 `bc6e60e` 删除。
 
 材质解码 v1 的已知限制：
 - 地表「生物群系」混合尚未生效：实机里行星表面直接显示岩性色（`U1` 遮罩在材质侧读出 0，疑为体素网格未把 UV1 传给材质）。挖开 / 剖面显示岩性色已成立。
