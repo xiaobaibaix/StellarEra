@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Pawn.h"
+#include "StarMapRigComponent.h"
 #include "VoxelViewpointInvokers.h"
 #include "StarMapCameraPawn.generated.h"
 
@@ -14,26 +15,6 @@ class UCosmosSimulationSubsystem;
 class UPlanetEditComponent;
 class UStarMapCameraInputComponent;
 class UVoxelSimpleInvokerComponent;
-
-/** 屏幕空间候选：天体 Actor + 投影位置 + 盘面半径。用结构体而非平行数组，避免下标错位。 */
-struct FStarMapScreenCandidate
-{
-	AActor* Actor = nullptr;
-	FVector2D ScreenPosition = FVector2D::ZeroVector;
-
-	/**
-	 * 屏幕盘面半径（像素），0 = 未算出。拾取容差取 max(固定像素容差, 本值)；
-	 * **必须是与视线垂直的半径**，用固定世界轴会被投影压扁。
-	 */
-	float ScreenRadiusPx = 0.f;
-};
-
-/** 相机拉远路径上的挡路球体（球心 + 地表半径）。纯数据，夹取逻辑可无头测。 */
-struct FStarMapObstacle
-{
-	FVector Center = FVector::ZeroVector;
-	double RadiusCm = 0.0;
-};
 
 struct FPlanetEditTarget;
 

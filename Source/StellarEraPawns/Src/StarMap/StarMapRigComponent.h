@@ -20,7 +20,10 @@ struct FStarMapScreenCandidate
 	AActor* Actor = nullptr;
 	FVector2D ScreenPosition = FVector2D::ZeroVector;
 
-	/** 屏幕盘面半径（像素），0 = 未算出。拾取容差取 max(固定像素容差, 本值)。 */
+	/**
+	 * 屏幕盘面半径（像素），0 = 未算出。拾取容差取 max(固定像素容差, 本值)；
+	 * **必须是与视线垂直的半径**，用固定世界轴会被投影压扁。
+	 */
 	float ScreenRadiusPx = 0.f;
 };
 
@@ -44,7 +47,6 @@ public:
 	UStarMapRigComponent();
 
 	//~ Begin UActorComponent Interface
-	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	//~ End UActorComponent Interface
 

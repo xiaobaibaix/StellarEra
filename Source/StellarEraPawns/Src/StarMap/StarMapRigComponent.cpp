@@ -467,22 +467,6 @@ UStarMapRigComponent::UStarMapRigComponent()
 	PrimaryComponentTick.bCanEverTick = false;
 }
 
-void UStarMapRigComponent::BeginPlay()
-{
-	Super::BeginPlay();
-
-	// 飞船没有自己的解析器（角色在 BeginPlay 里装自己的）；进图时会被星图版覆盖，这里只兜底。
-	if (UPlanetEditComponent* Edit = GetPlanetEditComponent())
-	{
-		Edit->SetTargetResolver(
-			[this](const FVector& RayOrigin, const FVector& RayDirection,
-				const float MaxDistanceCm, FPlanetEditTarget& OutTarget)
-			{
-				return ResolveEditTargetByPlanets(RayOrigin, RayDirection, MaxDistanceCm, OutTarget);
-			});
-	}
-}
-
 void UStarMapRigComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	if (UPlanetEditComponent* Edit = GetPlanetEditComponent())
