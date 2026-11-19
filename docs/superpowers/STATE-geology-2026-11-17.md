@@ -5,7 +5,7 @@
 ## 仓库状态
 
 - 分支 `geo-pipeline`，HEAD `c773b0a`（旧地形栈、旧矿物栈都已删，行星统一走 geo 管线）。
-- 全量自动化测试 **299 条全过**（`Automation RunTests StellarEra`，约 6 分钟）；删旧矿物栈带走了 73 条。
+- 全量自动化测试 **300 条全过**（`Automation RunTests StellarEra`，约 6 分钟）；删旧矿物栈带走了 73 条。
 - 未提交（工作区）：`Content/Code/Maps/GeoPlanetMap.umap`、`GeoTestMap.umap`、
   `DA_GeoRecipe_Archipelago.uasset`、`DA_MineralCatalog.uasset`、`Content/Code/Maps/Saves/PlanetVoxel/GeoPlanetMap/`。
   **这两个资产是 4c 与 6c 的挂载（现为 24 种矿、24 个撒矿器），回退会丢**；配方资产里混着用户早前的未提交改动，所以一直没代提交。
