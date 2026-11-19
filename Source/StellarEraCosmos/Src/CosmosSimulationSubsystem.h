@@ -108,8 +108,8 @@ public:
 	bool IsStarMapActive() const { return bStarMapActive; }
 
 	/**
-	 * 由 AStarMapCameraPawn::EnterStarMap / ExitStarMap 调用。不能放 Pawn 的
-	 * BeginPlay/EndPlay —— 那个 Pawn 懒创建复用，BeginPlay 只跑一次。
+	 * 由 UStarMapRigComponent::Toggle 调用。不能放 Pawn 的 BeginPlay/EndPlay ——
+	 * 进图只是开关，Pawn 的生命周期不跟着变。
 	 */
 	void SetStarMapActive(bool bActive) { bStarMapActive = bActive; }
 

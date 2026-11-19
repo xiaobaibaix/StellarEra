@@ -13,25 +13,18 @@ using UnrealBuildTool;
 //
 // 本模块**不能**依赖 StellarEra（primary game module）—— Game 依赖 UI，
 // UI 再依赖 Game 就成环。星图 UI 需要的鼠标坐标、屏幕拾取、矿物透视都直接
-// 从 APlayerController 与 Pawns 的 StarMapPicking / AStarMapCameraPawn 取，
+// 从 APlayerController 与 Pawns 的 StarMapPicking / StarMapRigComponent 取，
 // 不需要再向 Game 要接口。
 //
-// ── 星图相机已经搬走 ────────────────────────────────────────────────
-// AStarMapCameraPawn 现在在 StellarEraPawns/Src/StarMap/。它依赖 Cosmos 的
-// ICosmosBody（飞船实现的接口）之后，Pawns → Cosmos 这条边才成立 ——
-// 之前搬不动是因为 Cosmos 内部 Cast<ASpaceshipPawn>，即 Cosmos → Pawns。
-// 本模块仍然依赖 Pawns：HUD 要 include 相机头来认「现在是不是星图视角」。
-//
 // ── 关于 Voxel 依赖 ───────────────────────────────────────────────────
-// 这条依赖是相机头还住在本模块时留下的：当时 StarMapCameraPawn.h 里的
+// 这条依赖是星图相机头还住在本模块时留下的：它的
 // TObjectPtr<UVoxelSimpleInvokerComponent> UPROPERTY 让本模块的生成代码
 // 需要 Voxel 的 UClass（早先靠 StellarEraTerrain 的 **Public** 依赖传递；
 // 传递链断掉后链接期报 LNK2019: Z_Construct_UClass_UVoxelSimpleInvokerComponent）。
 //
-// 2026-11-06 相机搬进 StellarEraPawns/Src/StarMap/ 之后，本模块已经没有直接
-// 使用 Voxel 类型的地方：Voxel 类型只经 Planet 的公开头（VoxelPlanetActor.h）
-// 间接带进来，而 Planet → Voxel 是 Public 依赖。这一项目前留着未删 ——
-// 删之前得先编译验证没有隐藏的 UClass 引用。
+// 相机头搬走后本模块已经没有直接使用 Voxel 类型的地方：Voxel 类型只经 Planet 的
+// 公开头（VoxelPlanetActor.h）间接带进来，而 Planet → Voxel 是 Public 依赖。
+// 这一项目前留着未删 —— 删之前得先编译验证没有隐藏的 UClass 引用。
 public class StellarEraUI : ModuleRules
 {
 	public StellarEraUI(ReadOnlyTargetRules Target) : base(Target)
@@ -58,9 +51,6 @@ public class StellarEraUI : ModuleRules
 			// 完整类型一律在 .cpp 里使用。按「公开头里 include 了对方才算 Public」
 			// 的判据，这一项其实可以降回 Private；目前保持 Public 未动，
 			// 待编译验证后由维护者决定。
-			// （2026-11-06 之前它是 Public 的硬理由：StarMapCameraPawn.h 是本模块的
-			//  公开头且实现 IVoxelViewpointInvokers；相机搬进 Pawns/Src/StarMap/ 后
-			//  这个理由不再成立。）
 			"StellarEraPlanet",
 
 			// 本模块的两个公开头直接 include 了 Pawns 的头：

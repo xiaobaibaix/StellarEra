@@ -16,7 +16,7 @@ struct FStarMapScreenCandidate;
  */
 namespace StarMapPicking
 {
-	/** 没有可用相机参数时的拾取像素容差。相机上的 SelectionPixelRadius 会覆盖它。 */
+	/** 没有可用相机参数时的拾取像素容差。rig 上的 SelectionPixelRadius 会覆盖它。 */
 	constexpr float DefaultPixelTolerance = 20.f;
 
 	/**
@@ -30,8 +30,8 @@ namespace StarMapPicking
 		const APlayerController* PC, AActor* Body, FStarMapScreenCandidate& Out);
 
 	/**
-	 * 屏幕点下的已注册天体；没有返回空。只有挂了星图相机的天体可被点中 ——
-	 * 相机是「照某颗天体」的视点，选中即焦点，飞船不该抢走焦点。
+	 * 屏幕点下的已注册天体；没有返回空。所有注册天体都可被点中 ——
+	 * 星图相机不挂在天体上，焦点与「有没有相机」无关。
 	 */
 	STELLARERAPAWNS_API AActor* PickBodyUnderScreenPosition(
 		const UWorld* World,

@@ -1,6 +1,6 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 // 行星编辑组件：模式、笔刷状态、屏幕射线解析、体素工具调用。
-// 角色与星图相机共用；「屏幕射线 → 编辑目标」的差别由 Owner 通过 SetTargetResolver 注入。
+// 角色与飞船的星图 rig 共用；「屏幕射线 → 编辑目标」的差别由 Owner 通过 SetTargetResolver 注入。
 
 #pragma once
 

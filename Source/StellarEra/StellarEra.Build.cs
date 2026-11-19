@@ -26,7 +26,7 @@ using UnrealBuildTool;
 // Build.cs，极难查。
 //
 // StellarEraUI 是 **Private**：公开头里不出现任何 UI 类型。星图 UI 改为直接
-// 用 APlayerController 与 Pawns 的 StarMapPicking / AStarMapCameraPawn 之后，
+// 用 APlayerController 与 Pawns 的 StarMapPicking / StarMapRigComponent 之后，
 // 控制器不再公开继承 UI 定义的接口，Game 与 UI 之间只剩 Game → UI 这一条边。
 //
 // StellarEraPawns 是 **Public**：控制器头 include 了 StellarEraInputSource.h

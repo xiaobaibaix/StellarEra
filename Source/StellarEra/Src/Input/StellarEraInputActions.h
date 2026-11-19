@@ -34,7 +34,7 @@ struct STELLARERA_API FStellarEraInputActions
 	UPROPERTY(Transient)
 	FSpaceshipInputActions Ship;
 
-	/** AStarMapCameraPawn 的视角 / 缩放 / 编辑 / 笔刷 / 矿物透视 / 选择 / 星图开关。 */
+	/** 星图 rig 的视角 / 缩放 / 编辑 / 笔刷 / 矿物透视 / 选择 / 星图开关。 */
 	UPROPERTY(Transient)
 	FStarMapCameraInputActions StarMap;
 

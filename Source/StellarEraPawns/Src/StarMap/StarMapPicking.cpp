@@ -5,7 +5,7 @@
 #include "CosmosSimulationSubsystem.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
-#include "StarMapCameraPawn.h"
+#include "StarMapRigComponent.h"
 #include "VoxelPlanetActor.h"
 
 double StarMapPicking::GetBodyRadiusCm(const AActor* Body)
@@ -51,7 +51,7 @@ bool StarMapPicking::MakeScreenCandidate(
 			const double CameraDistanceCm = FVector::Dist(ViewLocation, Center);
 			Out.ScreenRadiusPx = float(
 				FVector2D::Distance(Out.ScreenPosition, EdgePosition)
-				* AStarMapCameraPawn::SilhouetteRadiusScale(CameraDistanceCm, WorldRadiusCm));
+				* UStarMapRigComponent::SilhouetteRadiusScale(CameraDistanceCm, WorldRadiusCm));
 		}
 	}
 
@@ -82,13 +82,9 @@ AActor* StarMapPicking::PickBodyUnderScreenPosition(
 	// 投影留在调用方，拾取函数才能是纯函数、才能无头测。
 	TArray<FStarMapScreenCandidate> Candidates;
 	Candidates.Reserve(Bodies.Num());
+	// 星图相机不再挂在天体上：全部注册天体都可点，别再加「有相机」过滤。
 	for (AActor* Body : Bodies)
 	{
-		if (!AStarMapCameraPawn::HasStarMapCamera(Body))
-		{
-			continue;
-		}
-
 		FStarMapScreenCandidate Candidate;
 		if (MakeScreenCandidate(PC, Body, Candidate))
 		{
@@ -96,6 +92,6 @@ AActor* StarMapPicking::PickBodyUnderScreenPosition(
 		}
 	}
 
-	return AStarMapCameraPawn::PickBodyAtScreenPosition(
+	return UStarMapRigComponent::PickBodyAtScreenPosition(
 		Candidates, ScreenPosition, PixelTolerance);
 }

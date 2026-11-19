@@ -1,8 +1,8 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 
 #include "Misc/AutomationTest.h"
+#include "SpaceshipPawn.h"
 #include "StarMapInputComponent.h"
-#include "StarMapCameraPawn.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -14,14 +14,14 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraStarMapInputComponentWiringTest,
 
 bool FStellarEraStarMapInputComponentWiringTest::RunTest(const FString& Parameters)
 {
-	const AStarMapCameraPawn* CameraCDO = GetDefault<AStarMapCameraPawn>();
-	if (!TestNotNull(TEXT("星图相机 CDO"), CameraCDO))
+	const ASpaceshipPawn* ShipCDO = GetDefault<ASpaceshipPawn>();
+	if (!TestNotNull(TEXT("飞船 CDO"), ShipCDO))
 	{
 		return false;
 	}
 
-	const UStarMapInputComponent* Input = CameraCDO->FindComponentByClass<UStarMapInputComponent>();
-	if (!TestNotNull(TEXT("相机 CDO 上有 UStarMapInputComponent"), Input))
+	const UStarMapInputComponent* Input = ShipCDO->FindComponentByClass<UStarMapInputComponent>();
+	if (!TestNotNull(TEXT("飞船 CDO 上有 UStarMapInputComponent"), Input))
 	{
 		return false;
 	}

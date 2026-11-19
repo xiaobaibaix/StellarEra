@@ -2,7 +2,7 @@
 // UAlwaysLocalVoxelInvokerComponent 让调用器永久参与，进星图后飞船那三档 LOD 环
 // 会在看不见的地方照算；角色是例外，见下面 SetViewpointInvokersActive 的契约。
 // 行星自己的 UVoxelSimpleInvokerComponent 不实现本接口，永远不受影响。
-// 实现者是 Pawns 的三个 Pawn 与 UI 的星图相机；SetEnabled 见 InvokerUtils.h。
+// 实现者是飞船与角色；SetEnabled 见 InvokerUtils.h。
 
 #pragma once
 

@@ -1,5 +1,5 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
-// AStarMapCameraPawn 专属的 Enhanced Input 动作与按键映射。
+// 星图的 Enhanced Input 动作与按键映射（rig 与输入组件共用）。
 
 #pragma once
 
@@ -10,10 +10,10 @@ class UInputAction;
 class UInputMappingContext;
 
 /**
- * 星图相机用到的动作（视角、缩放、编辑、矿物透视、选择、星图开关），全部 NewObject 到
+ * 星图用到的动作（视角、缩放、编辑、矿物透视、选择、星图开关），全部 NewObject 到
  * 控制器名下，没有磁盘资产。对象名带 `IA_StarMap_` 前缀：三张表共用同一个 Outer，同名
- * 会被引擎改名成不可预测的 `_1` / `_0`。左键与 M 在角色 / 飞船表里也各有一条 ——
- * 进星图后 Possess 的是本相机，退出得由它自己绑；同一 IMC 里同名按键谁被 Possess 谁生效。
+ * 会被引擎改名成不可预测的 `_1` / `_0`。由 UStarMapInputComponent 统一绑；同一 IMC 里
+ * 同名按键不能再映射一次，否则同一次输入会触发两条绑定。
  */
 USTRUCT()
 struct STELLARERAPAWNS_API FStarMapCameraInputActions
