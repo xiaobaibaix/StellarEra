@@ -52,7 +52,7 @@ public:
 	/** 装「屏幕射线 → 编辑目标」的解析器；没装时 TryResolveTarget 恒 false，预览与落笔都不会发生。 */
 	void SetTargetResolver(FPlanetEditTargetResolver InResolver);
 
-	/** 编辑网格归哪颗行星。角色在 BeginPlay / 换星时更新；星图不调（不该出现贴地网格）。 */
+	/** 编辑网格归哪颗行星。角色在 BeginPlay / 换星时更新；星图期间设为 nullptr（编辑的是光标下的行星）。 */
 	void SetGridPlanet(AVoxelPlanetActor* Planet);
 
 	/** 配置笔刷尺寸区间与初始尺寸。星图 Pawn 调（8..1280，默认 64）；角色用成员默认值 1..8。 */

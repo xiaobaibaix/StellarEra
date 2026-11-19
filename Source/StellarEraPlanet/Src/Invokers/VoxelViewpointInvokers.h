@@ -1,6 +1,6 @@
 ﻿// 视点门控：换视点时由控制器 OnPossess 关掉非视点 Pawn 的体素调用器。
-// UAlwaysLocalVoxelInvokerComponent 让调用器永久参与，进星图后飞船那三档 LOD 环
-// 会在看不见的地方照算；角色是例外，见下面 SetViewpointInvokersActive 的契约。
+// UAlwaysLocalVoxelInvokerComponent 让调用器永久参与：星图期间 rig 把非碰撞 LOD 环
+// 搬到相机上、碰撞环留在原地；角色是例外，见下面 SetViewpointInvokersActive 的契约。
 // 行星自己的 UVoxelSimpleInvokerComponent 不实现本接口，永远不受影响。
 // 实现者是飞船与角色；SetEnabled 见 InvokerUtils.h。
 

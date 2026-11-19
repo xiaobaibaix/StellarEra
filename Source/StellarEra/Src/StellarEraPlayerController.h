@@ -8,11 +8,9 @@
 #include "StellarEraPlayerController.generated.h"
 
 /**
- * 本项目的玩家控制器。输入资产（IMC / IA）在运行时用 C++ 构造：零手工步骤，
- * 代价是键位暂不能在编辑器里改。输入绑定按「谁被操控谁绑」—— 三个 Pawn 各自在
- * SetupPlayerInputComponent 里绑全部输入，动作表经 IStellarEraInputSource 取得，
- * 所以这里没有按 Pawn 类型分派的三路 Cast。本类只绑 Possess 与鼠标模式。
- * 两个跨模块接口在基类 AStellarEraPlayerControllerBase 里，本类只写玩法策略。
+ * 玩家控制器：运行时构造输入资产，输入绑定按「谁被操控谁绑」—— 角色与飞船各自绑自己的表。
+ * M 在每张表里都有映射，但只由被 Possess Pawn 上的 UStarMapInputComponent 绑定。
+ * 本类只绑 Possess 与鼠标模式；跨模块接口在基类 AStellarEraPlayerControllerBase 里。
  */
 UCLASS()
 class AStellarEraPlayerController : public AStellarEraPlayerControllerBase

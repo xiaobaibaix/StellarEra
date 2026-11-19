@@ -220,7 +220,7 @@ void UStarMapUISystem::Draw(AStellarEraHUD& Hud, APlayerController& PlayerContro
 	{
 		const float PixelTolerance = Rig
 			? Rig->GetSelectionPixelRadius()
-			: 20.f;
+			: StarMapPicking::DefaultPixelTolerance;
 		Hovered = StarMapPicking::PickBodyUnderScreenPosition(
 			World, &PlayerController, MousePosition, PixelTolerance);
 	}

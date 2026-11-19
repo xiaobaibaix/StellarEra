@@ -11,7 +11,8 @@
 #include "SpaceshipPawn.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
-// IStellarEraInputSource：三个 Pawn 的输入组件来取运行时构造的动作表。
+// IStellarEraInputSource：角色与飞船的输入组件来取动作表；M 在每张表里都映射，
+// 但只由被 Possess Pawn 上的 UStarMapInputComponent 绑定。
 // ─────────────────────────────────────────────────────────────────────────────
 
 const FPlanetCharacterInputActions& AStellarEraPlayerControllerBase::GetPlanetCharacterInputActions()

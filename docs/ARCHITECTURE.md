@@ -254,7 +254,6 @@ UCosmosSimulationSubsystem* Simulation =
 |---|---|---|
 | `IVoxelViewpointInvokers` | `StellarEraPlanet/Src/Invokers/` | 实现方是 Pawns 的两个 Pawn（角色、飞船），使用方是 Controller。三方都已依赖 Planet，放这里不需要任何新依赖 |
 | `ICosmosBody` | `StellarEraCosmos/Src/CosmosBody.h` | 实现方是 `ASpaceshipPawn`（11 个纯虚）。Cosmos 是消费方且在低层（L2），放在 Cosmos 才不会让 `Pawns → Cosmos` 反向 |
-| `IStarMapUIInputs` | `StellarEraUI/Src/` | 明确属于 UI 的使用方契约，由 Controller（L5）实现 |
 
 另外三条接口同理，只是不在跨层主路径上：`IStellarEraInputSource`（`Pawns/Src/StellarEraInputSource.h`，
 Controller 实现，Pawn 用它取自己那张动作表）、`IStellarEraNoticeSink`（`Pawns/Src/StellarEraNoticeSink.h`，
@@ -263,8 +262,7 @@ Controller 实现，Pawn 按键后用它要求切星图 / 上下船）。
 
 接口的去处遵循同一条判据：**契约跟着「已经被所有人依赖的那一层」走**。
 `IVoxelViewpointInvokers` 的四方都依赖 Planet（体素接线层在那里），所以住 Planet；
-`IStarMapUIInputs` 是 UI 的输入需求，所以住 UI；`ICosmosBody` 反过来 —— 消费方 Cosmos
-在低层，所以契约跟着 Cosmos 走，由上层 Pawns 实现。
+`ICosmosBody` 反过来 —— 消费方 Cosmos 在低层，所以契约跟着 Cosmos 走，由上层 Pawns 实现。
 
 原先 `IVoxelViewpointInvokers` 住在 `StellarEraCore/Src/Interfaces/` —— 那是「谁都不依赖」
 时的正确答案。Core 拆掉后 Planet 成了那个位置。
@@ -276,7 +274,7 @@ Controller 实现，Pawn 按键后用它要求切星图 / 上下船）。
 | 事件总线 / 全局消息队列 | 单人项目，订阅关系一多就没人理得清；Pull 已经够用 |
 | 全局单例 | Subsystem 就是 UE 给的单例，且带生命周期 |
 | 功能模块 include UI 的头 | 反向依赖，`StellarEraUI.Build.cs` 头注释里写死了 |
-| UI 依赖 `StellarEra`（primary game module） | Game 依赖 UI，UI 再依赖 Game 成环。要控制器数据就走 `IStarMapUIInputs` |
+| UI 依赖 `StellarEra`（primary game module） | Game 依赖 UI，UI 再依赖 Game 成环。鼠标坐标 / 屏幕拾取直接吃 `APlayerController` |
 
 ### 输入绑定：谁被操控谁绑
 
@@ -288,7 +286,7 @@ Pawn 的 `SetupPlayerInputComponent` 只做转发（`PlayerInput->Bind(InputComp
 |---|---|---|
 | `APlanetCharacter` | `UPlanetCharacterInputComponent`（`Pawns/Src/Character/Input/`） | 移动、视角、跳跃、冲刺、缩放、右键点放 + E（登船）/ 左键（编辑模式挖掘） |
 | `ASpaceshipPawn` | `USpaceshipInputComponent`（`Pawns/Src/Spaceship/Input/`） | 视角、推力、滚转、升降、加速、巡航、调试视角、缩放 + E（离船） |
-| 星图（挂在两个 Pawn 上） | `UStarMapInputComponent`（`Pawns/Src/StarMap/Input/`） | 星图视角（绕行 / 转头）、缩放、编辑（G）与笔刷尺寸、矿物透视（H 与 0..9）、左键选择 / 拖拽、M（进出星图） |
+| 星图（挂在两个 Pawn 上） | `UStarMapInputComponent`（`Pawns/Src/StarMap/Input/`） | 星图视角（绕行 / 转头）、缩放、编辑（G）与笔刷尺寸、左键选择 / 拖拽、M（进出星图） |
 
 `AStellarEraPlayerController` **一条动作都不绑**（`SetupInputComponent` 已删除）。星图不换
 Possess：M 由 `UStarMapInputComponent` 在当前被 Possess 的 Pawn 上绑一次，只切
@@ -309,7 +307,7 @@ Pawn 决定（同一个 E：角色登船、飞船离船），动作执行则经 
 |---|---|---|
 | 跨模块接口 | 已被所有实现方/使用方依赖的最低层 | `IVoxelViewpointInvokers` → `Planet/Src/Invokers/` |
 | 天体与单位类型 | `StellarEraCosmos/Src/` | `CosmosTypes.h` |
-| 使用方专属契约 | 使用方模块根 | `StellarEraUI/Src/StarMapUIInputs.h` |
+| 使用方专属契约 | 使用方模块根 | `StellarEraPawns/Src/StellarEraInputSource.h` |
 | UE 资产预设 | 定义它的数据模块 | `UPlanetGeologyPreset` 在 `Minerals/Geology/` |
 | 内部头（有实现细节） | 与实现同目录 | `PlanetProgressiveEditKernel.h` |
 

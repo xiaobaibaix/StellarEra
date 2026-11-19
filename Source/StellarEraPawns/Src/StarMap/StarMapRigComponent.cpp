@@ -469,6 +469,17 @@ UStarMapRigComponent::UStarMapRigComponent()
 
 void UStarMapRigComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	// Pawn 在星图里被销毁时没人会走 Exit()，状态不落叶会让 HUD 永远画面板。
+	if (bActive)
+	{
+		if (UCosmosSimulationSubsystem* Subsystem =
+			GetWorld() ? GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>() : nullptr)
+		{
+			Subsystem->SetSelectedBody(nullptr);
+			Subsystem->SetStarMapActive(false);
+		}
+	}
+
 	if (UPlanetEditComponent* Edit = GetPlanetEditComponent())
 	{
 		Edit->SetTargetResolver(nullptr);
@@ -564,6 +575,15 @@ void UStarMapRigComponent::Enter(APlayerController* PC)
 	bActive = true;
 	bExiting = false;
 
+	// 星图激活后 Completed 事件到不了 Pawn，不归零的话推力会一直停在最后按下的值。
+	if (ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(GetOwner()))
+	{
+		Ship->SetThrust(0.f);
+		Ship->SetRoll(0.f);
+		Ship->SetVertical(0.f);
+		Ship->SetBoost(false);
+	}
+
 	Subsystem->SetSelectedBody(nullptr);
 	Subsystem->SetStarMapActive(true);
 	Subsystem->SetSelectedBody(Focus);
@@ -573,6 +593,11 @@ void UStarMapRigComponent::Enter(APlayerController* PC)
 	ApplyStarMapEditSettings();
 	if (UPlanetEditComponent* Edit = GetPlanetEditComponent())
 	{
+		// 星图编辑光标下的行星，不是角色脚下那颗；脚下的贴地网格此时没有意义。
+		if (Cast<APlanetCharacter>(GetOwner()))
+		{
+			Edit->SetGridPlanet(nullptr);
+		}
 		Edit->SetTargetResolver(
 			[this](const FVector& RayOrigin, const FVector& RayDirection,
 				const float MaxDistanceCm, FPlanetEditTarget& OutTarget)
@@ -609,6 +634,10 @@ void UStarMapRigComponent::Exit()
 	if (APlanetCharacter* Character = Cast<APlanetCharacter>(GetOwner()))
 	{
 		Character->InstallEditTargetResolver();
+		if (UPlanetEditComponent* Edit = GetPlanetEditComponent())
+		{
+			Edit->SetGridPlanet(Character->PlanetActor);
+		}
 	}
 	RestoreEditSettings();
 	EndInvokerFollow();

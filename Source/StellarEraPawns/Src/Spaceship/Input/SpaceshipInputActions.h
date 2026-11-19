@@ -63,7 +63,7 @@ struct STELLARERAPAWNS_API FSpaceshipInputActions
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> Interact;
 
-	/** 星图模式开关（M）。三个 Pawn 都绑自己表里这条，谁被 Possess 谁响应。 */
+	/** 星图模式开关（M）。每张表都映射，但只由被 Possess Pawn 上的 UStarMapInputComponent 绑定。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UInputAction> StarMapToggle;
 
