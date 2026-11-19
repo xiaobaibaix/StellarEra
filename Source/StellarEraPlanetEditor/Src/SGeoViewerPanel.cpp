@@ -60,6 +60,7 @@ namespace
 
 		TFunction<void(FVector2f)> OnHover;
 		TFunction<void(FVector2f, bool)> OnDrag;   // 像素位移；true = 平移
+		TFunction<void()> OnDragEnd;
 		TFunction<void(float)> OnZoom;
 
 		void Construct(const FArguments& InArgs) { ChildSlot[SNew(SImage).Image(InArgs._Brush)]; }
@@ -76,7 +77,7 @@ namespace
 		}
 		virtual FReply OnMouseButtonUp(const FGeometry&, const FPointerEvent& Event) override
 		{
-			if (bDragging) { bDragging = false; return FReply::Handled().ReleaseMouseCapture(); }
+			if (bDragging) { bDragging = false; if (OnDragEnd) { OnDragEnd(); } return FReply::Handled().ReleaseMouseCapture(); }
 			return FReply::Unhandled();
 		}
 		virtual FReply OnMouseMove(const FGeometry& Geometry, const FPointerEvent& Event) override
@@ -170,8 +171,11 @@ void SGeoViewerPanel::Construct(const FArguments& InArgs)
 			View.YawDeg += Delta.X * 0.4f;
 			View.PitchDeg = FMath::Clamp(View.PitchDeg + Delta.Y * 0.4f, -89.f, 89.f);
 		}
-		MarkView3DDirty();
+		// 拖动中不出图：单步要采两次场，一帧就是几百毫秒，谁都受不了。松手再画。
+		bDraggingView3D = true;
+		bView3DDirty = true;
 	};
+	OrbitImage->OnDragEnd = [this]() { bDraggingView3D = false; MarkView3DDirty(); };
 	OrbitImage->OnZoom = [this](float Wheel)
 	{
 		// 距离是到视线中心的，最近能贴到地表附近看细节。
@@ -375,7 +379,7 @@ void SGeoViewerPanel::Tick(const FGeometry& AllottedGeometry, const double InCur
 			MarkView3DDirty();
 		}
 	}
-	if (bView3DDirty)
+	if (bView3DDirty && !bDraggingView3D)
 	{
 		bView3DDirty = false;
 		Render3D(false);
@@ -452,18 +456,24 @@ void SGeoViewerPanel::Render3D(bool bFull)
 	const int32 DisplayW = FMath::RoundToInt(View3DWidth);
 	const int32 DisplayH = FMath::Max(1, FMath::RoundToInt(View3DWidth * 9.f / 16.f));
 	// 出图尺寸封顶：代价 = 像素数 × 步数，面板再宽也不涨；显示按面板拉伸。
-	const int32 MaxRenderW = bFull ? 512 : 256;
+	// 开「切面显示矿体」时每根光线要做一次 20× 的 BVH 盒查询（~24 µs/根），出图再降一档。
+	const bool bWantMinerals = bShowMinerals && !Layer->RayHits;
+	const int32 MaxRenderW = bFull ? (bWantMinerals ? 320 : 512) : 256;
 	const int32 RenderW = FMath::Max(1, FMath::Min(DisplayW, MaxRenderW));
 	const int32 RenderH = FMath::Max(1, FMath::RoundToInt(float(RenderW) * 9.f / 16.f));
 	PlanetGeoDebugView3D::FView V = View;
 	// 切面可见时每步都要做裁剪判断，步数就是唯一的大头：交互 32 步、静止 160 步。
-	V.Steps = bFull ? 160 : 32;
-	V.MineralScale = (bShowMinerals && !Layer->RayHits) ? MineralScale : 0.f;
+	V.Steps = bFull ? 64 : 24;
+	// 矿体放大 20× 时每根光线要做一次巨大的 BVH 盒查询（每根 ~24 µs），只留给静止那一遍。
+	V.MineralScale = (bFull && bWantMinerals) ? MineralScale : 0.f;
 	TArray<FColor> Colors;
 	PlanetGeoDebugView3D::Render(*Snap, *Layer, OuterLayer(), V, RenderW, RenderH, Colors, &HitPos, &HitValues);
 	Upload(View3D, RenderW, RenderH, Colors, FVector2D(DisplayW, DisplayH));
+	const double Ms = (FPlatformTime::Seconds() - T0) * 1000.0;
+	UE_LOG(LogTemp, Display, TEXT("[查看器] 3D %dx%d 步 %d %s 用时 %.0f ms"),
+		RenderW, RenderH, V.Steps, bFull ? TEXT("全质量") : TEXT("交互"), Ms);
 	Status3D = FText::FromString(FString::Printf(TEXT("3D：左键拖动旋转 · 右键拖动平移 · 滚轮缩放   %d×%d，%.0f ms"),
-		RenderW, RenderH, (FPlatformTime::Seconds() - T0) * 1000.0));
+		RenderW, RenderH, Ms));
 }
 
 void SGeoViewerPanel::Render()
