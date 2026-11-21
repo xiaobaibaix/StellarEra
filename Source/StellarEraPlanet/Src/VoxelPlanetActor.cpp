@@ -630,7 +630,7 @@ void AVoxelPlanetActor::OnAnyObjectPropertyChanged(UObject* Object, FPropertyCha
 {
 	// 拖动滑条时每帧都会来一次：只在松手（ValueSet）时重烘，否则会排起一长串 1–3 s 的烘焙。
 	// 撒矿器是配方的子对象、矿物目录是另一份资产：改它们也要重烘。
-	const UPlanetRecipe* Recipe = GeoRecipeOverride ? GeoRecipeOverride.Get() : GeoRecipe.Get();
+	const UPlanetRecipe* Recipe = GeoRecipe.Get();
 	const bool bMine = Recipe && Object && (Object == Recipe || Object->IsIn(Recipe)
 		|| Object == Recipe->MineralCatalog.Get());
 	if (!bMine || !GetWorld() || Event.ChangeType == EPropertyChangeType::Interactive)
@@ -743,14 +743,18 @@ void AVoxelPlanetActor::SyncGeoDimensions()
 	}
 }
 
+FGeoBakeStartedEvent AVoxelPlanetActor::GeoBakeStarted;
+FGeoBakeFinishedEvent AVoxelPlanetActor::GeoBakeFinished;
+
 void AVoxelPlanetActor::StartGeoBake()
 {
-	const UPlanetRecipe* Recipe = GeoRecipeOverride ? GeoRecipeOverride.Get() : GeoRecipe.Get();
+	const UPlanetRecipe* Recipe = GeoRecipe.Get();
 	if (bGeoBakeInFlight || !Recipe)
 	{
 		return;
 	}
 	bGeoBakeInFlight = true;
+	GeoBakeStarted.Broadcast(this);
 
 	// ToConfig 是唯一一次碰 UObject：烘焙线程只拿 POD。
 	FPlanetRecipeConfig Config = Recipe->ToConfig(double(GetScaledRadiusVoxels()));
@@ -793,6 +797,7 @@ void AVoxelPlanetActor::OnGeoBakeFinished(TSharedPtr<const FPlanetSnapshot> InSn
 	UWorld* const World = GetWorld();
 	if (!World || World->bIsTearingDown)
 	{
+		GeoBakeFinished.Broadcast(this, false, BakeSeconds);
 		return;
 	}
 	if (!InSnapshot)
@@ -800,10 +805,12 @@ void AVoxelPlanetActor::OnGeoBakeFinished(TSharedPtr<const FPlanetSnapshot> InSn
 		// 失败不自动重试：否则 RebuildPlanet ↔ StartGeoBake 会无限循环。
 		bGeoBakeFailed = true;
 		UE_LOG(LogTemp, Error, TEXT("AVoxelPlanetActor %s: 地质烘焙失败，本颗星不建世界"), *GetName());
+		GeoBakeFinished.Broadcast(this, false, BakeSeconds);
 		return;
 	}
 
 	GeoSnapshot = InSnapshot;
+	GeoBakeFinished.Broadcast(this, true, BakeSeconds);
 	UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor %s: 地质烘焙完成 %.2f s，半径 %.0f 体素，快照 %.1f MB，哈希 %016llx"),
 		*GetName(), BakeSeconds, float(Radius),
 		double(GeoSnapshot->GetAllocatedSize()) / (1024.0 * 1024.0), GeoSnapshot->ContentHash);
@@ -836,7 +843,7 @@ void AVoxelPlanetActor::RebuildGeoPlanet()
 		GeoGenerator = NewObject<UPlanetGeoGenerator>(this, TEXT("GeoGenerator"));
 	}
 	GeoGenerator->SetSnapshot(GeoSnapshot);
-	GeoGenerator->DebugColor = GeoDebugColor;
+	GeoGenerator->DebugColor = EPlanetGeoDebugColor::None;
 	GeoGenerator->Cutaway = EPlanetGeoCutaway::None;
 	GeoGenerator->SurfaceLayer = NAME_None;
 	GeoGenerator->VolumeLayer = NAME_None;
@@ -1521,20 +1528,10 @@ uint64 AVoxelPlanetActor::ComputeParamsHash() const
 
 	// geo 模式：配方混路径（改内容走 InvalidateAndRebuild 重烘），再混快照内容哈希 ——
 	// 烘焙完成那一刻哈希必变，世界才会被建起来。
-	// 内联覆盖按内容哈希：它不是资产，没有稳定路径。
-	if (GeoRecipeOverride)
-	{
-		const uint64 OverrideHash = GeoRecipeOverride->ToConfig(double(GetScaledRadiusVoxels())).Hash();
-		Mix(&OverrideHash, sizeof(OverrideHash));
-	}
-	else
-	{
-		const FString GeoRecipePath = GeoRecipe ? GeoRecipe->GetPathName() : FString();
-		Mix(*GeoRecipePath, GeoRecipePath.Len() * sizeof(TCHAR));
-	}
+	const FString GeoRecipePath = GeoRecipe ? GeoRecipe->GetPathName() : FString();
+	Mix(*GeoRecipePath, GeoRecipePath.Len() * sizeof(TCHAR));
 	const uint64 GeoContentHash = GeoSnapshot.IsValid() ? GeoSnapshot->ContentHash : 0;
 	Mix(&GeoContentHash, sizeof(GeoContentHash));
-	Mix(&GeoDebugColor, sizeof(GeoDebugColor));
 
 	return Hash;
 }
@@ -1620,12 +1617,8 @@ bool AVoxelPlanetActor::ApplyGeoDebugOverlay()
 	}
 
 	BiomeMaterial->SetTextureParameterValue(TEXT("BiomeCube"), BiomeCubemap);
-	// 海平面在 0..1 归一化海拔里的位置：材质用它把深海与陆地分开。
-	const double Span = GeoSnapshot->MaxSurfaceRadius - GeoSnapshot->MinSurfaceRadius;
-	const float SeaLevel = Span > 1.0
-		? float((GeoSnapshot->R0 - GeoSnapshot->MinSurfaceRadius) / Span)
-		: 0.5f;
-	BiomeMaterial->SetScalarParameterValue(TEXT("SeaLevel"), SeaLevel);
+
+	BindGeoPalette(BiomeMaterial);
 
 	const bool bSwitched = VoxelMaterial != BiomeMaterial;
 	VoxelMaterial = BiomeMaterial;

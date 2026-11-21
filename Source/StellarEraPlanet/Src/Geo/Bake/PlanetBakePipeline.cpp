@@ -13,6 +13,42 @@
 #include "Stage03bTectonics.h"
 #include "Stage07Weathering.h"
 
+namespace
+{
+	/** 上游被关后，下游读的字段没人写：把它并进 DisabledStages，而不是让整次烘焙校验失败。
+	 *  只有「这些字段本应由更早的阶段写」才算级联；管线本身缺阶段仍交给 Validate 报错。 */
+	uint32 ResolveDisabledStages(const TArray<const IPlanetStage*>& Stages, uint32 Disabled)
+	{
+		EPlanetField Written = EPlanetField::None;
+		for (int32 Index = 0; Index < Stages.Num(); ++Index)
+		{
+			const IPlanetStage* S = Stages[Index];
+			const uint32 Bit = 1u << (S->GetStageIndex() - 1);
+			if (Disabled & Bit) { continue; }
+			const EPlanetField Missing = S->GetReads() & ~Written;
+			if (Missing != EPlanetField::None)
+			{
+				bool bUpstreamWrites = false;
+				for (int32 Earlier = 0; Earlier < Index; ++Earlier)
+				{
+					if ((Stages[Earlier]->GetWrites() & Missing) != EPlanetField::None)
+					{
+						bUpstreamWrites = true;
+						break;
+					}
+				}
+				if (bUpstreamWrites)
+				{
+					Disabled |= Bit;
+					continue;
+				}
+			}
+			Written |= S->GetWrites();
+		}
+		return Disabled;
+	}
+}
+
 FPlanetBakePipeline::FPlanetBakePipeline() = default;
 FPlanetBakePipeline::~FPlanetBakePipeline() = default;
 FPlanetBakePipeline::FPlanetBakePipeline(FPlanetBakePipeline&&) = default;
@@ -61,7 +97,12 @@ bool FPlanetBakePipeline::Validate(FPlanetBakeReport& Report, const uint32 Disab
 
 TSharedPtr<const FPlanetSnapshot> FPlanetBakePipeline::Bake(const FPlanetRecipeConfig& Config, FPlanetBakeReport& Report) const
 {
-	if (!Validate(Report, Config.DisabledStages)) { return nullptr; }
+	const uint32 DisabledStages = ResolveDisabledStages(Sorted(), Config.DisabledStages);
+	if (DisabledStages != Config.DisabledStages)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[地质] 上游阶段被关闭，依赖它的下游阶段本次自动跳过"));
+	}
+	if (!Validate(Report, DisabledStages)) { return nullptr; }
 
 	// 报告可能被复用：只认本次烘焙新增的错误。
 	const int32 ErrorCount = Report.Errors.Num();
@@ -76,7 +117,7 @@ TSharedPtr<const FPlanetSnapshot> FPlanetBakePipeline::Bake(const FPlanetRecipeC
 	FPlanetBakeFields Fields;
 	for (const IPlanetStage* S : Sorted())
 	{
-		if (Config.DisabledStages & (1u << (S->GetStageIndex() - 1))) { continue; }
+		if (DisabledStages & (1u << (S->GetStageIndex() - 1))) { continue; }
 		const double T0 = FPlatformTime::Seconds();
 		FPlanetBakeContext Ctx{ Config, Fields, FGeoRng::Derive(Config.Seed, S->GetStageIndex(), 0), Report };
 		S->Bake(Ctx);
@@ -101,7 +142,7 @@ TSharedPtr<const FPlanetSnapshot> FPlanetBakePipeline::Bake(const FPlanetRecipeC
 	{
 		for (const IPlanetStage* S : Sorted())
 		{
-			if (Config.DisabledStages & (1u << (S->GetStageIndex() - 1))) { continue; }
+			if (DisabledStages & (1u << (S->GetStageIndex() - 1))) { continue; }
 			S->ExportDebugFields(Fields, Snap->DebugFields);
 		}
 	}

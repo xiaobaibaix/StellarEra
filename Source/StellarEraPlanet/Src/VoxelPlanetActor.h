@@ -24,6 +24,11 @@ struct FPlanetSnapshot;
 class UVoxelSimpleInvokerComponent;
 class UTextureCube;
 class UTexture2D;
+class AVoxelPlanetActor;
+
+/** 后台地质烘焙的开始 / 结束（结束带成功标志与耗时）。编辑器模块订阅它弹通知。 */
+DECLARE_MULTICAST_DELEGATE_OneParam(FGeoBakeStartedEvent, AVoxelPlanetActor*);
+DECLARE_MULTICAST_DELEGATE_ThreeParams(FGeoBakeFinishedEvent, AVoxelPlanetActor*, bool /*bSuccess*/, double /*Seconds*/);
 
 /**
  * 开箱即用的行星 Actor。**直接继承 AVoxelWorld** 而非持有子对象：UE 的变换只沿
@@ -146,23 +151,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Geo")
 	TObjectPtr<UPlanetRecipe> GeoRecipe;
 
-	/**
-	 * 非空 = 用这份内联配方覆盖 Geo Recipe：阶段开关与全部参数都在行星上直接改，
-	 * 不经过资产。空 = 用 Geo Recipe 指向的资产。
-	 */
-	UPROPERTY(EditAnywhere, Instanced, Category = "Planet|Geo")
-	TObjectPtr<UPlanetRecipe> GeoRecipeOverride;
-
-	/** geo 模式的体素调试着色。默认 None：RGB 写真实地质编码，材质才解得出来；调试分色仍可从下拉框选。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Geo")
-	EPlanetGeoDebugColor GeoDebugColor = EPlanetGeoDebugColor::None;
-
-
 	UFUNCTION(BlueprintPure, Category = "Planet|Geo")
-	bool IsGeoMode() const { return GeoRecipe != nullptr || GeoRecipeOverride != nullptr; }
+	bool IsGeoMode() const { return GeoRecipe != nullptr; }
 
 	/** 当前地质快照；烘焙完成前为空。 */
 	TSharedPtr<const FPlanetSnapshot> GetGeoSnapshot() const { return GeoSnapshot; }
+
+	/** 后台烘焙开始 / 结束。编辑器模块订阅来弹通知；运行时没人订阅就没有开销。 */
+	static FGeoBakeStartedEvent GeoBakeStarted;
+	static FGeoBakeFinishedEvent GeoBakeFinished;
 
 	/** 重新烘这颗行星（改完配方后从这里应用）。 */
 	UFUNCTION(BlueprintCallable, Category = "Planet|Geo",
@@ -185,7 +182,7 @@ public:
 	 * 无视 World Partition 流送单元常驻加载。按空间加载时，摄像机跨界会销毁重建
 	 * 此 Actor，整个行星生成随之重启，流送空洞会重新打开数十秒。
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Performance")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet")
 	bool bAlwaysLoaded = true;
 
 	//////////////////////////////////////////////////////////////////////////
@@ -202,7 +199,7 @@ public:
 	 * 以球心为中心的 LOD Invoker。挂在基类的 WorldRoot 下，随之变换。
 	 * 不加 VisibleAnywhere：组件指针会被细节面板内联展开，把组件自己的分类铺到 Actor 上。
 	 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet",
+	UPROPERTY(BlueprintReadOnly, Category = "Planet",
 		meta = (DisplayName = "LODInvoker"))
 	TObjectPtr<UVoxelSimpleInvokerComponent> LODInvoker;
 

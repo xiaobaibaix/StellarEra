@@ -218,7 +218,7 @@ bool FGeoMineralRecipeTest::RunTest(const FString& Parameters)
 	UGeoVmsScatterer* Off = NewObject<UGeoVmsScatterer>(Recipe);
 	Off->bEnabled = false;
 	UGeoNoduleScatterer* Missing = NewObject<UGeoNoduleScatterer>(Recipe);   // MnNodule 不在目录里
-	Recipe->MineralScatterers = { Bif, Off, Missing };
+	Recipe->ScatterStage2Minerals = { Bif, Off, Missing };
 
 	AddExpectedError(TEXT("不在矿物目录里"), EAutomationExpectedErrorFlags::Contains, 1);
 	const FPlanetRecipeConfig C = Recipe->ToConfig(40000.0);

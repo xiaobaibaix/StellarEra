@@ -177,7 +177,7 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 	C.Tectonics.MetamorphicDepthRatio = MetamorphicDepthRatio;
 	C.Tectonics.MarbleThreshold = MarbleThreshold;
 	C.Tectonics.OrogenBoost = OrogenBoost;
-	C.Weathering.bWeathering = bRunStage8;
+	C.Weathering.bWeathering = bStage7WeatheringEnabled;
 	C.Weathering.MaxDepthRatio = WeatheringMaxDepthRatio;
 	C.Weathering.TemperatureWeight = WeatheringTemperatureWeight;
 	C.Weathering.PrecipitationWeight = WeatheringPrecipitationWeight;
@@ -185,14 +185,19 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 	C.Weathering.LateriteTemp = LateriteTemp;
 	C.Weathering.LateritePrecip = LateritePrecip;
 	C.Weathering.KaolinTemp = KaolinTemp;
-	const bool StageOn[10] = { bRunStage1, bRunStage2, bRunStage3, bRunStage4, bRunStage5, bRunStage6, bRunStage7,
-		bRunStage8, bRunStage9, bRunStage10 };
+	// 阶段级开关统一由分类总开关决定；出露(6b)/盖层(3A)/变质(3B) 仍是各自的子开关。
+	const bool StageOn[10] = { bStage1SphereEnabled, bStage2PlatesEnabled, bStage3TerrainEnabled, bStage4MagmaEnabled,
+		bStage5ClimateEnabled, bStage6HydroEnabled, bRunStage7, bStage7WeatheringEnabled, bRunStage9, bRunStage10 };
+	// 顶层分类总开关：阶段 3 分类同时管地形/盖层/变质，阶段 6 分类同时管水文/出露。
+	const bool CategoryOn[10] = { bStage1SphereEnabled, bStage2PlatesEnabled, bStage3TerrainEnabled, bStage4MagmaEnabled,
+		bStage5ClimateEnabled, bStage6HydroEnabled, bStage6HydroEnabled, bStage7WeatheringEnabled,
+		bStage3TerrainEnabled, bStage3TerrainEnabled };
 	const uint32 ScatterStages = (bScatterStage2 ? 1u << 1 : 0u) | (bScatterStage3 ? 1u << 2 : 0u)
 		| (bScatterStage4 ? 1u << 3 : 0u) | (bScatterStage7 ? 1u << 6 : 0u)
 		| (bScatterStage8 ? 1u << 7 : 0u) | (bScatterStage9 ? 1u << 8 : 0u) | (bScatterStage10 ? 1u << 9 : 0u);
 	for (uint32 i = 0; i < 10; ++i)
 	{
-		if (!StageOn[i]) { C.DisabledStages |= (1u << i); }
+		if (!StageOn[i] || !CategoryOn[i]) { C.DisabledStages |= (1u << i); }
 	}
 	if (MineralCatalog)
 	{
@@ -201,7 +206,12 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 			C.Minerals.Add({ D.DisplayName.IsEmpty() ? D.Id.ToString() : D.DisplayName, D.DebugColor.ToFColorSRGB() });
 		}
 	}
-	for (const UGeoMineralScatterer* S : MineralScatterers)
+	// 各阶段列表只是面板上的组织方式；运行期仍按规则自己的阶段过开关，旧数据在 PostLoad 里拆进来。
+	const TArray<TObjectPtr<UGeoMineralScatterer>>* const ScatterLists[] = {
+		&ScatterStage2Minerals, &ScatterStage3Minerals, &ScatterStage4Minerals, &ScatterStage7Minerals,
+		&ScatterStage8Minerals, &ScatterStage9Minerals, &ScatterStage10Minerals };
+	for (const TArray<TObjectPtr<UGeoMineralScatterer>>* List : ScatterLists)
+	for (const UGeoMineralScatterer* S : *List)
 	{
 		if (!S || !S->bEnabled) { continue; }
 		const int32 Index = MineralCatalog ? MineralCatalog->FindIndex(S->Mineral) : INDEX_NONE;
@@ -222,4 +232,30 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 		C.MineralRules.Add(Rule);
 	}
 	return C;
+}
+
+void UPlanetRecipe::PostLoad()
+{
+	Super::PostLoad();
+	if (MineralScatterers.IsEmpty()) { return; }
+	// 旧版只有一个大数组：按规则阶段拆到各阶段列表；规则阶段只有 MakeRule 之后才知道。
+	for (UGeoMineralScatterer* S : MineralScatterers)
+	{
+		const TSharedPtr<IGeoMineralRule> Rule = S ? S->MakeRule() : nullptr;
+		if (!Rule) { continue; }
+		TArray<TObjectPtr<UGeoMineralScatterer>>* Dest = nullptr;
+		switch (Rule->GetStage())
+		{
+		case 2: Dest = &ScatterStage2Minerals; break;
+		case 3: Dest = &ScatterStage3Minerals; break;
+		case 4: Dest = &ScatterStage4Minerals; break;
+		case 7: Dest = &ScatterStage7Minerals; break;
+		case 8: Dest = &ScatterStage8Minerals; break;
+		case 9: Dest = &ScatterStage9Minerals; break;
+		case 10: Dest = &ScatterStage10Minerals; break;
+		default: break;
+		}
+		if (Dest) { Dest->Add(S); }
+	}
+	MineralScatterers.Reset();
 }

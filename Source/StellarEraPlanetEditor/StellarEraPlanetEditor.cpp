@@ -13,6 +13,9 @@ namespace
 	const FName GeoViewerTabName(TEXT("StellarEraGeoViewer"));
 }
 
+void RegisterGeoBakeNotifications();
+void UnregisterGeoBakeNotifications();
+
 class FStellarEraPlanetEditorModule : public IModuleInterface
 {
 public:
@@ -26,10 +29,12 @@ public:
 			.SetDisplayName(FText::FromString(TEXT("地质查看器")))
 			.SetTooltipText(FText::FromString(TEXT("按阶段查看地质图层：全球展开地图、过球心剖面、读数与图例、导出 PNG")))
 			.SetGroup(WorkspaceMenu::GetMenuStructure().GetToolsCategory());
+		RegisterGeoBakeNotifications();
 	}
 
 	virtual void ShutdownModule() override
 	{
+		UnregisterGeoBakeNotifications();
 		if (FSlateApplication::IsInitialized())
 		{
 			FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(GeoViewerTabName);

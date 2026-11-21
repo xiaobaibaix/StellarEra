@@ -12,7 +12,7 @@ struct FGeoSample
 	uint8 ClueStrength = 0;  // 0..15
 	uint8 SecondaryMineral = 0;
 	uint8 SecondaryGrade = 0;
-	/** 0..255：海拔归一化（0 = 最深洋底，255 = 最高峰）。画在 UV1.y。 */
+	/** 0..255：海拔归一化（0 = 最深洋底，255 = 最高峰）。画在体素材质 V1，渲染时是网格 UV2.y。 */
 	uint8 Elevation = 0;
 };
 
@@ -23,7 +23,7 @@ struct FGeoPackedMaterial
 
 namespace GeoMaterialCodec
 {
-	/** U1 是离地表遮罩，材质按 UV1.x 读；改通道顺序要同步改 MF_GeoDecode。 */
+	/** U1 是离地表遮罩 → 网格 UV2.x；改通道顺序要同步改 MF_GeoDecode 与 M_GeoPlanet 的 CoordinateIndex。 */
 	constexpr int32 SurfaceMaskChannel = 6;
 
 	FORCEINLINE FGeoPackedMaterial Encode(const FGeoSample& S)

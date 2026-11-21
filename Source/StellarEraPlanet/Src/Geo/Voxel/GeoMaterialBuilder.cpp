@@ -40,6 +40,7 @@ const TCHAR* GeoMaterialBuild::GetPlanetMaterialPath()
 #include "Materials/MaterialExpressionMaterialFunctionCall.h"
 #include "Materials/MaterialExpressionMultiply.h"
 #include "Materials/MaterialExpressionNormalize.h"
+#include "Materials/MaterialExpressionActorPositionWS.h"
 #include "Materials/MaterialExpressionObjectPositionWS.h"
 #include "Materials/MaterialExpressionScalarParameter.h"
 #include "Materials/MaterialExpressionSmoothStep.h"
@@ -259,12 +260,12 @@ namespace
 		VertexColor->SortPriority = 0;
 		GeoSetStableId(VertexColor, TEXT("Input"), TEXT("VertexColor"));
 
-		UMaterialExpressionFunctionInput* Uv1 = Graph.Add<UMaterialExpressionFunctionInput>(-1600, -400);
-		Uv1->InputName = TEXT("UV1");
-		Uv1->InputType = FunctionInput_Vector2;
-		Uv1->PreviewValue = FVector4f(1.f, 1.f, 0.f, 0.f);
-		Uv1->SortPriority = 1;
-		GeoSetStableId(Uv1, TEXT("Input"), TEXT("UV1"));
+		UMaterialExpressionFunctionInput* Uv2 = Graph.Add<UMaterialExpressionFunctionInput>(-1600, -400);
+		Uv2->InputName = TEXT("UV2");
+		Uv2->InputType = FunctionInput_Vector2;
+		Uv2->PreviewValue = FVector4f(1.f, 1.f, 0.f, 0.f);
+		Uv2->SortPriority = 1;
+		GeoSetStableId(Uv2, TEXT("Input"), TEXT("UV2"));
 
 		UMaterialExpressionFunctionInput* Palette = Graph.Add<UMaterialExpressionFunctionInput>(-1600, -200);
 		Palette->InputName = TEXT("GeoPalette");
@@ -334,7 +335,7 @@ namespace
 			Graph, Strength, ClueWeight, -200, -800);
 		UMaterialExpressionLinearInterpolate* RockFinal = GeoLerp(Graph, Rock, ClueRgb, ClueScale, 0, -300);
 
-		UMaterialExpressionComponentMask* SurfaceMask = GeoMask(Graph, Uv1, true, false, false, false, 200, 0);
+		UMaterialExpressionComponentMask* SurfaceMask = GeoMask(Graph, Uv2, true, false, false, false, 200, 0);
 
 		UMaterialExpressionFunctionOutput* OutRock = Graph.Add<UMaterialExpressionFunctionOutput>(400, -500);
 		OutRock->OutputName = TEXT("RockColor");
@@ -381,7 +382,7 @@ namespace
 	}
 
 	bool WireGeoFunctionInputs(UMaterialExpressionMaterialFunctionCall* Call, UMaterialExpression* VertexColor,
-		UMaterialExpression* Uv1, UMaterialExpression* Palette, FString& OutError)
+		UMaterialExpression* Uv2, UMaterialExpression* Palette, FString& OutError)
 	{
 		for (FFunctionExpressionInput& FunctionInput : Call->FunctionInputs)
 		{
@@ -390,7 +391,7 @@ namespace
 
 			UMaterialExpression* Source = nullptr;
 			if (InputName == FName(TEXT("VertexColor"))) { Source = VertexColor; }
-			else if (InputName == FName(TEXT("UV1"))) { Source = Uv1; }
+			else if (InputName == FName(TEXT("UV2"))) { Source = Uv2; }
 			else if (InputName == FName(TEXT("GeoPalette"))) { Source = Palette; }
 
 			if (!Source)
@@ -440,8 +441,9 @@ namespace
 		GeoWire(VertexColor4->A, VertexColor, 0);
 		GeoWire(VertexColor4->B, VertexColor, 1);
 
-		UMaterialExpressionTextureCoordinate* Uv1 = Graph.Add<UMaterialExpressionTextureCoordinate>(-1600, -500);
-		Uv1->CoordinateIndex = 1;
+		// 体素材质的 UV1 落在网格 UV2：网格 UV0 是基础 UV，UV1 是体素材质 UV0（次生矿物/品位）。
+		UMaterialExpressionTextureCoordinate* Uv2 = Graph.Add<UMaterialExpressionTextureCoordinate>(-1600, -500);
+		Uv2->CoordinateIndex = 2;
 
 		UMaterialExpressionMaterialFunctionCall* Decode = Graph.Add<UMaterialExpressionMaterialFunctionCall>(-1200, -400);
 		// SetMaterialFunction 同时按函数里的输入/输出节点重建 FunctionInputs / FunctionOutputs。
@@ -450,7 +452,7 @@ namespace
 			OutError = TEXT("M_GeoPlanet: SetMaterialFunction(MF_GeoDecode) 失败");
 			return false;
 		}
-		if (!WireGeoFunctionInputs(Decode, VertexColor4, Uv1, Palette, OutError))
+		if (!WireGeoFunctionInputs(Decode, VertexColor4, Uv2, Palette, OutError))
 		{
 			return false;
 		}
@@ -463,12 +465,13 @@ namespace
 			return false;
 		}
 
-		// 方向由渲染侧直接取（世界位置 − 物体原点），不走 Actor 位置：MID 里的世界坐标会慢一帧。
+		// 球心必须是行星 Actor 的原点：ObjectPositionWS 是体素块的组件位置，按它求方向会
+		// 让每块内部扫过整个球面（万花筒）。照样从渲染侧取，不走 MID 参数。
 		UMaterialExpressionWorldPosition* WorldPosition = Graph.Add<UMaterialExpressionWorldPosition>(-1200, 200);
-		UMaterialExpressionObjectPositionWS* ObjectPosition = Graph.Add<UMaterialExpressionObjectPositionWS>(-1200, 320);
-		ObjectPosition->OriginType = EPositionOrigin::Absolute;
+		UMaterialExpressionActorPositionWS* PlanetCenter = Graph.Add<UMaterialExpressionActorPositionWS>(-1200, 320);
+		PlanetCenter->OriginType = EPositionOrigin::Absolute;
 		UMaterialExpressionSubtract* Offset = GeoBinary<UMaterialExpressionSubtract>(
-			Graph, WorldPosition, ObjectPosition, -1000, 250);
+			Graph, WorldPosition, PlanetCenter, -1000, 250);
 
 		UMaterialExpressionNormalize* Direction = Graph.Add<UMaterialExpressionNormalize>(-850, 250);
 		GeoWire(Direction->VectorInput, Offset);
@@ -482,60 +485,11 @@ namespace
 		GeoWire(BlendWeight->A, Decode, MaskOutput);
 		GeoWire(BlendWeight->B, Blend);
 
-		// 海拔色带：UV1.y（0..255 归一化）→ 深海 / 浅海 / 沙滩 / 平原 / 高地 / 雪线。
-		// 与地质查看器 PlanetDebugColor::FromElevation 同一套配色，但按体素求值，不是贴图。
-		UMaterialExpressionComponentMask* ElevationT =
-			GeoMask(Graph, Uv1, false, true, false, false, -1200, -650);
-		UMaterialExpressionScalarParameter* SeaLevel = Graph.Add<UMaterialExpressionScalarParameter>(-1200, -780);
-		SeaLevel->ParameterName = TEXT("SeaLevel");
-		SeaLevel->DefaultValue = 0.47f;
-
-		const auto Mix2 = [&](UMaterialExpression* A, UMaterialExpression* B, UMaterialExpression* T, int32 X, int32 Y)
-		{
-			UMaterialExpressionLinearInterpolate* M = Graph.Add<UMaterialExpressionLinearInterpolate>(X, Y);
-			GeoWire(M->A, A);
-			GeoWire(M->B, B);
-			GeoWire(M->Alpha, T);
-			return static_cast<UMaterialExpression*>(M);
-		};
-		UMaterialExpressionConstant3Vector* Abyss = Graph.Add<UMaterialExpressionConstant3Vector>(-1000, -980);
-		Abyss->Constant = FLinearColor(0.02f, 0.05f, 0.25f);
-		UMaterialExpressionConstant3Vector* Shallow = Graph.Add<UMaterialExpressionConstant3Vector>(-1000, -880);
-		Shallow->Constant = FLinearColor(0.25f, 0.6f, 0.85f);
-		UMaterialExpressionConstant3Vector* Sand = Graph.Add<UMaterialExpressionConstant3Vector>(-1000, -780);
-		Sand->Constant = FLinearColor(0.85f, 0.8f, 0.55f);
-		UMaterialExpressionConstant3Vector* Plain = Graph.Add<UMaterialExpressionConstant3Vector>(-1000, -680);
-		Plain->Constant = FLinearColor(0.25f, 0.55f, 0.2f);
-		UMaterialExpressionConstant3Vector* High = Graph.Add<UMaterialExpressionConstant3Vector>(-1000, -580);
-		High->Constant = FLinearColor(0.5f, 0.35f, 0.2f);
-		UMaterialExpressionConstant3Vector* Peak = Graph.Add<UMaterialExpressionConstant3Vector>(-1000, -480);
-		Peak->Constant = FLinearColor(0.9f, 0.9f, 0.9f);
-
-		// 海平面以下：Abyss→Shallow；以上：Sand→Plain→High→Peak。
-		UMaterialExpressionDivide* BelowT = GeoBinary<UMaterialExpressionDivide>(Graph, ElevationT, SeaLevel, -900, -700);
-		UMaterialExpressionSubtract* AboveRaw = GeoBinary<UMaterialExpressionSubtract>(Graph, ElevationT, SeaLevel, -900, -600);
-		UMaterialExpressionSubtract* AboveRange = GeoBinary<UMaterialExpressionSubtract>(Graph, GeoConstant(Graph, 1.f, -1000, -420), SeaLevel, -900, -500);
-		UMaterialExpressionDivide* AboveT = GeoBinary<UMaterialExpressionDivide>(Graph, AboveRaw, AboveRange, -750, -560);
-
-		UMaterialExpression* Sea = Mix2(Abyss, Shallow, BelowT, -700, -800);
-		UMaterialExpression* LowLand = Mix2(Sand, Plain, AboveT, -700, -680);
-		UMaterialExpression* MidLand = Mix2(LowLand, High, AboveT, -550, -680);
-		UMaterialExpression* Land = Mix2(MidLand, Peak, AboveT, -400, -680);
-
-		// If 节点只输出标量，颜色必须用 Step + Lerp 选。
-		UMaterialExpressionStep* IsLand = Graph.Add<UMaterialExpressionStep>(-450, -720);
-		GeoWire(IsLand->X, SeaLevel);
-		GeoWire(IsLand->Y, ElevationT);
-
-		UMaterialExpressionLinearInterpolate* ElevationColor = Graph.Add<UMaterialExpressionLinearInterpolate>(-300, -720);
-		GeoWire(ElevationColor->A, Sea);
-		GeoWire(ElevationColor->B, Land);
-		GeoWire(ElevationColor->Alpha, IsLand);
-
-		// 地表（SurfaceMask=1）用高程色；挖开 / 剖面才露出岩性色。
+		// 地表色直接取查看器同款「高程 / 海陆」立方图：按方向采样，与体素 LOD 无关，
+		// 也不会像逐顶点色带那样在粗 LOD 上出块。挖开 / 剖面才露出岩性色。
 		UMaterialExpressionLinearInterpolate* BaseColor = Graph.Add<UMaterialExpressionLinearInterpolate>(-350, -300);
 		GeoWire(BaseColor->A, Decode, RockOutput);
-		GeoWire(BaseColor->B, ElevationColor);
+		GeoWire(BaseColor->B, BiomeRgb);
 		GeoWire(BaseColor->Alpha, BlendWeight);
 
 		UMaterialExpressionConstant* RoughBase = GeoConstant(Graph, 0.85f, -600, -200);
