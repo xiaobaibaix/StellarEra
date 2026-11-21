@@ -11,6 +11,7 @@
 #include "VoxelGenerators/VoxelGeneratorPicker.h"
 #include "VoxelComponents/VoxelInvokerComponent.h"
 #include "PlanetSurfaceGridComponent.h"
+#include "PlanetSunLightComponent.h"
 #include "Sky/PlanetSkyLightComponent.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -181,6 +182,9 @@ AVoxelPlanetActor::AVoxelPlanetActor()
 	// 天光不是可选项：没有它环境光永远是同一张静态立方图。骨架留 C++，蓝图不用管。
 	PlanetSkyLight = CreateDefaultSubobject<UPlanetSkyLightComponent>(TEXT("PlanetSkyLight"));
 
+	// 恒星灯同理：有没有大气壳都要照亮行星，所以挂在星球上而不是大气组件里。
+	SunLightDriver = CreateDefaultSubobject<UPlanetSunLightComponent>(TEXT("SunLightDriver"));
+
 	// 大气壳、矿物观察与表面编辑网格由 BP_VoxelPlanet 挂载；原生实例不带，
 	// 编辑相关调用走 FindEditGrid()，找不到就跳过。
 }
@@ -202,9 +206,10 @@ float AVoxelPlanetActor::GetScaledRadiusVoxels() const
 int32 AVoxelPlanetActor::ComputeOrbitLOD() const
 {
 	// 最粗三角边长（2^LOD 体素）约半径 1/16，弦高误差 ~R/2048。
-	// 1km 星得 LOD 6（64m 边长），100m 星得 LOD 3。
+	// 1km 星得 LOD 6（64m 边长），100m 星得 LOD 3，6378km 星得 LOD 18。
+	// 上界 25 就是「块边长 ≈ 1 体素」之上限；写 8 会把大星球压到爆块数。
 	const float ScaledRadius = FMath::Max(GetScaledRadiusVoxels(), 1.f);
-	return FMath::Clamp(FMath::RoundToInt(FMath::Log2(ScaledRadius / 16.f)), 0, 8);
+	return FMath::Clamp(FMath::RoundToInt(FMath::Log2(ScaledRadius / 16.f)), 0, 25);
 }
 
 void AVoxelPlanetActor::RefreshLODInvoker()
@@ -647,11 +652,24 @@ void AVoxelPlanetActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyCh
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 
 	// 下拉选中的是「中文名（Id）」标签，这里立刻规范成标签形式；老值（裸 Id）也一并升级。
-	NormalizeGeoDebugLayerNames();
 
 	if (IsGeoMode() && ApplyGeoDebugOverlay() && IsCreated())
 	{
 		UVoxelBlueprintLibrary::ApplyNewMaterials(this);
+	}
+
+	// 半径两套单位互相同步：米是给手填的，体素是生成器真正吃的。
+	const FName ChangedProperty = PropertyChangedEvent.GetPropertyName();
+	if (ChangedProperty == GET_MEMBER_NAME_CHECKED(AVoxelPlanetActor, RadiusMeters))
+	{
+		Radius = FMath::Max(16.f, FMath::RoundToFloat(RadiusMeters * 100.f / FMath::Max(VoxelSize, 0.01f)));
+		// 回写对齐后的值：体素是整数，改米不一定能精确落回。
+		RadiusMeters = Radius * VoxelSize / 100.f;
+	}
+	else if (ChangedProperty == GET_MEMBER_NAME_CHECKED(AVoxelPlanetActor, Radius)
+		|| ChangedProperty == FName(TEXT("VoxelSize")))
+	{
+		RadiusMeters = Radius * VoxelSize / 100.f;
 	}
 
 	// OnConstruction 只在移动/添加时重跑，细节面板改参数要在这里重建。
@@ -819,9 +837,9 @@ void AVoxelPlanetActor::RebuildGeoPlanet()
 	}
 	GeoGenerator->SetSnapshot(GeoSnapshot);
 	GeoGenerator->DebugColor = GeoDebugColor;
-	GeoGenerator->Cutaway = GeoCutaway;
-	GeoGenerator->SurfaceLayer = GeoCutaway != EPlanetGeoCutaway::None ? GetSurfaceLayerId() : NAME_None;
-	GeoGenerator->VolumeLayer = GetVolumeLayerId();
+	GeoGenerator->Cutaway = EPlanetGeoCutaway::None;
+	GeoGenerator->SurfaceLayer = NAME_None;
+	GeoGenerator->VolumeLayer = NAME_None;
 	// 材质必须在建世界前就位：渲染器创建时快照它。
 	ApplyGeoDebugOverlay();
 
@@ -1144,6 +1162,9 @@ void AVoxelPlanetActor::PostLoad()
 {
 	Super::PostLoad();
 
+	// 老存档没有 RadiusMeters：读盘后按体素值补一个，面板上才是当前真实半径。
+	RadiusMeters = Radius * VoxelSize / 100.f;
+
 	// CDO（Default__BP_VoxelPlanet_C）不持有生成器。CDO 上出现同名子对象后，各行星的
 	// 同名子对象会按名字把它当原型（UObjectArchetype.cpp:127），保存外部 Actor 包时连带
 	// harvest 出 "Illegal reference to private object"。这里清的是历史上已落盘的那份。
@@ -1151,13 +1172,21 @@ void AVoxelPlanetActor::PostLoad()
 	{
 		Generator = FVoxelGeneratorPicker();
 	}
-	NormalizeGeoDebugLayerNames();
 
 }
 
 void AVoxelPlanetActor::ReloadGeology()
 {
 	InvalidateAndRebuild();
+}
+
+void AVoxelPlanetActor::RebuildStarLights()
+{
+	// 实现在蓝图（本类不知道 SunStars 容器）；按名字派发，找不到就静默不做事。
+	if (UFunction* Rebuild = FindFunction(TEXT("RebuildStarLightsInternal")))
+	{
+		ProcessEvent(Rebuild, nullptr);
+	}
 }
 
 float AVoxelPlanetActor::GetSurfaceRadiusCm() const
@@ -1506,63 +1535,12 @@ uint64 AVoxelPlanetActor::ComputeParamsHash() const
 	const uint64 GeoContentHash = GeoSnapshot.IsValid() ? GeoSnapshot->ContentHash : 0;
 	Mix(&GeoContentHash, sizeof(GeoContentHash));
 	Mix(&GeoDebugColor, sizeof(GeoDebugColor));
-	// 剖切改的是密度与顶点色，要重建；不剖切时地表图层只换贴图，不进哈希。
-	Mix(&GeoCutaway, sizeof(GeoCutaway));
-	const FString GeoDebugKey = GetVolumeLayerId().ToString()
-		+ (GeoCutaway != EPlanetGeoCutaway::None ? GetSurfaceLayerId().ToString() : FString());
-	Mix(*GeoDebugKey, GeoDebugKey.Len() * sizeof(TCHAR));
 
 	return Hash;
 }
 
-TArray<FName> AVoxelPlanetActor::GetGeoDebugLayerOptions() const
-{
-	TArray<FName> Out = { NAME_None };
-	for (const FGeoDebugLayer& L : FPlanetBakePipeline::DefaultDebugLayers()) { Out.Add(FName(*GeoDebugLayerLabel(L))); }
-	return Out;
-}
-
-FString AVoxelPlanetActor::GeoDebugLayerLabel(const FGeoDebugLayer& Layer)
-{
-	return FString::Printf(TEXT("%s（%s）"), *Layer.DisplayName, *Layer.Id.ToString());
-}
-
-FName AVoxelPlanetActor::ParseGeoDebugLayerLabel(FName Label)
-{
-	if (Label.IsNone()) { return NAME_None; }
-	// 老数据与代码里存的都是裸 Id，先直接认。
-	if (FPlanetBakePipeline::FindDefaultDebugLayer(Label)) { return Label; }
-	const FString S = Label.ToString();
-	int32 Open = INDEX_NONE;
-	if (S.FindLastChar(TEXT('（'), Open) && S.EndsWith(TEXT("）")))
-	{
-		const FName Id(*S.Mid(Open + 1, S.Len() - Open - 2));
-		if (FPlanetBakePipeline::FindDefaultDebugLayer(Id)) { return Id; }
-	}
-	// 用户可能只写了中文名。
-	for (const FGeoDebugLayer& L : FPlanetBakePipeline::DefaultDebugLayers())
-	{
-		if (S == L.DisplayName) { return L.Id; }
-	}
-	return NAME_None;
-}
-
-void AVoxelPlanetActor::NormalizeGeoDebugLayerNames()
-{
-	const auto Canon = [](FName& Field)
-	{
-		const FName Id = ParseGeoDebugLayerLabel(Field);
-		if (const FGeoDebugLayer* L = FPlanetBakePipeline::FindDefaultDebugLayer(Id)) { Field = FName(*GeoDebugLayerLabel(*L)); }
-	};
-	Canon(GeoDebugSurfaceLayer);
-	Canon(GeoDebugVolumeLayer);
-}
-
 bool AVoxelPlanetActor::ApplyGeoDebugOverlay()
 {
-	const FGeoDebugLayer* OverlayLayer = FPlanetBakePipeline::FindDefaultDebugLayer(GetSurfaceLayerId());
-	const bool bWantOverlay = GeoSnapshot.IsValid() && OverlayLayer && GeoDebugOverlayOpacity > 0.f
-		&& GeoCutaway == EPlanetGeoCutaway::None;
 	const bool bGeo = GeoSnapshot.IsValid();
 
 	// 父材质永远是用户设的那个：VoxelMaterial 此刻可能指着上次的 MID（PIE 复制时甚至是副本）。
@@ -1589,7 +1567,7 @@ bool AVoxelPlanetActor::ApplyGeoDebugOverlay()
 		return false;
 	};
 
-	if (!bWantOverlay && !bGeo)
+	if (!bGeo)
 	{
 		return RestoreBaseMaterial();
 	}
@@ -1598,22 +1576,22 @@ bool AVoxelPlanetActor::ApplyGeoDebugOverlay()
 		return false;
 	}
 
-	// geo 行星没有噪声生物群系：用 Biome 调试图层烘一张底图，
-	// 否则 M_GeoPlanet 的地表没有 BiomeCube 可采。叠加模式下仍烘用户选的图层，行为不变。
-	const FGeoDebugLayer* CubeLayer = bWantOverlay
-		? OverlayLayer
-		: FPlanetBakePipeline::FindDefaultDebugLayer(TEXT("Biome"));
-	// 判据是「这张图真的有数据」，不是「层有没有注册」：Biome 层永远注册，而打包后
-	// bKeepDebugFields=false 使 DebugFields 为空，烘出来是整片 NoData 灰再盖满整星。
-	if (!CubeLayer || (!bWantOverlay && !GeoSnapshot->DebugFields.Contains(CubeLayer->Id)))
+	// 地表外观固定成「高程 / 海陆」：深海蓝 → 浅海青 → 沙滩 → 平原绿 → 高地棕 → 雪白。
+	// 这是地质查看器里那张外层图的同一套配色；调试图层切换只留在查看器面板，不再挂到星球上。
+	const FGeoDebugLayer* CubeLayer = FPlanetBakePipeline::FindDefaultDebugLayer(TEXT("Elevation"));
+	// 判据是「高程场真的有数据」：没有阶段 1/2 的海拔时烘出来是整片 NoData 灰，
+	// 再以 Blend=1 盖满整星，比没有底图更糟。
+	if (!CubeLayer || GeoSnapshot->Elevation.Res <= 0)
 	{
 		return RestoreBaseMaterial();
 	}
 
-	// 图层与快照都没变就不重烘：只改不透明度时这里是零成本。
+	// 图层与快照都没变就不重烘。
 	if (!BiomeCubemap || OverlayBakedLayer != CubeLayer->Id || OverlayBakedHash != GeoSnapshot->ContentHash)
 	{
 		const double T0 = FPlatformTime::Seconds();
+		UE_LOG(LogTemp, Log, TEXT("[高程底图] R0=%.0f  Min=%.0f  Max=%.0f  CrustSplit=%.1f"),
+			GeoSnapshot->R0, GeoSnapshot->MinSurfaceRadius, GeoSnapshot->MaxSurfaceRadius, GeoSnapshot->CrustSplitElevation);
 		UTextureCube* Cube = PlanetGeoDebugRender::BakeCube(*GeoSnapshot, *CubeLayer, 512);
 		if (!Cube)
 		{
@@ -1626,7 +1604,13 @@ bool AVoxelPlanetActor::ApplyGeoDebugOverlay()
 			*GetName(), *CubeLayer->DisplayName, (FPlatformTime::Seconds() - T0) * 1000.0);
 	}
 
-	UMaterialInterface* ParentMaterial = ChooseBiomeParentMaterial(BaseVoxelMaterial);
+	// 地表走专用的无光照材质：按行星中心方向采样高程立方图，与查看器同一套配色。
+	UMaterialInterface* ParentMaterial = LoadObject<UMaterialInterface>(nullptr,
+		TEXT("/Game/Code/Planet/Materials/M_GeoSurface"));
+	if (!ParentMaterial)
+	{
+		return RestoreBaseMaterial();
+	}
 	if (!BiomeMaterial || BiomeMaterial->Parent != ParentMaterial)
 	{
 		BiomeMaterial = CreateBiomeMaterialMID(ParentMaterial);
@@ -1641,11 +1625,10 @@ bool AVoxelPlanetActor::ApplyGeoDebugOverlay()
 		}
 	}
 
-	BiomeMaterial->SetTextureParameterValue(TEXT("BiomeCube"), BiomeCubemap);
-	// 叠加时按不透明度混合；没有叠加时 100% 走 Biome 底图（地表保持生物群系外观）。
-	BiomeMaterial->SetScalarParameterValue(TEXT("BiomeCubeBlend"),
-		bWantOverlay ? GeoDebugOverlayOpacity : 1.f);
-	BindGeoPalette(BiomeMaterial);
+	BiomeMaterial->SetTextureParameterValue(TEXT("SurfaceCube"), BiomeCubemap);
+	const FVector Center = GetActorLocation();
+	BiomeMaterial->SetVectorParameterValue(TEXT("PlanetCenter"),
+		FLinearColor(float(Center.X), float(Center.Y), float(Center.Z), 0.f));
 
 	const bool bSwitched = VoxelMaterial != BiomeMaterial;
 	VoxelMaterial = BiomeMaterial;

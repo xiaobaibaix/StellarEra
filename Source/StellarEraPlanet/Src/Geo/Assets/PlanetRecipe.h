@@ -137,104 +137,104 @@ public:
 
 	// 阶段 3：宏观地形。全部占半径比例，括号里是 R=40000 时的体素数。
 	/** 山脉起伏幅度：山顶 ≈ 陆台 + 0.8 × 它（0.05 ≈ 2000 体素）。 */
-	UPROPERTY(EditAnywhere, Category = "阶段3|地形", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "0.2"))
+	UPROPERTY(EditAnywhere, Category = "阶段3|山脉", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "0.2"))
 	float MountainHeightRatio = 0.05f;
 
 	/** 海沟在洋底之下再往下切多深（0.025 ≈ 1000 体素）。只在俯冲边界的洋侧出现。 */
-	UPROPERTY(EditAnywhere, Category = "阶段3|地形", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "0.2"))
+	UPROPERTY(EditAnywhere, Category = "阶段3|海沟", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "0.2"))
 	float TrenchDepthRatio = 0.025f;
 
 	/** 山带以外的平原丘陵起伏（0.002 ≈ 80 体素）。0 = 平原是平的。 */
-	UPROPERTY(EditAnywhere, Category = "阶段3|地形", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "0.05"))
+	UPROPERTY(EditAnywhere, Category = "阶段3|平原", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "0.05"))
 	float PlainReliefRatio = 0.002f;
 
 	/** 造山带宽度（0.06 ≈ 2400 体素）。越大山脉越宽、覆盖面积越大。 */
-	UPROPERTY(EditAnywhere, Category = "阶段3|地形", meta = (EditCondition = "bRunStage3", ClampMin = "0.002", ClampMax = "0.3"))
+	UPROPERTY(EditAnywhere, Category = "阶段3|山脉", meta = (EditCondition = "bRunStage3", ClampMin = "0.002", ClampMax = "0.3"))
 	float BeltWidthRatio = 0.06f;
 
 	/** 山脊间距（0.06 ≈ 2400 体素）。越小山脊越密越碎。 */
-	UPROPERTY(EditAnywhere, Category = "阶段3|地形", meta = (EditCondition = "bRunStage3", ClampMin = "0.005", ClampMax = "0.5"))
+	UPROPERTY(EditAnywhere, Category = "阶段3|山脉", meta = (EditCondition = "bRunStage3", ClampMin = "0.005", ClampMax = "0.5"))
 	float RidgeWavelengthRatio = 0.06f;
 
 	/** 热力侵蚀遍数：越多山越圆、坡越缓。0 = 不侵蚀。 */
-	UPROPERTY(EditAnywhere, Category = "阶段3|地形", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "50"))
+	UPROPERTY(EditAnywhere, Category = "阶段3|侵蚀", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "50"))
 	int32 ErosionIterations = 5;
 
 	/** 侵蚀强度：每遍陡坡向周围平均高度靠拢的比例。 */
-	UPROPERTY(EditAnywhere, Category = "阶段3|地形", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "1"))
+	UPROPERTY(EditAnywhere, Category = "阶段3|侵蚀", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "1"))
 	float ErosionStrength = 0.2f;
 
 	/** 休止角（度）：比它陡的坡才会被侵蚀削平。 */
-	UPROPERTY(EditAnywhere, Category = "阶段3|地形", meta = (EditCondition = "bRunStage3", ClampMin = "5", ClampMax = "80"))
+	UPROPERTY(EditAnywhere, Category = "阶段3|侵蚀", meta = (EditCondition = "bRunStage3", ClampMin = "5", ClampMax = "80"))
 	float TalusAngleDeg = 30.f;
 
 	/** 海沟沉积充填：离大陆越近泥沙越多、海沟越被填浅。0 = 不填，1 = 近岸海沟几乎填平成浅洼地；远洋段始终保持深。 */
-	UPROPERTY(EditAnywhere, Category = "阶段3|地形", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "1"))
+	UPROPERTY(EditAnywhere, Category = "阶段3|海沟", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "1"))
 	float TrenchSedimentFill = 0.7f;
 
 	/** 海沟坍塌：两壁滑塌、被削缓，横断面从 V 形变成宽浅的槽。0 = 不塌，1 = 最缓。 */
-	UPROPERTY(EditAnywhere, Category = "阶段3|地形", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "1"))
+	UPROPERTY(EditAnywhere, Category = "阶段3|海沟", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "1"))
 	float TrenchSlump = 0.5f;
 
 	/** 增生楔：海沟靠陆一侧被刮积起来的低缓隆起，始终在海面以下。0 = 没有。 */
-	UPROPERTY(EditAnywhere, Category = "阶段3|地形", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "1"))
+	UPROPERTY(EditAnywhere, Category = "阶段3|海沟", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "1"))
 	float TrenchWedge = 0.5f;
 
 	/** 挤压速度对山带宽度的影响：快撞 → 窄而密，慢撞 → 宽而缓（整体抬升）。0 = 所有山带一样宽。 */
-	UPROPERTY(EditAnywhere, Category = "阶段3|地形", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "0.9"))
+	UPROPERTY(EditAnywhere, Category = "阶段3|山脉", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "0.9"))
 	float SpeedWidthEffect = 0.6f;
 
 	/** 挤压速度对山高与海沟深的影响：快撞 → 高、海沟深，慢撞 → 低、海沟浅。0 = 一样高。 */
-	UPROPERTY(EditAnywhere, Category = "阶段3|地形", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "0.9"))
+	UPROPERTY(EditAnywhere, Category = "阶段3|山脉", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "0.9"))
 	float SpeedHeightEffect = 0.6f;
 
 	/** 洋中脊高度：离散边界（板块分开）在海里形成的宽缓海底山脉，正中有一道轴部裂谷（0.006 ≈ 240 体素）。始终在水下。0 = 没有。 */
-	UPROPERTY(EditAnywhere, Category = "阶段3|地形", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "0.05"))
+	UPROPERTY(EditAnywhere, Category = "阶段3|洋中脊与裂谷", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "0.05"))
 	float MidOceanRidgeHeightRatio = 0.006f;
 
 	/** 洋中脊宽度：越大海底隆起越宽越缓。 */
-	UPROPERTY(EditAnywhere, Category = "阶段3|地形", meta = (EditCondition = "bRunStage3", ClampMin = "0.005", ClampMax = "0.3"))
+	UPROPERTY(EditAnywhere, Category = "阶段3|洋中脊与裂谷", meta = (EditCondition = "bRunStage3", ClampMin = "0.005", ClampMax = "0.3"))
 	float MidOceanRidgeWidthRatio = 0.08f;
 
 	/** 大陆裂谷深度：离散边界在陆上撕开的地堑，两侧肩部抬起（0.004 ≈ 160 体素）。谷底不会低于海平面。0 = 没有。 */
-	UPROPERTY(EditAnywhere, Category = "阶段3|地形", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "0.05"))
+	UPROPERTY(EditAnywhere, Category = "阶段3|洋中脊与裂谷", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "0.05"))
 	float RiftDepthRatio = 0.004f;
 
 	/** 大陆裂谷宽度。 */
-	UPROPERTY(EditAnywhere, Category = "阶段3|地形", meta = (EditCondition = "bRunStage3", ClampMin = "0.002", ClampMax = "0.1"))
+	UPROPERTY(EditAnywhere, Category = "阶段3|洋中脊与裂谷", meta = (EditCondition = "bRunStage3", ClampMin = "0.002", ClampMax = "0.1"))
 	float RiftWidthRatio = 0.015f;
 
 	/** 古老造山带高度：古老大陆内部被长期剥蚀的旧山脉，低矮圆缓（0.008 ≈ 320 体素）。0 = 没有。 */
-	UPROPERTY(EditAnywhere, Category = "阶段3|地形", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "0.05"))
+	UPROPERTY(EditAnywhere, Category = "阶段3|古老造山带", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "0.05"))
 	float OldOrogenHeightRatio = 0.008f;
 
 	/** 古老造山带主脊疏密：越大主脊越多、间距越小。 */
-	UPROPERTY(EditAnywhere, Category = "阶段3|地形", meta = (EditCondition = "bRunStage3", ClampMin = "0.5", ClampMax = "12"))
+	UPROPERTY(EditAnywhere, Category = "阶段3|古老造山带", meta = (EditCondition = "bRunStage3", ClampMin = "0.5", ClampMax = "12"))
 	float OldOrogenDensity = 3.f;
 
 	/** 古老造山带辐射范围：主脊到山脚的距离（0.045 ≈ 现今山带半宽的 1.5 倍）。越大山体越宽越缓。 */
-	UPROPERTY(EditAnywhere, Category = "阶段3|地形", meta = (EditCondition = "bRunStage3", ClampMin = "0.005", ClampMax = "0.2"))
+	UPROPERTY(EditAnywhere, Category = "阶段3|古老造山带", meta = (EditCondition = "bRunStage3", ClampMin = "0.005", ClampMax = "0.2"))
 	float OldOrogenWidthRatio = 0.045f;
 
 	/** 支脉强度：山坡上垂直主脊伸出的支脉有多明显。0 = 只有主脊和平滑山坡。 */
-	UPROPERTY(EditAnywhere, Category = "阶段3|地形", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "1"))
+	UPROPERTY(EditAnywhere, Category = "阶段3|古老造山带", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "1"))
 	float OldOrogenSpurStrength = 0.6f;
 
 	/** 覆盖度：古老山系保留多少条。0 = 没有，1 = 所有主脊都长山。 */
-	UPROPERTY(EditAnywhere, Category = "阶段3|地形", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "1"))
+	UPROPERTY(EditAnywhere, Category = "阶段3|古老造山带", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "1"))
 	float OldOrogenCoverage = 0.4f;
 
 	/** 断接比例：沿走向有多少段断开或压成垭口。0 = 连续不断，1 = 大部分断开成孤立山块。 */
-	UPROPERTY(EditAnywhere, Category = "阶段3|地形", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "1"))
+	UPROPERTY(EditAnywhere, Category = "阶段3|古老造山带", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "1"))
 	float OldOrogenGapFraction = 0.3f;
 
 	/** 宽窄收放：同一条山系沿走向变宽变窄的幅度。0 = 等宽，1 = 最窄处只剩三成。 */
-	UPROPERTY(EditAnywhere, Category = "阶段3|地形", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "1"))
+	UPROPERTY(EditAnywhere, Category = "阶段3|古老造山带", meta = (EditCondition = "bRunStage3", ClampMin = "0", ClampMax = "1"))
 	float OldOrogenWidthVariation = 0.5f;
 	/** 阶段 3（宏观地形）总开关。 */
 	UPROPERTY(EditAnywhere, Category = "阶段3") bool bRunStage3 = true;
 	/** 阶段 3 的撒矿。 */
-	UPROPERTY(EditAnywhere, Category = "阶段3|地形", meta = (EditCondition = "bRunStage3")) bool bScatterStage3 = true;
+	UPROPERTY(EditAnywhere, Category = "阶段3|撒矿", meta = (EditCondition = "bRunStage3")) bool bScatterStage3 = true;
 
 	// 阶段 4：火山。尺度同样占半径比例。
 	/** 本段开关：关掉后不放火山；岩墙、层状、岩管照常，但依赖弧火山/溢流玄武岩的岩基、岩株、岩床会一起消失。 */

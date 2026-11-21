@@ -65,6 +65,10 @@ protected:
 	void DebugDisembark();
 
 private:
+	/** 太空背景球（带 SpaceBackdrop 标签的 Actor）：每帧跟到相机位置，等效无限远。 */
+	UPROPERTY(Transient)
+	TObjectPtr<AActor> SpaceBackdropActor;
+
 	/** 上次按哪种飞船视角设的鼠标模式；与飞船当前状态不同时在 PlayerTick 里重设。 */
 	bool bAppliedShipFreeLook = false;
 

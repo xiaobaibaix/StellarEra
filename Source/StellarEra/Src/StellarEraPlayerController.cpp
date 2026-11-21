@@ -174,6 +174,25 @@ void AStellarEraPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);
 
+	// 太空背景球跟相机走：半径 1 万 km 固定在天球中心时，飞出那个距离就会穿出去。
+	// 跟随后球心永远在相机，等效无限远；角色 / 飞船 / 星图相机切换都自动覆盖。
+	if (!SpaceBackdropActor)
+	{
+		for (TActorIterator<AActor> It(GetWorld()); It; ++It)
+		{
+			if (It->ActorHasTag(TEXT("SpaceBackdrop"))
+				|| It->GetName().StartsWith(TEXT("SpaceBackdrop")))
+			{
+				SpaceBackdropActor = *It;
+				break;
+			}
+		}
+	}
+	if (SpaceBackdropActor && PlayerCameraManager)
+	{
+		SpaceBackdropActor->SetActorLocation(PlayerCameraManager->GetCameraLocation());
+	}
+
 	// 星图进出不再走 Possess，鼠标模式只能在这里跟上；只在状态变化那一帧重设。
 	APawn* CurrentPawn = GetPawn();
 	const UStarMapRigComponent* Rig = CurrentPawn

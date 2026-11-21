@@ -9,7 +9,10 @@ public:
 	virtual FName GetName() const override { return TEXT("Stage01Sphere"); }
 	virtual uint32 GetStageIndex() const override { return 1; }
 	virtual EPlanetField GetReads() const override { return EPlanetField::None; }
-	virtual EPlanetField GetWrites() const override { return EPlanetField::Radial | EPlanetField::MohoWobble; }
+	virtual EPlanetField GetWrites() const override
+	{
+		return EPlanetField::Radial | EPlanetField::MohoWobble | EPlanetField::Elevation;
+	}
 	virtual void Bake(FPlanetBakeContext& Ctx) const override;
 	virtual void DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const override;
 };

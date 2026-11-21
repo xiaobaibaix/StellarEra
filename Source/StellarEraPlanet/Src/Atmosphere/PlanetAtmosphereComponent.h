@@ -2,23 +2,11 @@
 
 #include "CoreMinimal.h"
 #include "Components/StaticMeshComponent.h"
+#include "PlanetSun.h"
 #include "PlanetAtmosphereComponent.generated.h"
 
 class ADirectionalLight;
 class UStarBodyComponent;
-
-/** 一颗照亮本行星的光源快照：通常来自 UStarBodyComponent；没有恒星时回退到关卡第一盏 ADirectionalLight（Star 空、Radiance 白）。 */
-struct FPlanetSun
-{
-	/** 单位向量：行星 → 光源。 */
-	FVector Direction = FVector::ForwardVector;
-
-	/** 颜色 × 相对亮度。 */
-	FLinearColor Radiance = FLinearColor::White;
-
-	/** 回退太阳时为 nullptr。 */
-	UStarBodyComponent* Star = nullptr;
-};
 
 /** 行星大气壳：套在行星外的双面半透明球，单次散射 ray march；球外画正面（辉光）、球内画背面（天空），
  *  bDisableDepthTest 下靠场景深度截断积分遮挡。编辑器无 BeginPlay，故 OnRegister 里准备并 bTickInEditor。 */
@@ -58,17 +46,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = "StellarEra|Atmosphere", meta = (ClampMin = "0.0"))
 	float AtmosphereAmbient = 0.02f;
 
-	/** 驱动定向光时的基础强度；每盏灯实际强度 = 本值 × 该恒星的相对亮度（G2V = 1.0）。 */
-	UPROPERTY(EditAnywhere, Category = "StellarEra|Atmosphere", meta = (ClampMin = "0.0"))
-	float BaseLightIntensity = 10.0f;
-
-	/** 天光补光强度（定向光单位）：每帧把打了 SkyFill 标签的那盏定向光转到当地天顶方向，
-	 *  N·L=0 的暗面全靠它填。0 = 关闭。
-	 *  不用 SkyLight：RealTimeCapture 只认 SkyAtmosphere / 体积云 / IsSky 网格体，本项目的大气壳
-	 *  三者都不是，抓到的是黑图（引擎会直接弹那条警告）。
-	 *  量级参照：太阳仰角 8° 时平地的直射只有 10 × sin8° ≈ 1.4，补光比它略低才压不住明暗对比。 */
-	UPROPERTY(EditAnywhere, Category = "StellarEra|Atmosphere", meta = (ClampMin = "0.0"))
-	float SkyFillIntensity = 2.0f;
+	/* 天光补光强度已随星灯驱动搬到 UPlanetSunLightComponent::SkyFillIntensity。 */
 
 	/** 大气总开关：关掉 = 壳不可见、飞船密度比恒为 0（无阻力、HUD 显示真空）。运行中可切，可见性与重算由 TickComponent 兜底。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "StellarEra|Atmosphere")
@@ -140,11 +118,8 @@ public:
 		const FVector& FromLocation);
 
 	/** 收集照亮 PlanetCenter 的太阳，按距离升序，最多 MaxSuns 个。只读世界不碰材质（写材质在 ApplySuns，
-	 *  驱动灯在 DriveSunLights）。没有恒星时回退到第一盏 ADirectionalLight。 */
+	 *  驱动灯在 UPlanetSunLightComponent）。没有恒星时回退到第一盏 ADirectionalLight。 */
 	static void CollectSunsFor(UWorld* World, const FVector& PlanetCenter, TArray<FPlanetSun>& OutSuns);
-
-	/** 从已排序列表挑主星：第一颗 Star 非空且 bDrivesDirectionalLight 的恒星；主星独占前向着色与大气太阳光名额（引擎只允许一盏）。 */
-	static UStarBodyComponent* SelectPrimaryStar(const TArray<FPlanetSun>& Suns);
 
 	/** 没有恒星时的回退：取一盏 ADirectionalLight 当太阳，Direction = −forward，Radiance 白，Star 空。
 	 *  灯为空或方向为零向量时返回 false。纯函数。 */
@@ -158,44 +133,11 @@ private:
 	/** 把太阳列表写进 MID（SunDirection0..3 / SunRadiance0..3 / SunCount）。 */
 	void ApplySuns(const TArray<FPlanetSun>& Suns);
 
-	/** 确保行星阴影光函数基础材质已加载（失败只报一次日志，不影响大气壳）。材质由 StellarEra.BuildPlanetShadowLightFunction 生成。 */
-	UMaterialInterface* EnsurePlanetShadowMaterialBase();
-
-	/** 取该灯对应的阴影 MID。每盏灯方向不同，参数不能共用一份。 */
-	UMaterialInstanceDynamic* GetPlanetShadowMID(ADirectionalLight* Light);
-
-	/** 逐颗驱动灯（仅游戏世界）。主星可能不是槽位 0 —— 槽位 0 只按距离排。 */
-	void DriveSunLights(const TArray<FPlanetSun>& Suns);
-
-	/** 给世界里每盏定向光挂行星遮挡光函数（仅游戏世界）。与 DriveSunLights 正交 —— 不读 bDrivesDirectionalLight，方向取灯自己 forward 的反向。 */
-	void ApplyPlanetShadow(UWorld* World);
-
-	/** 驱动关卡里打了 SkyFill 标签的定向光（仅游戏世界）：直射贴地时暗面全靠它，否则 N·L=0 是一圈硬边。 */
-	void ApplySkyFill();
-
 	/** 每帧复用的缓冲，避免 CollectSunsFor 每帧重新分配。 */
 	TArray<FPlanetSun> CachedSuns;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> AtmosphereMID;
-
-	/** 行星阴影光函数的基础材质（`M_PlanetShadowLightFunction`），缺失时为空。 */
-	UPROPERTY(Transient)
-	TObjectPtr<UMaterialInterface> PlanetShadowBaseMaterial;
-
-	/** 每盏被挂阴影的灯一份 MID —— SunDirection 不同，参数不能共用。 */
-	UPROPERTY(Transient)
-	TMap<TObjectPtr<ADirectionalLight>, TObjectPtr<UMaterialInstanceDynamic>> PlanetShadowMIDs;
-
-	/** 关卡里的补光（带 SkyFill 标签的一盏定向光），缺失时为空。 */
-	UPROPERTY(Transient)
-	TObjectPtr<ADirectionalLight> SkyFillLight;
-
-	/** 材质缺失只报一次，免得每帧刷同一条 Warning。 */
-	bool bLoggedMissingPlanetShadowMaterial = false;
-
-	/** 补光缺失同样只报一次。 */
-	bool bLoggedMissingSkyFill = false;
 
 	/** 几何与材质参数是否已按当前启用状态算过一遍（含三条失败分支）。TickComponent 只在它为假时重算：
 	 *  不能每帧无条件调，也不能拿 IsVisible() 当判据（失败分支本就不可见）。 */

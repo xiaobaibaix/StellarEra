@@ -10,6 +10,7 @@
 #include "Misc/AutomationTest.h"
 #include "PlanetAtmosphereComponent.h"
 #include "PlanetCloudParams.h"
+#include "PlanetSunLightComponent.h"
 #include "StarBodyComponent.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -300,14 +301,14 @@ bool FStellarEraPrimaryStarSelectionTest::RunTest(const FString& Parameters)
 	};
 
 	TArray<FPlanetSun> Empty;
-	TestNull(TEXT("空列表没有主星"), UPlanetAtmosphereComponent::SelectPrimaryStar(Empty));
+	TestNull(TEXT("空列表没有主星"), UPlanetSunLightComponent::SelectPrimaryStar(Empty));
 
 	TArray<FPlanetSun> AllOff;
 	AllOff.AddDefaulted(3);
 	AllOff[0].Star = MakeStar(false);
 	AllOff[1].Star = MakeStar(false);
 	AllOff[2].Star = MakeStar(false);
-	TestNull(TEXT("全部关掉时没有主星"), UPlanetAtmosphereComponent::SelectPrimaryStar(AllOff));
+	TestNull(TEXT("全部关掉时没有主星"), UPlanetSunLightComponent::SelectPrimaryStar(AllOff));
 
 	TArray<FPlanetSun> Mixed;
 	Mixed.AddDefaulted(3);
@@ -315,14 +316,14 @@ bool FStellarEraPrimaryStarSelectionTest::RunTest(const FString& Parameters)
 	Mixed[1].Star = MakeStar(true);
 	Mixed[2].Star = MakeStar(true);
 	TestSamePtr(TEXT("跳过关掉的那颗，取第一颗开着的"),
-		UPlanetAtmosphereComponent::SelectPrimaryStar(Mixed), Mixed[1].Star);
+		UPlanetSunLightComponent::SelectPrimaryStar(Mixed), Mixed[1].Star);
 
 	TArray<FPlanetSun> WithFallback;
 	WithFallback.AddDefaulted(2);
 	WithFallback[0].Star = nullptr;   // 回退太阳
 	WithFallback[1].Star = MakeStar(true);
 	TestSamePtr(TEXT("回退太阳（Star 为空）不占主光名额"),
-		UPlanetAtmosphereComponent::SelectPrimaryStar(WithFallback), WithFallback[1].Star);
+		UPlanetSunLightComponent::SelectPrimaryStar(WithFallback), WithFallback[1].Star);
 
 	return true;
 }
@@ -366,6 +367,28 @@ bool FStellarEraFallbackSunTest::RunTest(const FString& Parameters)
 		Sun.Direction.Equals(-Light->GetActorForwardVector(), 1e-6));
 
 	World->DestroyActor(Light);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSunDistanceFalloffTest,
+	"StellarEra.Planet.Atmosphere.SunDistanceFalloff",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FStellarEraSunDistanceFalloffTest::RunTest(const FString& Parameters)
+{
+	const float Reference = 1.0e8f;
+
+	TestEqual(TEXT("参考距离上因子为 1"),
+		UPlanetSunLightComponent::DistanceFalloff(Reference, 1.0e8), 1.0f, 1e-6f);
+	TestEqual(TEXT("两倍距离降到 1/4"),
+		UPlanetSunLightComponent::DistanceFalloff(Reference, 2.0e8), 0.25f, 1e-6f);
+	TestEqual(TEXT("一半距离升到 4"),
+		UPlanetSunLightComponent::DistanceFalloff(Reference, 0.5e8), 4.0f, 1e-6f);
+	TestTrue(TEXT("极远处趋近 0"),
+		UPlanetSunLightComponent::DistanceFalloff(Reference, 1.0e12) < 1e-6f);
+	TestEqual(TEXT("距离为 0 时钳到上限 100"),
+		UPlanetSunLightComponent::DistanceFalloff(Reference, 0.0), 100.0f, 1e-4f);
+	TestEqual(TEXT("参考距离非正时不做衰减"),
+		UPlanetSunLightComponent::DistanceFalloff(0.0f, 5.0e9), 1.0f, 1e-6f);
 	return true;
 }
 

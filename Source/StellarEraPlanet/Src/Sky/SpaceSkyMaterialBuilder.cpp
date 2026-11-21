@@ -151,6 +151,9 @@ UMaterial* BuildSpaceSkyMaterial(FString& OutError)
 	Material->SetShadingModel(MSM_Unlit);  // 天空不参与光照，只是一个会发光的背景
 	// 相机在球内，只有背面可见；不双面的话整颗天球会被背面剔除掉，天空全黑。
 	Material->TwoSided = true;
+	// 不用 bIsSky：它要求天空网格盖满整个屏幕，球一旦被远裁剪面切掉，
+	// 每个没盖住的格子都会刷「SKYDOME MESH ... DOES NOT COVER THAT PART OF THE SCREEN」。
+	// 天空跟随相机由 PlayerTick 负责，不需要天空通道。
 
 	Material->PostEditChange();
 	Material->MarkPackageDirty();

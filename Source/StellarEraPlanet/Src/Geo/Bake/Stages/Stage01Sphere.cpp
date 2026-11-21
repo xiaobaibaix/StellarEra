@@ -55,6 +55,15 @@ void FStage01Sphere::Bake(FPlanetBakeContext& Ctx) const
 	{
 		return bMoho ? GeoNoise::Fbm3(NoiseSeed, Dir * 2.f, Octaves) : 0.f;
 	}, Ctx.Config.bSingleThreadBake);
+
+	// 阶段 1 没有地形，但要给出「有海拔」这个事实：Res > 0 才会走下游正常分支，
+	// 否则每条路径都得特判"没有高程场"。值恒 0 = 海平面，于是这颗球是一颗海洋星球。
+	Ctx.Fields.Elevation.Init(Ctx.Config.FaceRes);
+	Ctx.Fields.Elevation.Fill([](const FVector3f&) { return 0.f; }, Ctx.Config.bSingleThreadBake);
+	// 分界取正数：E=0 落在"低于分界"一侧，判成洋壳。阶段 2 会用自己的陆架底覆盖。
+	Ctx.Fields.CrustSplitElevation = 1.f;
+	Ctx.Fields.MinElevation = 0.f;
+	Ctx.Fields.MaxElevation = 0.f;
 }
 
 void FStage01Sphere::DescribeDebugLayers(TArray<FGeoDebugLayer>& Out) const

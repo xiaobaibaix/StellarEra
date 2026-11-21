@@ -263,11 +263,11 @@ bool FGeoMaterialActorGeoTest::RunTest(const FString& Parameters)
 	Mineral.Name = TEXT("矿1");
 	Mineral.Color = FColor(30, 190, 70);
 	Snap->Minerals.Add(Mineral);
-	// Biome 层从 DebugFields 取场；缺了只能烘出一片「无数据」色，这条测试就测不到底图接线。
-	FGeoField2D Biome;
-	Biome.Init(16);
-	Biome.Fill([](const FVector3f&) { return 3.f; });
-	Snap->DebugFields.Add(TEXT("Biome"), MoveTemp(Biome));
+	// 地表底图现在固定烘「高程/海陆」层，它读快照里的 Elevation；缺了只会烘出一片「无数据」色。
+	FGeoField2D Elevation;
+	Elevation.Init(16);
+	Elevation.Fill([](const FVector3f&) { return 10.f; });
+	Snap->Elevation = MoveTemp(Elevation);
 	Snap->FinalizeHash();
 	Planet->SetGeoSnapshotForTest(Snap);
 

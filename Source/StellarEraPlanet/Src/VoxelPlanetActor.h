@@ -17,6 +17,7 @@ class UMaterialInterface;
 class UMaterialInstanceDynamic;
 class UPlanetSurfaceGridComponent;
 class UPlanetSkyLightComponent;
+class UPlanetSunLightComponent;
 class UPlanetGeoGenerator;
 class UPlanetRecipe;
 struct FPlanetSnapshot;
@@ -127,6 +128,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet", meta = (ClampMin = "16"))
 	float Radius = 100.f;
 
+	/** 半径（米）。按人习惯的单位填，改它会换算成 Radius；改 Radius 或 VoxelSize 时反向回写这里。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet",
+		meta = (DisplayName = "RadiusMeters", ClampMin = "1"))
+	float RadiusMeters = 10000.f;
+
 	/** 表面兜底色：岩性与矿物由材质解码，只有矿物预览这类旧调用方还要一个底色。 */
 	static FLinearColor GetSurfaceColor() { return FLinearColor(0.18f, 0.42f, 0.16f); }
 
@@ -151,36 +157,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Geo")
 	EPlanetGeoDebugColor GeoDebugColor = EPlanetGeoDebugColor::None;
 
-	/**
-	 * 地表叠加图层（编辑器调试）。下拉框列出全部已注册图层：Lithology 圈层/岩性、MohoWobble 莫霍面起伏、
-	 * Elevation 高程、PlateId 板块、BoundaryType 板块边界、CrustType 地壳类型、ContinentalMask 大陆度、
-	 * CrustAge 地壳年龄、CrustThickness 地壳厚度。不剖切时烘成贴图叠在星球上，切换不重建网格。
-	 */
-	UPROPERTY(EditAnywhere, Category = "Planet|GeoDebug", meta = (GetOptions = "GetGeoDebugLayerOptions"))
-	FName GeoDebugSurfaceLayer;
-
-	/** 地表叠加的不透明度：0 = 只看原来的颜色，1 = 只看图层。 */
-	UPROPERTY(EditAnywhere, Category = "Planet|GeoDebug", meta = (ClampMin = "0", ClampMax = "1"))
-	float GeoDebugOverlayOpacity = 1.f;
-
-	/** 剖切：切掉一块看内部。剖切时地表图层直接写进顶点色（叠加贴图会盖住切面）。改它重建网格约 2 s。 */
-	UPROPERTY(EditAnywhere, Category = "Planet|GeoDebug")
-	EPlanetGeoCutaway GeoCutaway = EPlanetGeoCutaway::None;
-
-	/** 剖切面着色用的图层。默认空：切面保留地质编码交给材质解码；要看调试图层再从下拉框选。 */
-	UPROPERTY(EditAnywhere, Category = "Planet|GeoDebug", meta = (GetOptions = "GetGeoDebugLayerOptions"))
-	FName GeoDebugVolumeLayer;
-
-	UFUNCTION()
-	TArray<FName> GetGeoDebugLayerOptions() const;
-	/** 下拉标签「中文名（Id）」：细节面板只能显示 FName，不带中文就认不出来。 */
-	static FString GeoDebugLayerLabel(const FGeoDebugLayer& Layer);
-	/** 标签、裸 Id 或中文名 → 图层 Id；认不出返回 None（老数据存的是裸 Id）。 */
-	static FName ParseGeoDebugLayerLabel(FName Label);
-	/** 两个属性统一存标签：下拉收起时也看得到中文。 */
-	void NormalizeGeoDebugLayerNames();
-	FName GetSurfaceLayerId() const { return ParseGeoDebugLayerLabel(GeoDebugSurfaceLayer); }
-	FName GetVolumeLayerId() const { return ParseGeoDebugLayerLabel(GeoDebugVolumeLayer); }
 
 	UFUNCTION(BlueprintPure, Category = "Planet|Geo")
 	bool IsGeoMode() const { return GeoRecipe != nullptr || GeoRecipeOverride != nullptr; }
@@ -192,6 +168,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Planet|Geo",
 		meta = (CallInEditor, DisplayName = "重建行星（应用地质预设改动）"))
 	void ReloadGeology();
+
+	/**
+	 * 重建星灯。实现在蓝图（BP_VoxelPlanet 的 RebuildStarLightsInternal）：销毁已挂的
+	 * 星灯再按 SunStars 重新生成。放在 C++ 只为让按钮落在「星球」栏，蓝图自定义事件
+	 * 没有 Category 字段，按钮永远在「默认」。
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Planet|SunLight",
+		meta = (CallInEditor, DisplayName = "RebuildStarLights"))
+	void RebuildStarLights();
 
 	//////////////////////////////////////////////////////////////////////////
 	// 性能
@@ -217,7 +202,8 @@ public:
 	 * 以球心为中心的 LOD Invoker。挂在基类的 WorldRoot 下，随之变换。
 	 * 不加 VisibleAnywhere：组件指针会被细节面板内联展开，把组件自己的分类铺到 Actor 上。
 	 */
-	UPROPERTY(BlueprintReadOnly, Category = "Planet")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet",
+		meta = (DisplayName = "LODInvoker"))
 	TObjectPtr<UVoxelSimpleInvokerComponent> LODInvoker;
 
 	/**
@@ -226,6 +212,14 @@ public:
 	 */
 	UPROPERTY(BlueprintReadOnly, Category = "Planet")
 	TObjectPtr<UPlanetSkyLightComponent> PlanetSkyLight;
+
+	/**
+	 * 恒星灯驱动：收集关卡里的恒星，逐颗转向/上色/写强度（含平方反比）。
+	 * 挂在星球而不是大气上——没有大气壳的星球同样要有光。
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet",
+		meta = (DisplayName = "SunLightDriver"))
+	TObjectPtr<UPlanetSunLightComponent> SunLightDriver;
 
 	/** 运行期烘焙的 biome cubemap（瞬态：每次重建重烘，不落盘）。 */
 	UPROPERTY(Transient, BlueprintReadOnly)
@@ -339,7 +333,7 @@ private:
 	bool bGeoBakeFailed = false;
 	/** 烘焙途中配方又改了：当前结果作废，完成后立刻重烘。 */
 	bool bGeoRebakePending = false;
-	/** 按 GeoDebugSurfaceLayer 烘叠加贴图并切换材质；返回材质是否换了（换了要 ApplyNewMaterials）。 */
+	/** 按高程图层烘地表底图并切换材质；返回材质是否换了（换了要 ApplyNewMaterials）。 */
 	bool ApplyGeoDebugOverlay();
 	FName OverlayBakedLayer;
 	uint64 OverlayBakedHash = 0;
