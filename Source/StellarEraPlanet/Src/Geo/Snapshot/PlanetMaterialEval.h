@@ -14,6 +14,12 @@ namespace PlanetMaterialEval
 		const float Wobble = S.MohoWobble.Res > 0 ? S.MohoWobble.Sample(Dir) : 0.f;
 		const float E = S.Elevation.Res > 0 ? S.Elevation.Sample(Dir) : 0.f;
 		FGeoSample Out;
+		// 海拔归一化到 0..255：材质按 UV1.y 查高程色带。区间退化时给海平面值。
+		{
+			const double Span = S.MaxSurfaceRadius - S.MinSurfaceRadius;
+			const double T = Span > 1.0 ? (double(E) - (S.MinSurfaceRadius - S.R0)) / Span : 0.5;
+			Out.Elevation = uint8(FMath::Clamp(FMath::RoundToInt(T * 255.0), 0, 255));
+		}
 		Out.Lithology = S.Radial.LithologyAt(DepthRatio, Wobble);
 		// 地壳不分深度，按海平面分陆壳 / 洋壳：两套成矿背景的判据是海拔不是厚度。
 		if (Out.Lithology == GeoLithology::Crust)

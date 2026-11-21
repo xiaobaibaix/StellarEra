@@ -1,9 +1,10 @@
-// 地表材质：按「行星中心 → 该点」的方向采样高程立方图，直接输出颜色。
+﻿// 地表材质：按「行星中心 → 该点」的方向采样高程立方图，直接输出颜色。
 // 与地质查看器用的是同一张立方图和同一套配色，所以两边看起来一致。
 #include "CoreMinimal.h"
 #include "Engine/TextureCube.h"
 #include "HAL/IConsoleManager.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionMultiply.h"
 #include "Materials/MaterialExpressionScalarParameter.h"
 #include "Materials/MaterialExpressionSubtract.h"
@@ -67,12 +68,18 @@ namespace
 		Emissive->B.Expression = Brightness;
 		AddExpr(Material, Emissive, -150, 0);
 
-		Material->GetEditorOnlyData()->EmissiveColor.Expression = Emissive;
+		// 颜色接到 BaseColor：地表由三颗恒星照亮，山脊坡面才有明暗；自发光会把它压成一张平面地图。
+		Material->GetEditorOnlyData()->BaseColor.Expression = Emissive;
+		Material->GetEditorOnlyData()->EmissiveColor.Expression = nullptr;
 
-		// 无光照自发光：地表颜色就是高程配色本身，不再受三颗恒星叠加影响。
+		UMaterialExpressionConstant* Roughness = NewObject<UMaterialExpressionConstant>(Material);
+		Roughness->R = 1.f;
+		AddExpr(Material, Roughness, -150, 260);
+		Material->GetEditorOnlyData()->Roughness.Expression = Roughness;
+
 		Material->MaterialDomain = MD_Surface;
 		Material->BlendMode = BLEND_Opaque;
-		Material->SetShadingModel(MSM_Unlit);
+		Material->SetShadingModel(MSM_DefaultLit);
 		Material->TwoSided = false;
 		Material->PostEditChange();
 

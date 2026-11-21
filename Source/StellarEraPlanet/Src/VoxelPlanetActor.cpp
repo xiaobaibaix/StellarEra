@@ -1592,7 +1592,7 @@ bool AVoxelPlanetActor::ApplyGeoDebugOverlay()
 		const double T0 = FPlatformTime::Seconds();
 		UE_LOG(LogTemp, Log, TEXT("[高程底图] R0=%.0f  Min=%.0f  Max=%.0f  CrustSplit=%.1f"),
 			GeoSnapshot->R0, GeoSnapshot->MinSurfaceRadius, GeoSnapshot->MaxSurfaceRadius, GeoSnapshot->CrustSplitElevation);
-		UTextureCube* Cube = PlanetGeoDebugRender::BakeCube(*GeoSnapshot, *CubeLayer, 512);
+		UTextureCube* Cube = PlanetGeoDebugRender::BakeCube(*GeoSnapshot, *CubeLayer, 1024);
 		if (!Cube)
 		{
 			return RestoreBaseMaterial();
@@ -1604,13 +1604,7 @@ bool AVoxelPlanetActor::ApplyGeoDebugOverlay()
 			*GetName(), *CubeLayer->DisplayName, (FPlatformTime::Seconds() - T0) * 1000.0);
 	}
 
-	// 地表走专用的无光照材质：按行星中心方向采样高程立方图，与查看器同一套配色。
-	UMaterialInterface* ParentMaterial = LoadObject<UMaterialInterface>(nullptr,
-		TEXT("/Game/Code/Planet/Materials/M_GeoSurface"));
-	if (!ParentMaterial)
-	{
-		return RestoreBaseMaterial();
-	}
+	UMaterialInterface* ParentMaterial = ChooseBiomeParentMaterial(BaseVoxelMaterial);
 	if (!BiomeMaterial || BiomeMaterial->Parent != ParentMaterial)
 	{
 		BiomeMaterial = CreateBiomeMaterialMID(ParentMaterial);
@@ -1625,10 +1619,13 @@ bool AVoxelPlanetActor::ApplyGeoDebugOverlay()
 		}
 	}
 
-	BiomeMaterial->SetTextureParameterValue(TEXT("SurfaceCube"), BiomeCubemap);
-	const FVector Center = GetActorLocation();
-	BiomeMaterial->SetVectorParameterValue(TEXT("PlanetCenter"),
-		FLinearColor(float(Center.X), float(Center.Y), float(Center.Z), 0.f));
+	BiomeMaterial->SetTextureParameterValue(TEXT("BiomeCube"), BiomeCubemap);
+	// 海平面在 0..1 归一化海拔里的位置：材质用它把深海与陆地分开。
+	const double Span = GeoSnapshot->MaxSurfaceRadius - GeoSnapshot->MinSurfaceRadius;
+	const float SeaLevel = Span > 1.0
+		? float((GeoSnapshot->R0 - GeoSnapshot->MinSurfaceRadius) / Span)
+		: 0.5f;
+	BiomeMaterial->SetScalarParameterValue(TEXT("SeaLevel"), SeaLevel);
 
 	const bool bSwitched = VoxelMaterial != BiomeMaterial;
 	VoxelMaterial = BiomeMaterial;

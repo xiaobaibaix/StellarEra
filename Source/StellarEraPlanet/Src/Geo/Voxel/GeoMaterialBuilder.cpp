@@ -30,10 +30,12 @@ const TCHAR* GeoMaterialBuild::GetPlanetMaterialPath()
 #include "Materials/MaterialExpressionComponentMask.h"
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionConstant2Vector.h"
+#include "Materials/MaterialExpressionConstant3Vector.h"
 #include "Materials/MaterialExpressionDivide.h"
 #include "Materials/MaterialExpressionFloor.h"
 #include "Materials/MaterialExpressionFunctionInput.h"
 #include "Materials/MaterialExpressionFunctionOutput.h"
+#include "Materials/MaterialExpressionIf.h"
 #include "Materials/MaterialExpressionLinearInterpolate.h"
 #include "Materials/MaterialExpressionMaterialFunctionCall.h"
 #include "Materials/MaterialExpressionMultiply.h"
@@ -480,9 +482,60 @@ namespace
 		GeoWire(BlendWeight->A, Decode, MaskOutput);
 		GeoWire(BlendWeight->B, Blend);
 
+		// 海拔色带：UV1.y（0..255 归一化）→ 深海 / 浅海 / 沙滩 / 平原 / 高地 / 雪线。
+		// 与地质查看器 PlanetDebugColor::FromElevation 同一套配色，但按体素求值，不是贴图。
+		UMaterialExpressionComponentMask* ElevationT =
+			GeoMask(Graph, Uv1, false, true, false, false, -1200, -650);
+		UMaterialExpressionScalarParameter* SeaLevel = Graph.Add<UMaterialExpressionScalarParameter>(-1200, -780);
+		SeaLevel->ParameterName = TEXT("SeaLevel");
+		SeaLevel->DefaultValue = 0.47f;
+
+		const auto Mix2 = [&](UMaterialExpression* A, UMaterialExpression* B, UMaterialExpression* T, int32 X, int32 Y)
+		{
+			UMaterialExpressionLinearInterpolate* M = Graph.Add<UMaterialExpressionLinearInterpolate>(X, Y);
+			GeoWire(M->A, A);
+			GeoWire(M->B, B);
+			GeoWire(M->Alpha, T);
+			return static_cast<UMaterialExpression*>(M);
+		};
+		UMaterialExpressionConstant3Vector* Abyss = Graph.Add<UMaterialExpressionConstant3Vector>(-1000, -980);
+		Abyss->Constant = FLinearColor(0.02f, 0.05f, 0.25f);
+		UMaterialExpressionConstant3Vector* Shallow = Graph.Add<UMaterialExpressionConstant3Vector>(-1000, -880);
+		Shallow->Constant = FLinearColor(0.25f, 0.6f, 0.85f);
+		UMaterialExpressionConstant3Vector* Sand = Graph.Add<UMaterialExpressionConstant3Vector>(-1000, -780);
+		Sand->Constant = FLinearColor(0.85f, 0.8f, 0.55f);
+		UMaterialExpressionConstant3Vector* Plain = Graph.Add<UMaterialExpressionConstant3Vector>(-1000, -680);
+		Plain->Constant = FLinearColor(0.25f, 0.55f, 0.2f);
+		UMaterialExpressionConstant3Vector* High = Graph.Add<UMaterialExpressionConstant3Vector>(-1000, -580);
+		High->Constant = FLinearColor(0.5f, 0.35f, 0.2f);
+		UMaterialExpressionConstant3Vector* Peak = Graph.Add<UMaterialExpressionConstant3Vector>(-1000, -480);
+		Peak->Constant = FLinearColor(0.9f, 0.9f, 0.9f);
+
+		// 海平面以下：Abyss→Shallow；以上：Sand→Plain→High→Peak。
+		UMaterialExpressionDivide* BelowT = GeoBinary<UMaterialExpressionDivide>(Graph, ElevationT, SeaLevel, -900, -700);
+		UMaterialExpressionSubtract* AboveRaw = GeoBinary<UMaterialExpressionSubtract>(Graph, ElevationT, SeaLevel, -900, -600);
+		UMaterialExpressionSubtract* AboveRange = GeoBinary<UMaterialExpressionSubtract>(Graph, GeoConstant(Graph, 1.f, -1000, -420), SeaLevel, -900, -500);
+		UMaterialExpressionDivide* AboveT = GeoBinary<UMaterialExpressionDivide>(Graph, AboveRaw, AboveRange, -750, -560);
+
+		UMaterialExpression* Sea = Mix2(Abyss, Shallow, BelowT, -700, -800);
+		UMaterialExpression* LowLand = Mix2(Sand, Plain, AboveT, -700, -680);
+		UMaterialExpression* MidLand = Mix2(LowLand, High, AboveT, -550, -680);
+		UMaterialExpression* Land = Mix2(MidLand, Peak, AboveT, -400, -680);
+
+		// If 节点只输出标量，颜色必须用 Step + Lerp 选。
+		UMaterialExpressionStep* IsLand = Graph.Add<UMaterialExpressionStep>(-450, -720);
+		GeoWire(IsLand->X, SeaLevel);
+		GeoWire(IsLand->Y, ElevationT);
+
+		UMaterialExpressionLinearInterpolate* ElevationColor = Graph.Add<UMaterialExpressionLinearInterpolate>(-300, -720);
+		GeoWire(ElevationColor->A, Sea);
+		GeoWire(ElevationColor->B, Land);
+		GeoWire(ElevationColor->Alpha, IsLand);
+
+		// 地表（SurfaceMask=1）用高程色；挖开 / 剖面才露出岩性色。
 		UMaterialExpressionLinearInterpolate* BaseColor = Graph.Add<UMaterialExpressionLinearInterpolate>(-350, -300);
 		GeoWire(BaseColor->A, Decode, RockOutput);
-		GeoWire(BaseColor->B, BiomeRgb);
+		GeoWire(BaseColor->B, ElevationColor);
 		GeoWire(BaseColor->Alpha, BlendWeight);
 
 		UMaterialExpressionConstant* RoughBase = GeoConstant(Graph, 0.85f, -600, -200);

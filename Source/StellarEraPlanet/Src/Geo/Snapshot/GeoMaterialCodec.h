@@ -12,6 +12,8 @@ struct FGeoSample
 	uint8 ClueStrength = 0;  // 0..15
 	uint8 SecondaryMineral = 0;
 	uint8 SecondaryGrade = 0;
+	/** 0..255：海拔归一化（0 = 最深洋底，255 = 最高峰）。画在 UV1.y。 */
+	uint8 Elevation = 0;
 };
 
 struct FGeoPackedMaterial
@@ -33,6 +35,7 @@ namespace GeoMaterialCodec
 		M.A = uint8((FMath::Min<uint8>(S.Clue, 15) << 4) | FMath::Min<uint8>(S.ClueStrength, 15));
 		M.U0 = S.SecondaryMineral;
 		M.V0 = S.SecondaryGrade;
+		M.V1 = S.Elevation;
 		return M;
 	}
 
@@ -46,6 +49,7 @@ namespace GeoMaterialCodec
 		S.ClueStrength = uint8(M.A & 15);
 		S.SecondaryMineral = M.U0;
 		S.SecondaryGrade = M.V0;
+		S.Elevation = M.V1;
 		return S;
 	}
 
