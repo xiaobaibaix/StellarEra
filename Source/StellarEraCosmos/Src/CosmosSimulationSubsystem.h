@@ -247,7 +247,7 @@ private:
 	/** 渲染原点锚点（求解器下标）。INDEX_NONE = 不重定位，世界坐标按绝对位置走。 */
 	int32 RenderAnchorIndex = INDEX_NONE;
 
-	/** 锚点的世界位置。切换当前天体时重钉到它的当前世界位置，其余天体随之整体平移。 */
+	/** 锚点的世界位置。切换当前天体时重钉到它的当前世界位置，深空时锚点是飞船；其余天体随之整体平移。 */
 	FVector RenderAnchorWorld = FVector::ZeroVector;
 
 	/** 当前天体（求解器下标）。星图模式下冻结；深空为 INDEX_NONE，此时 RenderAnchorIndex 指向飞船。 */

@@ -542,7 +542,7 @@ void UCosmosSimulationSubsystem::FinalizeRegistration()
 	else if (!bPhysicalScale && bAnyInitialPositionOverride)
 	{
 		UE_LOG(LogTemp, Warning,
-			TEXT("[Cosmos] 有天体填了 InitialPositionAu 但 bPhysicalScale 关着：覆盖按真实 AU 生效，与其余按渲染标定摆放的天体不在同一空间。"));
+			TEXT("[Cosmos] 有天体填了 InitialPositionAu 但物理尺度未开：覆盖值会按渲染标定的 AU（1 AU≈10 km）落到世界里，不是真实 AU 距离。"));
 	}
 
 	// 按质量降序注册：中心天体先进求解器。N 体同时求解，顺序不影响结果，只为日志好读。
@@ -876,7 +876,7 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 		const bool bNear = bPhysicalScale
 			&& (Component->SimulatorIndex == CurrentBodyIndex || Component->SimulatorIndex == ShipIndex);
 
-		// 物理尺度下的远场行星只留代理球：体素与碰撞在几百 AU 外毫无意义。
+		// 物理尺度下的远场行星只留代理球：体素与碰撞在 0.1 AU 外毫无意义。
 		if (AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(BodyActor))
 		{
 			Planet->SetFarFieldMode(bPhysicalScale && !bNear);
