@@ -112,7 +112,9 @@ void UCosmosSimulationSubsystem::AddBodyToSimulator(UCosmosOrbitComponent* Compo
 	}
 
 	FCosmosBodyState State;
-	State.Position = Simulator.ToGameUnitPosition(BodyActor->GetActorLocation());
+	State.Position = ResolveInitialPosition(
+		Simulator.ToGameUnitPosition(BodyActor->GetActorLocation()),
+		Component->InitialPositionAu, Component->bUseInitialPositionAu);
 	State.Velocity = CosmosUnits::KilometerPerSecondToAuPerYear(
 		FVector3d(Component->InitialVelocityKmPerSecond));
 	State.Mass = CosmosUnits::EarthMassToSolarMass(Component->MassEarth);

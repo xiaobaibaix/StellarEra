@@ -80,3 +80,9 @@ inline TArray<double> SurfaceDistancesCm(const TArray<FVector3d>& Positions, con
 	}
 	return Out;
 }
+
+/** 物理初态：开启覆盖时用显式 AU 位置，否则沿用关卡摆放换算出的求解器位置。 */
+inline FVector3d ResolveInitialPosition(const FVector3d& PlacementAu, const FVector& InitialAu, bool bUseInitialAu)
+{
+	return bUseInitialAu ? FVector3d(InitialAu) : PlacementAu;
+}

@@ -95,4 +95,20 @@ bool FStellarEraSurfaceDistancesTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraResolveInitialPositionTest,
+	"StellarEra.Cosmos.UniverseMapping.InitialPosition",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FStellarEraResolveInitialPositionTest::RunTest(const FString& Parameters)
+{
+	const FVector3d Placement(1.0, 2.0, 3.0);
+	const FVector Override(4.0, 5.0, 6.0);
+
+	TestTrue(TEXT("未开启时用摆放"),
+		ResolveInitialPosition(Placement, Override, false).Equals(Placement));
+	TestTrue(TEXT("开启时用覆盖值"),
+		ResolveInitialPosition(Placement, Override, true).Equals(FVector3d(Override)));
+
+	return true;
+}
+
 #endif

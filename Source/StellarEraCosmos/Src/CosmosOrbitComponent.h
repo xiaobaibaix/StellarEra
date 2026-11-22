@@ -11,7 +11,8 @@
  * 天体组件：挂在任意 Actor 上，它就参与 N 体引力。做成组件而不是 Actor 基类，
  * 体素行星挂上即是天体、不必继承。组件**不推进物理**、不 Tick，只存参数：
  * 注册/推进/写回全在 UCosmosSimulationSubsystem（N 体必须有唯一编排者），渲染参数在
- * UCosmosTrajectoryComponent。初态：位置 = 关卡摆放，速度 = InitialVelocityKmPerSecond。
+ * UCosmosTrajectoryComponent。初态：位置 = 关卡摆放（可被 InitialPositionAu 覆盖），
+ * 速度 = InitialVelocityKmPerSecond。
  */
 UCLASS(ClassGroup = (Cosmos), meta = (BlueprintSpawnableComponent))
 class STELLARERACOSMOS_API UCosmosOrbitComponent : public UActorComponent
@@ -47,6 +48,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Body",
 		meta = (DisplayName = "初速度（km/s，物理速度）"))
 	FVector InitialVelocityKmPerSecond = FVector::ZeroVector;
+
+	/**
+	 * 物理初始位置（AU）。bUseInitialPositionAu 为真时覆盖关卡摆放；两者都只注册时读一次。
+	 * 关卡摆放按渲染标定换算，只有这里填的值才是真实 AU。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Body",
+		meta = (DisplayName = "InitialPositionAu"))
+	FVector InitialPositionAu = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Body",
+		meta = (DisplayName = "bUseInitialPositionAu"))
+	bool bUseInitialPositionAu = false;
 
 	// ── 旧字段：只保留序列化与 PostLoad 迁移，代码不再消费，迁移后清零 ──
 
