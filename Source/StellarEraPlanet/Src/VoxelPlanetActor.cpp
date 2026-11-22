@@ -220,7 +220,9 @@ void AVoxelPlanetActor::RefreshLODInvoker()
 	}
 
 	// 拖动星球时每帧都调：没有任何输入变化、invoker 也没被手改，就别去刷全局 invoker。
-	const float RangeSource = GetGeneratorRadiusVoxels() * FMath::Max(VoxelSize, 0.0001f);
+	// 范围是**世界**厘米（插件 GlobalToLocal 会除缩放），必须覆盖渲染出的整颗星，故含缩放；
+	// 档位（ComputeOrbitLOD）才用未缩放半径，缩放不驱动 LOD。别把两者“统一”回去。
+	const float RangeSource = GetScaledRadiusVoxels() * FMath::Max(VoxelSize, 0.0001f);
 	const int32 DesiredLOD = ComputeOrbitLOD();
 
 	// geo 模式下比自动档更细会把整片 invoker 范围压到 2^LOD 体素块，撞
