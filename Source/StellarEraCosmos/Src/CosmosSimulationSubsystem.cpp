@@ -794,6 +794,34 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 	UpdateRenderOrigin(RenderAnchorOverride);
 
 	// ── 2. 写回各个天体 ──
+	// 物理尺度：近场按物理厘米 1:1，远场以飞船为中心压到渲染标定；关闭时走原路径。
+	FVector3d AnchorAu = FVector3d::ZeroVector;
+	int32 ShipIndex = INDEX_NONE;
+	FVector3d ShipAu = FVector3d::ZeroVector;
+	FVector ShipWorld = FVector::ZeroVector;
+	double FarScale = 1.0;
+	if (bPhysicalScale)
+	{
+		if (RenderAnchorIndex != INDEX_NONE)
+		{
+			// 与 UpdateRenderOrigin 用同一份插值锚点，否则锚点自己每帧抖一个子步。
+			AnchorAu = RenderAnchorOverride ? *RenderAnchorOverride
+				: Simulator.GetBody(RenderAnchorIndex).Position;
+		}
+		for (int32 Index = 0; Index < Simulator.GetNumBodies(); ++Index)
+		{
+			AActor* Owner = Simulator.GetBody(Index).OwnerActor.Get();
+			if (Owner && Cast<ICosmosBody>(Owner))
+			{
+				ShipIndex = Index;
+				ShipAu = Simulator.GetBody(Index).Position;
+				break;
+			}
+		}
+		ShipWorld = RenderAnchorWorld + FVector((ShipAu - AnchorAu) * FUniverseMapping::PhysicalCmPerAu);
+		FarScale = CentimetersPerAu / FUniverseMapping::PhysicalCmPerAu;
+	}
+
 	for (UCosmosOrbitComponent* Component : Bodies)
 	{
 		AActor* BodyActor = Component ? Component->GetOwner() : nullptr;
@@ -822,6 +850,16 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 					RenderPosition, RenderOrientation);
 			}
 
+			const bool bNear = bPhysicalScale
+				&& (Component->SimulatorIndex == CurrentBodyIndex || Component->SimulatorIndex == ShipIndex);
+			const FVector TargetLocation = bPhysicalScale
+				? ToRenderWorld(RenderPosition, AnchorAu, ShipAu, RenderAnchorWorld, ShipWorld,
+					bNear, FUniverseMapping::PhysicalCmPerAu, CentimetersPerAu)
+				: Simulator.ToWorldLocation(RenderPosition);
+			// 远场非刚体缩到渲染标定；近场与刚体保持原尺寸。
+			const FVector TargetScale = (bPhysicalScale && !bNear && !State.bRigidBody)
+				? FVector(FarScale) : FVector(1.0);
+
 			// 刚体（飞船）位置 + 朝向一起写回。非刚体只写位置：它们的 Orientation 恒为单位四元数，
 			// 走 SetActorTransform 会把关卡里摆好的行星朝向瞬间抹成零。
 			if (State.bRigidBody)
@@ -831,14 +869,17 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 						FQuat(
 							RenderOrientation.X, RenderOrientation.Y,
 							RenderOrientation.Z, RenderOrientation.W),
-						Simulator.ToWorldLocation(RenderPosition),
-						BodyActor->GetActorScale3D()),
+						TargetLocation,
+						bPhysicalScale ? TargetScale : BodyActor->GetActorScale3D()),
 					/*bSweep=*/false, nullptr, ETeleportType::None);
 			}
 			else
 			{
-				BodyActor->SetActorLocation(
-					Simulator.ToWorldLocation(RenderPosition), /*bSweep=*/false);
+				if (bPhysicalScale)
+				{
+					BodyActor->SetActorScale3D(TargetScale);
+				}
+				BodyActor->SetActorLocation(TargetLocation, /*bSweep=*/false);
 			}
 
 			// 受控天体（飞船）：速度经 ICosmosBody::SetCosmosVelocity 写回 Actor，体素调用器、IsLanded() 与 HUD 都读那一处。

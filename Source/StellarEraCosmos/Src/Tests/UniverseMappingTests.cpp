@@ -111,4 +111,31 @@ bool FStellarEraResolveInitialPositionTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraToRenderWorldTest,
+	"StellarEra.Cosmos.UniverseMapping.RenderWorld",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FStellarEraToRenderWorldTest::RunTest(const FString& Parameters)
+{
+	const FVector AnchorWorld(100.f, 0.f, 0.f);
+	const FVector ShipWorld(1.0e6f, 0.f, 0.f);
+	const FVector3d AnchorAu = FVector3d::ZeroVector;
+	const FVector3d ShipAu(6.684e-8, 0.0, 0.0); // 1e6 cm / Physical
+
+	// 近场：相对锚点 × 物理标定。
+	const FVector3d NearBody(1.0e-7, 0.0, 0.0);
+	const FVector Near = ToRenderWorld(NearBody, AnchorAu, ShipAu, AnchorWorld, ShipWorld,
+		true, 1.496e13, 1.0e6);
+	const FVector NearExpected(AnchorWorld + FVector3d(1.0e-7, 0.0, 0.0) * 1.496e13);
+	TestTrue(TEXT("近场用物理标定"), Near.Equals(NearExpected, 1.0));
+
+	// 远场：相对飞船 × 渲染标定。
+	const FVector3d FarBody(1.0, 0.0, 0.0);
+	const FVector Far = ToRenderWorld(FarBody, AnchorAu, ShipAu, AnchorWorld, ShipWorld,
+		false, 1.496e13, 1.0e6);
+	const FVector FarExpected(ShipWorld + FVector3d(1.0 - 6.684e-8, 0.0, 0.0) * 1.0e6);
+	TestTrue(TEXT("远场用渲染标定"), Far.Equals(FarExpected, 1.0));
+
+	return true;
+}
+
 #endif

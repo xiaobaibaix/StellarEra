@@ -86,3 +86,13 @@ inline FVector3d ResolveInitialPosition(const FVector3d& PlacementAu, const FVec
 {
 	return bUseInitialAu ? FVector3d(InitialAu) : PlacementAu;
 }
+
+/** 表现空间写回：近场（当前天体）按物理厘米 1:1，远场按渲染标定压缩，均以飞船为远场中心。 */
+inline FVector ToRenderWorld(const FVector3d& BodyAu, const FVector3d& AnchorAu, const FVector3d& ShipAu,
+	const FVector& AnchorWorld, const FVector& ShipWorld, bool bNear,
+	double PhysicalCmPerAu, double RenderCmPerAu)
+{
+	return bNear
+		? AnchorWorld + FVector((BodyAu - AnchorAu) * PhysicalCmPerAu)
+		: ShipWorld + FVector((BodyAu - ShipAu) * RenderCmPerAu);
+}
