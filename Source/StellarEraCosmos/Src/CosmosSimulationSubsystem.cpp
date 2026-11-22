@@ -436,7 +436,7 @@ void UCosmosSimulationSubsystem::ApplyControlledBodyForces(float DeltaSeconds)
 		// 帧时长原样转给飞船：制动按「本帧满推力能改变多少速度」收敛。
 		Body.ExternalAcceleration = FVector3d(CosmosUnits::WorldCmPerS2ToGameAcceleration(
 			FVector3d(Ship->GetThrustAccelerationWorldCmPerS2(DeltaSeconds)),
-			CentimetersPerAu, TimeScale));
+			ActiveCmPerAu, TimeScale));
 
 		// τ 是真实秒、求解器用模拟年，所以除 TimeScale。
 		// ⚠ 阻尼作用在惯性系速度上，不是相对携带天体 —— 行星自己在跑时它会抽走 k·v_行星。
@@ -1041,10 +1041,11 @@ FVector3d UCosmosSimulationSubsystem::GetBodyGravityGameUnits(int32 SimulatorInd
 	return Simulator.GetBody(SimulatorIndex).GravitationalAcceleration;
 }
 
+// 游戏量（速度/推力）跟随仿真标定，开关关闭时与渲染标定逐位相同。
 FVector UCosmosSimulationSubsystem::ToWorldVelocityScaled(const FVector3d& GameUnitVelocity) const
 {
 	return FVector(CosmosUnits::GameVelocityToWorldCmPerSecond(
-		GameUnitVelocity, CentimetersPerAu, TimeScale));
+		GameUnitVelocity, ActiveCmPerAu, TimeScale));
 }
 
 void UCosmosSimulationSubsystem::SetSelectedBody(AActor* Body)
