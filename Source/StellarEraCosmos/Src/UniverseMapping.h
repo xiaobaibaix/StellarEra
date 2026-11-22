@@ -33,10 +33,16 @@ struct STELLARERACOSMOS_API FUniverseMapping
 	}
 };
 
-/** 当前天体：最近且进入近场；已选中时用 ExitScale 放宽阈值，避免边界抖动。 */
+/** 当前天体：已选中天体在退出阈值内保留；否则最近天体须进入近场。 */
 inline int32 PickCurrentBody(const TArray<double>& DistancesCm, int32 PreviousIndex,
 	const FUniverseMapping& Mapping, double ExitScale = 2.0)
 {
+	const double EnterThreshold = Mapping.NearDistanceCm();
+	if (DistancesCm.IsValidIndex(PreviousIndex) && DistancesCm[PreviousIndex] <= EnterThreshold * ExitScale)
+	{
+		return PreviousIndex;
+	}
+
 	int32 Nearest = INDEX_NONE;
 	double NearestDistance = TNumericLimits<double>::Max();
 	for (int32 Index = 0; Index < DistancesCm.Num(); ++Index)
@@ -47,15 +53,6 @@ inline int32 PickCurrentBody(const TArray<double>& DistancesCm, int32 PreviousIn
 			Nearest = Index;
 		}
 	}
-	if (Nearest == INDEX_NONE)
-	{
-		return INDEX_NONE;
-	}
 
-	const bool bKeepPrevious = PreviousIndex != INDEX_NONE && DistancesCm.IsValidIndex(PreviousIndex);
-	const double Threshold = bKeepPrevious
-		? Mapping.NearDistanceCm() * ExitScale
-		: Mapping.NearDistanceCm();
-
-	return NearestDistance <= Threshold ? Nearest : INDEX_NONE;
+	return Nearest != INDEX_NONE && NearestDistance <= EnterThreshold ? Nearest : INDEX_NONE;
 }
