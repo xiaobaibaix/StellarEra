@@ -27,7 +27,7 @@
 - Consumes: `ActiveCmPerAu`（M3-core）。
 - Produces: `ToWorldVelocityScaled` 与 `ApplyControlledBodyForces` 的推力换算使用 `ActiveCmPerAu`。
 
-- [ ] **Step 1: 替换两个换算点**
+- [x] **Step 1: 替换两个换算点**
 
 `ToWorldVelocityScaled`：
 
@@ -46,11 +46,11 @@
 
 在 `ToWorldVelocityScaled` 上方补一行注释：游戏量（速度/推力）跟随仿真标定，开关关闭时与渲染标定逐位相同。
 
-- [ ] **Step 2: 构建并跑 Cosmos 测试**
+- [x] **Step 2: 构建并跑 Cosmos 测试**
 
 `Automation RunTests StellarEra.Cosmos`，30 例无回归。
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add Source/StellarEraCosmos/Src/CosmosSimulationSubsystem.cpp
@@ -67,7 +67,7 @@ git commit -m "fix(宇宙): 飞船速度/推力跟 ActiveCmPerAu，开启物理�
 **Interfaces:**
 - 行为变化：`PickCurrentBody` 返回 `INDEX_NONE` 时 `CurrentBodyIndex = INDEX_NONE`（所有天体转远场）；`RenderAnchorIndex`/`RenderAnchorWorld` 保留，世界原点仍有界。
 
-- [ ] **Step 1: 改 UpdateCurrentBody 的分支**
+- [x] **Step 1: 改 UpdateCurrentBody 的分支**
 
 把：
 
@@ -95,9 +95,9 @@ git commit -m "fix(宇宙): 飞船速度/推力跟 ActiveCmPerAu，开启物理�
 	}
 ```
 
-- [ ] **Step 2: 构建并跑 Cosmos 测试**（30 例无回归；`PickCurrentBody` 已有单测）
+- [x] **Step 2: 构建并跑 Cosmos 测试**（30 例无回归；`PickCurrentBody` 已有单测）
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add Source/StellarEraCosmos/Src/CosmosSimulationSubsystem.cpp
@@ -114,7 +114,7 @@ git commit -m "fix(宇宙): 离开近场后清空当前天体，近远分类不�
 **Interfaces:**
 - `CmPerAu` 与 `Softening` 在编辑器世界（无子系统实例）回落到 `GetDefault<UCosmosSimulationSubsystem>()`，并考虑 `bPhysicalScale`。
 
-- [ ] **Step 1: 替换标定读取**
+- [x] **Step 1: 替换标定读取**
 
 把：
 
@@ -146,9 +146,9 @@ git commit -m "fix(宇宙): 离开近场后清空当前天体，近远分类不�
 
 （`GetDefault` 在类已注册时非空；若担心可加判空。）
 
-- [ ] **Step 2: 构建并跑 Cosmos 测试**（30 例无回归）
+- [x] **Step 2: 构建并跑 Cosmos 测试**（30 例无回归）
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add Source/StellarEraCosmos/Src/CosmosTrajectoryComponent.cpp
@@ -159,9 +159,9 @@ git commit -m "fix(宇宙): 编辑器轨迹预览回落到 CDO 标定，支持�
 
 ### Task 4: 验证
 
-- [ ] **Step 1: 全量测试**：`Automation RunTests StellarEra`；唯一允许失败是预存在的 `StellarEra.Planet.Geo.Dependency`。
+- [x] **Step 1: 全量测试**：`Automation RunTests StellarEra`；唯一允许失败是预存在的 `StellarEra.Planet.Geo.Dependency`。
 
-- [ ] **Step 2: 勾选并提交文档**
+- [x] **Step 2: 勾选并提交文档**
 
 ```bash
 git add docs/superpowers/plans/2026-11-22-universe-enable-preconditions.md
