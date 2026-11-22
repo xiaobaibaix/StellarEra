@@ -1,4 +1,6 @@
-# 仿真标定拆分 M3a 实施计划
+# 仿真标定拆分 M3a 实施计划（已废弃，被完整 M3 计划取代）
+
+> **废弃原因（2026-11-22）**：实施到 Task 2 时发现仿真位置也是**渲染 AU**（`ToGameUnitPosition` 按 `CentimetersPerAu=1e6` 除），只把半径/探针切物理会让半径与距离差 1.5e7 倍，接触永不触发。标定拆分不能与写回映射分离——必须位置/速度/半径一起切物理，同时接远场压缩与代理。Task 1 的 `GetPhysicalRadiusCm` 与常量统一仍保留（安全、可复用）；Task 2 的提交已 `git revert`。新的完整计划另出。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
