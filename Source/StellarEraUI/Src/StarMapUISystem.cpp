@@ -69,7 +69,7 @@ bool UStarMapUISystem::BuildBodyInfo(AActor* Body, FStarMapBodyInfo& OutInfo)
 	double RadiusCm = 0.0;
 	if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(Body))
 	{
-		RadiusCm = Planet->GetSurfaceRadiusCm();
+		RadiusCm = Planet->GetPhysicalRadiusCm();
 	}
 	else
 	{

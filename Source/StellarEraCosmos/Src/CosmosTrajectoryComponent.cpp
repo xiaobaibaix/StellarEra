@@ -1499,7 +1499,7 @@ void UCosmosTrajectoryComponent::DrawInEditor()
 		// 直线。半径来源同 AddBodyToSimulator；预览从零重建，用平均球半径即可。
 		if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(OwnerActor))
 		{
-			State.Radius = double(Planet->GetSurfaceRadiusCm()) / CmPerAu;
+			State.Radius = double(Planet->GetPhysicalRadiusCm()) / CmPerAu;
 		}
 		else if (const ICosmosBody* Ship = Cast<ICosmosBody>(OwnerActor))
 		{

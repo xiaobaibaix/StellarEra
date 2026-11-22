@@ -102,7 +102,8 @@ void UCosmosSimulationSubsystem::AddBodyToSimulator(UCosmosOrbitComponent* Compo
 		return;
 	}
 
-	// 初态 = 关卡摆放（位置）+ 组件初速，只读不写。单位边界：设计层 M⊕ / km/s → 求解器 M☉ / AU每年。
+	// 初态 = 关卡摆放（位置，bUseInitialPositionAu 时改用 InitialPositionAu）+ 组件初速，只读不写。
+	// 单位边界：设计层 M⊕ / km/s → 求解器 M☉ / AU每年。
 	if (!FMath::IsFinite(Component->MassEarth) || Component->MassEarth <= 0.0)
 	{
 		UE_LOG(LogTemp, Error,
@@ -127,7 +128,7 @@ void UCosmosSimulationSubsystem::AddBodyToSimulator(UCosmosOrbitComponent* Compo
 	if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(BodyActor))
 	{
 		// 平均球半径只是兜底：第一次 Tick 会被 RefreshPlanetContactRadii 换成地形半径。
-		State.Radius = double(Planet->GetSurfaceRadiusCm()) / ActiveCmPerAu;
+		State.Radius = double(Planet->GetPhysicalRadiusCm()) / ActiveCmPerAu;
 	}
 	else if (const ICosmosBody* Ship = Cast<ICosmosBody>(BodyActor))
 	{
@@ -289,7 +290,7 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 
 			const double Distance =
 				(State.Position - Simulator.GetBody(Other).Position).Size();
-			const double GateCm = double(Candidate->GetSurfaceRadiusCm()) * 1.25
+			const double GateCm = double(Candidate->GetPhysicalRadiusCm()) * 1.25
 				+ State.ContactProbeRadius * ActiveCmPerAu;
 			if (Distance * ActiveCmPerAu >= GateCm)
 			{
@@ -314,7 +315,7 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 
 		// 方向量化：一格 ≈ 地表 1 体素。船体投影到地表通常只有个位数格，真正 march 的次数也是。
 		const double BaseRadiusVoxels =
-			double(Planet->GetSurfaceRadiusCm()) / FMath::Max(double(Planet->VoxelSize), 1.0);
+			double(Planet->GetPhysicalRadiusCm()) / FMath::Max(double(Planet->VoxelSize), 1.0);
 
 		TMap<FIntVector, double> SurfaceRadiusCache;
 		int32 NumQueries = 0;
@@ -333,7 +334,7 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 			if (UnitDirection.IsNearlyZero())
 			{
 				// 探针正好落在星心：方向无定义，交给解析半径兜底。
-				SurfaceRadii.Add(double(Planet->GetSurfaceRadiusCm()) / ActiveCmPerAu);
+				SurfaceRadii.Add(double(Planet->GetPhysicalRadiusCm()) / ActiveCmPerAu);
 				continue;
 			}
 
@@ -511,6 +512,12 @@ void UCosmosSimulationSubsystem::FinalizeRegistration()
 	ActiveCmPerAu = bPhysicalScale ? FUniverseMapping::PhysicalCmPerAu : CentimetersPerAu;
 	Simulator.SetCentimetersPerAu(ActiveCmPerAu);
 	Mapping.RenderCmPerAu = CentimetersPerAu;
+
+	if (bPhysicalScale)
+	{
+		UE_LOG(LogTemp, Log, TEXT("[Cosmos] 物理尺度：ActiveCmPerAu=%.3e FarScale=%.3e NearCm=%.3e"),
+			ActiveCmPerAu, Mapping.FarScale(), Mapping.NearDistanceCm());
+	}
 
 	bInitialized = true;
 
