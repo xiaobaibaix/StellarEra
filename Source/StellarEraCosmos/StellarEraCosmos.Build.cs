@@ -44,5 +44,11 @@ public class StellarEraCosmos : ModuleRules
 		{
 			"StellarEraPlanet",
 		});
+
+		// 编辑器态映射预览要读活动视口相机。
+		if (Target.bBuildEditor)
+		{
+			PrivateDependencyModuleNames.Add("UnrealEd");
+		}
 	}
 }

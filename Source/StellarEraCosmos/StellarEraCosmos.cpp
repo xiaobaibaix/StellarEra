@@ -23,14 +23,10 @@ public:
 		TickerHandle = FTSTicker::GetCoreTicker().AddTicker(
 			FTickerDelegate::CreateLambda([](float)
 			{
-				if (const IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(
-					TEXT("StellarEra.Cosmos.EditorPreview")))
-				{
-					if (CVar->GetInt() != 0)
-					{
-						StellarEraCosmosApplyMappedLayout(false);
-					}
-				}
+				const IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(
+					TEXT("StellarEra.Cosmos.EditorPreview"));
+				const bool bEnabled = CVar && CVar->GetInt() != 0;
+				StellarEraCosmosUpdateEditorPreview(bEnabled);
 				return true;
 			}), 0.1f);
 #endif

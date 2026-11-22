@@ -1,9 +1,9 @@
-// 编辑器态映射布局预览：把天体按 FUniverseMapping 摆到物理尺度下的初始位置与尺寸，不跑物理。
+// 编辑器态映射预览：以当前编辑好的天体布局为初始数据，按编辑器相机做距离压缩。
 #pragma once
 
 #include "CoreMinimal.h"
 
 #if WITH_EDITOR
-/** 立即按映射摆一次；bVerbose 时逐天体打日志。CVar StellarEra.Cosmos.EditorPreview 会在编辑器里周期调用它。 */
-STELLARERACOSMOS_API void StellarEraCosmosApplyMappedLayout(bool bVerbose);
+/** 每帧调用：bEnabled=false 时恢复开启前的编辑状态；true 时按相机位置压缩各天体。 */
+STELLARERACOSMOS_API void StellarEraCosmosUpdateEditorPreview(bool bEnabled);
 #endif
