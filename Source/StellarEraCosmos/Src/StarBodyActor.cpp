@@ -52,6 +52,9 @@ AStarBodyActor::AStarBodyActor()
 void AStarBodyActor::ApplyScaleMode(bool bPhysical)
 {
 	// BasicShapes/Sphere 半径 50cm；物理模式用真实半径，远场由 Actor 缩放压到 FarScale。
-	const double LocalRadiusCm = bPhysical ? double(PhysicalRadiusKm) * CosmosUnits::CentimetersPerKilometer : 5.0e5;
+	// 真实太阳在远场只有 0.53°，观感上太小；按用户要求整体再放大 100 倍。
+	constexpr double VisualScale = 100.0;
+	const double LocalRadiusCm = VisualScale
+		* (bPhysical ? double(PhysicalRadiusKm) * CosmosUnits::CentimetersPerKilometer : 5.0e5);
 	StarMesh->SetRelativeScale3D(FVector(LocalRadiusCm / 50.0));
 }
