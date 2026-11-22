@@ -33,15 +33,11 @@ struct STELLARERACOSMOS_API FUniverseMapping
 	}
 };
 
-/** 当前天体：已选中天体在退出阈值内保留；否则最近天体须进入近场。 */
+/** 当前天体：最近天体进入近场即抢占；否则已选中天体在退出带内保留。 */
 inline int32 PickCurrentBody(const TArray<double>& DistancesCm, int32 PreviousIndex,
 	const FUniverseMapping& Mapping, double ExitScale = 2.0)
 {
 	const double EnterThreshold = Mapping.NearDistanceCm();
-	if (DistancesCm.IsValidIndex(PreviousIndex) && DistancesCm[PreviousIndex] <= EnterThreshold * ExitScale)
-	{
-		return PreviousIndex;
-	}
 
 	int32 Nearest = INDEX_NONE;
 	double NearestDistance = TNumericLimits<double>::Max();
@@ -54,5 +50,16 @@ inline int32 PickCurrentBody(const TArray<double>& DistancesCm, int32 PreviousIn
 		}
 	}
 
-	return Nearest != INDEX_NONE && NearestDistance <= EnterThreshold ? Nearest : INDEX_NONE;
+	// 近场抢占：飞船已贴着某颗时，不能被上一颗的退出带压掉。
+	if (Nearest != INDEX_NONE && NearestDistance <= EnterThreshold)
+	{
+		return Nearest;
+	}
+
+	if (DistancesCm.IsValidIndex(PreviousIndex) && DistancesCm[PreviousIndex] <= EnterThreshold * ExitScale)
+	{
+		return PreviousIndex;
+	}
+
+	return INDEX_NONE;
 }

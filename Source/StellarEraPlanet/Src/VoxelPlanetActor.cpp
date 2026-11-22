@@ -208,8 +208,8 @@ int32 AVoxelPlanetActor::ComputeOrbitLOD() const
 	// 最粗三角边长（2^LOD 体素）约半径 1/16，弦高误差 ~R/2048。
 	// 1km 星得 LOD 6（64m 边长），100m 星得 LOD 3，6378km 星得 LOD 18。
 	// 上界 25 就是「块边长 ≈ 1 体素」之上限；写 8 会把大星球压到爆块数。
-	const float ScaledRadius = FMath::Max(GetGeneratorRadiusVoxels(), 1.f);
-	return FMath::Clamp(FMath::RoundToInt(FMath::Log2(ScaledRadius / 16.f)), 0, 25);
+	const float RadiusVoxels = FMath::Max(GetGeneratorRadiusVoxels(), 1.f);
+	return FMath::Clamp(FMath::RoundToInt(FMath::Log2(RadiusVoxels / 16.f)), 0, 25);
 }
 
 void AVoxelPlanetActor::RefreshLODInvoker()
@@ -1564,8 +1564,8 @@ uint64 AVoxelPlanetActor::ComputeParamsHash() const
 	};
 
 	// 混未缩放半径：Actor 缩放只影响表现，不该触发重建。移动也不进哈希，球心恒在局部原点。
-	const float ScaledRadius = GetGeneratorRadiusVoxels();
-	Mix(&ScaledRadius, sizeof(ScaledRadius));
+	const float RadiusVoxels = GetGeneratorRadiusVoxels();
+	Mix(&RadiusVoxels, sizeof(RadiusVoxels));
 
 	// geo 模式：配方混路径（改内容走 InvalidateAndRebuild 重烘），再混快照内容哈希 ——
 	// 烘焙完成那一刻哈希必变，世界才会被建起来。

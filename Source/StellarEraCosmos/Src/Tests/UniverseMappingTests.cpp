@@ -23,8 +23,10 @@ bool FStellarEraUniverseMappingTest::RunTest(const FString& Parameters)
 	const double RealDistance = 1.496e13;
 	const double BodyRadius = 6.96e10;
 	TestFalse(TEXT("1 AU 走远场"), Mapping.IsNear(RealDistance));
+	TestTrue(TEXT("近场判定正例"), Mapping.IsNear(Mapping.NearDistanceCm() * 0.5));
 
 	const FVector Rendered = Mapping.ToRender(FVector3d(RealDistance, 0.0, 0.0), false);
+	TestEqual(TEXT("1 AU 渲染为 RenderCmPerAu"), Rendered.Size(), Mapping.RenderCmPerAu, 1.0);
 	const double RenderedRadius = BodyRadius * Mapping.ScaleFor(false);
 	TestTrue(TEXT("远场角直径守恒"),
 		FMath::IsNearlyEqual(RenderedRadius / Rendered.Size(), BodyRadius / RealDistance, 1e-12));
@@ -53,8 +55,12 @@ bool FStellarEraUniverseCurrentBodyTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("滞回区间保留"), PickCurrentBody({ Enter * 1.5, Enter * 9.0 }, 0, Mapping), 0);
 	TestEqual(TEXT("超出滞回区间"), PickCurrentBody({ Enter * 2.5, Enter * 9.0 }, 0, Mapping), INDEX_NONE);
 
-	TestEqual(TEXT("上一颗在退出区内，别的更近也保留"),
-		PickCurrentBody({ Enter * 0.5, Exit * 0.75 }, 1, Mapping), 1);
+	TestEqual(TEXT("另一颗进入近场时抢占"),
+		PickCurrentBody({ Enter * 0.5, Exit * 0.75 }, 1, Mapping), 0);
+	TestEqual(TEXT("上一颗在退出带、更近的竞争者在 (Enter, Exit] 内 → 保留上一颗"),
+		PickCurrentBody({ Enter * 1.5, Enter * 1.8 }, 1, Mapping), 1);
+	TestEqual(TEXT("飞船在 B 表面、A 仍在退出带 → 选 B"),
+		PickCurrentBody({ Enter * 0.5, Enter * 1.5 }, 1, Mapping), 0);
 	TestEqual(TEXT("上一颗超出退出区，最近一颗在进入区内"),
 		PickCurrentBody({ Exit * 1.25, Enter * 0.5 }, 0, Mapping), 1);
 	TestEqual(TEXT("上一颗超出退出区，最近一颗未进进入区"),
