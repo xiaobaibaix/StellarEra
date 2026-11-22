@@ -795,6 +795,7 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 
 	// ── 2. 写回各个天体 ──
 	// 物理尺度：近场按物理厘米 1:1，远场以飞船为中心压到渲染标定；关闭时走原路径。
+	// 切换开关要重启/重注册：ActiveCmPerAu 与求解器标定只在 FinalizeRegistration 设一次。
 	FVector3d AnchorAu = FVector3d::ZeroVector;
 	int32 ShipIndex = INDEX_NONE;
 	FVector3d ShipAu = FVector3d::ZeroVector;
@@ -814,12 +815,20 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 			if (Owner && Cast<ICosmosBody>(Owner))
 			{
 				ShipIndex = Index;
-				ShipAu = Simulator.GetBody(Index).Position;
 				break;
 			}
 		}
+		if (ShipIndex != INDEX_NONE)
+		{
+			// 与飞船自身写回同源插值：拿未插值位置当远场中心，远场会逐子步相对飞船回卷。
+			ShipAu = Simulator.GetBody(ShipIndex).Position;
+			if (bHasRenderPrevPose && RenderPrevPositions.IsValidIndex(ShipIndex))
+			{
+				ShipAu = FMath::Lerp(RenderPrevPositions[ShipIndex], ShipAu, RenderAlpha);
+			}
+		}
 		ShipWorld = RenderAnchorWorld + FVector((ShipAu - AnchorAu) * FUniverseMapping::PhysicalCmPerAu);
-		FarScale = CentimetersPerAu / FUniverseMapping::PhysicalCmPerAu;
+		FarScale = Mapping.FarScale();
 	}
 
 	for (UCosmosOrbitComponent* Component : Bodies)
