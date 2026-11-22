@@ -97,6 +97,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Planet")
 	float GetSurfaceRadiusCm() const;
 
+	/** 生成器/哈希/LOD/缓存用的半径：不含 Actor 缩放。 */
+	float GetGeneratorRadiusVoxels() const { return Radius; }
+
+	/** 行星 LOD 档位：按半径自动推导（三角边长约半径 1/16），不含 Actor 缩放。 */
+	int32 ComputeOrbitLOD() const;
+
 	/**
 	 * 指定方向的地表半径（厘米，含起伏与 Actor 缩放），角色出生与飞船生成用。
 	 * 原先按完美球面算会把角色塞进山体（振幅 8 体素 = 800cm）。WorldDirection
@@ -323,9 +329,6 @@ private:
 
 	/** 含 Actor 等比缩放的半径（体素数）。 */
 	float GetScaledRadiusVoxels() const;
-
-	/** 行星 LOD 档位：按半径自动推导（三角边长约半径 1/16）。 */
-	int32 ComputeOrbitLOD() const;
 
 	/**
 	 * LOD to Set 只在首次同步时写，之后面板手改的值归用户、重建不再覆盖；

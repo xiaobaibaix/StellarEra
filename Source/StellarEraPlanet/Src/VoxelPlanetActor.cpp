@@ -197,9 +197,8 @@ UPlanetSurfaceGridComponent* AVoxelPlanetActor::FindEditGrid() const
 
 float AVoxelPlanetActor::GetScaledRadiusVoxels() const
 {
-	// 只采用等比缩放（非等比会剪切体素网格）。已知不一致：网格世界半径是
-	// Radius·S²·VoxelSize，而 GetSurfaceRadiusCm 返回 Radius·S·VoxelSize，
-	// S≠1 时会埋进星体；本关卡 S=1。修法涉及哈希/重建契约，不能只改一行。
+	// 只采用等比缩放（非等比会剪切体素网格）。生成器与世界尺寸用未缩放的 Radius
+	// （见 GetGeneratorRadiusVoxels），缩放只经 Actor 变换放大表现，两者不再叠加。
 	const float UniformScale = GetActorScale3D().GetAbsMax();
 	return Radius * UniformScale;
 }
@@ -209,7 +208,7 @@ int32 AVoxelPlanetActor::ComputeOrbitLOD() const
 	// 最粗三角边长（2^LOD 体素）约半径 1/16，弦高误差 ~R/2048。
 	// 1km 星得 LOD 6（64m 边长），100m 星得 LOD 3，6378km 星得 LOD 18。
 	// 上界 25 就是「块边长 ≈ 1 体素」之上限；写 8 会把大星球压到爆块数。
-	const float ScaledRadius = FMath::Max(GetScaledRadiusVoxels(), 1.f);
+	const float ScaledRadius = FMath::Max(GetGeneratorRadiusVoxels(), 1.f);
 	return FMath::Clamp(FMath::RoundToInt(FMath::Log2(ScaledRadius / 16.f)), 0, 25);
 }
 
@@ -221,7 +220,7 @@ void AVoxelPlanetActor::RefreshLODInvoker()
 	}
 
 	// 拖动星球时每帧都调：没有任何输入变化、invoker 也没被手改，就别去刷全局 invoker。
-	const float RangeSource = GetScaledRadiusVoxels() * FMath::Max(VoxelSize, 0.0001f);
+	const float RangeSource = GetGeneratorRadiusVoxels() * FMath::Max(VoxelSize, 0.0001f);
 	const int32 DesiredLOD = ComputeOrbitLOD();
 
 	// geo 模式下比自动档更细会把整片 invoker 范围压到 2^LOD 体素块，撞
@@ -739,7 +738,7 @@ void AVoxelPlanetActor::SyncGeoDimensions()
 	// 半径换量级后，按旧尺度调的 LOD 档位全部失效：MaxLOD 6 配 40000 体素半径会让渲染
 	// 八叉树撞 voxel.renderer.MaxRenderOctreeChunks（100 万，报 "Render octree update
 	// was stopped!"）。MaxLOD 只封顶「最粗」，调大不伤近处细节。
-	const float AutoLODRadius = FMath::Max(GetScaledRadiusVoxels(), 1.f);
+	const float AutoLODRadius = FMath::Max(GetGeneratorRadiusVoxels(), 1.f);
 	const int32 AutoLOD = FMath::Clamp(
 		FMath::RoundToInt(FMath::Log2(AutoLODRadius / 16.f)), 0, 8);
 	if (MaxLOD < AutoLOD + 4)
@@ -773,7 +772,7 @@ void AVoxelPlanetActor::StartGeoBake()
 	GeoBakeStarted.Broadcast(this);
 
 	// ToConfig 是唯一一次碰 UObject：烘焙线程只拿 POD。
-	FPlanetRecipeConfig Config = Recipe->ToConfig(double(GetScaledRadiusVoxels()));
+	FPlanetRecipeConfig Config = Recipe->ToConfig(double(GetGeneratorRadiusVoxels()));
 	// 编辑器里多留一份中间场给调试图层；打包后的游戏不需要，也不该多占 12 MB。
 	Config.bKeepDebugFields = GIsEditor;
 	PendingCacheHash = Config.Hash();
@@ -781,7 +780,7 @@ void AVoxelPlanetActor::StartGeoBake()
 	// 命中缓存就直接用：反序列化约 1–2 s，比重新烘焙快一个数量级。
 	if (!bForceRebake)
 	{
-		const int32 CacheRadius = FMath::RoundToInt(GetScaledRadiusVoxels());
+		const int32 CacheRadius = FMath::RoundToInt(GetGeneratorRadiusVoxels());
 		if (TSharedPtr<const FPlanetSnapshot> Cached =
 			GeoBakeCache::Load(GeoBakeCache::PackagePathFor(*this), int64(PendingCacheHash), CacheRadius))
 		{
@@ -849,7 +848,7 @@ void AVoxelPlanetActor::OnGeoBakeFinished(TSharedPtr<const FPlanetSnapshot> InSn
 	if (!bSnapshotFromCache)
 	{
 		GeoBakeCache::Store(GeoBakeCache::PackagePathFor(*this), *GeoSnapshot,
-			int64(PendingCacheHash), FMath::RoundToInt(GetScaledRadiusVoxels()));
+			int64(PendingCacheHash), FMath::RoundToInt(GetGeneratorRadiusVoxels()));
 	}
 #endif
 	UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor %s: 地质烘焙完成 %.2f s，半径 %.0f 体素，快照 %.1f MB，哈希 %016llx"),
@@ -863,8 +862,8 @@ void AVoxelPlanetActor::OnGeoBakeFinished(TSharedPtr<const FPlanetSnapshot> InSn
 
 void AVoxelPlanetActor::RebuildGeoPlanet()
 {
-	// 行星半径（含缩放）是唯一真源：快照按旧半径烘的就作废重烘。
-	if (GeoSnapshot.IsValid() && !FMath::IsNearlyEqual(GeoSnapshot->R0, double(GetScaledRadiusVoxels()), 0.5))
+	// 行星半径（未缩放）是唯一真源：快照按旧半径烘的就作废重烘。
+	if (GeoSnapshot.IsValid() && !FMath::IsNearlyEqual(GeoSnapshot->R0, double(GetGeneratorRadiusVoxels()), 0.5))
 	{
 		GeoSnapshot.Reset();
 		bGeoBakeFailed = false;
@@ -892,12 +891,12 @@ void AVoxelPlanetActor::RebuildGeoPlanet()
 	ApplyGeoDebugOverlay();
 
 	// 与旧路径同一收紧策略：边长收到半径 3 倍并取 2 的幂。
-	SetWorldSize(FMath::RoundUpToPowerOfTwo(FMath::CeilToInt(GetScaledRadiusVoxels() * 3.f)));
+	SetWorldSize(FMath::RoundUpToPowerOfTwo(FMath::CeilToInt(GetGeneratorRadiusVoxels() * 3.f)));
 	Generator = FVoxelGeneratorPicker(GeoGenerator.Get());
 
 	UE_LOG(LogTemp, Log,
 		TEXT("AVoxelPlanetActor: 地质世界边长 %u 体素，半径 %.0f 体素，MaxLOD %d，行星 invoker LOD %d 范围 %.0f 厘米"),
-		WorldSizeInVoxel, GetScaledRadiusVoxels(), MaxLOD,
+		WorldSizeInVoxel, GetGeneratorRadiusVoxels(), MaxLOD,
 		LODInvoker ? LODInvoker->LODToSet : -1,
 		LODInvoker ? LODInvoker->LODRange : 0.f);
 
@@ -1548,7 +1547,7 @@ bool AVoxelPlanetActor::RaycastSurfaceCm(
 
 uint64 AVoxelPlanetActor::ComputeParamsHash() const
 {
-	// 对推入生成器的每项设置做 FNV-1a 并混入派生缩放半径；每字段单独混合，避免填充
+	// 对推入生成器的每项设置做 FNV-1a 并混入半径；每字段单独混合，避免填充
 	// 字节漏进哈希。刻意不含 VoxelSize/MaxLOD/NumberOfThreads/VoxelMaterial（基类直接
 	// 重建，再哈希会重建两次）；LOD 档位由 RefreshLODInvoker 单独处理。
 	uint64 Hash = 1469598103934665603ULL;
@@ -1562,9 +1561,8 @@ uint64 AVoxelPlanetActor::ComputeParamsHash() const
 		}
 	};
 
-	// 混派生半径而非原始 Radius：缩放改了也要重建，而半径是唯一真正推给生成器的数。
-	// 移动不进哈希，因为球心恒在局部原点。
-	const float ScaledRadius = GetScaledRadiusVoxels();
+	// 混未缩放半径：Actor 缩放只影响表现，不该触发重建。移动也不进哈希，球心恒在局部原点。
+	const float ScaledRadius = GetGeneratorRadiusVoxels();
 	Mix(&ScaledRadius, sizeof(ScaledRadius));
 
 	// geo 模式：配方混路径（改内容走 InvalidateAndRebuild 重烘），再混快照内容哈希 ——
