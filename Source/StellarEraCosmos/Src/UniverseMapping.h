@@ -32,3 +32,30 @@ struct STELLARERACOSMOS_API FUniverseMapping
 		return bNear ? FVector3d(RelativeScene) : FVector3d(RelativeScene) / FarScale();
 	}
 };
+
+/** 当前天体：最近且进入近场；已选中时用 ExitScale 放宽阈值，避免边界抖动。 */
+inline int32 PickCurrentBody(const TArray<double>& DistancesCm, int32 PreviousIndex,
+	const FUniverseMapping& Mapping, double ExitScale = 2.0)
+{
+	int32 Nearest = INDEX_NONE;
+	double NearestDistance = TNumericLimits<double>::Max();
+	for (int32 Index = 0; Index < DistancesCm.Num(); ++Index)
+	{
+		if (DistancesCm[Index] < NearestDistance)
+		{
+			NearestDistance = DistancesCm[Index];
+			Nearest = Index;
+		}
+	}
+	if (Nearest == INDEX_NONE)
+	{
+		return INDEX_NONE;
+	}
+
+	const bool bKeepPrevious = PreviousIndex != INDEX_NONE && DistancesCm.IsValidIndex(PreviousIndex);
+	const double Threshold = bKeepPrevious
+		? Mapping.NearDistanceCm() * ExitScale
+		: Mapping.NearDistanceCm();
+
+	return NearestDistance <= Threshold ? Nearest : INDEX_NONE;
+}

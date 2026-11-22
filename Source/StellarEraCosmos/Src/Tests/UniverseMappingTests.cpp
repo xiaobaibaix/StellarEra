@@ -36,4 +36,24 @@ bool FStellarEraUniverseMappingTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraUniverseCurrentBodyTest,
+	"StellarEra.Cosmos.UniverseMapping.CurrentBody",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FStellarEraUniverseCurrentBodyTest::RunTest(const FString& Parameters)
+{
+	const FUniverseMapping Mapping;
+	const double Enter = Mapping.NearDistanceCm();
+	const double Exit = Enter * 2.0;
+
+	TestEqual(TEXT("没有天体"), PickCurrentBody({}, INDEX_NONE, Mapping), INDEX_NONE);
+	TestEqual(TEXT("最近且在近场内"), PickCurrentBody({ Enter * 0.5, Enter * 3.0 }, INDEX_NONE, Mapping), 0);
+	TestEqual(TEXT("全部在近场外"), PickCurrentBody({ Enter * 3.0, Enter * 4.0 }, INDEX_NONE, Mapping), INDEX_NONE);
+
+	// 滞回：已选中天体在 [Enter, Exit] 之间时不丢，出了 Exit 才丢。
+	TestEqual(TEXT("滞回区间保留"), PickCurrentBody({ Enter * 1.5, Enter * 9.0 }, 0, Mapping), 0);
+	TestEqual(TEXT("超出滞回区间"), PickCurrentBody({ Enter * 2.5, Enter * 9.0 }, 0, Mapping), INDEX_NONE);
+
+	return true;
+}
+
 #endif
