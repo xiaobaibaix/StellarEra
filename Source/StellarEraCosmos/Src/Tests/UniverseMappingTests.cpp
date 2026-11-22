@@ -54,7 +54,7 @@ bool FStellarEraUniverseCurrentBodyTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("超出滞回区间"), PickCurrentBody({ Enter * 2.5, Enter * 9.0 }, 0, Mapping), INDEX_NONE);
 
 	TestEqual(TEXT("上一颗在退出区内，别的更近也保留"),
-		PickCurrentBody({ Enter * 3.0, Exit * 0.75 }, 1, Mapping), 1);
+		PickCurrentBody({ Enter * 0.5, Exit * 0.75 }, 1, Mapping), 1);
 	TestEqual(TEXT("上一颗超出退出区，最近一颗在进入区内"),
 		PickCurrentBody({ Exit * 1.25, Enter * 0.5 }, 0, Mapping), 1);
 	TestEqual(TEXT("上一颗超出退出区，最近一颗未进进入区"),
