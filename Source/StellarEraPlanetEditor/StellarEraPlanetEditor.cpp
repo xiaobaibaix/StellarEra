@@ -1,4 +1,9 @@
 ﻿#include "StellarEraPlanetEditor.h"
+#include "Containers/Ticker.h"
+#include "EditorPlanetControls.h"
+#include "Engine/Engine.h"
+#include "Engine/World.h"
+#include "EngineUtils.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/Docking/TabManager.h"
 #include "HAL/IConsoleManager.h"
@@ -44,6 +49,39 @@ public:
 
 		// 关编辑器时把脏的烘焙缓存静默落盘。
 		GPreExitSaveHandle = FCoreDelegates::OnPreExit.AddLambda([]() { GeoBakeCache::SaveDirty(); });
+
+		// 映射预览开关：以控制 Actor 的勾选值为唯一真源，周期同步 CVar。
+		// 不走 PostEditChangeProperty —— 面板/撤销/Python 改值都可能绕过它。
+		PreviewSyncHandle = FTSTicker::GetCoreTicker().AddTicker(
+			FTickerDelegate::CreateLambda([](float)
+			{
+				UWorld* EditorWorld = nullptr;
+				if (GEngine)
+				{
+					for (const FWorldContext& Context : GEngine->GetWorldContexts())
+					{
+						if (Context.WorldType == EWorldType::Editor && Context.World())
+						{
+							EditorWorld = Context.World();
+							break;
+						}
+					}
+				}
+				if (!EditorWorld)
+				{
+					return true;
+				}
+				for (TActorIterator<AEditorPlanetControls> It(EditorWorld); It; ++It)
+				{
+					if (IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(
+						TEXT("StellarEra.Cosmos.EditorPreview")))
+					{
+						CVar->Set(It->bEditorMappingPreview ? 1 : 0);
+					}
+					break;
+				}
+				return true;
+			}), 0.2f);
 	}
 
 	virtual void ShutdownModule() override
@@ -55,11 +93,18 @@ public:
 			PropertyEditor.UnregisterCustomPropertyTypeLayout(FGeoBakeNowAction::StaticStruct()->GetFName());
 		}
 		FCoreDelegates::OnPreExit.Remove(GPreExitSaveHandle);
+		if (PreviewSyncHandle.IsValid())
+		{
+			FTSTicker::GetCoreTicker().RemoveTicker(PreviewSyncHandle);
+		}
 		if (FSlateApplication::IsInitialized())
 		{
 			FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(GeoViewerTabName);
 		}
 	}
+
+private:
+	FTSTicker::FDelegateHandle PreviewSyncHandle;
 };
 
 IMPLEMENT_MODULE(FStellarEraPlanetEditorModule, StellarEraPlanetEditor);

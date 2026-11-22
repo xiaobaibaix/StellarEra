@@ -54,4 +54,6 @@ public:
 
 	/** 切换网格缩放：物理模式用真实半径，否则用旧渲染标定的 10000。 */
 	void ApplyScaleMode(bool bPhysical);
+
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 };

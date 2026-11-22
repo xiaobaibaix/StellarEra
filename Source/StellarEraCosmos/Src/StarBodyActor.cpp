@@ -1,5 +1,6 @@
 ﻿#include "StarBodyActor.h"
 
+#include "CosmosSimulationSubsystem.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Materials/MaterialInterface.h"
@@ -57,4 +58,15 @@ void AStarBodyActor::ApplyScaleMode(bool bPhysical)
 	const double LocalRadiusCm = VisualScale
 		* (bPhysical ? double(PhysicalRadiusKm) * CosmosUnits::CentimetersPerKilometer : 5.0e5);
 	StarMesh->SetRelativeScale3D(FVector(LocalRadiusCm / 50.0));
+}
+
+void AStarBodyActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+
+	// 面板改真实半径后立刻重算网格；物理模式由配置决定，预览关着也能看到尺寸变化。
+	if (PropertyChangedEvent.GetPropertyName() == GET_MEMBER_NAME_CHECKED(AStarBodyActor, PhysicalRadiusKm))
+	{
+		ApplyScaleMode(GetDefault<UCosmosSimulationSubsystem>()->bPhysicalScale);
+	}
 }
