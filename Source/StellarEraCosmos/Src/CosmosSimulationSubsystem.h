@@ -125,6 +125,14 @@ public:
 		meta = (DisplayName = "世界标定（厘米/AU）"))
 	double CentimetersPerAu = 1.0e6;
 
+	/** 开 = 求解器与全部仿真换算用真实物理 AU；关 = 沿用渲染标定（默认，行为不变）。 */
+	UPROPERTY(Config, EditAnywhere, Category = "Cosmos|Scale",
+		meta = (DisplayName = "bPhysicalScale"))
+	bool bPhysicalScale = false;
+
+	/** 本帧仿真空间使用的 1 AU 厘米数：bPhysicalScale 决定是物理值还是渲染值。 */
+	double ActiveCmPerAu = 1.0e6;
+
 	/** 模拟年 / 真实秒。默认 0.00333，即公转一圈约 300 秒。 */
 	UPROPERTY(Config, EditAnywhere, Category = "Cosmos|Time",
 		meta = (DisplayName = "时间流速（模拟年/真实秒）"))
