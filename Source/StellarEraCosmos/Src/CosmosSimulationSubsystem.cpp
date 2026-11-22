@@ -725,9 +725,13 @@ void UCosmosSimulationSubsystem::UpdateCurrentBody()
 	}
 	if (Picked == INDEX_NONE)
 	{
-		// 深空：原点转钉到飞船，世界坐标不再随旧天体增长；行星全部转远场代理。
-		RenderAnchorWorld = Simulator.ToWorldLocation(Positions[ShipIndex]);
-		RenderAnchorIndex = ShipIndex;
+		// 物理模式才转移原点；关闭时保持旧坐标系，避免改写世界空间轨迹。
+		if (bPhysicalScale)
+		{
+			RenderAnchorWorld = Simulator.ToWorldLocation(Positions[ShipIndex]);
+			RenderAnchorIndex = ShipIndex;
+			LastAnchorAu = Positions[ShipIndex];
+		}
 		CurrentBodyIndex = INDEX_NONE;
 		return;
 	}
@@ -864,6 +868,8 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 		FarScale = Mapping.FarScale();
 
 		// 预测查询在轨迹组件的 Tick 里跑，拿不到这一帧的局部量 —— 缓存下来复用同一份中心。
+		LastAnchorAu = AnchorAu;
+		LastShipIndex = ShipIndex;
 		LastShipAu = ShipAu;
 		LastShipWorld = ShipWorld;
 	}
@@ -876,28 +882,29 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 			continue;
 		}
 
-		// 物理模式缩到 FarScale 后旧 10000 只剩 0.3mm；非物理模式构造时已设好，别覆盖实例改值。
-		if (bPhysicalScale)
-		{
-			if (AStarBodyActor* Star = Cast<AStarBodyActor>(BodyActor))
-			{
-				Star->ApplyScaleMode(true);
-			}
-		}
-
 		const FVector PreviousLocation = BodyActor->GetActorLocation();
-
-		const bool bNear = bPhysicalScale
-			&& (Component->SimulatorIndex == CurrentBodyIndex || Component->SimulatorIndex == ShipIndex);
-
-		// 物理尺度下的远场行星只留代理球：体素与碰撞在 0.1 AU 外毫无意义。
-		if (AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(BodyActor))
-		{
-			Planet->SetFarFieldMode(bPhysicalScale && !bNear);
-		}
 
 		if (Component->bSimulated)
 		{
+			const bool bNear = bPhysicalScale
+				&& (Component->SimulatorIndex == CurrentBodyIndex || Component->SimulatorIndex == ShipIndex);
+
+			// 非模拟天体不改视觉：它们在物理模式下没有位移写回，改成真实半径会停在摆放处。
+			// 物理模式缩到 FarScale 后旧 10000 只剩 0.3mm；非物理模式构造时已设好，别覆盖实例改值。
+			if (bPhysicalScale)
+			{
+				if (AStarBodyActor* Star = Cast<AStarBodyActor>(BodyActor))
+				{
+					Star->ApplyScaleMode(true);
+				}
+			}
+
+			// 物理尺度下的远场行星只留代理球：体素与碰撞在 0.1 AU 外毫无意义。
+			if (AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(BodyActor))
+			{
+				Planet->SetFarFieldMode(bPhysicalScale && !bNear);
+			}
+
 			const FCosmosBodyState& State = Simulator.GetBody(Component->SimulatorIndex);
 
 			// 写回插值后的位姿，不写求解器当前解 —— 后者是「整步跳」的源头。
@@ -1036,7 +1043,7 @@ bool UCosmosSimulationSubsystem::PredictTrajectoryWorld(int32 SimulatorIndex, do
 	OutWorldPositions.Reserve(GameUnitPositions.Num());
 	for (const FVector3d& Position : GameUnitPositions)
 	{
-		OutWorldPositions.Add(PredictionToWorld(Position));
+		OutWorldPositions.Add(PredictionToWorld(Position, SimulatorIndex));
 	}
 	return true;
 }
@@ -1056,13 +1063,13 @@ bool UCosmosSimulationSubsystem::PredictClosedOrbitWorld(int32 SimulatorIndex,
 	{
 		return false;
 	}
-	OutPrimaryWorld = PredictionToWorld(Prediction.PrimaryPosition);
+	OutPrimaryWorld = PredictionToWorld(Prediction.PrimaryPosition, SimulatorIndex);
 
 	// 闭环相对主导天体：锚回它 t=0 的位置再转世界坐标。主导天体自己也在动，绝对路径是摆线。
 	OutWorldPositions.Reserve(Prediction.RelativePositions.Num());
 	for (const FVector3d& Relative : Prediction.RelativePositions)
 	{
-		OutWorldPositions.Add(PredictionToWorld(Relative + Prediction.PrimaryPosition));
+		OutWorldPositions.Add(PredictionToWorld(Relative + Prediction.PrimaryPosition, SimulatorIndex));
 	}
 	return true;
 }

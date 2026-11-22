@@ -377,6 +377,7 @@ private:
 	/** 远场模式：进入时记录被隐藏的图元与碰撞状态，回近场原样恢复。 */
 	bool bFarFieldMode = false;
 	bool bCollisionBeforeFarField = true;
+	UPROPERTY()
 	TArray<TObjectPtr<UPrimitiveComponent>> FarHiddenPrimitives;
 	/** 按高程图层烘地表底图并切换材质；返回材质是否换了（换了要 ApplyNewMaterials）。 */
 	bool ApplyGeoDebugOverlay();

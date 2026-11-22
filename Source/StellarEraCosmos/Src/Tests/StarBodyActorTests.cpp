@@ -7,6 +7,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "StarBodyActor.h"
 #include "CosmosOrbitComponent.h"
+#include "CosmosTypes.h"
 #include "StarBodyComponent.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -73,7 +74,8 @@ bool FStellarEraStarBodyActorSkeletonTest::RunTest(const FString& Parameters)
 		// 物理模式：局部半径 = 真实半径，Actor 再乘 FarScale 得到远场尺寸。
 		TestEqual(TEXT("默认物理半径"), Star->PhysicalRadiusKm, 696340.0f, 0.5f);
 		Star->ApplyScaleMode(true);
-		const double ExpectedPhysicalScale = double(Star->PhysicalRadiusKm) * 1.0e5 / 50.0;
+		const double ExpectedPhysicalScale =
+			double(Star->PhysicalRadiusKm) * CosmosUnits::CentimetersPerKilometer / 50.0;
 		const FVector PhysicalScale = Star->StarMesh->GetRelativeScale3D();
 		TestEqual(TEXT("物理缩放 X"), PhysicalScale.X, ExpectedPhysicalScale, 1000.0);
 		TestEqual(TEXT("物理缩放 Y"), PhysicalScale.Y, ExpectedPhysicalScale, 1000.0);
@@ -91,7 +93,7 @@ bool FStellarEraStarBodyActorSkeletonTest::RunTest(const FString& Parameters)
 		const UStaticMesh* Mesh = Star->StarMesh->GetStaticMesh();
 		if (TestNotNull(TEXT("静态网格"), Mesh))
 		{
-			// BasicShapes/Sphere 的外接半径是 50cm，×200000 = 1e7cm = 100 公里。
+			// BasicShapes/Sphere 的外接半径是 50cm，×10000 = 5e5cm = 5 公里。
 			const FBoxSphereBounds Bounds = Mesh->GetBounds();
 			TestEqual(TEXT("球半径 50cm"), (double)Bounds.SphereRadius, 50.0, 0.1);
 		}

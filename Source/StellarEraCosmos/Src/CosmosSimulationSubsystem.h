@@ -253,19 +253,27 @@ private:
 	/** 当前天体（求解器下标）。星图模式下冻结；深空为 INDEX_NONE，此时 RenderAnchorIndex 指向飞船。 */
 	int32 CurrentBodyIndex = INDEX_NONE;
 
-	/** 物理模式下的远场中心（飞船），Tick 里缓存；预测查询复用它换算，否则会差 1.5e7 倍。 */
+	/** 物理模式下的近场锚与远场中心（飞船），Tick 里缓存；预测查询复用它换算，否则会差 1.5e7 倍。 */
+	FVector3d LastAnchorAu = FVector3d::ZeroVector;
 	FVector3d LastShipAu = FVector3d::ZeroVector;
 	FVector LastShipWorld = FVector::ZeroVector;
+	int32 LastShipIndex = INDEX_NONE;
 
-	/** 预测点 → 世界。物理模式以飞船为远场中心（与写回同一条映射），关闭时保持求解器标定。 */
-	FVector PredictionToWorld(const FVector3d& AuPosition) const
+	/** 预测点 → 世界，索引取该点所属天体。近场（当前天体 / 飞船）1:1，其余走飞船远场压缩。 */
+	FVector PredictionToWorld(const FVector3d& Au, int32 BodyIndex) const
 	{
-		return bPhysicalScale
-			? LastShipWorld + FVector((AuPosition - LastShipAu) * CentimetersPerAu)
-			: Simulator.ToWorldLocation(AuPosition);
+		if (!bPhysicalScale)
+		{
+			return Simulator.ToWorldLocation(Au);
+		}
+		if (BodyIndex == CurrentBodyIndex || BodyIndex == LastShipIndex)
+		{
+			return RenderAnchorWorld + FVector((Au - LastAnchorAu) * FUniverseMapping::PhysicalCmPerAu);
+		}
+		return LastShipWorld + FVector((Au - LastShipAu) * CentimetersPerAu);
 	}
 
-	/** 映射参数（M2 只用它的近场阈值；压缩在 M3 接）。 */
+	/** 映射参数（近场阈值与写回压缩都已接）。 */
 	FUniverseMapping Mapping;
 
 	/** 自动推导出的积分步长，单位模拟年。 */

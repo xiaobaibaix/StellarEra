@@ -30,7 +30,7 @@ public:
 	AStarBodyActor();
 
 	/**
-	 * 空场景根。不能是网格：恒星的视觉缩放（×200000）会沿层级传给挂在根下的星图
+	 * 空场景根。不能是网格：恒星的视觉缩放（×10000）会沿层级传给挂在根下的星图
 	 * 相机（BP 的 ChildActor）与轨迹线组件。缩放只让 StarMesh 吃。
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "StellarEra|Star")
