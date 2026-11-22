@@ -7,6 +7,7 @@
 #include "CosmosTypes.h"
 #include "CosmosBody.h"
 #include "CosmosCurveFilter.h"
+#include "UniverseMapping.h"
 #include "VoxelPlanetActor.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
@@ -1483,7 +1484,9 @@ void UCosmosTrajectoryComponent::DrawInEditor()
 		}
 
 		FCosmosBodyState State;
-		State.Position = EditorSimulator.ToGameUnitPosition(OwnerActor->GetActorLocation());
+		State.Position = ResolveInitialPosition(
+			EditorSimulator.ToGameUnitPosition(OwnerActor->GetActorLocation()),
+			Component->InitialPositionAu, Component->bUseInitialPositionAu);
 		State.Velocity = CosmosUnits::KilometerPerSecondToAuPerYear(
 			FVector3d(Component->InitialVelocityKmPerSecond));
 		State.Mass = CosmosUnits::EarthMassToSolarMass(Component->MassEarth);

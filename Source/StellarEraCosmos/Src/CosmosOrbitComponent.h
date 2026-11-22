@@ -71,7 +71,7 @@ public:
 
 	/**
 	 * 是否每帧把求解器算出的位置写回所属 Actor。假 = Actor 待在原地、求解器里照样漂，
-	 * 只适合纯装饰的远处天体。它**不决定初始状态**：初态始终是「摆放位置 + 初速度」。
+	 * 只适合纯装饰的远处天体。它**不决定初始状态**：初态由摆放位置（或 InitialPositionAu）与初速度共同决定。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Body")
 	bool bSimulated = true;
