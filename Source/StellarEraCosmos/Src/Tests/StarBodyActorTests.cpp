@@ -70,6 +70,20 @@ bool FStellarEraStarBodyActorSkeletonTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("缩放 Y"), Scale.Y, 10000.0, 0.5);
 		TestEqual(TEXT("缩放 Z"), Scale.Z, 10000.0, 0.5);
 
+		// 物理模式：局部半径 = 真实半径，Actor 再乘 FarScale 得到远场尺寸。
+		Star->ApplyScaleMode(true);
+		const double ExpectedPhysicalScale = double(Star->PhysicalRadiusKm) * 1.0e5 / 50.0;
+		const FVector PhysicalScale = Star->StarMesh->GetRelativeScale3D();
+		TestEqual(TEXT("物理缩放 X"), PhysicalScale.X, ExpectedPhysicalScale, 1000.0);
+		TestEqual(TEXT("物理缩放 Y"), PhysicalScale.Y, ExpectedPhysicalScale, 1000.0);
+		TestEqual(TEXT("物理缩放 Z"), PhysicalScale.Z, ExpectedPhysicalScale, 1000.0);
+
+		Star->ApplyScaleMode(false);
+		const FVector RestoredScale = Star->StarMesh->GetRelativeScale3D();
+		TestEqual(TEXT("恢复缩放 X"), RestoredScale.X, 10000.0, 0.5);
+		TestEqual(TEXT("恢复缩放 Y"), RestoredScale.Y, 10000.0, 0.5);
+		TestEqual(TEXT("恢复缩放 Z"), RestoredScale.Z, 10000.0, 0.5);
+
 		TestEqual(TEXT("不参与碰撞"), Star->StarMesh->GetCollisionEnabled(),
 			ECollisionEnabled::NoCollision);
 

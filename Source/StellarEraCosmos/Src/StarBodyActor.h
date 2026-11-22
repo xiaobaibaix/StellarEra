@@ -47,4 +47,11 @@ public:
 	/** 视觉 / 大气身份：大气组件靠它认出「这是一颗恒星」。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "StellarEra|Star")
 	TObjectPtr<UStarBodyComponent> StarBody;
+
+	/** 真实半径（km）。物理尺度下网格局部半径取它，再由 Actor 缩放压成远场尺寸。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "StellarEra|Star", meta = (DisplayName = "PhysicalRadiusKm"))
+	float PhysicalRadiusKm = 696340.f;
+
+	/** 切换网格缩放：物理模式用真实半径，否则用旧渲染标定的 10000。 */
+	void ApplyScaleMode(bool bPhysical);
 };

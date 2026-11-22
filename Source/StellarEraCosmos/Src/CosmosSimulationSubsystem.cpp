@@ -5,6 +5,7 @@
 #include "CosmosOrbitComponent.h"
 #include "VoxelPlanetActor.h"
 #include "CosmosBody.h"
+#include "StarBodyActor.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Pawn.h"
@@ -873,6 +874,12 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 		if (!BodyActor || Component->SimulatorIndex == INDEX_NONE)
 		{
 			continue;
+		}
+
+		// 恒星网格的局部半径要跟着尺度模式走：物理模式缩到 FarScale 后，旧 10000 只剩 0.3mm。
+		if (AStarBodyActor* Star = Cast<AStarBodyActor>(BodyActor))
+		{
+			Star->ApplyScaleMode(bPhysicalScale);
 		}
 
 		const FVector PreviousLocation = BodyActor->GetActorLocation();

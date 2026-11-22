@@ -29,9 +29,8 @@ AStarBodyActor::AStarBodyActor()
 		StarMesh->SetStaticMesh(SphereMesh.Object);
 	}
 
-	// BasicShapes/Sphere 半径 50cm，×10000 = 5 公里：在 1e8cm 轨道半径上张角约 0.57°，
-	// 与真实太阳的观感一致。×200000（100 公里、11°）会把日面塞到行星位置附近，已废弃。
-	StarMesh->SetRelativeScale3D(FVector(10000.0f));
+	// 旧渲染标定：BasicShapes/Sphere 半径 50cm，×10000 = 5 公里；物理模式改由 ApplyScaleMode 切成真实半径。
+	ApplyScaleMode(false);
 
 	// 恒星不参与碰撞，也不投阴影：它是自发光体，阴影只由 DirectionalLight 产生。
 	StarMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -47,4 +46,11 @@ AStarBodyActor::AStarBodyActor()
 
 	Orbit = CreateDefaultSubobject<UCosmosOrbitComponent>(TEXT("Orbit"));
 	StarBody = CreateDefaultSubobject<UStarBodyComponent>(TEXT("StarBody"));
+}
+
+void AStarBodyActor::ApplyScaleMode(bool bPhysical)
+{
+	// BasicShapes/Sphere 半径 50cm；物理模式用真实半径，远场由 Actor 缩放压到 FarScale。
+	const double LocalRadiusCm = bPhysical ? double(PhysicalRadiusKm) * 1.0e5 : 5.0e5;
+	StarMesh->SetRelativeScale3D(FVector(LocalRadiusCm / 50.0));
 }
