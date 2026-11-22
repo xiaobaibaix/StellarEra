@@ -66,9 +66,9 @@ bool FStellarEraStarBodyActorSkeletonTest::RunTest(const FString& Parameters)
 			static_cast<USceneComponent*>(Star->StarRoot.Get()));
 
 		const FVector Scale = Star->StarMesh->GetRelativeScale3D();
-		TestEqual(TEXT("缩放 X"), Scale.X, 200000.0, 0.5);
-		TestEqual(TEXT("缩放 Y"), Scale.Y, 200000.0, 0.5);
-		TestEqual(TEXT("缩放 Z"), Scale.Z, 200000.0, 0.5);
+		TestEqual(TEXT("缩放 X"), Scale.X, 10000.0, 0.5);
+		TestEqual(TEXT("缩放 Y"), Scale.Y, 10000.0, 0.5);
+		TestEqual(TEXT("缩放 Z"), Scale.Z, 10000.0, 0.5);
 
 		TestEqual(TEXT("不参与碰撞"), Star->StarMesh->GetCollisionEnabled(),
 			ECollisionEnabled::NoCollision);
