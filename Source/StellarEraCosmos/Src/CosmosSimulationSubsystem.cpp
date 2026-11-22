@@ -125,12 +125,12 @@ void UCosmosSimulationSubsystem::AddBodyToSimulator(UCosmosOrbitComponent* Compo
 	if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(BodyActor))
 	{
 		// 平均球半径只是兜底：第一次 Tick 会被 RefreshPlanetContactRadii 换成地形半径。
-		State.Radius = double(Planet->GetSurfaceRadiusCm()) / CentimetersPerAu;
+		State.Radius = double(Planet->GetPhysicalRadiusCm()) / FUniverseMapping::PhysicalCmPerAu;
 	}
 	else if (const ICosmosBody* Ship = Cast<ICosmosBody>(BodyActor))
 	{
 		// 300 cm 球只是兜底：第一次 Tick 会被 RefreshShipContactProbes 换成凸包探针（Radius 置 0）。
-		State.Radius = double(Ship->GetContactRadiusCm()) / CentimetersPerAu;
+		State.Radius = double(Ship->GetContactRadiusCm()) / FUniverseMapping::PhysicalCmPerAu;
 
 		// 刚体：姿态归求解器，Actor 的 Rotation 每帧从这里写回；关卡摆放朝向是初态。
 		// FQuat 与 FQuat4d 精度不同，逐个分量转。
@@ -190,7 +190,7 @@ void UCosmosSimulationSubsystem::RefreshPlanetContactRadii()
 		const double SurfaceRadiusCm = double(Planet->GetSurfaceRadiusCmAtDirection(Direction));
 		if (SurfaceRadiusCm > 0.0)
 		{
-			Simulator.GetBodyMutable(Index).Radius = SurfaceRadiusCm / CentimetersPerAu;
+			Simulator.GetBodyMutable(Index).Radius = SurfaceRadiusCm / FUniverseMapping::PhysicalCmPerAu;
 		}
 	}
 }
@@ -219,7 +219,7 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 		if (LocalProbes.Num() == 0)
 		{
 			State.SetContactProbes({});
-			State.Radius = double(Ship->GetContactRadiusCm()) / CentimetersPerAu;
+			State.Radius = double(Ship->GetContactRadiusCm()) / FUniverseMapping::PhysicalCmPerAu;
 
 			// 按 spec §3.4 退回球体惯量。当前是空转：探针已清空，接触走球-球分支，而那条
 			// 分支不施加角冲量。写它只为将来球-球开始做旋转接触时不必回头找。
@@ -238,7 +238,7 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 		Probes.Reserve(LocalProbes.Num());
 		for (const FVector& LocalProbe : LocalProbes)
 		{
-			Probes.Add(FVector3d(LocalProbe * ActorScale) / CentimetersPerAu);
+			Probes.Add(FVector3d(LocalProbe * ActorScale) / FUniverseMapping::PhysicalCmPerAu);
 		}
 
 		State.SetContactProbes(MoveTemp(Probes));
@@ -257,7 +257,7 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 		if (HalfExtentCm.X > 0.f && HalfExtentCm.Y > 0.f && HalfExtentCm.Z > 0.f)
 		{
 			State.InverseInertiaLocal = FCosmosBodyState::InverseInertiaFromBox(
-				State.Mass, FVector3d(HalfExtentCm) / CentimetersPerAu);
+				State.Mass, FVector3d(HalfExtentCm) / FUniverseMapping::PhysicalCmPerAu);
 		}
 		else
 		{
@@ -287,9 +287,9 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 
 			const double Distance =
 				(State.Position - Simulator.GetBody(Other).Position).Size();
-			const double GateCm = double(Candidate->GetSurfaceRadiusCm()) * 1.25
-				+ State.ContactProbeRadius * CentimetersPerAu;
-			if (Distance * CentimetersPerAu >= GateCm)
+			const double GateCm = double(Candidate->GetPhysicalRadiusCm()) * 1.25
+				+ State.ContactProbeRadius * FUniverseMapping::PhysicalCmPerAu;
+			if (Distance * FUniverseMapping::PhysicalCmPerAu >= GateCm)
 			{
 				continue;
 			}
@@ -312,7 +312,7 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 
 		// 方向量化：一格 ≈ 地表 1 体素。船体投影到地表通常只有个位数格，真正 march 的次数也是。
 		const double BaseRadiusVoxels =
-			double(Planet->GetSurfaceRadiusCm()) / FMath::Max(double(Planet->VoxelSize), 1.0);
+			double(Planet->GetPhysicalRadiusCm()) / FMath::Max(double(Planet->VoxelSize), 1.0);
 
 		TMap<FIntVector, double> SurfaceRadiusCache;
 		int32 NumQueries = 0;
@@ -331,7 +331,7 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 			if (UnitDirection.IsNearlyZero())
 			{
 				// 探针正好落在星心：方向无定义，交给解析半径兜底。
-				SurfaceRadii.Add(double(Planet->GetSurfaceRadiusCm()) / CentimetersPerAu);
+				SurfaceRadii.Add(double(Planet->GetPhysicalRadiusCm()) / FUniverseMapping::PhysicalCmPerAu);
 				continue;
 			}
 
@@ -373,7 +373,7 @@ void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 			}
 
 			// 缓存与逐探针数组都存 AU —— 求解器单位。
-			const double SurfaceRadiusAu = SurfaceRadiusCm / CentimetersPerAu;
+			const double SurfaceRadiusAu = SurfaceRadiusCm / FUniverseMapping::PhysicalCmPerAu;
 			SurfaceRadiusCache.Add(Key, SurfaceRadiusAu);
 			SurfaceRadii.Add(SurfaceRadiusAu);
 		}
@@ -526,6 +526,9 @@ void UCosmosSimulationSubsystem::FinalizeRegistration()
 	{
 		AddBodyToSimulator(Component);
 	}
+
+	// 映射的渲染标定必须跟配置同源，否则 M3b 的压缩阈值会与写回分叉。
+	Mapping.RenderCmPerAu = CentimetersPerAu;
 
 	// 必须在全部注册完之后：注册用的是绝对坐标（原点还是零），开局位置才与关卡摆放逐位一致。
 	SelectRenderAnchor();
