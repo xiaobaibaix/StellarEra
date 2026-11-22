@@ -23,6 +23,7 @@ class UPlanetGeoGenerator;
 class UPlanetRecipe;
 struct FPlanetSnapshot;
 class UVoxelSimpleInvokerComponent;
+class UStaticMeshComponent;
 class UTextureCube;
 class UTexture2D;
 class AVoxelPlanetActor;
@@ -70,6 +71,14 @@ public:
 
 	/** 显示 / 隐藏编辑模式下的表面网格。 */
 	void SetEditGridVisible(bool bVisible);
+
+	/** 远场代理：一个禁用碰撞与阴影的球，按物理半径缩放，只在远场可见。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet", meta = (DisplayName = "FarProxy"))
+	TObjectPtr<UStaticMeshComponent> FarProxy;
+
+	/** 远场模式：隐藏体素与其它图元，只留代理；关闭碰撞。近场恢复原状。 */
+	void SetFarFieldMode(bool bFar);
+	bool IsFarFieldMode() const { return bFarFieldMode; }
 
 	/**
 	 * 体素被编辑后调用：通知表面网格重建并标记未保存编辑。**不在这里存档**：旧的
@@ -365,6 +374,10 @@ private:
 	/** 本次快照来自缓存：命中后不再回写，避免每次启动都把缓存重新标脏。 */
 	bool bSnapshotFromCache = false;
 	bool bForceRebake = false;
+	/** 远场模式：进入时记录被隐藏的图元与碰撞状态，回近场原样恢复。 */
+	bool bFarFieldMode = false;
+	bool bCollisionBeforeFarField = true;
+	TArray<TObjectPtr<UPrimitiveComponent>> FarHiddenPrimitives;
 	/** 按高程图层烘地表底图并切换材质；返回材质是否换了（换了要 ApplyNewMaterials）。 */
 	bool ApplyGeoDebugOverlay();
 	FName OverlayBakedLayer;

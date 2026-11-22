@@ -14,6 +14,8 @@
 #include "PlanetSurfaceGridComponent.h"
 #include "PlanetSunLightComponent.h"
 #include "Sky/PlanetSkyLightComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Engine/TextureCube.h"
@@ -185,6 +187,19 @@ AVoxelPlanetActor::AVoxelPlanetActor()
 
 	// 恒星灯同理：有没有大气壳都要照亮行星，所以挂在星球上而不是大气组件里。
 	SunLightDriver = CreateDefaultSubobject<UPlanetSunLightComponent>(TEXT("SunLightDriver"));
+
+	// 远场只画这一个球：体素在远场是全屏噪点，且几万公里外勾不出细节。
+	FarProxy = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("FarProxy"));
+	FarProxy->SetupAttachment(RootComponent);
+	FarProxy->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	FarProxy->SetCastShadow(false);
+	FarProxy->SetVisibility(false, true);
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> FarProxySphere(
+		TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+	if (FarProxySphere.Succeeded())
+	{
+		FarProxy->SetStaticMesh(FarProxySphere.Object);
+	}
 
 	// 大气壳、矿物观察与表面编辑网格由 BP_VoxelPlanet 挂载；原生实例不带，
 	// 编辑相关调用走 FindEditGrid()，找不到就跳过。
@@ -991,6 +1006,54 @@ void AVoxelPlanetActor::SetEditGridVisible(const bool bVisible)
 	if (UPlanetSurfaceGridComponent* Grid = FindEditGrid())
 	{
 		Grid->SetGridVisible(bVisible);
+	}
+}
+
+void AVoxelPlanetActor::SetFarFieldMode(bool bFar)
+{
+	if (bFarFieldMode == bFar)
+	{
+		return;
+	}
+	bFarFieldMode = bFar;
+	if (!FarProxy)
+	{
+		return;
+	}
+
+	if (bFar)
+	{
+		// BasicShapes/Sphere 半径 50cm；物理半径不含 Actor 缩放。
+		FarProxy->SetRelativeScale3D(FVector(GetPhysicalRadiusCm() / 50.f));
+		FarProxy->SetVisibility(true, true);
+
+		// 只记录并恢复确实是本次隐藏的：编辑网格、大气壳等可能本来就被各自逻辑藏着。
+		FarHiddenPrimitives.Reset();
+		TArray<UPrimitiveComponent*> Primitives;
+		GetComponents(Primitives);
+		for (UPrimitiveComponent* Primitive : Primitives)
+		{
+			if (Primitive && Primitive != FarProxy && Primitive->IsVisible())
+			{
+				Primitive->SetVisibility(false, true);
+				FarHiddenPrimitives.Add(Primitive);
+			}
+		}
+		bCollisionBeforeFarField = GetActorEnableCollision();
+		SetActorEnableCollision(false);
+	}
+	else
+	{
+		FarProxy->SetVisibility(false, true);
+		for (UPrimitiveComponent* Primitive : FarHiddenPrimitives)
+		{
+			if (Primitive)
+			{
+				Primitive->SetVisibility(true, true);
+			}
+		}
+		FarHiddenPrimitives.Reset();
+		SetActorEnableCollision(bCollisionBeforeFarField);
 	}
 }
 
