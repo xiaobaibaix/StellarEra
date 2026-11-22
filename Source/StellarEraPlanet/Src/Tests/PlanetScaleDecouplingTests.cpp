@@ -32,6 +32,9 @@ bool FStellarEraPlanetScaleDecouplingTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("LOD 不随缩放变化"), Planet->ComputeOrbitLOD(), BaseLOD);
 	TestEqual(TEXT("生成器半径不含缩放"), Planet->GetGeneratorRadiusVoxels(), 100.f, 0.f);
 
+	// 物理半径 = 未缩放体素半径 × 体素尺寸；缩放到 2 时不变。
+	TestEqual(TEXT("物理半径不含缩放"), Planet->GetPhysicalRadiusCm(), 100.f * 100.f, 0.01f);
+
 	return true;
 }
 

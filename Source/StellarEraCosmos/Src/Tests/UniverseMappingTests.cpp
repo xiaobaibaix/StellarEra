@@ -1,6 +1,7 @@
 ﻿#include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "UniverseMapping.h"
+#include "CosmosTypes.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -20,7 +21,7 @@ bool FStellarEraUniverseMappingTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("近场位置恒等"), Mapping.ToRender(NearPoint, true).Equals(FVector(NearPoint)));
 	TestEqual(TEXT("近场缩放为 1"), Mapping.ScaleFor(true), 1.0, 0.0);
 
-	const double RealDistance = 1.496e13;
+	const double RealDistance = CosmosUnits::AuToCentimeter;
 	const double BodyRadius = 6.96e10;
 	TestFalse(TEXT("1 AU 走远场"), Mapping.IsNear(RealDistance));
 	TestTrue(TEXT("近场判定正例"), Mapping.IsNear(Mapping.NearDistanceCm() * 0.5));
@@ -34,6 +35,9 @@ bool FStellarEraUniverseMappingTest::RunTest(const FString& Parameters)
 	const FVector3d FarPoint(3.0e12, 4.0e12, -1.0e12);
 	TestTrue(TEXT("远场往返一致"),
 		Mapping.ToSim(Mapping.ToRender(FarPoint, false), false).Equals(FarPoint, 1.0));
+
+	TestTrue(TEXT("物理常量复用 CosmosUnits"),
+		FUniverseMapping::PhysicalCmPerAu == CosmosUnits::AuToCentimeter);
 
 	return true;
 }

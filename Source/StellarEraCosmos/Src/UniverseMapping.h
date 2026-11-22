@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include "CoreMinimal.h"
+#include "CosmosTypes.h"
 
 /**
  * 大尺度渲染映射：仿真（物理 AU）→ 表现空间（世界厘米）的相似变换。
@@ -8,8 +9,8 @@
  */
 struct STELLARERACOSMOS_API FUniverseMapping
 {
-	/** 真实 1 AU 的厘米数。仿真/物理换算用。 */
-	static constexpr double PhysicalCmPerAu = 1.496e13;
+	/** 真实 1 AU 的厘米数；复用 CosmosUnits，避免第二份物理常量漂移。 */
+	static constexpr double PhysicalCmPerAu = CosmosUnits::AuToCentimeter;
 
 	/** 表现空间标定：1 AU 渲染成多少世界厘米（沿用现有观感 10 km）。 */
 	double RenderCmPerAu = 1.0e6;

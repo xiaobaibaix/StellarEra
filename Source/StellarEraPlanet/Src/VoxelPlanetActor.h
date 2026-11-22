@@ -100,6 +100,9 @@ public:
 	/** 生成器/哈希/LOD/缓存用的半径：不含 Actor 缩放。 */
 	float GetGeneratorRadiusVoxels() const { return Radius; }
 
+	/** 物理半径（厘米）：生成器半径 × 体素尺寸，不含 Actor 缩放。仿真与接触门限用它。 */
+	float GetPhysicalRadiusCm() const { return GetGeneratorRadiusVoxels() * VoxelSize; }
+
 	/** 行星 LOD 档位：按半径自动推导（三角边长约半径 1/16），不含 Actor 缩放。 */
 	int32 ComputeOrbitLOD() const;
 
