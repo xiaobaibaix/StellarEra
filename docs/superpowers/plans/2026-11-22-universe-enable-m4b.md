@@ -28,7 +28,7 @@
 **Interfaces:**
 - Produces: `void AVoxelPlanetActor::SetFarFieldMode(bool bFar)`；`bool IsFarFieldMode() const`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```cpp
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraPlanetFarProxyTest,
@@ -50,11 +50,11 @@ bool FStellarEraPlanetFarProxyTest::RunTest(const FString& Parameters)
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 过滤 `StellarEra.Planet.Geo.FarProxy`，Expected: 编译失败。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `VoxelPlanetActor.h`（public 段）：
 
@@ -112,9 +112,9 @@ void AVoxelPlanetActor::SetFarFieldMode(bool bFar)
 }
 ```
 
-- [ ] **Step 4: 构建并跑测试**（新用例通过；`StellarEra.Planet.Geo` 无新增失败）
+- [x] **Step 4: 构建并跑测试**（新用例通过；`StellarEra.Planet.Geo` 无新增失败）
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add <3 个路径>
@@ -133,7 +133,7 @@ git commit -m "feat(行星): 远场球代理与体素显隐切换" -- <3 个路�
 - Consumes: `SetFarFieldMode`。
 - 行为：物理模式下远场行星切代理；深空清空当前天体时把 `RenderAnchorIndex` 转到飞船、钉住其世界位置；`FinalizeRegistration` 对两个危险组合打警告。
 
-- [ ] **Step 1: 写回里驱动代理**
+- [x] **Step 1: 写回里驱动代理**
 
 写回循环拿 `AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(BodyActor)`；非空时：
 
@@ -141,7 +141,7 @@ git commit -m "feat(行星): 远场球代理与体素显隐切换" -- <3 个路�
 		Planet->SetFarFieldMode(bPhysicalScale && !bNear);
 ```
 
-- [ ] **Step 2: 深空原点转移**
+- [x] **Step 2: 深空原点转移**
 
 `UpdateCurrentBody` 的清空分支改为：
 
@@ -156,13 +156,13 @@ git commit -m "feat(行星): 远场球代理与体素显隐切换" -- <3 个路�
 	}
 ```
 
-- [ ] **Step 3: 组合警告**
+- [x] **Step 3: 组合警告**
 
 `FinalizeRegistration()` 里遍历 `Bodies`，对两个危险组合各打一条 Warning：物理开但无人填 `InitialPositionAu`；有人填了但物理没开。
 
-- [ ] **Step 4: 构建并跑 Cosmos 测试**（30 例无回归；关闭开关时 `SetFarFieldMode(false)` 幂等）
+- [x] **Step 4: 构建并跑 Cosmos 测试**（30 例无回归；关闭开关时 `SetFarFieldMode(false)` 幂等）
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add <2 个路径>
@@ -180,13 +180,13 @@ git commit -m "feat(宇宙): 远场代理接线、深空原点转飞船、组合
 **Interfaces:**
 - 物理模式下，`PredictTrajectoryWorld` / `PredictClosedOrbitWorld` 返回的点与编辑器预览点都经 `ToRenderWorld`（以当前锚点/飞船或预览天体自身为中心）；关闭时保持原样。
 
-- [ ] **Step 1: 子系统预测**：两处 `ToWorldLocation` 按 `bPhysicalScale` 分支到 `ToRenderWorld`。
+- [x] **Step 1: 子系统预测**：两处 `ToWorldLocation` 按 `bPhysicalScale` 分支到 `ToRenderWorld`。
 
-- [ ] **Step 2: 编辑器预览**：`DrawInEditor` 的预测点以被预览天体自身为锚点与远场中心，经 `ToRenderWorld(..., bNear=false)` 压缩。
+- [x] **Step 2: 编辑器预览**：`DrawInEditor` 的预测点以被预览天体自身为锚点与远场中心，经 `ToRenderWorld(..., bNear=false)` 压缩。
 
-- [ ] **Step 3: 构建并跑 Cosmos 测试**（30 例无回归）
+- [x] **Step 3: 构建并跑 Cosmos 测试**（30 例无回归）
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add <2 个路径>
@@ -197,11 +197,11 @@ git commit -m "feat(宇宙): 轨迹预测与编辑器预览经映射（物理模
 
 ### Task 4: 开启与 PIE 验证
 
-- [ ] **Step 1: 配置与资产**
+- [x] **Step 1: 配置与资产**
 
 `Config/DefaultGame.ini` 开 `bPhysicalScale=True`；用 MCP 给 `UniverseMap` 里的行星与恒星填 `InitialPositionAu`（行星在原点、恒星约 1 AU），飞船放在行星表面附近。
 
-- [ ] **Step 2: PIE 验证**
+- [x] **Step 2: PIE 验证**
 
 启动 PIE，截图并核对：
 - 恒星角直径 ≈ 0.53°（远场代理 + 映射）；
@@ -209,11 +209,11 @@ git commit -m "feat(宇宙): 轨迹预测与编辑器预览经映射（物理模
 - 日志有「物理尺度」汇总行与渲染原点切换行；
 - 无崩溃、无 `World Memory Leaks`。
 
-- [ ] **Step 3: 关闭开关回归**
+- [x] **Step 3: 关闭开关回归**
 
 `bPhysicalScale` 改回 False，重跑全量测试，确认为 301/1。
 
-- [ ] **Step 4: 勾选并提交文档**
+- [x] **Step 4: 勾选并提交文档**
 
 ```bash
 git add docs/superpowers/plans/2026-11-22-universe-enable-m4b.md
