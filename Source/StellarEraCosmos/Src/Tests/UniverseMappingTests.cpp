@@ -69,4 +69,26 @@ bool FStellarEraUniverseCurrentBodyTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStellarEraSurfaceDistancesTest,
+	"StellarEra.Cosmos.UniverseMapping.SurfaceDistances",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FStellarEraSurfaceDistancesTest::RunTest(const FString& Parameters)
+{
+	const TArray<FVector3d> Positions = {
+		FVector3d(1.0e-3, 0.0, 0.0),   // 0: 有地表，距飞船 1e-3 AU
+		FVector3d(2.0e-3, 0.0, 0.0),   // 1: 无地表
+		FVector3d(0.0, 0.0, 0.0)       // 2: 飞船自己，排除
+	};
+	const TArray<double> Radii = { 1.0e-7, 0.0, 1.0e-7 };
+	const TArray<double> Distances = SurfaceDistancesCm(
+		Positions, Radii, FVector3d::ZeroVector, 1.0e6, /*ExcludeIndex=*/2);
+
+	TestEqual(TEXT("长度对齐"), Distances.Num(), 3);
+	TestEqual(TEXT("有地表按距离换算"), Distances[0], 1.0e3, 1e-6);
+	TestTrue(TEXT("无地表记为无穷"), Distances[1] == TNumericLimits<double>::Max());
+	TestTrue(TEXT("排除下标记为无穷"), Distances[2] == TNumericLimits<double>::Max());
+
+	return true;
+}
+
 #endif

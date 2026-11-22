@@ -63,3 +63,19 @@ inline int32 PickCurrentBody(const TArray<double>& DistancesCm, int32 PreviousIn
 
 	return INDEX_NONE;
 }
+
+/** 各天体到飞船的距离（厘米）；无地表体与 ExcludeIndex 记无穷，永不参与锚点选择。 */
+inline TArray<double> SurfaceDistancesCm(const TArray<FVector3d>& Positions, const TArray<double>& RadiiAu,
+	const FVector3d& ShipPositionAu, double CmPerAu, int32 ExcludeIndex = INDEX_NONE)
+{
+	TArray<double> Out;
+	Out.Reserve(Positions.Num());
+	for (int32 Index = 0; Index < Positions.Num(); ++Index)
+	{
+		const bool bHasSurface = RadiiAu.IsValidIndex(Index) && RadiiAu[Index] > 0.0;
+		Out.Add(bHasSurface && Index != ExcludeIndex
+			? FVector3d(Positions[Index] - ShipPositionAu).Size() * CmPerAu
+			: TNumericLimits<double>::Max());
+	}
+	return Out;
+}
