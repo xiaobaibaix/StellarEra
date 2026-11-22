@@ -1447,15 +1447,18 @@ void UCosmosTrajectoryComponent::DrawInEditor()
 
 	const UWorld* World = GetWorld();
 
-	// ── 标定值从子系统读 ──
-	double CmPerAu = 1.0e6;
-	double Softening = 0.0001;
-	if (const UCosmosSimulationSubsystem* Subsystem =
-		World->GetSubsystem<UCosmosSimulationSubsystem>())
+	// ── 标定值从子系统读；编辑器世界没有实例（只支持 Game/PIE），回落到 CDO
+	//    —— 那几个字段都是 Config 属性，CDO 与运行期读同一份 ini ──
+	const UCosmosSimulationSubsystem* Simulation =
+		World->GetSubsystem<UCosmosSimulationSubsystem>();
+	if (!Simulation)
 	{
-		CmPerAu = Subsystem->CentimetersPerAu;
-		Softening = Subsystem->SofteningLength;
+		Simulation = GetDefault<UCosmosSimulationSubsystem>();
 	}
+	const double CmPerAu = Simulation->bPhysicalScale
+		? FUniverseMapping::PhysicalCmPerAu
+		: Simulation->CentimetersPerAu;
+	const double Softening = Simulation->SofteningLength;
 
 	// ── 离线重建求解器 ──
 	FNBodySimulator EditorSimulator;
