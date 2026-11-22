@@ -44,7 +44,7 @@
 - Consumes: 无。
 - Produces: `FUniverseMapping`（字段 `RenderCmPerAu`、`MinFarDistanceCm`；方法 `FarScale()`、`NearDistanceCm()`、`IsNear(double)`、`ScaleFor(bool)`、`ToRender(const FVector3d&, bool)`、`ToSim(const FVector&, bool)`；常量 `PhysicalCmPerAu`）。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 创建 `Source/StellarEraCosmos/Src/Tests/UniverseMappingTests.cpp`：
 
@@ -90,7 +90,7 @@ bool FStellarEraUniverseMappingTest::RunTest(const FString& Parameters)
 #endif
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 先把测试加进构建（UBT 自动收集 `Src/Tests`，无需改 Build.cs），构建后运行：
 
@@ -102,7 +102,7 @@ bool FStellarEraUniverseMappingTest::RunTest(const FString& Parameters)
 
 Expected: 编译失败（`UniverseMapping.h` 不存在）。
 
-- [ ] **Step 3: 写最小实现**
+- [x] **Step 3: 写最小实现**
 
 创建 `Source/StellarEraCosmos/Src/UniverseMapping.h`（UTF-8 with BOM）：
 
@@ -143,7 +143,7 @@ struct STELLARERACOSMOS_API FUniverseMapping
 };
 ```
 
-- [ ] **Step 4: 构建并跑测试确认通过**
+- [x] **Step 4: 构建并跑测试确认通过**
 
 构建（Global Constraints 里的 UBT 命令），然后：
 
@@ -155,7 +155,7 @@ struct STELLARERACOSMOS_API FUniverseMapping
 
 Expected: `StellarEra.Cosmos.UniverseMapping.Core` 通过。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add Source/StellarEraCosmos/Src/UniverseMapping.h Source/StellarEraCosmos/Src/Tests/UniverseMappingTests.cpp
@@ -174,7 +174,7 @@ git commit -m "feat(宇宙): 大尺度渲染映射核心（近场恒等/远场�
 - Consumes: `FUniverseMapping::NearDistanceCm()`。
 - Produces: `int32 PickCurrentBody(const TArray<double>& DistancesCm, int32 PreviousIndex, const FUniverseMapping&, double ExitScale = 2.0)`；返回天体下标或 `INDEX_NONE`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `UniverseMappingTests.cpp` 末尾追加：
 
@@ -200,12 +200,12 @@ bool FStellarEraUniverseCurrentBodyTest::RunTest(const FString& Parameters)
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 同 Task 1 的命令，过滤 `StellarEra.Cosmos.UniverseMapping`。
 Expected: 编译失败（`PickCurrentBody` 未定义）。
 
-- [ ] **Step 3: 写最小实现**
+- [x] **Step 3: 写最小实现**
 
 在 `UniverseMapping.h` 末尾、`FUniverseMapping` 之外追加：
 
@@ -238,11 +238,11 @@ inline int32 PickCurrentBody(const TArray<double>& DistancesCm, int32 PreviousIn
 }
 ```
 
-- [ ] **Step 4: 构建并跑测试确认通过**
+- [x] **Step 4: 构建并跑测试确认通过**
 
 过滤 `StellarEra.Cosmos.UniverseMapping`，两个用例都过。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add Source/StellarEraCosmos/Src/UniverseMapping.h Source/StellarEraCosmos/Src/Tests/UniverseMappingTests.cpp
@@ -262,7 +262,7 @@ git commit -m "feat(宇宙): 当前天体选择带滞回阈值" -- Source/Stella
 - Consumes: 无。
 - Produces: `float AVoxelPlanetActor::GetGeneratorRadiusVoxels() const`（= `Radius`，不含 Actor 缩放）。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 创建 `Source/StellarEraPlanet/Src/Tests/PlanetScaleDecouplingTests.cpp`：
 
@@ -307,11 +307,11 @@ bool FStellarEraPlanetScaleDecouplingTest::RunTest(const FString& Parameters)
 #endif
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 过滤 `StellarEra.Planet.Geo.ScaleDecoupling`。Expected: 编译失败（`GetGeneratorRadiusVoxels` 不存在）。
 
-- [ ] **Step 3: 新增 getter**
+- [x] **Step 3: 新增 getter**
 
 在 `VoxelPlanetActor.h` 的 `float GetScaledRadiusVoxels() const;`（约 325 行）下方加：
 
@@ -320,7 +320,7 @@ bool FStellarEraPlanetScaleDecouplingTest::RunTest(const FString& Parameters)
 	float GetGeneratorRadiusVoxels() const { return Radius; }
 ```
 
-- [ ] **Step 4: 把 9 处半径来源改为未缩放**
+- [x] **Step 4: 把 9 处半径来源改为未缩放**
 
 在 `VoxelPlanetActor.cpp` 中，把下列位置的 `GetScaledRadiusVoxels()` 改成 `GetGeneratorRadiusVoxels()`：
 
@@ -340,7 +340,7 @@ bool FStellarEraPlanetScaleDecouplingTest::RunTest(const FString& Parameters)
 
 `GetSurfaceRadiusCm()`（1240 行）**保持** `GetScaledRadiusVoxels() * VoxelSize`：它是世界半径，必须含缩放。
 
-- [ ] **Step 5: 构建并跑测试确认通过**
+- [x] **Step 5: 构建并跑测试确认通过**
 
 先构建，再过滤 `StellarEra.Planet.Geo.ScaleDecoupling`；然后跑一遍现有地质测试确认没退化：
 
@@ -352,7 +352,7 @@ bool FStellarEraPlanetScaleDecouplingTest::RunTest(const FString& Parameters)
 
 Expected: 新用例通过，`StellarEra.Planet.Geo.*` 无新增失败。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add Source/StellarEraPlanet/Src/VoxelPlanetActor.h Source/StellarEraPlanet/Src/VoxelPlanetActor.cpp Source/StellarEraPlanet/Src/Tests/PlanetScaleDecouplingTests.cpp
@@ -366,7 +366,7 @@ git commit -m "fix(体素): 生成/LOD/缓存与 Actor 缩放脱钩，缩放不�
 **Files:**
 - 无代码改动。
 
-- [ ] **Step 1: 跑全量自动化测试**
+- [x] **Step 1: 跑全量自动化测试**
 
 ```bash
 "<UE>/Engine/Binaries/Win64/UnrealEditor-Cmd.exe" "F:/workspace/ue/StellarEra/StellarEra.uproject" \
@@ -376,7 +376,7 @@ git commit -m "fix(体素): 生成/LOD/缓存与 Actor 缩放脱钩，缩放不�
 
 Expected: 与改动前相比无新增失败（记录基线数量）。
 
-- [ ] **Step 2: 编辑器内人工对照（缩放不重建）**
+- [x] **Step 2: 编辑器内人工对照（缩放不重建）**
 
 1. 关闭无头测试进程，用 schtasks `/it` 在 console 会话启动编辑器（不在 SSH 会话直接开）。
 2. 打开 `UniverseMap`，选中 `BP_VoxelPlanet3`，把 Scale 从 1 改成 2。
@@ -385,7 +385,7 @@ Expected: 与改动前相比无新增失败（记录基线数量）。
 
 Expected: 无重建日志，星球只是视觉上变大。
 
-- [ ] **Step 3: 勾选计划并提交文档**
+- [x] **Step 3: 勾选计划并提交文档**
 
 把本计划文件的复选框按实际结果勾选，然后：
 
@@ -402,3 +402,4 @@ git commit -m "docs(宇宙): M1 映射核心实施计划勾选" -- docs/superpow
 - `UCosmosSimulationSubsystem` 写回改走 `FUniverseMapping`，`RenderAnchorIndex` 改为随当前天体动态切换。
 - 远场代理（廉价球/广告牌）与体素网格的显隐切换。
 - 视觉验证：1 AU 外的恒星角直径与真实一致、接近时无跳变。
+- M2 必须把 `CosmosSimulationSubsystem`、`CosmosTrajectoryComponent`、`StarMapUISystem` 里的物理半径读取改成未缩放值（`Radius·VoxelSize / PhysicalCmPerAu`）；`GetSurfaceRadiusCm()` 只作渲染空间使用，**不得**喂给求解器。
