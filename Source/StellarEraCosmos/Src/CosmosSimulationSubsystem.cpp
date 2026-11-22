@@ -994,6 +994,18 @@ void UCosmosSimulationSubsystem::LogDiagnostics() const
 	UE_LOG(LogTemp, Log, TEXT("[Cosmos] 角动量    : %.6e"), Simulator.GetTotalAngularMomentum().Size());
 	UE_LOG(LogTemp, Log, TEXT("[Cosmos] 1 AU      : %.0f 厘米"), CentimetersPerAu);
 
+	// 物理模式排查用：位置/半径是求解器 AU；渲染位置由映射另算，别拿这行当世界坐标。
+	if (bPhysicalScale)
+	{
+		for (int32 Index = 0; Index < Simulator.GetNumBodies(); ++Index)
+		{
+			const FCosmosBodyState& Body = Simulator.GetBody(Index);
+			UE_LOG(LogTemp, Log, TEXT("[Cosmos] 天体 %d %s：位置 (%.6e, %.6e, %.6e) AU，半径 %.3e AU"),
+				Index, *GetNameSafe(Body.OwnerActor.Get()),
+				Body.Position.X, Body.Position.Y, Body.Position.Z, Body.Radius);
+		}
+	}
+
 	// 受控天体单独一行，值非零才打：没有输入时外力为 0，但阻尼恒非零，这行就是「读到了飞船」的证据。
 	for (int32 Index = 0; Index < Simulator.GetNumBodies(); ++Index)
 	{
