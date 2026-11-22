@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "NBodySimulator.h"
+#include "UniverseMapping.h"
 #include "CosmosSimulationSubsystem.generated.h"
 
 class UCosmosOrbitComponent;
@@ -182,6 +183,9 @@ private:
 	 */
 	void SelectRenderAnchor();
 
+	/** 每帧按飞船距离重选当前天体；变化时把渲染原点重新钉到它的当前世界位置。 */
+	void UpdateCurrentBody();
+
 	/** 每帧把原点贴到锚点当前位置（可传插值后的锚点），世界坐标因此不随轨道平移。 */
 	void UpdateRenderOrigin(const FVector3d* AnchorPositionOverride = nullptr);
 
@@ -235,8 +239,14 @@ private:
 	/** 渲染原点锚点（求解器下标）。INDEX_NONE = 不重定位，世界坐标按绝对位置走。 */
 	int32 RenderAnchorIndex = INDEX_NONE;
 
-	/** 锚点的世界位置，注册时记下关卡摆放，之后不再改 —— 行星因此停在原地不动。 */
+	/** 锚点的世界位置。切换当前天体时重钉到它的当前世界位置，其余天体随之整体平移。 */
 	FVector RenderAnchorWorld = FVector::ZeroVector;
+
+	/** 当前天体（求解器下标）。与 RenderAnchorIndex 同步；星图模式下冻结。 */
+	int32 CurrentBodyIndex = INDEX_NONE;
+
+	/** 映射参数（M2 只用它的近场阈值；压缩在 M3 接）。 */
+	FUniverseMapping Mapping;
 
 	/** 自动推导出的积分步长，单位模拟年。 */
 	double BaseTimeStep = 5.0e-5;

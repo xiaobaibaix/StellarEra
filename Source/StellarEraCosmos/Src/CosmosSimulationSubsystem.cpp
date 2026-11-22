@@ -529,6 +529,7 @@ void UCosmosSimulationSubsystem::FinalizeRegistration()
 
 	// 必须在全部注册完之后：注册用的是绝对坐标（原点还是零），开局位置才与关卡摆放逐位一致。
 	SelectRenderAnchor();
+	CurrentBodyIndex = RenderAnchorIndex;
 
 	// ── 自动步长：由实际几何反推，最短配对周期 / StepsPerOrbit，数值看开局日志 ──
 	double ShortestPeriod = TNumericLimits<double>::Max();
@@ -649,6 +650,57 @@ void UCosmosSimulationSubsystem::UpdateRenderOrigin(const FVector3d* AnchorPosit
 		RenderAnchorWorld);
 }
 
+void UCosmosSimulationSubsystem::UpdateCurrentBody()
+{
+	// 星图相机不在天体上，重定位会让整片星空跳一次，冻结。
+	if (bStarMapActive)
+	{
+		return;
+	}
+
+	const int32 NumBodies = Simulator.GetNumBodies();
+	int32 ShipIndex = INDEX_NONE;
+	for (int32 Index = 0; Index < NumBodies; ++Index)
+	{
+		AActor* Owner = Simulator.GetBody(Index).OwnerActor.Get();
+		if (Owner && Cast<ICosmosBody>(Owner))
+		{
+			ShipIndex = Index;
+			break;
+		}
+	}
+	if (ShipIndex == INDEX_NONE)
+	{
+		return;
+	}
+
+	TArray<FVector3d> Positions;
+	TArray<double> Radii;
+	Positions.SetNum(NumBodies);
+	Radii.SetNum(NumBodies);
+	for (int32 Index = 0; Index < NumBodies; ++Index)
+	{
+		Positions[Index] = Simulator.GetBody(Index).Position;
+		Radii[Index] = Simulator.GetBody(Index).Radius;
+	}
+
+	const TArray<double> Distances = SurfaceDistancesCm(
+		Positions, Radii, Positions[ShipIndex], CentimetersPerAu, ShipIndex);
+	const int32 Picked = PickCurrentBody(Distances, CurrentBodyIndex, Mapping);
+	if (Picked == INDEX_NONE || Picked == CurrentBodyIndex)
+	{
+		return;
+	}
+
+	// 先按旧原点算出新天体的当前世界位置，钉住它；下一次 UpdateRenderOrigin + 写回会让
+	// 其余天体（含飞船）一起平移同样的量，相机在飞船上所以视角不变。
+	RenderAnchorWorld = Simulator.ToWorldLocation(Positions[Picked]);
+	CurrentBodyIndex = Picked;
+	RenderAnchorIndex = Picked;
+	UE_LOG(LogTemp, Log, TEXT("[Cosmos] 渲染原点切换到天体 %d（%s）"),
+		Picked, *GetNameSafe(Simulator.GetBody(Picked).OwnerActor.Get()));
+}
+
 void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
@@ -719,6 +771,8 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 		: 1.0;
 
 	// 锚点必须用同一份插值位置：拿插值后的天体配未插值原点，锚点自己会在世界里漂。
+	UpdateCurrentBody();
+
 	FVector3d RenderAnchorPosition;
 	const FVector3d* RenderAnchorOverride = nullptr;
 	if (bHasRenderPrevPose && RenderPrevPositions.IsValidIndex(RenderAnchorIndex))
