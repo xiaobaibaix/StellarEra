@@ -684,8 +684,9 @@ void UCosmosSimulationSubsystem::UpdateCurrentBody()
 		Radii[Index] = Simulator.GetBody(Index).Radius;
 	}
 
+	// 用物理厘米而非渲染标定：NearDistanceCm() 也是物理厘米，两者必须同空间才可比。
 	const TArray<double> Distances = SurfaceDistancesCm(
-		Positions, Radii, Positions[ShipIndex], CentimetersPerAu, ShipIndex);
+		Positions, Radii, Positions[ShipIndex], FUniverseMapping::PhysicalCmPerAu, ShipIndex);
 	const int32 Picked = PickCurrentBody(Distances, CurrentBodyIndex, Mapping);
 	if (Picked == INDEX_NONE || Picked == CurrentBodyIndex)
 	{
