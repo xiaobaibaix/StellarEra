@@ -701,8 +701,14 @@ void UCosmosSimulationSubsystem::UpdateCurrentBody()
 	const TArray<double> Distances = SurfaceDistancesCm(
 		Positions, Radii, Positions[ShipIndex], FUniverseMapping::PhysicalCmPerAu, ShipIndex);
 	const int32 Picked = PickCurrentBody(Distances, CurrentBodyIndex, Mapping);
-	if (Picked == INDEX_NONE || Picked == CurrentBodyIndex)
+	if (Picked == CurrentBodyIndex)
 	{
+		return;
+	}
+	if (Picked == INDEX_NONE)
+	{
+		// 离开所有天体的退出带：全部转远场；原点仍钉在上一颗上，只为保持世界坐标有界。
+		CurrentBodyIndex = INDEX_NONE;
 		return;
 	}
 
