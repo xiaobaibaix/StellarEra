@@ -1009,6 +1009,30 @@ void AVoxelPlanetActor::SetEditGridVisible(const bool bVisible)
 	}
 }
 
+namespace
+{
+	/** 根自身不参与：它是 FarProxy 的父级，隐藏会经 SetVisibility 传播把代理连坐。 */
+	void CollectFarProxyDescendantPrimitives(USceneComponent* Parent, const UPrimitiveComponent* Exclude,
+		TArray<UPrimitiveComponent*>& Out)
+	{
+		for (USceneComponent* Child : Parent->GetAttachChildren())
+		{
+			if (!Child)
+			{
+				continue;
+			}
+			if (UPrimitiveComponent* Primitive = Cast<UPrimitiveComponent>(Child))
+			{
+				if (Primitive != Exclude)
+				{
+					Out.Add(Primitive);
+				}
+			}
+			CollectFarProxyDescendantPrimitives(Child, Exclude, Out);
+		}
+	}
+}
+
 void AVoxelPlanetActor::SetFarFieldMode(bool bFar)
 {
 	if (bFarFieldMode == bFar)
@@ -1028,15 +1052,19 @@ void AVoxelPlanetActor::SetFarFieldMode(bool bFar)
 		FarProxy->SetVisibility(true, true);
 
 		// 只记录并恢复确实是本次隐藏的：编辑网格、大气壳等可能本来就被各自逻辑藏着。
+		// 体素 chunk 的 Outer 是根组件、不一定进 OwnedComponents，必须走 attach children。
 		FarHiddenPrimitives.Reset();
-		TArray<UPrimitiveComponent*> Primitives;
-		GetComponents(Primitives);
-		for (UPrimitiveComponent* Primitive : Primitives)
+		if (RootComponent)
 		{
-			if (Primitive && Primitive != FarProxy && Primitive->IsVisible())
+			TArray<UPrimitiveComponent*> Primitives;
+			CollectFarProxyDescendantPrimitives(RootComponent, FarProxy, Primitives);
+			for (UPrimitiveComponent* Primitive : Primitives)
 			{
-				Primitive->SetVisibility(false, true);
-				FarHiddenPrimitives.Add(Primitive);
+				if (Primitive->IsVisible())
+				{
+					Primitive->SetVisibility(false, true);
+					FarHiddenPrimitives.Add(Primitive);
+				}
 			}
 		}
 		bCollisionBeforeFarField = GetActorEnableCollision();
