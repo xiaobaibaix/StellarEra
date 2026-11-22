@@ -861,6 +861,10 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 		}
 		ShipWorld = RenderAnchorWorld + FVector((ShipAu - AnchorAu) * FUniverseMapping::PhysicalCmPerAu);
 		FarScale = Mapping.FarScale();
+
+		// 预测查询在轨迹组件的 Tick 里跑，拿不到这一帧的局部量 —— 缓存下来复用同一份中心。
+		LastShipAu = ShipAu;
+		LastShipWorld = ShipWorld;
 	}
 
 	for (UCosmosOrbitComponent* Component : Bodies)
@@ -1010,7 +1014,7 @@ bool UCosmosSimulationSubsystem::PredictTrajectoryWorld(int32 SimulatorIndex, do
 	OutWorldPositions.Reserve(GameUnitPositions.Num());
 	for (const FVector3d& Position : GameUnitPositions)
 	{
-		OutWorldPositions.Add(Simulator.ToWorldLocation(Position));
+		OutWorldPositions.Add(PredictionToWorld(Position));
 	}
 	return true;
 }
@@ -1030,13 +1034,13 @@ bool UCosmosSimulationSubsystem::PredictClosedOrbitWorld(int32 SimulatorIndex,
 	{
 		return false;
 	}
-	OutPrimaryWorld = Simulator.ToWorldLocation(Prediction.PrimaryPosition);
+	OutPrimaryWorld = PredictionToWorld(Prediction.PrimaryPosition);
 
 	// 闭环相对主导天体：锚回它 t=0 的位置再转世界坐标。主导天体自己也在动，绝对路径是摆线。
 	OutWorldPositions.Reserve(Prediction.RelativePositions.Num());
 	for (const FVector3d& Relative : Prediction.RelativePositions)
 	{
-		OutWorldPositions.Add(Simulator.ToWorldLocation(Relative + Prediction.PrimaryPosition));
+		OutWorldPositions.Add(PredictionToWorld(Relative + Prediction.PrimaryPosition));
 	}
 	return true;
 }

@@ -253,6 +253,18 @@ private:
 	/** 当前天体（求解器下标）。星图模式下冻结；深空为 INDEX_NONE，此时 RenderAnchorIndex 指向飞船。 */
 	int32 CurrentBodyIndex = INDEX_NONE;
 
+	/** 物理模式下的远场中心（飞船），Tick 里缓存；预测查询复用它换算，否则会差 1.5e7 倍。 */
+	FVector3d LastShipAu = FVector3d::ZeroVector;
+	FVector LastShipWorld = FVector::ZeroVector;
+
+	/** 预测点 → 世界。物理模式以飞船为远场中心（与写回同一条映射），关闭时保持求解器标定。 */
+	FVector PredictionToWorld(const FVector3d& AuPosition) const
+	{
+		return bPhysicalScale
+			? LastShipWorld + FVector((AuPosition - LastShipAu) * CentimetersPerAu)
+			: Simulator.ToWorldLocation(AuPosition);
+	}
+
 	/** 映射参数（M2 只用它的近场阈值；压缩在 M3 接）。 */
 	FUniverseMapping Mapping;
 

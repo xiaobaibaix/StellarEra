@@ -1543,6 +1543,16 @@ void UCosmosTrajectoryComponent::DrawInEditor()
 	const FVector Anchor = SelfActor->GetActorLocation();
 	Lines.Reset();
 
+	// 物理模式下预测点与关卡摆放差 1.5e7 倍：以被预览天体自身为心压到渲染标定。
+	const bool bPhysical = Simulation->bPhysicalScale;
+	const FVector3d SelfAu = EditorSimulator.GetBody(SelfIndex).Position;
+	const auto ToPreviewWorld = [&](const FVector3d& AuPosition)
+	{
+		return bPhysical
+			? Anchor + FVector((AuPosition - SelfAu) * Simulation->CentimetersPerAu)
+			: EditorSimulator.ToWorldLocation(AuPosition);
+	};
+
 	// ── 预测折线 ──
 	if (bDrawPrediction)
 	{
@@ -1558,7 +1568,7 @@ void UCosmosTrajectoryComponent::DrawInEditor()
 			PredictedWorld.Reserve(ClosedOrbit.RelativePositions.Num());
 			for (const FVector3d& Relative : ClosedOrbit.RelativePositions)
 			{
-				PredictedWorld.Add(EditorSimulator.ToWorldLocation(
+				PredictedWorld.Add(ToPreviewWorld(
 					Relative + ClosedOrbit.PrimaryPosition));
 			}
 		}
@@ -1580,7 +1590,7 @@ void UCosmosTrajectoryComponent::DrawInEditor()
 				PredictedWorld.Reserve(GameUnitPositions.Num());
 				for (const FVector3d& Position : GameUnitPositions)
 				{
-					PredictedWorld.Add(EditorSimulator.ToWorldLocation(Position));
+					PredictedWorld.Add(ToPreviewWorld(Position));
 				}
 			}
 		}
