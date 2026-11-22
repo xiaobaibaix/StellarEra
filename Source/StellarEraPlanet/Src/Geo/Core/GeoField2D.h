@@ -28,6 +28,8 @@ public:
 	float SampleNearest(const FVector3f& Dir) const;
 
 	uint64 Hash() const;
+	/** 烘焙缓存用：Res + 各级 float 数组原样读写。 */
+	void Serialize(FArchive& Ar);
 	SIZE_T GetAllocatedSize() const;
 
 private:

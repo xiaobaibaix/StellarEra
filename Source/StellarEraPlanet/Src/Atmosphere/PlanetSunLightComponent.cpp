@@ -1,4 +1,5 @@
-#include "PlanetSunLightComponent.h"
+﻿#include "PlanetSunLightComponent.h"
+#include "VoxelPlanetActor.h"
 
 #include "Camera/PlayerCameraManager.h"
 #include "Components/DirectionalLightComponent.h"
@@ -40,7 +41,8 @@ void UPlanetSunLightComponent::TickComponent(float DeltaTime, ELevelTick TickTyp
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
 	UWorld* World = GetWorld();
-	if (!bDrivesSunLights || !World || !World->IsGameWorld())
+	const AVoxelPlanetActor* Planet = GetPlanetOwner();
+	if (!Planet || !Planet->bDrivesSunLights || !World || !World->IsGameWorld())
 	{
 		// 编辑器视口不转灯：每帧转灯会把关卡一直标脏。
 		return;
@@ -54,6 +56,11 @@ void UPlanetSunLightComponent::TickComponent(float DeltaTime, ELevelTick TickTyp
 	// 阴影与「驱动灯」正交：灯不由 C++ 驱动时也必须挂上，否则夜面没有遮挡。
 	ApplyPlanetShadow();
 	ApplySkyFill();
+}
+
+const AVoxelPlanetActor* UPlanetSunLightComponent::GetPlanetOwner() const
+{
+	return Cast<AVoxelPlanetActor>(GetOwner());
 }
 
 float UPlanetSunLightComponent::DistanceFalloff(float ReferenceDistance, double Distance)
@@ -88,12 +95,14 @@ float UPlanetSunLightComponent::SunFalloffFor(const FPlanetSun& Sun) const
 		return 1.0f;
 	}
 
-	return DistanceFalloff(SunFalloffReferenceDistance,
+	const float Ref = GetPlanetOwner() ? GetPlanetOwner()->SunFalloffReferenceDistance : 1.0e8f;
+	return DistanceFalloff(Ref,
 		FVector::Dist(StarActor->GetActorLocation(), GetOwner()->GetActorLocation()));
 }
 
 void UPlanetSunLightComponent::DriveSunLights(const TArray<FPlanetSun>& Suns)
 {
+	const AVoxelPlanetActor* Planet = GetPlanetOwner();
 	UStarBodyComponent* PrimaryStar = SelectPrimaryStar(Suns);
 
 	const FVector PlanetCenter = GetOwner()->GetActorLocation();
@@ -103,7 +112,7 @@ void UPlanetSunLightComponent::DriveSunLights(const TArray<FPlanetSun>& Suns)
 		{
 			continue;
 		}
-		Sun.Star->DriveSunLight(PlanetCenter, BaseLightIntensity * SunFalloffFor(Sun),
+		Sun.Star->DriveSunLight(PlanetCenter, (Planet ? Planet->BaseLightIntensity : 0.f) * SunFalloffFor(Sun),
 			Sun.Star == PrimaryStar);
 	}
 }
@@ -270,9 +279,11 @@ void UPlanetSunLightComponent::ApplySkyFill()
 	LightComponent->SetCastShadows(false);
 	// 略偏蓝：瑞利散射后的天光本色，但别过头成蓝紫。
 	LightComponent->SetLightColor(FLinearColor(0.62f, 0.75f, 1.0f), /*bSRGB=*/false);
-	LightComponent->SetIntensity(SkyFillIntensity);
+	const AVoxelPlanetActor* Planet = GetPlanetOwner();
+	const float Fill = Planet ? Planet->SkyFillIntensity : 0.f;
+	LightComponent->SetIntensity(Fill);
 
-	if (SkyFillIntensity <= 0.0f)
+	if (!Planet || Planet->SkyFillIntensity <= 0.0f)
 	{
 		// 0 = 关闭。必须在保证强度已写进去之后才早退，否则关掉会留着上一帧的亮度。
 		return;

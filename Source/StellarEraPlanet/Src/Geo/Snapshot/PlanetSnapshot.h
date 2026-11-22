@@ -34,6 +34,9 @@ struct STELLARERAPLANET_API FPlanetSnapshot
 	double MinSurfaceRadius = 0.0;
 	double MaxSurfaceRadius = 0.0;
 	uint64 ContentHash = 0;
+	/** 本次烘焙实际跑过的阶段之外的所有阶段（含上游关闭连带跳过的）；查看器据此只列存在的图层。 */
+	uint32 DisabledStages = 0;
+	bool HasStage(uint32 Stage) const { return Stage == 0 || (DisabledStages & (1u << (Stage - 1))) == 0; }
 	/** 只在 bKeepDebugFields 时存在（编辑器调试图层用）：不进 ContentHash、不计入快照预算。 */
 	TMap<FName, FGeoField2D> DebugFields;
 	/** 阶段 4 火山点表：4b/4c 与运行期按它定位火口、矿柱。 */

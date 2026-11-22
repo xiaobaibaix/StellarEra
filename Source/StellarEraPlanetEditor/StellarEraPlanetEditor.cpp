@@ -3,7 +3,11 @@
 #include "Framework/Docking/TabManager.h"
 #include "HAL/IConsoleManager.h"
 #include "Modules/ModuleManager.h"
+#include "GeoBakeCache.h"
+#include "GeoBakeNowCustomization.h"
+#include "PropertyEditorModule.h"
 #include "SGeoViewerPanel.h"
+#include "VoxelPlanetActor.h"
 #include "Widgets/Docking/SDockTab.h"
 #include "WorkspaceMenuStructure.h"
 #include "WorkspaceMenuStructureModule.h"
@@ -11,6 +15,7 @@
 namespace
 {
 	const FName GeoViewerTabName(TEXT("StellarEraGeoViewer"));
+	FDelegateHandle GPreExitSaveHandle;
 }
 
 void RegisterGeoBakeNotifications();
@@ -30,11 +35,26 @@ public:
 			.SetTooltipText(FText::FromString(TEXT("按阶段查看地质图层：全球展开地图、过球心剖面、读数与图例、导出 PNG")))
 			.SetGroup(WorkspaceMenu::GetMenuStructure().GetToolsCategory());
 		RegisterGeoBakeNotifications();
+
+		// 「立即烘焙」属性行画成按钮（只改行外观，分类嵌套不受影响）。
+		FPropertyEditorModule& PropertyEditor = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
+		PropertyEditor.RegisterCustomPropertyTypeLayout(FGeoBakeNowAction::StaticStruct()->GetFName(),
+			FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FGeoBakeNowCustomization::MakeInstance));
+		PropertyEditor.NotifyCustomizationModuleChanged();
+
+		// 关编辑器时把脏的烘焙缓存静默落盘。
+		GPreExitSaveHandle = FCoreDelegates::OnPreExit.AddLambda([]() { GeoBakeCache::SaveDirty(); });
 	}
 
 	virtual void ShutdownModule() override
 	{
 		UnregisterGeoBakeNotifications();
+		if (FModuleManager::Get().IsModuleLoaded("PropertyEditor"))
+		{
+			FPropertyEditorModule& PropertyEditor = FModuleManager::GetModuleChecked<FPropertyEditorModule>("PropertyEditor");
+			PropertyEditor.UnregisterCustomPropertyTypeLayout(FGeoBakeNowAction::StaticStruct()->GetFName());
+		}
+		FCoreDelegates::OnPreExit.Remove(GPreExitSaveHandle);
 		if (FSlateApplication::IsInitialized())
 		{
 			FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(GeoViewerTabName);

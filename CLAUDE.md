@@ -1,4 +1,4 @@
-# StellarEra
+﻿# StellarEra
 
 体素行星 + N 体引力 + 球面行走 + 飞船的太空模拟项目。
 
@@ -251,6 +251,11 @@ N 体数据分四层，**编辑器里只填人类单位**：
 - 删：复述代码在做什么、逐段讲解引擎源码、比喻与多段论证、历史沿革（「以前是 X」）。
 - 头文件里的类/函数 doc 用 1–3 行说清契约；实现细节留给代码。
 - 需要长篇解释的，写进 `docs/` 或 `CLAUDE.md`，不要塞进源码。
+
+## 地质烘焙缓存（2026-11-22）
+- 烘焙结果存 Content 资产 `/Game/Code/Planet/BakeCache/PC_<关卡>_<Actor>`（`UGeoBakeCache`，约 160 MB，走 LFS），编辑器启动/重烘时命中就跳过烘焙。
+- **改了任何阶段的产出逻辑，必须把 `PlanetSnapshotSerialize.h` 的 `GeoBakeCacheFormat::Version` +1**，否则会静默读到旧缓存。
+- 手动：`StellarEra.Geo.SaveBakeCache` 立刻保存脏缓存；行星细节面板「立即烘焙」强制忽略缓存；关编辑器自动保存。
 
 ## 已知坑
 - 编辑器不在前台会整进程限 3 FPS，体素生成 0.16 s → 179 s；测性能先让编辑器在前台。

@@ -35,8 +35,11 @@ namespace PlanetGeoDebugRender
 
 	STELLARERAPLANET_API bool SavePng(const FString& Path, int32 W, int32 H, const TArray<FColor>& Colors);
 
-	/** 立方体贴图，Outer 是瞬态包：挂到体素材质上的贴图 Outer 不能是行星（会让切图泄漏崩溃）。 */
-	STELLARERAPLANET_API UTextureCube* BakeCube(const FPlanetSnapshot& S, const FGeoDebugLayer& Layer, int32 Resolution);
+	/** 立方体贴图，Outer 是瞬态包：挂到体素材质上的贴图 Outer 不能是行星（会让切图泄漏崩溃）。
+	 *  材质按世界方向采样，而快照的场是行星局部坐标：Actor 有旋转时必须传 WorldToField，
+	 *  否则配色相对地形整体转一个角度（细节面板里转过行星就会出现「盆地里是陆地色」）。 */
+	STELLARERAPLANET_API UTextureCube* BakeCube(const FPlanetSnapshot& S, const FGeoDebugLayer& Layer, int32 Resolution,
+		const FQuat& WorldToField = FQuat::Identity);
 
 	/** 每个图层写 Stage<阶段>_<Id>_map.png、_section.png、_view3d.png（默认 3D 视角，外表面看高程），返回写成功的文件数。 */
 	STELLARERAPLANET_API int32 ExportAll(const FPlanetSnapshot& S, const TArray<FGeoDebugLayer>& Layers,

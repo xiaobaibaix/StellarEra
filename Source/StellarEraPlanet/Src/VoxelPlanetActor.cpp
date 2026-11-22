@@ -2,6 +2,7 @@
 // 把地质流水线的快照封装为可直接摆放的 Actor。
 
 #include "VoxelPlanetActor.h"
+#include "GeoBakeCache.h"
 
 #include "VoxelWorldCreateInfo.h"
 // 世界线程池：多颗行星共用同一个池，必须在任何 CreateWorld 之前建好。
@@ -701,6 +702,12 @@ void AVoxelPlanetActor::RebuildPlanet()
 	// 函数自带值没变就早退。
 	RefreshLODInvoker();
 
+	// 旋转不进参数哈希，但地表立方图按世界方向采样：转过行星要重烘底图（内部按哈希早退）。
+	if (IsGeoMode() && ApplyGeoDebugOverlay() && IsCreated())
+	{
+		UVoxelBlueprintLibrary::ApplyNewMaterials(this);
+	}
+
 	// 细节面板一次编辑会同时触发 PostEditChangeProperty 和 OnConstruction；
 	// 没有守卫就重建两次，生成时间翻倍。复查 IsCreated() 保证全新世界总能构建。
 	const uint64 ParamsHash = ComputeParamsHash();
@@ -746,6 +753,15 @@ void AVoxelPlanetActor::SyncGeoDimensions()
 FGeoBakeStartedEvent AVoxelPlanetActor::GeoBakeStarted;
 FGeoBakeFinishedEvent AVoxelPlanetActor::GeoBakeFinished;
 
+void AVoxelPlanetActor::BakeNow()
+{
+	// 强制重烘：丢掉内存快照，让 RebuildGeoPlanet 走 StartGeoBake。
+	bForceRebake = true;
+	bGeoBakeFailed = false;
+	GeoSnapshot.Reset();
+	StartGeoBake();
+}
+
 void AVoxelPlanetActor::StartGeoBake()
 {
 	const UPlanetRecipe* Recipe = GeoRecipe.Get();
@@ -760,6 +776,23 @@ void AVoxelPlanetActor::StartGeoBake()
 	FPlanetRecipeConfig Config = Recipe->ToConfig(double(GetScaledRadiusVoxels()));
 	// 编辑器里多留一份中间场给调试图层；打包后的游戏不需要，也不该多占 12 MB。
 	Config.bKeepDebugFields = GIsEditor;
+	PendingCacheHash = Config.Hash();
+#if WITH_EDITOR
+	// 命中缓存就直接用：反序列化约 1–2 s，比重新烘焙快一个数量级。
+	if (!bForceRebake)
+	{
+		const int32 CacheRadius = FMath::RoundToInt(GetScaledRadiusVoxels());
+		if (TSharedPtr<const FPlanetSnapshot> Cached =
+			GeoBakeCache::Load(GeoBakeCache::PackagePathFor(*this), int64(PendingCacheHash), CacheRadius))
+		{
+			bSnapshotFromCache = true;
+			OnGeoBakeFinished(Cached, 0.0);
+			bSnapshotFromCache = false;
+			return;
+		}
+	}
+	bForceRebake = false;
+#endif
 	TWeakObjectPtr<AVoxelPlanetActor> WeakThis(this);
 	Async(EAsyncExecution::ThreadPool, [WeakThis, Config]()
 	{
@@ -811,6 +844,14 @@ void AVoxelPlanetActor::OnGeoBakeFinished(TSharedPtr<const FPlanetSnapshot> InSn
 
 	GeoSnapshot = InSnapshot;
 	GeoBakeFinished.Broadcast(this, true, BakeSeconds);
+#if WITH_EDITOR
+	// 只有真正烘焙出来的结果才回写缓存；命中的不再重复序列化。
+	if (!bSnapshotFromCache)
+	{
+		GeoBakeCache::Store(GeoBakeCache::PackagePathFor(*this), *GeoSnapshot,
+			int64(PendingCacheHash), FMath::RoundToInt(GetScaledRadiusVoxels()));
+	}
+#endif
 	UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor %s: 地质烘焙完成 %.2f s，半径 %.0f 体素，快照 %.1f MB，哈希 %016llx"),
 		*GetName(), BakeSeconds, float(Radius),
 		double(GeoSnapshot->GetAllocatedSize()) / (1024.0 * 1024.0), GeoSnapshot->ContentHash);
@@ -1583,20 +1624,28 @@ bool AVoxelPlanetActor::ApplyGeoDebugOverlay()
 		return RestoreBaseMaterial();
 	}
 
+	// 材质按世界方向采样立方图，而快照的场在行星局部坐标：Actor 转过就必须重烘，
+	// 否则配色整体错开一个角度（海盆里画出陆地色）。
+	const FQuat WorldToField = GetActorQuat().Inverse();
+	const uint64 OverlayHash = GeoHash::Combine(GeoSnapshot->ContentHash,
+		GeoHash::Combine(GeoHash::Float(WorldToField.X),
+			GeoHash::Combine(GeoHash::Float(WorldToField.Y),
+				GeoHash::Combine(GeoHash::Float(WorldToField.Z), GeoHash::Float(WorldToField.W)))));
+
 	// 图层与快照都没变就不重烘。
-	if (!BiomeCubemap || OverlayBakedLayer != CubeLayer->Id || OverlayBakedHash != GeoSnapshot->ContentHash)
+	if (!BiomeCubemap || OverlayBakedLayer != CubeLayer->Id || OverlayBakedHash != OverlayHash)
 	{
 		const double T0 = FPlatformTime::Seconds();
 		UE_LOG(LogTemp, Log, TEXT("[高程底图] R0=%.0f  Min=%.0f  Max=%.0f  CrustSplit=%.1f"),
 			GeoSnapshot->R0, GeoSnapshot->MinSurfaceRadius, GeoSnapshot->MaxSurfaceRadius, GeoSnapshot->CrustSplitElevation);
-		UTextureCube* Cube = PlanetGeoDebugRender::BakeCube(*GeoSnapshot, *CubeLayer, 1024);
+		UTextureCube* Cube = PlanetGeoDebugRender::BakeCube(*GeoSnapshot, *CubeLayer, 1024, WorldToField);
 		if (!Cube)
 		{
 			return RestoreBaseMaterial();
 		}
 		BiomeCubemap = Cube;
 		OverlayBakedLayer = CubeLayer->Id;
-		OverlayBakedHash = GeoSnapshot->ContentHash;
+		OverlayBakedHash = OverlayHash;
 		UE_LOG(LogTemp, Log, TEXT("AVoxelPlanetActor %s: 调试叠加「%s」烘焙 %.0f ms"),
 			*GetName(), *CubeLayer->DisplayName, (FPlatformTime::Seconds() - T0) * 1000.0);
 	}

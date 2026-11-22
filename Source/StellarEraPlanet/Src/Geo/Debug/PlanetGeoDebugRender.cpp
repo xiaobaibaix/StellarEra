@@ -142,7 +142,8 @@ bool PlanetGeoDebugRender::SavePng(const FString& Path, int32 W, int32 H, const 
 	return Png.Num() > 0 && FFileHelper::SaveArrayToFile(TArrayView64<const uint8>(Png.GetData(), Png.Num()), *Path);
 }
 
-UTextureCube* PlanetGeoDebugRender::BakeCube(const FPlanetSnapshot& S, const FGeoDebugLayer& Layer, int32 Resolution)
+UTextureCube* PlanetGeoDebugRender::BakeCube(const FPlanetSnapshot& S, const FGeoDebugLayer& Layer, int32 Resolution,
+	const FQuat& WorldToField)
 {
 	if (Resolution <= 0) { return nullptr; }
 	UTextureCube* Texture = UTextureCube::CreateTransient(Resolution, Resolution, PF_B8G8R8A8, NAME_None);
@@ -160,7 +161,7 @@ UTextureCube* PlanetGeoDebugRender::BakeCube(const FPlanetSnapshot& S, const FGe
 		{
 			const FVector D = PlanetBiomeCubemap::FaceUVToDirection(Face,
 				(float(X) + 0.5f) / float(Resolution), (float(Y) + 0.5f) / float(Resolution));
-			const FVector3f Dir(D.GetSafeNormal());
+			const FVector3f Dir(WorldToField.RotateVector(D).GetSafeNormal());
 			All[Row * Resolution + X] = GeoDebugOpaque(Layer.ColorOf(S, GeoDebugSampleAt(S, Layer, SurfacePoint(S, Dir, Layer.Domain))));
 		}
 	});

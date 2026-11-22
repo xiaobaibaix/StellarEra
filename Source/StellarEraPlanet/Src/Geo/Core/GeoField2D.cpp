@@ -106,3 +106,18 @@ float FGeoField2D::SampleNearest(const FVector3f& Dir) const
 	const int32 Y = FMath::Clamp(int32((V + 1.f) * 0.5f * float(Res)), 0, Res - 1);
 	return At(Face, X, Y);
 }
+
+void FGeoField2D::Serialize(FArchive& Ar)
+{
+	Ar << Res;
+	int32 Num = Levels.Num();
+	Ar << Num;
+	if (Ar.IsLoading()) { Levels.SetNum(Num); }
+	for (int32 i = 0; i < Num; ++i)
+	{
+		int32 Count = Levels[i].Num();
+		Ar << Count;
+		if (Ar.IsLoading()) { Levels[i].SetNum(Count); }
+		if (Count > 0) { Ar.Serialize(Levels[i].GetData(), Count * sizeof(float)); }
+	}
+}

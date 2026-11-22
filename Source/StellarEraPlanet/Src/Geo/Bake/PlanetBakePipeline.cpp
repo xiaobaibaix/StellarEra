@@ -137,6 +137,8 @@ TSharedPtr<const FPlanetSnapshot> FPlanetBakePipeline::Bake(const FPlanetRecipeC
 	}
 
 	TSharedPtr<FPlanetSnapshot> Snap = MakeShared<FPlanetSnapshot>();
+	// 记下本次实际跳过的阶段：查看器只列真正烘出来的图层。
+	Snap->DisabledStages = DisabledStages;
 	// 先导出调试场：下面的 MoveTemp 会把 Fields 搬空。
 	if (Config.bKeepDebugFields)
 	{

@@ -11,6 +11,7 @@
 // FObjectPreSaveContext / FObjectPostSaveRootContext：PreSave / PostSaveRoot 覆写的形参。
 #include "UObject/ObjectSaveContext.h"
 #include "PlanetGeoGenerator.h"
+#include "GeoBakeCache.h"
 #include "VoxelPlanetActor.generated.h"
 
 class UMaterialInterface;
@@ -148,6 +149,26 @@ public:
 	 * 非空 = 这颗星由新地质流水线生成：地形取自配方；半径用本 Actor 的 Radius、体素尺寸用 VoxelSize（配方不存），
 	 * GeologyAsset、水文、biome cubemap 旁路。烘焙在后台线程完成后再建世界。
 	 */
+	/** 是否驱动恒星灯。关掉 = 灯保持原样不再被写；大气材质那份太阳列表不受影响。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|SunLight")
+	bool bDrivesSunLights = true;
+
+	/** 基础强度；每盏灯实际强度 = 本值 × 该恒星的相对亮度 × 平方反比因子。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|SunLight", meta = (ClampMin = "0.0"))
+	float BaseLightIntensity = 10.0f;
+
+	/** 平方反比的参考距离（厘米）：1e8 cm = 1000 km，即主星到行星的典型距离。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|SunLight", meta = (ClampMin = "1.0"))
+	float SunFalloffReferenceDistance = 1.0e8f;
+
+	/** 天光补光强度：暗面全靠它填，0 = 关闭。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|SunLight", meta = (ClampMin = "0.0"))
+	float SkyFillIntensity = 2.0f;
+
+	/** 占位属性：细节面板把它画成「立即烘焙」按钮（行定制在编辑器模块）。 */
+	UPROPERTY(EditAnywhere, Transient, Category = "Planet|Geo", meta = (DisplayName = "立即烘焙"))
+	FGeoBakeNowAction BakeNowAction;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Geo")
 	TObjectPtr<UPlanetRecipe> GeoRecipe;
 
@@ -160,6 +181,9 @@ public:
 	/** 后台烘焙开始 / 结束。编辑器模块订阅来弹通知；运行时没人订阅就没有开销。 */
 	static FGeoBakeStartedEvent GeoBakeStarted;
 	static FGeoBakeFinishedEvent GeoBakeFinished;
+
+	/** 立即烘焙：忽略磁盘缓存，强制重跑一遍。 */
+	void BakeNow();
 
 	/** 重新烘这颗行星（改完配方后从这里应用）。 */
 	UFUNCTION(BlueprintCallable, Category = "Planet|Geo",
@@ -330,6 +354,11 @@ private:
 	bool bGeoBakeFailed = false;
 	/** 烘焙途中配方又改了：当前结果作废，完成后立刻重烘。 */
 	bool bGeoRebakePending = false;
+	/** 本次烘焙的配置哈希（缓存键）；立即烘焙会跳过缓存。 */
+	uint64 PendingCacheHash = 0;
+	/** 本次快照来自缓存：命中后不再回写，避免每次启动都把缓存重新标脏。 */
+	bool bSnapshotFromCache = false;
+	bool bForceRebake = false;
 	/** 按高程图层烘地表底图并切换材质；返回材质是否换了（换了要 ApplyNewMaterials）。 */
 	bool ApplyGeoDebugOverlay();
 	FName OverlayBakedLayer;

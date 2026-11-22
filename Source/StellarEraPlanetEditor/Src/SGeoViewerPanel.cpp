@@ -23,32 +23,12 @@
 
 namespace
 {
-	constexpr int32 GeoViewerMapW = 1024, GeoViewerMapH = 512, GeoViewerSection = 512;
+	/** 导出 PNG 的地图宽度（2D 面板已移除，只剩导出用）。 */
+	constexpr int32 GeoViewerMapW = 1024;
 	// 拖动时用低分辨率保证跟手，松手 0.25 s 后补一张高分辨率。
 	// 交互期只求手感，静止后再出全分辨率：3D 成本 ∝ 像素 × 步数，两者都按此调低。
 	constexpr int32 GeoViewer3DFast = 128, GeoViewer3DFull = 512;
 	constexpr double GeoViewerSettleSeconds = 0.25;
-
-	/** 悬停读数用：鼠标在图片上的归一化位置交给回调。 */
-	class SGeoHoverImage : public SCompoundWidget
-	{
-	public:
-		SLATE_BEGIN_ARGS(SGeoHoverImage) {}
-			SLATE_ARGUMENT(const FSlateBrush*, Brush)
-		SLATE_END_ARGS()
-
-		TFunction<void(FVector2f)> OnHover;
-
-		void Construct(const FArguments& InArgs) { ChildSlot[SNew(SImage).Image(InArgs._Brush)]; }
-
-		virtual FReply OnMouseMove(const FGeometry& Geometry, const FPointerEvent& Event) override
-		{
-			const FVector2f Local = Geometry.AbsoluteToLocal(Event.GetScreenSpacePosition());
-			const FVector2f Size = Geometry.GetLocalSize();
-			if (OnHover && Size.X > 0.f && Size.Y > 0.f) { OnHover(FVector2f(Local.X / Size.X, Local.Y / Size.Y)); }
-			return FReply::Handled();
-		}
-	};
 
 	/** 3D 视图：左键拖动旋转、右键拖动平移、滚轮缩放、悬停读数。 */
 	class SGeoOrbitImage : public SCompoundWidget
@@ -123,40 +103,15 @@ namespace
 			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[Widget];
 	}
 
-	const FGeoDebugLayer* GeoViewerLayer(int32 Index)
-	{
-		const TArray<FGeoDebugLayer>& Layers = FPlanetBakePipeline::DefaultDebugLayers();
-		return Layers.IsValidIndex(Index) ? &Layers[Index] : nullptr;
-	}
 }
 
 void SGeoViewerPanel::Construct(const FArguments& InArgs)
 {
-	OuterItems.Add(MakeShared<FString>(TEXT("外表面：同主图层")));
-	OuterIds.Add(NAME_None);
-	for (const FGeoDebugLayer& L : FPlanetBakePipeline::DefaultDebugLayers())
-	{
-		LayerItems.Add(MakeShared<FString>(FString::Printf(TEXT("%s · %s%s"),
-			L.Stage == 0 ? TEXT("矿物") : *FString::Printf(TEXT("阶段 %u"), L.Stage), *L.DisplayName,
-			L.Domain == EGeoDebugDomain::Volume ? TEXT("（地下）") : TEXT(""))));
-		if (L.Domain == EGeoDebugDomain::Surface)
-		{
-			OuterItems.Add(MakeShared<FString>(FString::Printf(TEXT("外表面：%s"), *L.DisplayName)));
-			OuterIds.Add(L.Id);
-		}
-	}
-	// 默认外表面看海陆、切面看圈层：一眼同时看到地表与内部。
-	OuterIndex = FMath::Max(0, OuterIds.IndexOfByKey(FName(TEXT("Elevation"))));
-	PlaneItems = { MakeShared<FString>(TEXT("XZ 剖面（过两极）")), MakeShared<FString>(TEXT("YZ 剖面（过两极）")),
-		MakeShared<FString>(TEXT("XY 剖面（赤道面）")) };
 	ClipItems = { MakeShared<FString>(TEXT("不切")), MakeShared<FString>(TEXT("切掉 +X 半球")),
 		MakeShared<FString>(TEXT("切掉四分之一")), MakeShared<FString>(TEXT("正对视线切开（可调深度）")) };
 	RefreshPlanets();
+	RefreshLayers();
 
-	TSharedRef<SGeoHoverImage> MapImage = SNew(SGeoHoverImage).Brush(&Map.Brush);
-	MapImage->OnHover = [this](FVector2f UV) { OnMapHover(UV); };
-	TSharedRef<SGeoHoverImage> SectionImage = SNew(SGeoHoverImage).Brush(&Section.Brush);
-	SectionImage->OnHover = [this](FVector2f UV) { OnSectionHover(UV); };
 	TSharedRef<SGeoOrbitImage> OrbitImage = SNew(SGeoOrbitImage).Brush(&View3D.Brush);
 	OrbitImage->OnHover = [this](FVector2f UV) { OnView3DHover(UV); };
 	OrbitImage->OnDrag = [this](FVector2f Delta, bool bPan)
@@ -198,6 +153,7 @@ void SGeoViewerPanel::Construct(const FArguments& InArgs)
 					.OnSelectionChanged_Lambda([this](TSharedPtr<FString> Item, ESelectInfo::Type)
 					{
 						PlanetIndex = FMath::Max(0, PlanetItems.IndexOfByKey(Item));
+						RefreshLayers();
 						Render();
 					})
 				]
@@ -207,6 +163,7 @@ void SGeoViewerPanel::Construct(const FArguments& InArgs)
 					{
 						RefreshPlanets();
 						if (PlanetCombo) { PlanetCombo->RefreshOptions(); PlanetCombo->SetSelectedItem(PlanetItems.IsEmpty() ? nullptr : PlanetItems[0]); }
+						RefreshLayers();
 						Render();
 						return FReply::Handled();
 					})
@@ -214,8 +171,8 @@ void SGeoViewerPanel::Construct(const FArguments& InArgs)
 				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 4, 0)[SNew(STextBlock).Text(FText::FromString(TEXT("图层")))]
 				+ SHorizontalBox::Slot().FillWidth(1.f).Padding(0, 0, 8, 0)
 				[
-					SNew(STextComboBox).OptionsSource(&LayerItems)
-					.InitiallySelectedItem(LayerItems.IsEmpty() ? nullptr : LayerItems[0])
+					SAssignNew(LayerCombo, STextComboBox).OptionsSource(&LayerItems)
+					.InitiallySelectedItem(LayerItems.IsValidIndex(LayerIndex) ? LayerItems[LayerIndex] : nullptr)
 					.OnSelectionChanged_Lambda([this](TSharedPtr<FString> Item, ESelectInfo::Type)
 					{
 						LayerIndex = FMath::Max(0, LayerItems.IndexOfByKey(Item));
@@ -233,7 +190,7 @@ void SGeoViewerPanel::Construct(const FArguments& InArgs)
 				SNew(SHorizontalBox)
 				+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 10, 0)
 				[
-					SNew(STextComboBox).OptionsSource(&OuterItems).InitiallySelectedItem(OuterItems[OuterIndex])
+					SAssignNew(OuterCombo, STextComboBox).OptionsSource(&OuterItems).InitiallySelectedItem(OuterItems.IsValidIndex(OuterIndex) ? OuterItems[OuterIndex] : nullptr)
 					.ToolTipText(FText::FromString(TEXT("从太空直接看到的外表面用哪个图层上色；切面与内部始终用主图层")))
 					.OnSelectionChanged_Lambda([this](TSharedPtr<FString> Item, ESelectInfo::Type)
 					{
@@ -301,40 +258,19 @@ void SGeoViewerPanel::Construct(const FArguments& InArgs)
 			+ SVerticalBox::Slot().AutoHeight()
 			[
 				SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 8, 0)
-				[
-					SNew(SVerticalBox)
-					+ SVerticalBox::Slot().AutoHeight()[OrbitImage]
-					+ SVerticalBox::Slot().AutoHeight()[SNew(STextBlock).Text_Lambda([this]() { return Status3D; })]
-				]
-				+ SHorizontalBox::Slot().AutoWidth()[SAssignNew(LegendBox, SVerticalBox)]
-			]
-			+ SVerticalBox::Slot().AutoHeight().Padding(0, 8, 0, 4)
-			[
-				SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 8, 0)
-				[
-					SNew(STextBlock).Text(FText::FromString(TEXT("2D：左 全球展开（经度 −180°…180°，上北下南）；右 过球心剖面")))
-				]
+				+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 8, 0)[OrbitImage]
 				+ SHorizontalBox::Slot().AutoWidth()
 				[
-					SNew(STextComboBox).OptionsSource(&PlaneItems).InitiallySelectedItem(PlaneItems[0])
-					.OnSelectionChanged_Lambda([this](TSharedPtr<FString> Item, ESelectInfo::Type)
-					{
-						PlaneIndex = FMath::Max(0, PlaneItems.IndexOfByKey(Item));
-						Render();
-					})
+					SNew(SBox).WidthOverride(320)
+					[
+						SNew(SVerticalBox)
+						+ SVerticalBox::Slot().AutoHeight()[SAssignNew(LegendBox, SVerticalBox)]
+						+ SVerticalBox::Slot().AutoHeight().Padding(0, 8, 0, 0)
+						[SNew(STextBlock).Text_Lambda([this]() { return Status3D; }).AutoWrapText(true)]
+						+ SVerticalBox::Slot().AutoHeight().Padding(0, 4, 0, 0)
+						[SNew(STextBlock).Text_Lambda([this]() { return Status; }).AutoWrapText(true)]
+					]
 				]
-			]
-			+ SVerticalBox::Slot().AutoHeight()
-			[
-				SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 8, 0)[MapImage]
-				+ SHorizontalBox::Slot().AutoWidth()[SectionImage]
-			]
-			+ SVerticalBox::Slot().AutoHeight().Padding(0, 4, 0, 0)
-			[
-				SNew(STextBlock).Text_Lambda([this]() { return Status; }).AutoWrapText(true)
 			]
 		]
 	];
@@ -376,6 +312,14 @@ void SGeoViewerPanel::Tick(const FGeometry& AllottedGeometry, const double InCur
 			Render();
 			MarkView3DDirty();
 		}
+	}
+	// 重新烘焙（改了配方/阶段开关）后快照换了：自动重列图层并出图，别停在旧阶段。
+	const FPlanetSnapshot* SnapNow = CurrentSnapshot().Get();
+	if (SnapNow && (SnapNow != LastLayerSnapshot || SnapNow->DisabledStages != LastLayerDisabled))
+	{
+		RefreshLayers();
+		Render();
+		MarkView3DDirty();
 	}
 	if (bView3DDirty)
 	{
@@ -423,6 +367,63 @@ const FGeoDebugLayer* SGeoViewerPanel::OuterLayer() const
 	return OuterIds.IsValidIndex(OuterIndex) ? FPlanetBakePipeline::FindDefaultDebugLayer(OuterIds[OuterIndex]) : nullptr;
 }
 
+const FGeoDebugLayer* SGeoViewerPanel::LayerAt(int32 Index) const
+{
+	return VisibleLayers.IsValidIndex(Index) ? VisibleLayers[Index] : nullptr;
+}
+
+void SGeoViewerPanel::RefreshLayers()
+{
+	const TSharedPtr<const FPlanetSnapshot> Snap = CurrentSnapshot();
+	LastLayerSnapshot = Snap.Get();
+	LastLayerDisabled = Snap.IsValid() ? Snap->DisabledStages : ~0u;
+	bLayerListBuilt = true;
+
+	const FGeoDebugLayer* PrevLayer = LayerAt(LayerIndex);
+	const FName PrevOuter = OuterIds.IsValidIndex(OuterIndex) ? OuterIds[OuterIndex] : NAME_None;
+
+	LayerItems.Reset();
+	VisibleLayers.Reset();
+	OuterItems.Reset();
+	OuterIds.Reset();
+	OuterItems.Add(MakeShared<FString>(TEXT("外表面：同主图层")));
+	OuterIds.Add(NAME_None);
+	for (const FGeoDebugLayer& L : FPlanetBakePipeline::DefaultDebugLayers())
+	{
+		// 没烘完时不知道哪些阶段关了，先全列；烘完只留本次真正跑过的阶段。
+		if (Snap.IsValid() && !Snap->HasStage(L.Stage)) { continue; }
+		VisibleLayers.Add(&L);
+		LayerItems.Add(MakeShared<FString>(FString::Printf(TEXT("%s · %s%s"),
+			L.Stage == 0 ? TEXT("矿物") : *FString::Printf(TEXT("阶段 %u"), L.Stage), *L.DisplayName,
+			L.Domain == EGeoDebugDomain::Volume ? TEXT("（地下）") : TEXT(""))));
+		if (L.Domain == EGeoDebugDomain::Surface)
+		{
+			OuterItems.Add(MakeShared<FString>(FString::Printf(TEXT("外表面：%s"), *L.DisplayName)));
+			OuterIds.Add(L.Id);
+		}
+	}
+
+	LayerIndex = 0;
+	if (PrevLayer)
+	{
+		const int32 Found = VisibleLayers.IndexOfByPredicate([PrevLayer](const FGeoDebugLayer* L) { return L == PrevLayer; });
+		if (Found != INDEX_NONE) { LayerIndex = Found; }
+	}
+	OuterIndex = OuterIds.IndexOfByKey(PrevOuter);
+	if (OuterIndex < 0) { OuterIndex = FMath::Max(0, OuterIds.IndexOfByKey(FName(TEXT("Elevation")))); }
+
+	if (LayerCombo)
+	{
+		LayerCombo->RefreshOptions();
+		LayerCombo->SetSelectedItem(LayerItems.IsValidIndex(LayerIndex) ? LayerItems[LayerIndex] : nullptr);
+	}
+	if (OuterCombo)
+	{
+		OuterCombo->RefreshOptions();
+		OuterCombo->SetSelectedItem(OuterItems.IsValidIndex(OuterIndex) ? OuterItems[OuterIndex] : nullptr);
+	}
+}
+
 void SGeoViewerPanel::Upload(FImageView& Img, int32 W, int32 H, const TArray<FColor>& Colors, FVector2D DisplaySize)
 {
 	if (!Img.Texture || Img.W != W || Img.H != H)
@@ -448,7 +449,7 @@ void SGeoViewerPanel::Upload(FImageView& Img, int32 W, int32 H, const TArray<FCo
 void SGeoViewerPanel::Render3D(bool bFull)
 {
 	const TSharedPtr<const FPlanetSnapshot> Snap = CurrentSnapshot();
-	const FGeoDebugLayer* Layer = GeoViewerLayer(LayerIndex);
+	const FGeoDebugLayer* Layer = LayerAt(LayerIndex);
 	if (!Snap || !Layer) { return; }
 	const double T0 = FPlatformTime::Seconds();
 	const int32 DisplayW = FMath::RoundToInt(View3DWidth);
@@ -477,27 +478,26 @@ void SGeoViewerPanel::Render3D(bool bFull)
 void SGeoViewerPanel::Render()
 {
 	const TSharedPtr<const FPlanetSnapshot> Snap = CurrentSnapshot();
-	const FGeoDebugLayer* Layer = GeoViewerLayer(LayerIndex);
+	// 烘焙结果或阶段开关变了：重列图层，下拉框里只留真实烘出来的阶段。
+	const FPlanetSnapshot* SnapPtr = Snap.Get();
+	const uint32 Disabled = SnapPtr ? SnapPtr->DisabledStages : ~0u;
+	if (!bLayerListBuilt || SnapPtr != LastLayerSnapshot || Disabled != LastLayerDisabled)
+	{
+		RefreshLayers();
+	}
+	const FGeoDebugLayer* Layer = LayerAt(LayerIndex);
 	if (!Snap || !Layer)
 	{
 		Status = FText::FromString(Planets.IsEmpty()
 			? TEXT("当前关卡没有挂配方的星球（GeoRecipe 为空），或还没烘焙完；点「刷新」重试。")
+			: Snap ? TEXT("这颗星当前没有可显示的图层：相关阶段在配方里被关闭了。")
 			: TEXT("这颗星球还没烘焙完，稍后点「刷新」。"));
 		RebuildLegend();
 		bRendered = false;
 		return;
 	}
 	bRendered = true;
-	const double T0 = FPlatformTime::Seconds();
-	TArray<FColor> Colors;
-	PlanetGeoDebugRender::RenderMap(*Snap, *Layer, GeoViewerMapW, GeoViewerMapH, Colors, &Map.Values);
-	Upload(Map, GeoViewerMapW, GeoViewerMapH, Colors, FVector2D(640, 320));
-	PlanetGeoDebugRender::RenderSection(*Snap, *Layer, GeoViewerSection,
-		PlanetGeoDebugRender::ESectionPlane(PlaneIndex), Colors, &Section.Values, bShowMinerals && !Layer->RayHits ? MineralScale : 0.f);
-	Upload(Section, GeoViewerSection, GeoViewerSection, Colors, FVector2D(320, 320));
-	Status = FText::FromString(FString::Printf(TEXT("「%s」2D 出图 %.0f ms。%s"),
-		*Layer->DisplayName, (FPlatformTime::Seconds() - T0) * 1000.0,
-		Snap->DebugFields.IsEmpty() ? TEXT("快照里没有调试场（非编辑器烘焙），阶段 2 的辅助图层会显示为无数据。") : TEXT("")));
+	Status = FText::FromString(FString::Printf(TEXT("「%s」已就绪（本星烘焙出 %d 个图层）"), *Layer->DisplayName, VisibleLayers.Num()));
 	RebuildLegend();
 	MarkView3DDirty();
 }
@@ -507,7 +507,7 @@ void SGeoViewerPanel::RebuildLegend()
 	if (!LegendBox) { return; }
 	LegendBox->ClearChildren();
 	const TSharedPtr<const FPlanetSnapshot> Snap = CurrentSnapshot();
-	const FGeoDebugLayer* Layer = GeoViewerLayer(LayerIndex);
+	const FGeoDebugLayer* Layer = LayerAt(LayerIndex);
 	if (!Snap || !Layer) { return; }
 	LegendBox->AddSlot().AutoHeight().Padding(0, 0, 0, 4)[SNew(STextBlock).Text(FText::FromString(Layer->DisplayName))];
 	const TArray<FGeoDebugLegendEntry> Legend = Layer->GetLegend(*Snap);
@@ -557,7 +557,7 @@ void SGeoViewerPanel::RebuildLegend()
 void SGeoViewerPanel::OnView3DHover(FVector2f UV)
 {
 	const TSharedPtr<const FPlanetSnapshot> Snap = CurrentSnapshot();
-	const FGeoDebugLayer* Layer = GeoViewerLayer(LayerIndex);
+	const FGeoDebugLayer* Layer = LayerAt(LayerIndex);
 	const int32 Res = View3D.W;
 	if (!Snap || !Layer || Res <= 0 || HitPos.Num() != Res * Res) { return; }
 	const int32 X = FMath::Clamp(int32(UV.X * Res), 0, Res - 1), Y = FMath::Clamp(int32(UV.Y * Res), 0, Res - 1);
@@ -572,37 +572,18 @@ void SGeoViewerPanel::OnView3DHover(FVector2f UV)
 		Depth, Km, *Layer->FormatValue(*Snap, HitValues[Y * Res + X])));
 }
 
-void SGeoViewerPanel::OnMapHover(FVector2f UV)
-{
-	const TSharedPtr<const FPlanetSnapshot> Snap = CurrentSnapshot();
-	const FGeoDebugLayer* Layer = GeoViewerLayer(LayerIndex);
-	if (!Snap || !Layer || Map.Values.Num() != Map.W * Map.H || Map.W == 0) { return; }
-	const int32 X = FMath::Clamp(int32(UV.X * Map.W), 0, Map.W - 1), Y = FMath::Clamp(int32(UV.Y * Map.H), 0, Map.H - 1);
-	const float Lon = (float(X) + 0.5f) / float(Map.W) * 360.f - 180.f, Lat = 90.f - (float(Y) + 0.5f) / float(Map.H) * 180.f;
-	Readout = FText::FromString(FString::Printf(TEXT("地图  纬度 %.1f°  经度 %.1f°  →  %s"), Lat, Lon,
-		*Layer->FormatValue(*Snap, Map.Values[Y * Map.W + X])));
-}
-
-void SGeoViewerPanel::OnSectionHover(FVector2f UV)
-{
-	const TSharedPtr<const FPlanetSnapshot> Snap = CurrentSnapshot();
-	const FGeoDebugLayer* Layer = GeoViewerLayer(LayerIndex);
-	if (!Snap || !Layer || Section.Values.Num() != Section.W * Section.H || Section.W == 0) { return; }
-	const int32 X = FMath::Clamp(int32(UV.X * Section.W), 0, Section.W - 1), Y = FMath::Clamp(int32(UV.Y * Section.H), 0, Section.H - 1);
-	const FVector3d P = PlanetGeoDebugRender::SectionPixelToPos(*Snap, X, Y, Section.W, PlanetGeoDebugRender::ESectionPlane(PlaneIndex));
-	const double Depth = Snap->R0 - P.Size();
-	const AVoxelPlanetActor* Planet = Planets.IsValidIndex(PlanetIndex) ? Planets[PlanetIndex].Get() : nullptr;
-	const double Km = Planet ? Depth * double(Planet->VoxelSize) / 100000.0 : 0.0;
-	Readout = FText::FromString(FString::Printf(TEXT("剖面  距海平面深度 %.0f 体素（%.1f km）  →  %s"),
-		Depth, Km, *Layer->FormatValue(*Snap, Section.Values[Y * Section.W + X])));
-}
-
 void SGeoViewerPanel::Export()
 {
 	const TSharedPtr<const FPlanetSnapshot> Snap = CurrentSnapshot();
 	if (!Snap) { return; }
 	const FString Name = PlanetItems.IsValidIndex(PlanetIndex) ? *PlanetItems[PlanetIndex] : FString(TEXT("Planet"));
 	const FString Dir = FPaths::ConvertRelativePathToFull(FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("GeoDebug"), Name));
-	const int32 N = PlanetGeoDebugRender::ExportAll(*Snap, FPlanetBakePipeline::DefaultDebugLayers(), Dir, GeoViewerMapW);
+	// 导出同样只导本次烘焙存在的阶段。
+	TArray<FGeoDebugLayer> Layers;
+	for (const FGeoDebugLayer& L : FPlanetBakePipeline::DefaultDebugLayers())
+	{
+		if (Snap->HasStage(L.Stage)) { Layers.Add(L); }
+	}
+	const int32 N = PlanetGeoDebugRender::ExportAll(*Snap, Layers, Dir, GeoViewerMapW);
 	Status = FText::FromString(FString::Printf(TEXT("导出 %d 张图到 %s"), N, *Dir));
 }
