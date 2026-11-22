@@ -528,6 +528,23 @@ void UCosmosSimulationSubsystem::FinalizeRegistration()
 		return;
 	}
 
+	// 物理尺度要求位置来自 InitialPositionAu；两种错配都会让初态静默落到错的地方，各吭一声。
+	bool bAnyInitialPositionOverride = false;
+	for (const UCosmosOrbitComponent* Component : Bodies)
+	{
+		bAnyInitialPositionOverride |= Component && Component->bUseInitialPositionAu;
+	}
+	if (bPhysicalScale && !bAnyInitialPositionOverride)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Cosmos] bPhysicalScale 已开，但没有任何天体填 InitialPositionAu：初态仍按关卡摆放的渲染坐标换算，远场位置会错。"));
+	}
+	else if (!bPhysicalScale && bAnyInitialPositionOverride)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Cosmos] 有天体填了 InitialPositionAu 但 bPhysicalScale 关着：覆盖按真实 AU 生效，与其余按渲染标定摆放的天体不在同一空间。"));
+	}
+
 	// 按质量降序注册：中心天体先进求解器。N 体同时求解，顺序不影响结果，只为日志好读。
 	Bodies.Sort([](const UCosmosOrbitComponent& A, const UCosmosOrbitComponent& B)
 	{
@@ -707,7 +724,9 @@ void UCosmosSimulationSubsystem::UpdateCurrentBody()
 	}
 	if (Picked == INDEX_NONE)
 	{
-		// 离开所有天体的退出带：全部转远场；原点仍钉在上一颗上，只为保持世界坐标有界。
+		// 深空：原点转钉到飞船，世界坐标不再随旧天体增长；行星全部转远场代理。
+		RenderAnchorWorld = Simulator.ToWorldLocation(Positions[ShipIndex]);
+		RenderAnchorIndex = ShipIndex;
 		CurrentBodyIndex = INDEX_NONE;
 		return;
 	}
@@ -854,6 +873,15 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 
 		const FVector PreviousLocation = BodyActor->GetActorLocation();
 
+		const bool bNear = bPhysicalScale
+			&& (Component->SimulatorIndex == CurrentBodyIndex || Component->SimulatorIndex == ShipIndex);
+
+		// 物理尺度下的远场行星只留代理球：体素与碰撞在几百 AU 外毫无意义。
+		if (AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(BodyActor))
+		{
+			Planet->SetFarFieldMode(bPhysicalScale && !bNear);
+		}
+
 		if (Component->bSimulated)
 		{
 			const FCosmosBodyState& State = Simulator.GetBody(Component->SimulatorIndex);
@@ -872,8 +900,6 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 					RenderPosition, RenderOrientation);
 			}
 
-			const bool bNear = bPhysicalScale
-				&& (Component->SimulatorIndex == CurrentBodyIndex || Component->SimulatorIndex == ShipIndex);
 			const FVector TargetLocation = bPhysicalScale
 				? ToRenderWorld(RenderPosition, AnchorAu, ShipAu, RenderAnchorWorld, ShipWorld,
 					bNear, FUniverseMapping::PhysicalCmPerAu, CentimetersPerAu)

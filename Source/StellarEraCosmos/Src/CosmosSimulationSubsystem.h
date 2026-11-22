@@ -191,7 +191,7 @@ private:
 	 */
 	void SelectRenderAnchor();
 
-	/** 每帧按飞船距离重选当前天体；变化时把渲染原点重新钉到它的当前世界位置。 */
+	/** 每帧按飞船距离重选当前天体；变化时把渲染原点重新钉到它的当前世界位置，深空则转钉到飞船。 */
 	void UpdateCurrentBody();
 
 	/** 每帧把原点贴到锚点当前位置（可传插值后的锚点），世界坐标因此不随轨道平移。 */
@@ -250,7 +250,7 @@ private:
 	/** 锚点的世界位置。切换当前天体时重钉到它的当前世界位置，其余天体随之整体平移。 */
 	FVector RenderAnchorWorld = FVector::ZeroVector;
 
-	/** 当前天体（求解器下标）。与 RenderAnchorIndex 同步；星图模式下冻结。 */
+	/** 当前天体（求解器下标）。星图模式下冻结；深空为 INDEX_NONE，此时 RenderAnchorIndex 指向飞船。 */
 	int32 CurrentBodyIndex = INDEX_NONE;
 
 	/** 映射参数（M2 只用它的近场阈值；压缩在 M3 接）。 */
