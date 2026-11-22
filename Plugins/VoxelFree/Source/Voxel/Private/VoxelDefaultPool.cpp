@@ -35,7 +35,8 @@ TVoxelSharedRef<FVoxelDefaultPool> FVoxelDefaultPool::Create(
 	const TMap<EVoxelTaskType, int32>& PriorityCategories,
 	const TMap<EVoxelTaskType, int32>& PriorityOffsets)
 {
-	LOG_VOXEL(Log, TEXT("Creating pool with %d threads"), ThreadCount);
+	LOG_VOXEL(Log, TEXT("Creating pool with %d threads (%s priorities)"), ThreadCount,
+		bConstantPriorities ? TEXT("constant") : TEXT("dynamic"));
 	if (!ensureMsgf(ThreadCount >= 1, TEXT("Invalid MeshThreadCount: %d"), ThreadCount))
 	{
 		ThreadCount = 1;

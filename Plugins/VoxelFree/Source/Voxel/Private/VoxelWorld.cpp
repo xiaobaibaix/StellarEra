@@ -813,7 +813,9 @@ TVoxelSharedRef<IVoxelPool> AVoxelWorld::CreatePool() const
 	
 	if (PlayType == EVoxelPlayType::Preview)
 	{
-		return CreateOwnPool(NumberOfThreadsForPreview, true);
+		// 本地补丁（StellarEra）：常量优先级只在入队时算一次，行星尺度下飞走后旧块仍占队头，
+		// 新块被饿死；与 Game 分支一致改用动态优先级。升级 VoxelFree 时需重新应用。
+		return CreateOwnPool(NumberOfThreadsForPreview, false);
 	}
 	else
 	{
