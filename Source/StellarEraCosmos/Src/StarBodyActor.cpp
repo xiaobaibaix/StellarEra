@@ -5,6 +5,7 @@
 #include "Materials/MaterialInterface.h"
 #include "UObject/ConstructorHelpers.h"
 #include "CosmosOrbitComponent.h"
+#include "CosmosTypes.h"
 #include "StarBodyComponent.h"
 
 AStarBodyActor::AStarBodyActor()
@@ -51,6 +52,6 @@ AStarBodyActor::AStarBodyActor()
 void AStarBodyActor::ApplyScaleMode(bool bPhysical)
 {
 	// BasicShapes/Sphere 半径 50cm；物理模式用真实半径，远场由 Actor 缩放压到 FarScale。
-	const double LocalRadiusCm = bPhysical ? double(PhysicalRadiusKm) * 1.0e5 : 5.0e5;
+	const double LocalRadiusCm = bPhysical ? double(PhysicalRadiusKm) * CosmosUnits::CentimetersPerKilometer : 5.0e5;
 	StarMesh->SetRelativeScale3D(FVector(LocalRadiusCm / 50.0));
 }

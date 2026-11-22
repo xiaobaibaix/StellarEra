@@ -876,10 +876,13 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 			continue;
 		}
 
-		// 恒星网格的局部半径要跟着尺度模式走：物理模式缩到 FarScale 后，旧 10000 只剩 0.3mm。
-		if (AStarBodyActor* Star = Cast<AStarBodyActor>(BodyActor))
+		// 物理模式缩到 FarScale 后旧 10000 只剩 0.3mm；非物理模式构造时已设好，别覆盖实例改值。
+		if (bPhysicalScale)
 		{
-			Star->ApplyScaleMode(bPhysicalScale);
+			if (AStarBodyActor* Star = Cast<AStarBodyActor>(BodyActor))
+			{
+				Star->ApplyScaleMode(true);
+			}
 		}
 
 		const FVector PreviousLocation = BodyActor->GetActorLocation();

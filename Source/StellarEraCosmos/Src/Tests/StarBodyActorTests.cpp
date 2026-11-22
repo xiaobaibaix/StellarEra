@@ -71,6 +71,7 @@ bool FStellarEraStarBodyActorSkeletonTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("缩放 Z"), Scale.Z, 10000.0, 0.5);
 
 		// 物理模式：局部半径 = 真实半径，Actor 再乘 FarScale 得到远场尺寸。
+		TestEqual(TEXT("默认物理半径"), Star->PhysicalRadiusKm, 696340.0f, 0.5f);
 		Star->ApplyScaleMode(true);
 		const double ExpectedPhysicalScale = double(Star->PhysicalRadiusKm) * 1.0e5 / 50.0;
 		const FVector PhysicalScale = Star->StarMesh->GetRelativeScale3D();
