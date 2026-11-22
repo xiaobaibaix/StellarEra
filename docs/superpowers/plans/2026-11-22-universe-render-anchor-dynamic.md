@@ -43,7 +43,7 @@
 - Consumes: 无。
 - Produces: `TArray<double> SurfaceDistancesCm(const TArray<FVector3d>& Positions, const TArray<double>& RadiiAu, const FVector3d& ShipPositionAu, double CmPerAu, int32 ExcludeIndex = INDEX_NONE)`——返回与输入等长的距离数组（厘米）；无地表（`RadiiAu <= 0`）或被排除的下标为 `TNumericLimits<double>::Max()`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `UniverseMappingTests.cpp` 末尾追加：
 
@@ -71,12 +71,12 @@ bool FStellarEraSurfaceDistancesTest::RunTest(const FString& Parameters)
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 构建后运行，过滤 `StellarEra.Cosmos.UniverseMapping.SurfaceDistances`。
 Expected: 编译失败（`SurfaceDistancesCm` 未定义）。
 
-- [ ] **Step 3: 写最小实现**
+- [x] **Step 3: 写最小实现**
 
 在 `UniverseMapping.h` 末尾追加：
 
@@ -98,11 +98,11 @@ inline TArray<double> SurfaceDistancesCm(const TArray<FVector3d>& Positions, con
 }
 ```
 
-- [ ] **Step 4: 构建并跑测试确认通过**
+- [x] **Step 4: 构建并跑测试确认通过**
 
 过滤 `StellarEra.Cosmos.UniverseMapping`，三个用例（Core / CurrentBody / SurfaceDistances）全过。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add Source/StellarEraCosmos/Src/UniverseMapping.h Source/StellarEraCosmos/Src/Tests/UniverseMappingTests.cpp
@@ -121,7 +121,7 @@ git commit -m "feat(宇宙): 渲染锚点用的天体距离表" -- Source/Stella
 - Consumes: `SurfaceDistancesCm`、`PickCurrentBody`（Task 1 / M1）。
 - Produces: `void UCosmosSimulationSubsystem::UpdateCurrentBody()`；成员 `int32 CurrentBodyIndex`、`FUniverseMapping Mapping`。
 
-- [ ] **Step 1: 头文件加成员与方法**
+- [x] **Step 1: 头文件加成员与方法**
 
 在 `CosmosSimulationSubsystem.h` 的 `SelectRenderAnchor` 附近加：
 
@@ -142,7 +142,7 @@ git commit -m "feat(宇宙): 渲染锚点用的天体距离表" -- Source/Stella
 
 并在文件顶部加 `#include "UniverseMapping.h"`。
 
-- [ ] **Step 2: 实现 UpdateCurrentBody**
+- [x] **Step 2: 实现 UpdateCurrentBody**
 
 在 `CosmosSimulationSubsystem.cpp` 的 `UpdateRenderOrigin` 之后加：
 
@@ -203,7 +203,7 @@ void UCosmosSimulationSubsystem::UpdateCurrentBody()
 
 在 `Tick` 里、`const FVector3d* RenderAnchorOverride = nullptr;` 之前调用 `UpdateCurrentBody();`。
 
-- [ ] **Step 3: 构建并跑现有 Cosmos 测试**
+- [x] **Step 3: 构建并跑现有 Cosmos 测试**
 
 ```bash
 "<UE>/Engine/Binaries/Win64/UnrealEditor-Cmd.exe" "F:/workspace/ue/StellarEra/StellarEra.uproject" \
@@ -213,7 +213,7 @@ void UCosmosSimulationSubsystem::UpdateCurrentBody()
 
 Expected: 无新增失败（记录基线）。
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add Source/StellarEraCosmos/Src/CosmosSimulationSubsystem.h Source/StellarEraCosmos/Src/CosmosSimulationSubsystem.cpp
@@ -227,7 +227,11 @@ git commit -m "feat(宇宙): 渲染原点跟随当前天体，切换时整世界
 **Files:**
 - 无代码改动。
 
-- [ ] **Step 1: PIE 飞行验证**
+- [x] **Step 1: 全量测试**
+
+`Automation RunTests StellarEra`：299 通过 / 1 预存在失败（与本改动无关）。
+
+- [ ] **Step 2: PIE 飞行验证**
 
 1. 关闭无头测试进程；用 schtasks `/it` 在 console 会话启动编辑器，打开 `UniverseMap`，播放。
 2. 从初始行星飞向另一颗行星，跨过 `R_near ≈ 0.1 AU`。
@@ -235,11 +239,11 @@ git commit -m "feat(宇宙): 渲染原点跟随当前天体，切换时整世界
 
 Expected: 有切换日志、无视觉跳变、无 `World Memory Leaks` 或崩溃。
 
-- [ ] **Step 2: 星图冻结验证**
+- [ ] **Step 3: 星图冻结验证**
 
 进入星图模式，确认不出现「渲染原点切换」日志、星空不跳。
 
-- [ ] **Step 3: 勾选计划并提交文档**
+- [x] **Step 4: 勾选计划并提交文档**
 
 ```bash
 git add docs/superpowers/plans/2026-11-22-universe-render-anchor-dynamic.md
@@ -251,4 +255,6 @@ git commit -m "docs(宇宙): M2 动态渲染原点计划勾选" -- docs/superpow
 ## 后续里程碑（另出计划）
 
 - **M3**：仿真标定切 `PhysicalCmPerAu`（半径/探针/UI 同步），写回改走 `FUniverseMapping` 压缩远场；代理渲染。
+- **M3 前置**：`FUniverseMapping::RenderCmPerAu` 必须由 `UCosmosSimulationSubsystem::CentimetersPerAu` 派生（或加断言二者相等），否则近场阈值与写回标定会分叉。
+- **M3 前置**：`FUniverseMapping::PhysicalCmPerAu` 与 `CosmosUnits::AuToCentimeter` 是两份物理常量（1.496e13 vs 1.495978707e13），M3 需统一。
 - 远场代理与体素网格显隐、切换淡入。

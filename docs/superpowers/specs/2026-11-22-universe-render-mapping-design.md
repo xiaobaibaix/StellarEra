@@ -82,6 +82,8 @@
 - 远场代理的具体资产与 LOD 策略（实现期确定）。
 - 任意天体的按需体素生成（本期全部常驻）。
 
-## Milestone 2 硬性要求（物理半径 tripwire）
+## Milestone 3 硬性要求（物理半径 tripwire）
 
-- M2 必须把 `CosmosSimulationSubsystem`、`CosmosTrajectoryComponent`、`StarMapUISystem` 里的物理半径读取改成未缩放值（`Radius·VoxelSize / PhysicalCmPerAu`）；`GetSurfaceRadiusCm()` 只作渲染空间使用，**不得**喂给求解器。
+M2 只做动态渲染原点，不含本项。
+
+- M3 必须把 `CosmosSimulationSubsystem`、`CosmosTrajectoryComponent`、`StarMapUISystem` 里的物理半径读取改成未缩放值（`Radius·VoxelSize / PhysicalCmPerAu`）；`GetSurfaceRadiusCm()` 只作渲染空间使用，**不得**喂给求解器。
