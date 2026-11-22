@@ -21,12 +21,19 @@
 - 当前天体：`P = ship + (P_sim − ship_sim)`，`scale = 1`。
 - 其余天体：`P = ship + (P_sim − ship_sim) × k`，`scale = k`。
 - 方向不变，角直径严格守恒：`k·r / k·d = r/d`。
-- 取 `k = 1e-6`：1 AU → 150 km，10 km 行星 → 1 cm，太阳 → 700 m。远场整体落在 150 km 内。
+
+### 两套标定（前置前提）
+
+项目现在的 `CentimetersPerAu = 1e6` 把仿真长度和世界长度绑在一起（1 AU = 10 km，行星在仿真里半径是 1 AU）。本设计要拆开：
+
+- `PhysicalCmPerAu = 1.496e13`：仿真/物理换算用，行星半径在仿真里回到真实的 `6.7e-8 AU`。
+- `RenderCmPerAu = 1e6`：表现空间标定，保持现有观感（1 AU → 10 km）。
+- 远场比例 `k = RenderCmPerAu / PhysicalCmPerAu ≈ 6.68e-8`：1 AU → 1e6 cm（10 km），10 km 行星 → 0.67 mm，太阳 → 47 m。远场整体落在 1e6 cm 内。
 
 ## 切换规则
 
 - 当前天体 = 距飞船最近、且真实距离小于 `R_near` 的天体；其它天体全部走远场。
-- `R_near` 取使 `k·R_near ≥ D_min` 的值（`D_min` 为远场最小可渲染距离，约 1 km），即约 1000 km。
+- `R_near = D_min / k`（`D_min` 为远场最小可渲染距离，约 1 km）：约 `1.5e12 cm` = `1.5e7 km` ≈ `0.1 AU`。
 - 切换时位置偏移与半径同时乘 `1/k`，相似变换保持从飞船出发的每条射线，**屏幕逐像素不变**，不需要淡入。跳变的只有世界坐标与远场互遮挡，此时目标屏幕尺寸很小，不可见。
 - 进出带滞回（进 `R_near`、出 `2·R_near`），防止边界抖动。
 
@@ -38,7 +45,8 @@
 
 ## 前置修复（必须先做）
 
-把 Actor 缩放从以下链路摘掉，一律只用**未缩放** `Radius`：
+1. 仿真长度标定改为 `PhysicalCmPerAu`：半径、接触探针、`ToWorldGameUnits` 一类换算都用物理值；表现层坐标只由映射产出。这一步与写回切换分开做，先保证仿真侧自洽。
+2. 把 Actor 缩放从以下链路摘掉，一律只用**未缩放** `Radius`：
 
 - `AVoxelPlanetActor::ComputeParamsHash`
 - 生成器输入 `ToConfig(GetScaledRadiusVoxels())`
