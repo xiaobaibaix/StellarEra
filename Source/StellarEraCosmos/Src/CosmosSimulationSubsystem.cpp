@@ -55,11 +55,8 @@ void UCosmosSimulationSubsystem::Initialize(FSubsystemCollectionBase& Collection
 
 	// 缩尺宇宙：世界距离 = 真实距离 / 倍率，所以求解器的 1 AU = 真实厘米 / 倍率。
 	// 有控制 Actor 时以它为准；打包后没有该 Actor，退回 Config 的 CentimetersPerAu。
-	if (const double UniverseScale = ReadUniverseControlDouble(TEXT("DistanceScale")); UniverseScale > 0.0)
-	{
-		CentimetersPerAu = CosmosUnits::AuToCentimeter / UniverseScale;
-		UE_LOG(LogTemp, Log, TEXT("[Cosmos] 缩尺 %.4g：1 AU = %.4e 厘米"), UniverseScale, CentimetersPerAu);
-	}
+	// 注意：DistanceScale 只用于编辑器摆位（UniverseScaleControls::ApplyScale），
+	// 不参与 CentimetersPerAu —— 求解器仍按 Config 的标定解释摆位距离。
 	if (const double ControlTimeScale = ReadUniverseControlDouble(TEXT("TimeScale")); ControlTimeScale > 0.0)
 	{
 		TimeScale = ControlTimeScale;
@@ -166,11 +163,8 @@ void UCosmosSimulationSubsystem::AddBodyToSimulator(UCosmosOrbitComponent* Compo
 	FCosmosBodyState State;
 	// DistanceScale < 1 = 把摆位间距压紧：只缩距离，半径不变，形状不变。
 	State.Position = Simulator.ToGameUnitPosition(BodyActor->GetActorLocation()) * DistanceScale;
-	// 设计层速度 → 求解器速度：引力放大 S 倍时，维持同一轨道只需 √S 倍速度。
-	// 面板永远填设计层/真实单位，这里自动换算。
-	const double GravitySpeedScale = FMath::Sqrt(FMath::Max(Component->GravityScale, 0.0));
 	State.Velocity = CosmosUnits::KilometerPerSecondToAuPerYear(
-		FVector3d(Component->InitialVelocityKmPerSecond)) * GravitySpeedScale;
+		FVector3d(Component->InitialVelocityKmPerSecond));
 	State.Mass = CosmosUnits::EarthMassToSolarMass(Component->MassEarth);
 	State.GravityScale = Component->GravityScale;
 	State.OwnerActor = BodyActor;
