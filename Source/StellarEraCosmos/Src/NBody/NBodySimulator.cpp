@@ -64,9 +64,10 @@ int32 FNBodySimulator::FindBodyByActor(const AActor* Actor) const
 
 double FNBodySimulator::GetG() const
 {
-	return (UnitSystem == ECosmosUnitSystem::Game)
+	const double Base = (UnitSystem == ECosmosUnitSystem::Game)
 		? CosmosUnits::GravitationalConstant_Game
 		: CosmosUnits::GravitationalConstant_SI;
+	return Base * GravityScale;
 }
 
 void FNBodySimulator::ComputeAccelerations()
@@ -113,8 +114,8 @@ void FNBodySimulator::ComputeAccelerations()
 
 		// 外力与阻尼逐子步求值（显式欧拉，dt 逐关卡派生、不可硬编码）。引力单独存一份
 		// 供星图箭头读，不和外力/阻尼混，否则推力会搅混方向。
-		Bodies[i].GravitationalAcceleration = G * Sum;
-		Accelerations[i] = G * Sum
+		Bodies[i].GravitationalAcceleration = G * Sum * Bodies[i].GravityScale;
+		Accelerations[i] = Bodies[i].GravitationalAcceleration
 			+ Bodies[i].ExternalAcceleration
 			- Bodies[i].LinearDamping * Bodies[i].Velocity;
 	}

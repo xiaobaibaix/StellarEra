@@ -124,6 +124,23 @@ public:
 		meta = (DisplayName = "世界标定（厘米/AU）"))
 	double CentimetersPerAu = 1.0e6;
 
+	/**
+	 * 空间距离倍率：只缩放天体间距（位置按 CentimetersPerAu / 该值 换算），
+	 * 天体半径仍按 CentimetersPerAu 换算 —— 尺寸不变、形状不变。1 = 不缩放。
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Cosmos|Scale",
+		meta = (DisplayName = "DistanceScale", ClampMin = "0.0001"))
+	double DistanceScale = 1.0;
+
+	/**
+	 * 引力常数倍率：质量保持真实（M☉ / M⊕），用它把尺度适配到想要的运动节奏。
+	 * 1 = 真实 G；周期 T ∝ 1/√GravityScale。
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Cosmos|Physics",
+		meta = (DisplayName = "GravityScale", ClampMin = "0.0000001"))
+	double GravityScale = 1.0;
+
+
 	/** 模拟年 / 真实秒。默认 0.00333，即公转一圈约 300 秒。 */
 	UPROPERTY(Config, EditAnywhere, Category = "Cosmos|Time",
 		meta = (DisplayName = "时间流速（模拟年/真实秒）"))

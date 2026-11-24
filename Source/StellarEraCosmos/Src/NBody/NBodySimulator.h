@@ -92,6 +92,12 @@ struct FCosmosBodyState
 	 */
 	double LinearDamping = 0.0;
 
+	/**
+	 * 本天体受到的引力倍率：只放大"别人对我的吸引"，不改它对他人的吸引。
+	 * 默认 1。用于飞船在缩尺宇宙里还原真实重力手感（设成 1/k³）。
+	 */
+	double GravityScale = 1.0;
+
 	/** 刚体：为 true 时求解器积分姿态、接触冲量产生力矩；行星/恒星保持 false，朝向归关卡摆位。 */
 	bool bRigidBody = false;
 
@@ -330,9 +336,16 @@ public:
 	                        FCosmosClosedOrbitPrediction& Out,
 	                        double ReturnToleranceFraction = 0.3) const;
 
+	/** 引力常数倍率：质量保持真实，用它把尺度调到想要的运动节奏。1 = 真实 G。 */
+	void SetGravityScale(double InScale) { GravityScale = FMath::Max(InScale, 1e-12); }
+	double GetGravityScale() const { return GravityScale; }
+
 private:
-	/** 当前单位制下的引力常数。ComputeAccelerations / GetTotalEnergy / 预测三处共用。 */
+	/** 当前单位制下的引力常数 × GravityScale。加速/能量/预测三处共用。 */
 	double GetG() const;
+
+	/** 见 SetGravityScale。 */
+	double GravityScale = 1.0;
 
 	/**
 	 * 引力源质量：测试粒子返回 0。Mass 本身仍用于接触解算与惯性诊断。

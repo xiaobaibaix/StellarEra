@@ -12,9 +12,26 @@ UCosmosOrbitComponent::UCosmosOrbitComponent()
 	PrimaryComponentTick.bCanEverTick = false;
 }
 
+void UCosmosOrbitComponent::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+
+	const FName Changed = PropertyChangedEvent.GetPropertyName();
+	if (Changed == GET_MEMBER_NAME_CHECKED(UCosmosOrbitComponent, MassEarthSci))
+	{
+		MassEarth = FCString::Atod(*MassEarthSci);
+		MassEarthSci = FString::Printf(TEXT("%.4e"), MassEarth);
+	}
+	else if (Changed == GET_MEMBER_NAME_CHECKED(UCosmosOrbitComponent, MassEarth))
+	{
+		MassEarthSci = FString::Printf(TEXT("%.4e"), MassEarth);
+	}
+}
+
 void UCosmosOrbitComponent::PostLoad()
 {
 	Super::PostLoad();
+	MassEarthSci = FString::Printf(TEXT("%.4e"), MassEarth);
 
 	// 旧字段非零 = 这份数据存于单位变更之前（2026-10-19）。
 	// 新字段仍是构造默认值 → 还没迁移过。两者都查，保证重复 PostLoad 幂等。

@@ -5,19 +5,71 @@
 #include "CosmosOrbitComponent.h"
 #include "VoxelPlanetActor.h"
 #include "CosmosBody.h"
+#include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Pawn.h"
 #include "Stats/Stats.h"
+#include "UObject/UnrealType.h"
+
+namespace
+{
+	/** 编辑器里的 UniverseScaleControls 上的 double 字段；没有控制 Actor 时返回 0。 */
+	double ReadUniverseControlDouble(const TCHAR* PropertyName)
+	{
+#if WITH_EDITOR
+		if (!GEngine)
+		{
+			return 0.0;
+		}
+		for (const FWorldContext& Context : GEngine->GetWorldContexts())
+		{
+			UWorld* World = Context.World();
+			if (!World || Context.WorldType != EWorldType::Editor)
+			{
+				continue;
+			}
+			for (TActorIterator<AActor> It(World); It; ++It)
+			{
+				if (const FDoubleProperty* Property =
+					CastField<FDoubleProperty>(It->GetClass()->FindPropertyByName(FName(PropertyName))))
+				{
+					const double Value = Property->GetPropertyValue_InContainer(*It);
+					if (FMath::IsFinite(Value) && Value > 0.0)
+					{
+						return Value;
+					}
+				}
+			}
+			return 0.0;
+		}
+#endif
+		return 0.0;
+	}
+} // namespace
 
 void UCosmosSimulationSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	// 引擎已在 PostInitProperties 按 UCLASS(Config = Game) 载入过，这里再显式载一次让「值从 ini 来」看得见。
 	LoadConfig();
 
+	// 缩尺宇宙：世界距离 = 真实距离 / 倍率，所以求解器的 1 AU = 真实厘米 / 倍率。
+	// 有控制 Actor 时以它为准；打包后没有该 Actor，退回 Config 的 CentimetersPerAu。
+	if (const double UniverseScale = ReadUniverseControlDouble(TEXT("DistanceScale")); UniverseScale > 0.0)
+	{
+		CentimetersPerAu = CosmosUnits::AuToCentimeter / UniverseScale;
+		UE_LOG(LogTemp, Log, TEXT("[Cosmos] 缩尺 %.4g：1 AU = %.4e 厘米"), UniverseScale, CentimetersPerAu);
+	}
+	if (const double ControlTimeScale = ReadUniverseControlDouble(TEXT("TimeScale")); ControlTimeScale > 0.0)
+	{
+		TimeScale = ControlTimeScale;
+		UE_LOG(LogTemp, Log, TEXT("[Cosmos] TimeScale %.5g 年/秒（来自 UniverseScaleControls）"), TimeScale);
+	}
+
 	Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
 	Simulator.SetIntegrator(ECosmosIntegrator::VelocityVerlet);
 	Simulator.SetSofteningLength(SofteningLength);
+	Simulator.SetGravityScale(GravityScale);
 	Simulator.SetCentimetersPerAu(CentimetersPerAu);
 
 	Super::Initialize(Collection);
@@ -112,10 +164,15 @@ void UCosmosSimulationSubsystem::AddBodyToSimulator(UCosmosOrbitComponent* Compo
 	}
 
 	FCosmosBodyState State;
-	State.Position = Simulator.ToGameUnitPosition(BodyActor->GetActorLocation());
+	// DistanceScale < 1 = 把摆位间距压紧：只缩距离，半径不变，形状不变。
+	State.Position = Simulator.ToGameUnitPosition(BodyActor->GetActorLocation()) * DistanceScale;
+	// 设计层速度 → 求解器速度：引力放大 S 倍时，维持同一轨道只需 √S 倍速度。
+	// 面板永远填设计层/真实单位，这里自动换算。
+	const double GravitySpeedScale = FMath::Sqrt(FMath::Max(Component->GravityScale, 0.0));
 	State.Velocity = CosmosUnits::KilometerPerSecondToAuPerYear(
-		FVector3d(Component->InitialVelocityKmPerSecond));
+		FVector3d(Component->InitialVelocityKmPerSecond)) * GravitySpeedScale;
 	State.Mass = CosmosUnits::EarthMassToSolarMass(Component->MassEarth);
+	State.GravityScale = Component->GravityScale;
 	State.OwnerActor = BodyActor;
 
 	// 单向引力：bExertsGravity 关掉的是测试粒子，引力源质量按 0 算、自己仍被吸引；Mass 保持真实值供接触与诊断用。
@@ -828,7 +885,22 @@ void UCosmosSimulationSubsystem::LogDiagnostics() const
 		bHasForcedBodies ? TEXT("  ⚠ 含受控天体，此值不守恒") : TEXT(""));
 	UE_LOG(LogTemp, Log, TEXT("[Cosmos] 总动量    : %.6e"), Simulator.GetTotalMomentum().Size());
 	UE_LOG(LogTemp, Log, TEXT("[Cosmos] 角动量    : %.6e"), Simulator.GetTotalAngularMomentum().Size());
-	UE_LOG(LogTemp, Log, TEXT("[Cosmos] 1 AU      : %.0f 厘米"), CentimetersPerAu);
+	UE_LOG(LogTemp, Log, TEXT("[Cosmos] 1 AU      : %.0f 厘米（DistanceScale=%.4g，GravityScale=%.4g）"),
+		CentimetersPerAu, DistanceScale, GravityScale);
+
+	// 诊断：刚体（飞船）在求解器里的真实速度与加速度，用来判断积分到底动没动它。
+	for (int32 Index = 0; Index < Simulator.GetNumBodies(); ++Index)
+	{
+		const FCosmosBodyState& Body = Simulator.GetBody(Index);
+		if (Body.bRigidBody)
+		{
+			UE_LOG(LogTemp, Log,
+				TEXT("[Cosmos] 刚体 %d：|v|=%.4e AU/年，|a|=%.4e，引力=%.4e，外力=%.4e，阻尼=%.4e"),
+				Index, Body.Velocity.Size(), Body.Acceleration.Size(),
+				Body.GravitationalAcceleration.Size(), Body.ExternalAcceleration.Size(),
+				Body.LinearDamping);
+		}
+	}
 
 	// 受控天体单独一行，值非零才打：没有输入时外力为 0，但阻尼恒非零，这行就是「读到了飞船」的证据。
 	for (int32 Index = 0; Index < Simulator.GetNumBodies(); ++Index)

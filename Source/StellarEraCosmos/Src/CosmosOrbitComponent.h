@@ -31,6 +31,14 @@ public:
 	double MassEarth = 1.0;
 
 	/**
+	 * 质量的科学计数法输入框（如 5.0234e-20）：面板对 double 用固定小数，极小/极大值会被截成 0.0…
+	 * 改这里会写回 MassEarth；反之 MassEarth 变化时这里自动刷新。
+	 */
+	UPROPERTY(EditAnywhere, Category = "Cosmos|Body",
+		meta = (DisplayName = "质量（科学计数法）"))
+	FString MassEarthSci;
+
+	/**
 	 * 是否作为**引力源**吸引其他天体。关掉后仍被别人吸引、照常接触，但作为引力源的质量
 	 * 按 0 计（测试粒子），典型用途是玩家飞船。**接触解算不受影响**，仍按真实 MassEarth
 	 * 分配让路。与 MassEarth、初速一样**注册时读一次**，PIE 中途改要重开才生效。
@@ -70,12 +78,22 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Body")
 	bool bRegistersWithSimulation = true;
 
+	/**
+	 * 本天体**受到的**引力倍率：只放大别人对它的吸引，不改变它对别人的吸引。
+	 * 默认 1；缩尺宇宙里给飞船设成 1/k³ 可还原真实重力手感。
+	 * 初速与 HUD 速度按 √GravityScale 自动换算，面板仍填设计层单位。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Body",
+		meta = (DisplayName = "GravityScale", ClampMin = "0.0"))
+	double GravityScale = 1.0;
+
 	/** 求解器里的索引。运行时由子系统填写，不要手改。 */
 	UPROPERTY(Transient, VisibleAnywhere, BlueprintReadOnly, Category = "Cosmos")
 	int32 SimulatorIndex = INDEX_NONE;
 
 	//~ Begin UActorComponent Interface
 	virtual void PostLoad() override;
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	//~ End UActorComponent Interface
