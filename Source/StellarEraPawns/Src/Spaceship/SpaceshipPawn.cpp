@@ -2,6 +2,9 @@
 
 #include "SpaceshipPawn.h"
 
+#include "CosmosSimulationSubsystem.h"
+#include "CosmosTypes.h"
+
 #include "VoxelPlanetActor.h"
 #include "PlanetAtmosphereComponent.h"
 #include "PlanetCharacter.h"
@@ -619,8 +622,17 @@ FSpaceshipStatus ASpaceshipPawn::GetStatus() const
 	FSpaceshipStatus Status;
 
 	// 绝对速度取求解器写回的值；相对速度减去参考行星中心速度；厘米/秒 → km/s。
-	Status.SpeedKmPerSecond = GetVelocity().Size() / CentimetersPerKilometer;
-	Status.RelativeSpeedKmPerSecond = GetRelativeVelocity().Size() / CentimetersPerKilometer;
+	// 读数是真实物理速度：GetVelocity() 是快放世界的厘米/秒，除以 TimeScale × 年秒数还原。
+	double WorldToPhysical = 1.0;
+	if (const UWorld* World = GetWorld())
+	{
+		if (const UCosmosSimulationSubsystem* Cosmos = World->GetSubsystem<UCosmosSimulationSubsystem>())
+		{
+			WorldToPhysical = FMath::Max(Cosmos->TimeScale * CosmosUnits::YearToSecond, 1.0e-9);
+		}
+	}
+	Status.SpeedKmPerSecond = GetVelocity().Size() / CentimetersPerKilometer / WorldToPhysical;
+	Status.RelativeSpeedKmPerSecond = GetRelativeVelocity().Size() / CentimetersPerKilometer / WorldToPhysical;
 	Status.bHasReferencePlanet = PlanetActor != nullptr;
 
 	// 实际极速 = 阻尼极速（推力 × τ）与当前生效的硬上限里较小且非 0 的那个；都为 0 = 无上限。
