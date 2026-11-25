@@ -47,8 +47,6 @@ StellarEraPlanet/
 StellarEraPlanet/Src/
 ├── VoxelPlanetActor.h/.cpp    星球本体（对外门面，所以放在 Src 根）
 ├── Terrain/                   地形长什么样：模块基类、噪声、纯球、适配器、生物群系配色
-├── Hydrology/                 水文：烘焙（填洼 / 汇流 / 下切）、水位场与河流湖泊特征
-├── Water/                     水面：跟随行星的动态网格组件、水面几何与材质
 ├── Invokers/                  体素 LOD 调用器接线 + IVoxelViewpointInvokers（角色 / 飞船实现）
 ├── Surface/                   星球这个球本身：解析射线、编辑经纬网格
 ├── Atmosphere/                大气组件与参数、星体组件与阴影遮罩
@@ -162,8 +160,6 @@ Pawns，手里也有玩家控制器，所以直接调，**不设接口** —— 
 | 改地形起伏 | `StellarEraPlanet/Src/Geo/Bake/Stages/Stage03Terrain.cpp` |
 | 改星球移动/缩放 | `StellarEraPlanet/Src/VoxelPlanetActor.cpp` |
 | 改大气颜色/高度 | `StellarEraPlanet/Src/Atmosphere/PlanetAtmosphereMaterialBuilder.cpp` |
-| 改水文（河谷 / 湖泊） | `StellarEraPlanet/Src/Hydrology/PlanetHydrologyBake.cpp` |
-| 改水面几何/材质 | `StellarEraPlanet/Src/Water/PlanetWaterComponent.cpp`（几何）/ `PlanetWaterMaterialBuilder.cpp`（材质） |
 | 改矿物透视颜色 | `StellarEraPlanet/Src/Minerals/Surface/PlanetMineralMaterialBuilder.cpp` |
 | 改挖掘笔刷范围 | `StellarEraPlanet/Src/Edit/PlanetEditBrush.cpp` |
 | 改渐进编辑的速度 | `StellarEraPlanet/Src/Edit/PlanetProgressiveEdit.cpp` |
