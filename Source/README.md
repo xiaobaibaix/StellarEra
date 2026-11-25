@@ -22,7 +22,6 @@ StellarEraPlanet/
     ├── VoxelPlanetActor.h         头与源**同目录并列**
     ├── VoxelPlanetActor.cpp
     ├── Geo/                       地质管线：Bake/Stages（七个阶段）、Core、Snapshot、Voxel
-    ├── Terrain/                   只剩 PlanetBiomeCubemap（生物群系立方体贴图）
     ├── Atmosphere/  Minerals/  Edit/
     └── Tests/                     自动化测试（*Tests.cpp 只放这里）
 ```
