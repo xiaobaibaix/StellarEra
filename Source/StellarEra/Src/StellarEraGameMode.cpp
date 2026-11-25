@@ -82,8 +82,8 @@ ASpaceshipPawn* AStellarEraGameMode::FindExistingShip() const
 
 APlayerStart* AStellarEraGameMode::FindSpawnPlayerStart()
 {
-	// 直接遍历，不走 FindPlayerStart（会做遮挡检测，飞船就摆在那儿）。PIE 的
-	// 「Play From Here」（APlayerStartPIE）优先，否则取第一个。找不到返回 nullptr ——
+	// 直接遍历，不走 FindPlayerStart（会做遮挡检测，飞船就摆在那儿）。取关卡里第一个
+	// 非 PIE 的 PlayerStart；找不到才退回 Play From Here 的临时点。返回 nullptr ——
 	// FindPlayerStart 找不到时返回 WorldSettings 而非空，别拿它判。
 	UWorld* World = GetWorld();
 	if (!World)
@@ -92,18 +92,22 @@ APlayerStart* AStellarEraGameMode::FindSpawnPlayerStart()
 	}
 
 	APlayerStart* FirstPlayerStart = nullptr;
+	APlayerStart* PiePlayerStart = nullptr;
 	for (TActorIterator<APlayerStart> It(World); It; ++It)
 	{
 		if (It->IsA<APlayerStartPIE>())
 		{
-			return *It;
+			PiePlayerStart = *It;
+			continue;
 		}
 		if (!FirstPlayerStart)
 		{
 			FirstPlayerStart = *It;
 		}
 	}
-	return FirstPlayerStart;
+	// 飞船有固定出生点：关卡里的 PlayerStart 优先，Play From Here 的临时点只作兜底，
+	// 否则从相机启动 PIE 时飞船总落在相机附近，关卡出生点形同虚设。
+	return FirstPlayerStart ? FirstPlayerStart : PiePlayerStart;
 }
 
 void AStellarEraGameMode::EnsureSpaceshipExists()
