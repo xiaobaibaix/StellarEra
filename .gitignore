@@ -24,3 +24,5 @@ ArtSource/
 # Claude Code 本地文件（不入库）
 .claude/settings.local.json
 .claude/worktrees/
+# 测试不进仓库：本地保留，按需运行
+Source/**/Tests/
