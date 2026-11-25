@@ -9,6 +9,8 @@
 #include "SpaceshipPawn.h"
 #include "StellarEraHUD.h"
 #include "CosmosSimulationSubsystem.h"
+#include "StellarEraGameMode.h"
+#include "Components/InputComponent.h"
 #include "StarMapPicking.h"
 #include "StarMapRigComponent.h"
 #include "VoxelPlanetActor.h"
@@ -65,6 +67,38 @@ void AStellarEraPlayerController::BeginPlay()
 	{
 		Subsystem->AddMappingContext(Input.MappingContext, /*Priority=*/0);
 	}
+}
+
+void AStellarEraPlayerController::SetupInputComponent()
+{
+	Super::SetupInputComponent();
+
+	// 全局会话动作：与 Possess 的 Pawn 无关，直接绑在控制器自己的 InputComponent 上。
+	// `=` 是 Shift+= 的同一个物理键；`-` 是 Hyphen。
+	if (InputComponent)
+	{
+		InputComponent->BindKey(EKeys::Equals, IE_Pressed, this, &AStellarEraPlayerController::TimeScaleUp);
+		InputComponent->BindKey(EKeys::Hyphen, IE_Pressed, this, &AStellarEraPlayerController::TimeScaleDown);
+	}
+}
+
+void AStellarEraPlayerController::AdjustTimeScale(const int32 Direction)
+{
+	UCosmosSimulationSubsystem* Cosmos =
+		GetWorld() ? GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>() : nullptr;
+	if (!Cosmos)
+	{
+		return;
+	}
+
+	// 步长来自 GameMode（蓝图子类里调），倍率夹在 1/8–8 倍，基准取子系统 CDO 的默认值。
+	const AStellarEraGameMode* GameMode = GetWorld()->GetAuthGameMode<AStellarEraGameMode>();
+	const float Step = GameMode ? GameMode->TimeScaleStep : 1.f;
+	TimeScaleMultiplier = FMath::Clamp(TimeScaleMultiplier + Direction * Step, 0.125f, 8.f);
+
+	const double Base = GetDefault<UCosmosSimulationSubsystem>()->TimeScale;
+	Cosmos->TimeScale = Base * double(TimeScaleMultiplier);
+	UE_LOG(LogTemp, Display, TEXT("[Time] 时间倍率 %.2fx（TimeScale %.5f）"), TimeScaleMultiplier, Cosmos->TimeScale);
 }
 
 void AStellarEraPlayerController::OnPossess(APawn* InPawn)

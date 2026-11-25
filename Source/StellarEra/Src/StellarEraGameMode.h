@@ -22,6 +22,11 @@ class AStellarEraGameMode : public AGameModeBase
 public:
 	AStellarEraGameMode();
 
+public:
+	/** +/- 调时间流速时每按一次改变的倍率（默认 1×）。蓝图子类里改它即可调步长。 */
+	UPROPERTY(EditDefaultsOnly, Category = "StellarEra|Time")
+	float TimeScaleStep = 1.f;
+
 protected:
 	virtual void BeginPlay() override;
 

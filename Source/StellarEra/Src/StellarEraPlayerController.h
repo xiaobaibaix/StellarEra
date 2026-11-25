@@ -24,6 +24,12 @@ public:
 
 	virtual void BeginPlay() override;
 
+	/** `=` / `-` 调时间流速倍率：全局会话动作，与当前 Possess 的 Pawn 无关。 */
+	virtual void SetupInputComponent() override;
+	void AdjustTimeScale(int32 Direction);
+	void TimeScaleUp() { AdjustTimeScale(1); }
+	void TimeScaleDown() { AdjustTimeScale(-1); }
+
 	// ── 静态查询（无状态，能无头测）──
 
 	/**
@@ -33,6 +39,9 @@ public:
 	static void ApplyViewpointInvokerGate(UWorld* World, const APawn* InPawn);
 
 protected:
+	/** 当前时间流速倍率；= 基准 TimeScale × 本值。 */
+	float TimeScaleMultiplier = 1.f;
+
 	// ── Possess / 逐帧 ──
 
 	virtual void OnPossess(APawn* InPawn) override;
