@@ -1,7 +1,5 @@
-/.agents
 /.claude
 /.codegraph
-/.codex
 /.git
 /.superpowers
 /.vscode
@@ -10,6 +8,7 @@
 /BinariesReal
 /Content
 /DerivedDataCache
+/dev
 /docs
 /Intermediate
 /Saved

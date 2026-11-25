@@ -1,4 +1,5 @@
-﻿// 地质查看器：3D 视图（左键旋转、右键平移、滚轮缩放、切开、隐藏圈层、半透明），悬停读数、图例、导出 PNG。
+﻿#if WITH_EDITOR
+// 地质查看器：3D 视图（左键旋转、右键平移、滚轮缩放、切开、隐藏圈层、半透明），悬停读数、图例、导出 PNG。
 // 只消费 FPlanetBakePipeline::DefaultDebugLayers()，新阶段注册图层后自动出现。
 #pragma once
 #include "CoreMinimal.h"
@@ -79,3 +80,4 @@ private:
 	const FGeoDebugLayer* OuterLayer() const;
 	static void Upload(FImageView& View, int32 W, int32 H, const TArray<FColor>& Colors, FVector2D DisplaySize);
 };
+#endif

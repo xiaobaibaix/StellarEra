@@ -1,3 +1,4 @@
+#if WITH_EDITOR
 #include "GeoBakeNowCustomization.h"
 #include "DetailWidgetRow.h"
 #include "IPropertyUtilities.h"
@@ -44,3 +45,4 @@ void FGeoBakeNowCustomization::CustomizeHeader(TSharedRef<IPropertyHandle> Prope
 		})
 	];
 }
+#endif

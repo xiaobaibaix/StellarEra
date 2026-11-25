@@ -1,4 +1,5 @@
-﻿#include "SGeoViewerPanel.h"
+﻿#if WITH_EDITOR
+#include "SGeoViewerPanel.h"
 #include "Editor.h"
 #include "Engine/Texture2D.h"
 #include "Engine/World.h"
@@ -587,3 +588,4 @@ void SGeoViewerPanel::Export()
 	const int32 N = PlanetGeoDebugRender::ExportAll(*Snap, Layers, Dir, GeoViewerMapW);
 	Status = FText::FromString(FString::Printf(TEXT("导出 %d 张图到 %s"), N, *Dir));
 }
+#endif

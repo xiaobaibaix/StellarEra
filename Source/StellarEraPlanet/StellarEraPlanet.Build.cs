@@ -80,7 +80,13 @@ public class StellarEraPlanet : ModuleRules
 		{
 			// 编辑器世界的天光预览要取视口相机（GEditor / FLevelEditorViewportClient）。
 			// 只在编辑器目标里编，打包时不会有这条依赖。
-			PrivateDependencyModuleNames.Add("UnrealEd");
+			PrivateDependencyModuleNames.AddRange(new string[]
+			{
+				"UnrealEd",
+				// Src/Geo/Viewer 的地质查看器：可停靠面板、属性行定制、烘焙通知，
+				// 全部包在 #if WITH_EDITOR 里，所以这些依赖也必须只出现在编辑器目标。
+				"Slate", "SlateCore", "InputCore", "WorkspaceMenuStructure", "PropertyEditor",
+			});
 		}
 	}
 }

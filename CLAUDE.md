@@ -26,7 +26,7 @@ python Tools/vscode_intellisense.py
 ```
 最后在 VS Code 执行 `C/C++: Reset IntelliSense Database`（或重载窗口）—— cpptools 缓存编译命令，不重载不生效。
 
-## 模块结构（5 个运行时模块 + 1 个编辑器模块，依赖严格分层，无环）
+## 模块结构（5 个运行时模块，依赖严格分层，无环；编辑器专用代码在 `Planet/Src/Geo/Viewer`，`#if WITH_EDITOR` 隔离）
 ```
 StellarEra        ─→ StellarEraUI（Public）, StellarEraCosmos, StellarEraPawns,
                      StellarEraPlanet
@@ -34,24 +34,23 @@ StellarEraUI      ─→ StellarEraPlanet（Public）, StellarEraCosmos, Stellar
 StellarEraCosmos  ─→ StellarEraPlanet（Private）
 StellarEraPawns   ─→ StellarEraCosmos（Public）, StellarEraPlanet（Public）, Voxel（Public）
 StellarEraPlanet  ─→ Voxel（Public），无其它项目依赖
-StellarEraPlanetEditor ─→ StellarEraPlanet（Public）  编辑器专用：地质查看器面板
 ```
 ```
 Source/
 ├── StellarEra/            主游戏模块（primary game module）：GameMode / PlayerController
 │                          Src/Input/ 聚合三张 Pawn 动作表（控制器自己一条输入都不绑）
 ├── StellarEraPlanet/      世界：Src/{Terrain,Hydrology,Water,Surface,Invokers,Atmosphere,
-│                                     Minerals,Edit,Sky,Star}/
+│                                     Geo,Minerals,Edit,Sky,Star}/
 │                          Minerals 内：Geology（再含 Distributions）/ Surface / View
 │                          Invokers 里还有 IVoxelViewpointInvokers（三个 Pawn 与控制器共用）
 │                          Edit 里有 PlanetEditUI（编辑按钮布局，HUD 与两个 Pawn 共用）
+│                          Geo/Viewer/ 是地质查看器面板（Slate），整份代码在 #if WITH_EDITOR 内
 ├── StellarEraPawns/       受控实体：Src/{Character,Spaceship,StarMap}/
 │                          各功能面再分 Input/（输入组件 + 动作表），Character 还有 Animations/
 │                          StarMap 内：相机 Pawn + StarMapPanelLayout / StarMapPicking
 ├── StellarEraCosmos/      N 体求解器 + 单位类型（CosmosTypes）+ 天体接口（CosmosBody）
 │                          + 编排（子系统 / 轨道组件 / 轨迹组件）
 └── StellarEraUI/          HUD、星图面板、矿物图例
-└── StellarEraPlanetEditor/ 编辑器专用（Type=Editor）：地质查看器（窗口 → 工具 → 地质查看器）
 Plugins/
 ├── VoxelFree/          第三方体素插件，勿改
 └── VibeUE/             第三方编辑器 AI 工具，勿改

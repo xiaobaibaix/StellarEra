@@ -1,4 +1,5 @@
-﻿// 后台地质烘焙的编辑器通知：开始一条「正在烘焙…」，结束原地更新为成功/失败再淡出。
+﻿#if WITH_EDITOR
+// 后台地质烘焙的编辑器通知：开始一条「正在烘焙…」，结束原地更新为成功/失败再淡出。
 #include "VoxelPlanetActor.h"
 #include "Framework/Notifications/NotificationManager.h"
 #include "Widgets/Notifications/SNotificationList.h"
@@ -67,3 +68,4 @@ void UnregisterGeoBakeNotifications()
 	AVoxelPlanetActor::GeoBakeStarted.Remove(GStartedHandle);
 	AVoxelPlanetActor::GeoBakeFinished.Remove(GFinishedHandle);
 }
+#endif

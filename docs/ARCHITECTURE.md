@@ -8,7 +8,7 @@
 
 ## 一、一页速查
 
-5 个模块，5 层，206 个文件，52490 行，57 个自动化测试文件。
+5 个模块，5 层，293 个文件，58770 行，85 个自动化测试文件。
 
 > **统计口径**：文件与行数只数各模块 `Source/<模块>/Src/` 下的 `.h` / `.cpp`
 > （递归含子目录，含 `Tests/`），**不含**模块入口 `StellarEra<X>.h/.cpp` 与 `Build.cs`；
@@ -18,12 +18,11 @@
 
 | 层 | 模块 | 文件 | 行数 | 测试 | 一句话 | 依赖（Public / Private） |
 |---:|---|---:|---:|---:|---|---|
-| L1 | `StellarEraPlanet` | 122 | 29293 | 30 | 一颗行星的全部：地形 / 水文 / 水面 / 大气 / 矿物（含地质场）/ 编辑与编辑按钮布局 / 体素接线 | Public: Voxel, GeometryCore / Private: AssetRegistry, GeometryFramework |
-| L2 | `StellarEraCosmos` | 18 | 7739 | 6 | N 体积分与编排、天体类型、轨迹 | Private: Planet |
-| L3 | `StellarEraPawns` | 44 | 9312 | 11 | 玩家能 possess 的：角色、飞船（星图 rig / 输入是两者身上的组件） | Public: Cosmos, Planet, Voxel / Private: EnhancedInput, InputCore |
-| L4 | `StellarEraUI` | 10 | 2856 | 4 | HUD、星图面板、矿物图例 | Public: Planet, Pawns / Private: Cosmos, Voxel |
-| L5 | `StellarEra` | 12 | 3290 | 6 | GameMode、PlayerController、输入动作表聚合（primary game module） | Public: UI, Pawns / Private: Planet, Cosmos, Voxel, InputCore, EnhancedInput |
-| 编辑器 | `StellarEraPlanetEditor` | 4 | 398 | 0 | 地质查看器面板（Slate，Type=Editor，不进打包） | Public: Planet / Private: Slate, SlateCore, InputCore, UnrealEd, WorkspaceMenuStructure |
+| L1 | `StellarEraPlanet` | 197 | 36564 | 51 | 一颗行星的全部：地形 / 水文 / 水面 / 大气 / 矿物（含地质场）/ 编辑与编辑按钮布局 / 体素接线 / 地质查看器（`Src/Geo/Viewer`，编辑器专属） | Public: Voxel, GeometryCore / Private: AssetRegistry, GeometryFramework, RHI；编辑器目标另加 Slate, SlateCore, InputCore, UnrealEd, WorkspaceMenuStructure, PropertyEditor |
+| L2 | `StellarEraCosmos` | 26 | 9026 | 10 | N 体积分与编排、天体类型、轨迹 | Private: Planet |
+| L3 | `StellarEraPawns` | 46 | 8431 | 13 | 玩家能 possess 的：角色、飞船（星图 rig / 输入是两者身上的组件） | Public: Cosmos, Planet, Voxel / Private: EnhancedInput, InputCore |
+| L4 | `StellarEraUI` | 8 | 2345 | 3 | HUD、星图面板、矿物图例 | Public: Planet, Pawns / Private: Cosmos, Voxel |
+| L5 | `StellarEra` | 16 | 2404 | 8 | GameMode、PlayerController、输入动作表聚合（primary game module） | Public: UI, Pawns / Private: Planet, Cosmos, Voxel, InputCore, EnhancedInput |
 
 **没有 L0 了。** 只剩引擎与 `Voxel` 插件，项目自研代码分五层。
 
