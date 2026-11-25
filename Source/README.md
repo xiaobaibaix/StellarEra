@@ -21,10 +21,8 @@ StellarEraPlanet/
 └── Src/                           业务代码全在这里
     ├── VoxelPlanetActor.h         头与源**同目录并列**
     ├── VoxelPlanetActor.cpp
-    ├── Terrain/                   按功能分子目录，里面也是 .h/.cpp 并列
-    │   ├── VoxelPlanetTerrainModule.h
-    │   ├── VoxelPlanetTerrainModule.cpp
-    │   └── ...
+    ├── Geo/                       地质管线：Bake/Stages（七个阶段）、Core、Snapshot、Voxel
+    ├── Terrain/                   只剩 PlanetBiomeCubemap（生物群系立方体贴图）
     ├── Atmosphere/  Minerals/  Edit/
     └── Tests/                     自动化测试（*Tests.cpp 只放这里）
 ```
