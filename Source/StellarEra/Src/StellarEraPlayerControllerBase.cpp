@@ -9,6 +9,19 @@
 
 #include "PlanetCharacter.h"
 #include "SpaceshipPawn.h"
+#include "Engine/World.h"
+#include "UObject/ConstructorHelpers.h"
+
+AStellarEraPlayerControllerBase::AStellarEraPlayerControllerBase()
+{
+	// 下船才生成角色；这里只给默认类，实际生成发生在 GetOrSpawnCrewCharacter。
+	static ConstructorHelpers::FClassFinder<APlanetCharacter> CrewBP(
+		TEXT("/Game/Code/Pawns/Character/BP_PlanetCharacter"));
+	if (CrewBP.Succeeded())
+	{
+		CrewCharacterClass = CrewBP.Class;
+	}
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // IStellarEraInputSource：角色与飞船的输入组件来取动作表；M 在每张表里都映射，
@@ -69,28 +82,24 @@ APlanetCharacter* AStellarEraPlayerControllerBase::GetOrSpawnCrewCharacter(ASpac
 		return Boarded;
 	}
 
-	// 开局操控的是飞船，舱里还没有记账 —— 角色由飞船自己提供（Child Actor 或
-	// 关卡里附着到船上）。这里不做生成兜底。
-	TArray<AActor*> AttachedActors;
-	Ship->GetAttachedActors(AttachedActors);
-	for (AActor* Attached : AttachedActors)
+	// 开局操控的是飞船，舱里没有角色：下船时才在落脚点实时生成一个。
+	if (!CrewCharacterClass)
 	{
-		// 不能叫 Character：AController 有同名成员，UBT 把 C4458 当错误。
-		APlanetCharacter* Crew = Cast<APlanetCharacter>(Attached);
-		if (!Crew)
-		{
-			continue;
-		}
-
-		// 先按「在舱里」归一化（隐藏、关碰撞、MOVE_None），让调用方的 DisembarkCrew
-		// 走完整出舱分支，而不是把一具状态未知的角色直接丢到船外。
-		Ship->Board(Crew);
-		return Crew;
+		UE_LOG(LogTemp, Warning,
+			TEXT("AStellarEraPlayerControllerBase: 没有配置 CrewCharacterClass，飞船 %s 无法离船。"),
+			*GetNameSafe(Ship));
+		return nullptr;
 	}
 
-	UE_LOG(LogTemp, Warning,
-		TEXT("AStellarEraPlayerControllerBase: 飞船 %s 上找不到角色"
-			 "（舱里没记账，也没有挂接的 APlanetCharacter），按 E 无法离船。"),
-		*GetNameSafe(Ship));
-	return nullptr;
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	APlanetCharacter* Spawned = GetWorld()->SpawnActor<APlanetCharacter>(
+		CrewCharacterClass, Ship->GetCrewExitLocation(), FRotator::ZeroRotator, Params);
+	if (!Spawned)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("AStellarEraPlayerControllerBase: 飞船 %s 的角色生成失败（%s）。"),
+			*GetNameSafe(Ship), *GetNameSafe(CrewCharacterClass));
+	}
+	return Spawned;
 }

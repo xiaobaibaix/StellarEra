@@ -27,6 +27,8 @@ class STELLARERA_API AStellarEraPlayerControllerBase : public APlayerController,
 	GENERATED_BODY()
 
 public:
+	AStellarEraPlayerControllerBase();
+
 	// ── 接口实现 ──
 	// 两个都是对别的模块的契约，统一放 public。
 
@@ -45,8 +47,8 @@ public:
 	virtual ASpaceshipPawn* FindBoardableShipFrom(const APawn* From) const override;
 
 	/**
-	 * E（飞船）：舱里的角色；舱里没记账时取直接挂在飞船下的角色。找不到返回 nullptr。
-	 * 调用方随后自己 Ship->DisembarkCrew + Possess。
+	 * E（飞船）：舱里已有角色就复用；否则在离船落脚点实时生成一个。
+	 * 生成失败返回 nullptr。调用方随后自己 Ship->DisembarkCrew + Possess。
 	 */
 	virtual APlanetCharacter* GetOrSpawnCrewCharacter(ASpaceshipPawn* Ship) override;
 	//~ End IStellarEraSessionCommands Interface
@@ -57,4 +59,8 @@ protected:
 	/** 三张 Pawn 动作表与共享 IMC。定义见 StellarEraInputActions.h。 */
 	UPROPERTY(Transient)
 	FStellarEraInputActions Input;
+
+	/** 下船时实时生成的角色类（默认 BP_PlanetCharacter）；为空则无法离船。 */
+	UPROPERTY(EditDefaultsOnly, Category = "StellarEra")
+	TSubclassOf<APlanetCharacter> CrewCharacterClass;
 };
