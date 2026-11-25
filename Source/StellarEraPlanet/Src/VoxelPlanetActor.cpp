@@ -11,7 +11,6 @@
 #include "VoxelWorldRootComponent.h"
 #include "VoxelGenerators/VoxelGeneratorPicker.h"
 #include "VoxelComponents/VoxelInvokerComponent.h"
-#include "PlanetSurfaceGridComponent.h"
 #include "PlanetSunLightComponent.h"
 #include "Sky/PlanetSkyLightComponent.h"
 #include "Materials/MaterialInterface.h"
@@ -37,6 +36,7 @@
 #include "PlanetShapeEval.h"
 #include "PlanetSurfaceRay.h"
 #include "VoxelData/VoxelData.h"
+#include "VoxelData/VoxelDataIncludes.h"
 #include "VoxelData/VoxelDataLock.h"
 #include "VoxelIntBox.h"
 #include "VoxelValue.h"
@@ -188,11 +188,6 @@ AVoxelPlanetActor::AVoxelPlanetActor()
 
 	// 大气壳、矿物观察与表面编辑网格由 BP_VoxelPlanet 挂载；原生实例不带，
 	// 编辑相关调用走 FindEditGrid()，找不到就跳过。
-}
-
-UPlanetSurfaceGridComponent* AVoxelPlanetActor::FindEditGrid() const
-{
-	return FindComponentByClass<UPlanetSurfaceGridComponent>();
 }
 
 float AVoxelPlanetActor::GetScaledRadiusVoxels() const
@@ -976,31 +971,11 @@ void AVoxelPlanetActor::InvalidateAndRebuild()
 	}
 
 	RebuildPlanet();
-
-	// 地形布局变了，表面网格必须重新采样（组件内部按防抖时间重建）。
-	if (UPlanetSurfaceGridComponent* Grid = FindEditGrid())
-	{
-		Grid->NotifyVoxelEdited();
-	}
-}
-
-void AVoxelPlanetActor::SetEditGridVisible(const bool bVisible)
-{
-	// 组件由蓝图挂载，原生实例静默跳过：编辑照常可用，只是看不到网格基线。
-	if (UPlanetSurfaceGridComponent* Grid = FindEditGrid())
-	{
-		Grid->SetGridVisible(bVisible);
-	}
 }
 
 void AVoxelPlanetActor::NotifyVoxelEdited()
 {
 	bHasUnsavedEdits = true;
-
-	if (UPlanetSurfaceGridComponent* Grid = FindEditGrid())
-	{
-		Grid->NotifyVoxelEdited();
-	}
 }
 
 void AVoxelPlanetActor::RequestSaveEdits()

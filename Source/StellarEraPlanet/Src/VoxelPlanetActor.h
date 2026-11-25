@@ -16,7 +16,6 @@
 
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
-class UPlanetSurfaceGridComponent;
 class UPlanetSkyLightComponent;
 class UPlanetSunLightComponent;
 class UPlanetGeoGenerator;
@@ -67,9 +66,6 @@ public:
 	 * 属性，RebuildPlanet 的参数哈希察觉不到，守卫会吞掉重建，看起来像参数没生效。
 	 */
 	void InvalidateAndRebuild();
-
-	/** 显示 / 隐藏编辑模式下的表面网格。 */
-	void SetEditGridVisible(bool bVisible);
 
 	/**
 	 * 体素被编辑后调用：通知表面网格重建并标记未保存编辑。**不在这里存档**：旧的
@@ -308,12 +304,6 @@ public:
 #endif
 
 private:
-	/**
-	 * 编辑模式下的表面网格基线，**由蓝图子类 BP_VoxelPlanet 挂载**（编辑是可选
-	 * 玩法，原生实例不带它）。每次现查而不缓存：编辑器世界里的缓存时机并不可靠。
-	 */
-	UPlanetSurfaceGridComponent* FindEditGrid() const;
-
 	/**
 	 * 修正继承重构前遗留的组件树：确保基类 WorldRoot 就是本 Actor 的根组件。
 	 * 旧实例的 RootComponent 是老 PlanetRoot、WorldRoot 游离，导致网格画在世界原点、

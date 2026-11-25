@@ -69,22 +69,6 @@ void UPlanetEditComponent::SetGridPlanet(AVoxelPlanetActor* Planet)
 	// 换星前把队列做干净：编辑记着旧星的体素坐标与 Actor，继续推进就是拿旧坐标写新星。
 	FinishAllEdits();
 
-	// 换星先收旧星网格再决定新星要不要亮；角色调它，星图不调。
-	if (bEditMode)
-	{
-		if (AVoxelPlanetActor* Previous = GridPlanet.Get())
-		{
-			if (IsValid(Previous))
-			{
-				Previous->SetEditGridVisible(false);
-			}
-		}
-		if (IsValid(Planet))
-		{
-			Planet->SetEditGridVisible(true);
-		}
-	}
-
 	GridPlanet = Planet;
 }
 
@@ -131,14 +115,6 @@ void UPlanetEditComponent::SetEditMode(const bool bEnabled)
 		LastEditedPlanet.Reset();
 	}
 
-	// 网格归属由 SetGridPlanet 决定；缓存的行星在拆卸阶段可能已失效，先验一下。
-	if (AVoxelPlanetActor* Planet = GridPlanet.Get())
-	{
-		if (IsValid(Planet))
-		{
-			Planet->SetEditGridVisible(bEditMode);
-		}
-	}
 }
 
 void UPlanetEditComponent::FlushPendingRenderUpdate()
