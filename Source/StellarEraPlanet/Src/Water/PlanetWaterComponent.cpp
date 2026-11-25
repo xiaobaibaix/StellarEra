@@ -8,7 +8,6 @@
 #include "Materials/MaterialInterface.h"
 #include "PlanetHydrologyField.h"
 #include "PlanetWaterSurfaceBuilder.h"
-#include "VoxelPlanetTerrainModule.h"
 
 namespace
 {
@@ -33,8 +32,7 @@ void UPlanetWaterComponent::RebuildWater(
 	const FPlanetHydrologyField* Field,
 	const FPlanetWaterConfig& Config,
 	const double VoxelSize,
-	const double PlanetRadiusVoxels,
-	const UVoxelPlanetTerrainModule* Terrain)
+	const double PlanetRadiusVoxels)
 {
 	ClearWaterMeshes();
 
@@ -61,17 +59,6 @@ void UPlanetWaterComponent::RebuildWater(
 	BuildParams.VoxelSize = VoxelSize;
 	BuildParams.PlanetRadiusVoxels = PlanetRadiusVoxels;
 	BuildParams.OceanResolution = OceanResolution;
-
-	// 地形高度只给湖泊用：湖冠的 2 格余量必须落在地形高过水位的地方，否则那圈
-	// 水面底下是空气。地表半径与水文烘焙同一条公式：基准半径 + Amplitude × 归一化位移。
-	if (Terrain)
-	{
-		BuildParams.TerrainAmplitude = Config.Params.Amplitude;
-		BuildParams.TerrainHeightFn = [Terrain](const FVector& UnitDir)
-		{
-			return Terrain->GetRawOffset(UnitDir);
-		};
-	}
 
 	UE::Geometry::FDynamicMesh3 Mesh;
 	PlanetWaterSurfaceBuilder::BuildOcean(*Field, BuildParams, Mesh);

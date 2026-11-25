@@ -11,7 +11,6 @@
 class UDynamicMeshComponent;
 class UMaterialInstanceDynamic;
 class UMaterialInterface;
-class UVoxelPlanetTerrainModule;
 class FPlanetHydrologyField;
 
 /**
@@ -27,17 +26,12 @@ class STELLARERAPLANET_API UPlanetWaterComponent : public USceneComponent
 public:
 	UPlanetWaterComponent();
 
-	/**
-	 * 重建水面。Field 为空 = 拆掉全部分量（这颗星不要水）。
-	 * Terrain 不为空时按 GetRawOffset 采样地表高度，把湖冠的 2 格余量裁到岸线；
-	 * 为空 = 不裁剪。
-	 */
+	/** 重建水面。Field 为空 = 拆掉全部分量（这颗星不要水）。 */
 	void RebuildWater(
 		const FPlanetHydrologyField* Field,
 		const FPlanetWaterConfig& Config,
 		double VoxelSize,
-		double PlanetRadiusVoxels,
-		const UVoxelPlanetTerrainModule* Terrain = nullptr);
+		double PlanetRadiusVoxels);
 
 	/** 当前水面分量数（0–3）。给测试与调试用。 */
 	int32 GetWaterMeshCount() const { return WaterMeshes.Num(); }
