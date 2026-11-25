@@ -6,6 +6,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Origin/RenderOrigin.h"
 #include "CosmosTypes.h"
 
 class AActor;
@@ -391,8 +392,8 @@ private:
 	double SofteningLength = 0.0001;
 	double GravityCutoff = 0.0;   ///< 0 表示不截断
 
-	FVector3d RenderOriginGameUnits = FVector3d::ZeroVector;
-	FVector RenderOriginWorld = FVector::ZeroVector;
+	/** 渲染原点：位置换算与锚点状态，见 Src/Origin/RenderOrigin.h。 */
+	FRenderOrigin RenderOrigin;
 
 	double Accumulator = 0.0;
 	double SimulatedTime = 0.0;

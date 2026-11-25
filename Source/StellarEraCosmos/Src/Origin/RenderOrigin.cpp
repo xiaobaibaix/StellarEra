@@ -48,3 +48,33 @@ void FRenderOrigin::Apply(FNBodySimulator& Simulator, const FVector3d* AnchorPos
 		                       : Simulator.GetBody(AnchorIndex).Position,
 		AnchorWorld);
 }
+
+void FRenderOrigin::SetOrigin(const FVector3d& InGameUnits, const FVector& InWorld)
+{
+	OriginGameUnits = InGameUnits;
+	AnchorWorld = InWorld;
+}
+
+FVector FRenderOrigin::ToWorldLocation(const FVector3d& GameUnitPosition, const double CmPerAu,
+                                       const bool bGameUnits) const
+{
+	// 先减原点再乘：在 AU 量级上做减法，double 还有 15 位有效数字，不会把厘米级细节吃成噪声。
+	// 没设原点时两个字段都是零，减零对浮点是精确的，行为与旧版逐位相同。
+	const FVector3d Relative = GameUnitPosition - OriginGameUnits;
+	if (bGameUnits)
+	{
+		return FVector(Relative) * CmPerAu + AnchorWorld;
+	}
+	return FVector(Relative) + AnchorWorld;
+}
+
+FVector3d FRenderOrigin::ToGameUnitPosition(const FVector& WorldLocation, const double CmPerAu,
+                                            const bool bGameUnits) const
+{
+	const FVector Relative = WorldLocation - AnchorWorld;
+	if (bGameUnits)
+	{
+		return FVector3d(Relative) / CmPerAu + OriginGameUnits;
+	}
+	return FVector3d(Relative) + OriginGameUnits;
+}
