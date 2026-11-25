@@ -91,12 +91,13 @@ void AStellarEraPlayerController::AdjustTimeScale(const int32 Direction)
 		return;
 	}
 
-	// 步长来自 GameMode（蓝图子类里调），倍率夹在 1/8–8 倍，基准取子系统 CDO 的默认值。
+	// 倍率语义：1× = 实时（1 模拟年 = 1 真实年），所以基准取 1/年秒数。
+	// 步长来自 GameMode（蓝图子类里调）。
 	const AStellarEraGameMode* GameMode = GetWorld()->GetAuthGameMode<AStellarEraGameMode>();
 	const float Step = GameMode ? GameMode->TimeScaleStep : 1.f;
-	TimeScaleMultiplier = FMath::Clamp(TimeScaleMultiplier + Direction * Step, 0.125f, 8.f);
+	TimeScaleMultiplier = FMath::Clamp(TimeScaleMultiplier + Direction * Step, 0.125f, 100000.f);
 
-	const double Base = GetDefault<UCosmosSimulationSubsystem>()->TimeScale;
+	const double Base = 1.0 / CosmosUnits::YearToSecond;
 	Cosmos->TimeScale = Base * double(TimeScaleMultiplier);
 	UE_LOG(LogTemp, Display, TEXT("[Time] 时间倍率 %.2fx（TimeScale %.5f）"), TimeScaleMultiplier, Cosmos->TimeScale);
 }
