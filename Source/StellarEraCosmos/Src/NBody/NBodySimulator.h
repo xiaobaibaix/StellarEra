@@ -47,48 +47,6 @@ struct FCosmosBodyState
 	/** 是否接受求解器的力。false = 加速度恒为零，按当前速度匀速；作为引力源不受影响。 */
 	bool bReceivesForces = true;
 
-	/**
-	 * 半径。不参与引力只参与接触：中心距小于半径之和时推开到相切并抹掉接近法向速度。
-	 * 0 = 点质量永不接触。飞船取兜底 300 cm 而不是 0，否则中心点会被钳在地表。
-	 * 带 ContactProbes 的天体不用这一项，Radius 应同时置 0，否则球体会抢先触发。
-	 */
-	double Radius = 0.0;
-
-	/**
-	 * 接触探针（**机体系**偏移，求解器单位）。非空时取代 Radius 的球-球接触。
-	 * 求解器每个子步按 Orientation 转成世界系 —— 一帧几十个子步、机身还在转，
-	 * 存世界系会整帧用上一刻的船身找接触点，落地变成越推越摆的自激振荡。
-	 * 空数组 = 按 Radius 做球-球接触。
-	 */
-	TArray<FVector3d> ContactProbes;
-
-	/** 最远探针到中心的距离。由 SetContactProbes 维护，用于接触前的快速排除。 */
-	double ContactProbeRadius = 0.0;
-
-	/**
-	 * 逐探针真实地表半径（AU），与 ContactProbes 一一对应；空/数量对不上 = 退回球面接触。
-	 * 子系统每帧写一次，求解器只读 —— 一帧最多 200 个子步，体素查询不能放这里。
-	 */
-	TArray<double> ContactProbeSurfaceRadii;
-
-	/** 上面的半径是对着哪个天体算的。索引对不上就不用逐探针半径（接触是成对的）。 */
-	int32 ContactSurfaceSphereIndex = INDEX_NONE;
-
-	/** 写入**机体系**探针并同步 ContactProbeRadius。传空数组即退回球-球接触。 */
-	void SetContactProbes(TArray<FVector3d> InProbes)
-	{
-		ContactProbes = MoveTemp(InProbes);
-		ContactProbeRadius = 0.0;
-		for (const FVector3d& Probe : ContactProbes)
-		{
-			ContactProbeRadius = FMath::Max(ContactProbeRadius, Probe.Size());
-		}
-
-		// 探针换了，逐探针地表半径一并清掉，让接触退回球面而不是拿旧半径去碰。
-		ContactProbeSurfaceRadii.Reset();
-		ContactSurfaceSphereIndex = INDEX_NONE;
-	}
-
 	/** 软化半径。等于 0 时使用求解器的全局设置。 */
 	double SofteningOverride = 0.0;
 
@@ -119,12 +77,6 @@ struct FCosmosBodyState
 	/** 角阻尼（1/模拟年），逐子步乘：ω ← ω·(1 − k·dt)。乘法保证 k·dt ≥ 1 时归零而不反号。 */
 	double AngularDamping = 0.0;
 
-	/** 库仑摩擦系数 μ，切向冲量夹在 ±μ·λ_n；0.6 ≈ 落地不无限滑走，也不像刹车片。 */
-	double ContactFriction = 0.6;
-
-	/** 恢复系数 e，默认 0 = 撞上不弹；留着给以后的弹性质点。 */
-	double ContactRestitution = 0.0;
-
 	/** I⁻¹·τ：世界系力矩 → 世界系角速度增量；非刚体返回零。 */
 	FVector3d ApplyInverseInertia(const FVector3d& Torque) const
 	{
@@ -143,12 +95,6 @@ struct FCosmosBodyState
 
 	/** 均匀球：I = 2/5·m·r²。 */
 	static FVector3d InverseInertiaFromSphere(double Mass, double Radius);
-
-	/**
-	 * 接触时把整条速度设成对方速度（撞地即停），而不是只抹法向分量。只对球-球分支生效：
-	 * 带探针的飞船走冲量 + 摩擦，不再置位；行星之间仍保持光滑硬球语义。
-	 */
-	bool bZeroVelocityOnContact = false;
 
 	/** 关联的 Actor。求解器不做任何 UObject 操作。 */
 	TWeakObjectPtr<AActor> OwnerActor;
@@ -174,9 +120,8 @@ struct FCosmosClosedOrbitPrediction
 };
 
 /**
- * N 体引力求解器：a_i = G · Σ_j≠i m_j·(r_j − r_i)/|r_j − r_i|³，复杂度 O(N²)。
- * 默认 Velocity Verlet 是辛积分器，保持相空间体积、误差有界；显式欧拉误差同向累积，
- * 轨道会螺旋坠入恒星（仅用于对比测试）。
+ * N 体引力模型：a_i = G · Σ_j≠i m_j·(r_j − r_i)/|r_j − r_i|³，复杂度 O(N²)。
+ * **只负责受力**：位置/速度积分在 NBodyIntegration，运行时由子系统驱动。
  */
 class STELLARERACOSMOS_API FNBodySimulator
 {
@@ -193,6 +138,15 @@ public:
 	 */
 	void SetCentimetersPerAu(double InCentimetersPerAu);
 	double GetCentimetersPerAu() const { return CentimetersPerAu; }
+
+	/**
+	 * 计算所有天体的合力加速度（引力 + 外力 − 阻尼），写入各自 Acceleration。
+	 * 本类只负责受力；位置/速度积分由 NBodyIntegration 与子系统负责。
+	 */
+	void ComputeAccelerations();
+
+	/** 推进模拟时钟（年）。由积分器每步调用。 */
+	void AdvanceSimulatedTime(double Dt) { SimulatedTime += Dt; }
 
 	/**
 	 * 软化长度，防止近距离引力趋于无穷；游戏单位下取轨道半长轴 1e-4 量级。
@@ -229,22 +183,12 @@ public:
 	{
 		Bodies.Empty();
 		Accelerations.SetNumZeroed(0);
-		Accumulator = 0.0;
 		SimulatedTime = 0.0;
 		MarkEnergyBaseline();
 	}
 
 	//////////////////////////////////////////////////////////////////////
 	// 轨道求解
-
-	/** 强制推进恰好 TimeStep 的一步（不管累加器）。 */
-	void StepExact(double TimeStep);
-
-	/** 已挂起的不足一步的时间余量。 */
-	double GetPendingTime() const { return Accumulator; }
-
-	/** 重置时间余量。 */
-	void ResetAccumulator() { Accumulator = 0.0; }
 
 	/** 累计已模拟的天文时间（年）。 */
 	double GetSimulatedTime() const { return SimulatedTime; }
@@ -319,38 +263,6 @@ private:
 		return Body.bTestParticle ? 0.0 : Body.Mass;
 	}
 
-	/** 计算所有天体的加速度，写入各自Acceleration。 */
-	void ComputeAccelerations();
-
-	/**
-	 * 解算所有天体对的接触：重叠推开到相切，抹掉接近的法向速度。在积分之后调用，
-	 * 三种积分器与预测路径共用一套约束；半径全为 0 的天体对永不接触。
-	 */
-	void ResolveContacts();
-
-	/**
-	 * 探针接触：收集穿透的探针（最多 MaxContactPointsPerPair 个，留最深的），逐点顺序冲量
-	 * 求解（法向 + 累计库仑摩擦），再沿穿透量加权的平均法线推出最深那份穿透。
-	 */
-	void ResolveProbeContact(int32 ProbeIndex, int32 SphereIndex);
-
-	/**
-	 * 刚体姿态积分：ω += α·dt，ω 乘角阻尼，q ← exp(½·ω·dt)⊗q。
-	 * 放 StepExact 里积分器之后、ResolveContacts 之前，预测轨迹自动拿到同样的姿态行为。
-	 */
-	void IntegrateRigidBodyOrientations(double TimeStep);
-
-	/**
-	 * 接触时两者各让多少位移，按质量分配、两者之和恒为 1。质量 ≤ 0 视为测试粒子：它让
-	 * 全部、对方一点都不让 —— 取倒数会除零，必须显式分情形。
-	 * 飞船虽是测试粒子，这里仍按真实质量比让路（相对行星等于让全部）。
-	 */
-	static void ComputeContactShares(double MassI, double MassJ,
-	                                 double& OutShareI, double& OutShareJ);
-
-	/** 用给定加速度做一次 Velocity Verlet 半步推进。 */
-	void StepVelocityVerlet(double Dt);
-
 	TArray<FCosmosBodyState> Bodies;
 
 	/** 加速度缓存，避免每步重新分配。 */
@@ -362,7 +274,6 @@ private:
 	double SofteningLength = 0.0001;
 	double GravityCutoff = 0.0;   ///< 0 表示不截断
 
-	double Accumulator = 0.0;
 	double SimulatedTime = 0.0;
 	double EnergyBaseline = 0.0;
 	bool bEnergyBaselineValid = false;

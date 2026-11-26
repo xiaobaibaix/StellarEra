@@ -26,14 +26,6 @@ class STELLARERACOSMOS_API ICosmosBody
 	GENERATED_BODY()
 
 public:
-	// ── 接触 ──
-
-	/** 凸包探针不可用时的兜底接触半径（厘米）。 */
-	virtual float GetContactRadiusCm() const = 0;
-
-	/** 船体局部空间的接触探针；为空时求解器退回上面的球。 */
-	virtual const TArray<FVector>& GetContactProbesLocalCm() const = 0;
-
 	// ── 受力 ──
 
 	/** 大气阻力要按「相对参考行星」的速度算，参考行星由这里给。 */
@@ -83,9 +75,6 @@ public:
 
 	/** 物理驱动时每帧施加的加速度（世界厘米/秒²）；实现方自己乘质量。 */
 	virtual void AddCosmosForceWorldCmPerS2(const FVector& AccelerationWorldCmPerS2) = 0;
-
-	/** 刚体线性阻尼（1/真实秒）。 */
-	virtual void SetCosmosLinearDamping(float DampingPerSecond) = 0;
 
 	/** 调试视角是否打开（B 键）。合力箭头只在它打开时画。 */
 	virtual bool IsDebugViewMode() const = 0;

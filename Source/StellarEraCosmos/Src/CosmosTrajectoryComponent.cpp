@@ -1,6 +1,7 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 
 #include "CosmosTrajectoryComponent.h"
+#include "NBodyIntegration.h"
 
 #include "CosmosOrbitComponent.h"
 #include "CosmosSimulationSubsystem.h"
@@ -1490,20 +1491,6 @@ void UCosmosTrajectoryComponent::DrawInEditor()
 		// 与 AddBodyToSimulator 同口径：单向引力天体在预览里也不拽别人，否则会看着行星被飞船拉偏。
 		State.bTestParticle = !Component->bExertsGravity;
 
-		// 接触形状必须跟运行期一致：全是点质量时飞船会穿过中心星扎进软化核、被踢成一条
-		// 直线。半径来源同 AddBodyToSimulator；预览从零重建，用平均球半径即可。
-		if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(OwnerActor))
-		{
-			State.Radius = double(Planet->GetSurfaceRadiusCm()) / CmPerAu;
-		}
-		else if (const ICosmosBody* Ship = Cast<ICosmosBody>(OwnerActor))
-		{
-			State.Radius = double(Ship->GetContactRadiusCm()) / CmPerAu;
-
-			// 撞上即停，与运行期同口径；否则飞船会沿表面滑行，预测线贴着星球绕圈。
-			State.bZeroVelocityOnContact = true;
-		}
-
 		EditorSimulator.AddBody(State);
 	}
 
@@ -1608,7 +1595,7 @@ void UCosmosTrajectoryComponent::DrawInEditor()
 	// ── 引力箭头（离线算出的纯引力） ──
 	if (bDrawGravityArrow)
 	{
-		EditorSimulator.StepExact(1e-6);
+		NBodyIntegration::StepVelocityVerlet(EditorSimulator, 1e-6);
 		AppendEditorGravityArrow(Anchor,
 			EditorSimulator.GetBody(SelfIndex).GravitationalAcceleration,
 			FLinearColor(GravityArrowColor));

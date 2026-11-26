@@ -156,9 +156,6 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Cosmos|Time", meta = (ClampMin = "1"))
 	int32 MaxStepsPerFrame = 200;
 
-	/** 单帧逐探针体素查询上限。按「地表 1 体素」去重，正常个位数；超了退回解析半径。 */
-	static constexpr int32 MaxContactSurfaceQueriesPerFrame = 32;
-
 	/**
 	 * 引力软化长度（AU）：a = G·m·Δ/(r² + ε²)^(3/2)，避免近距离交会时数值爆炸。
 	 * 它治数值爆炸不治混沌，想让系统安分得改关卡初态。逐天体覆盖走 FCosmosBodyState::SofteningOverride。
@@ -185,27 +182,15 @@ private:
 	/** 记下本帧**最后一步之前**的位姿，写回时按余量插值。取帧首会多落后一整个步长。 */
 	void CaptureRenderPrevPose();
 
-	/**
-	 * 把每颗体素星球的接触半径刷成当前朝向的地表半径。每帧刷是因为地形起伏 ±80 米，
-	 * 用平均球半径会让隆起处埋进去、洼地处浮空。
-	 */
-	void RefreshPlanetContactRadii();
-
-	/**
-	 * 船的接触不再归求解器：1× 走 UE 刚体，其它倍率按要求直接关碰撞。
-	 * 这里只负责把船的探针清空、Radius 置 0，让两条接触分支都不触发。
-	 */
-	void RefreshShipContactProbes();
-
 	/** 物理步之后把驱动的刚体状态读回求解器（位置、线速度）。 */
 	void SyncPhysicsDrivenBodies();
 
-	/** 把引力 + 外力换算成力加到刚体上，并同步线性阻尼。 */
+	/** 把求解器合成的加速度换算成力加到刚体上。 */
 	void ApplyShipPhysicsForces();
 
 	/**
 	 * 在**真正会推进**的帧里、推进之前，把受控天体（飞船）想施加的力写进求解器。
-	 * 零子步帧不调用：读角加速度会清掉飞船攒下的待发冲量，而那一帧没有 StepExact 消费它。
+	 * 零子步帧不调用：读角加速度会清掉飞船攒下的待发冲量，而那一帧没有积分消费它。
 	 *
 	 * DeltaSeconds 传**本帧实际消费的真实秒**（StepsToRun·BaseTimeStep/TimeScale），不是引擎帧时长：
 	 * 鼠标/横滚按「本帧 Δω = target − current」折算，拿帧时长当除数会随帧率放大。

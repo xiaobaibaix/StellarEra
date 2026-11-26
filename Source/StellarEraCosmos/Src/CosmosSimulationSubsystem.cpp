@@ -1,6 +1,7 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 
 #include "CosmosSimulationSubsystem.h"
+#include "NBodyIntegration.h"
 
 #include "CosmosOrbitComponent.h"
 #include "VoxelPlanetActor.h"
@@ -83,12 +84,10 @@ void UCosmosSimulationSubsystem::UnregisterBody(UCosmosOrbitComponent* Component
 		Body.ExternalAcceleration = FVector3d::ZeroVector;
 		Body.LinearDamping = 0.0;
 
-		// 角向同理；角速度不会自己衰减（阻尼刚被清零），探针也得清 —— 否则幽灵天体继续
-		// 拿上百个探针和行星做接触求解，结果既不写回也没人看。
+		// 角向同理；角速度不会自己衰减（阻尼刚被清零），力矩也得清。
 		Body.ExternalAngularAcceleration = FVector3d::ZeroVector;
 		Body.AngularDamping = 0.0;
 		Body.AngularVelocity = FVector3d::ZeroVector;
-		Body.SetContactProbes({});
 	}
 }
 
@@ -120,25 +119,14 @@ void UCosmosSimulationSubsystem::AddBodyToSimulator(UCosmosOrbitComponent* Compo
 	State.bTestParticle = !Component->bExertsGravity;
 	State.bReceivesForces = Component->bReceivesForces;
 
-	// 半径只对「有地表」的天体（星球、飞船）有意义，其余留 0 = 点质量永不接触。
-	if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(BodyActor))
+	if (const ICosmosBody* Ship = Cast<ICosmosBody>(BodyActor))
 	{
-		// 平均球半径只是兜底：第一次 Tick 会被 RefreshPlanetContactRadii 换成地形半径。
-		State.Radius = double(Planet->GetSurfaceRadiusCm()) / CentimetersPerAu;
-	}
-	else if (const ICosmosBody* Ship = Cast<ICosmosBody>(BodyActor))
-	{
-		// 300 cm 球只是兜底：第一次 Tick 会被 RefreshShipContactProbes 换成凸包探针（Radius 置 0）。
-		State.Radius = double(Ship->GetContactRadiusCm()) / CentimetersPerAu;
-
 		// 刚体：姿态归求解器，Actor 的 Rotation 每帧从这里写回；关卡摆放朝向是初态。
 		// FQuat 与 FQuat4d 精度不同，逐个分量转。
 		State.bRigidBody = true;
 		const FQuat InitialRotation = BodyActor->GetActorQuat();
 		State.Orientation = FQuat4d(
 			InitialRotation.X, InitialRotation.Y, InitialRotation.Z, InitialRotation.W);
-
-		// 不再置 bZeroVelocityOnContact（撞地即停）：刚体接触靠摩擦停。
 	}
 
 	Component->SimulatorIndex = Simulator.AddBody(State);
@@ -193,91 +181,12 @@ void UCosmosSimulationSubsystem::ApplyShipPhysicsForces()
 		const FCosmosBodyState& State = Simulator.GetBody(Component->SimulatorIndex);
 		if (!State.bReceivesForces)
 		{
-			// 不受力：刚体按当前速度匀速，阻尼也一并关掉。
-			Ship->SetCosmosLinearDamping(0.f);
 			continue;
 		}
 
-		const FVector3d AccelerationGame = State.GravitationalAcceleration + State.ExternalAcceleration;
+		// 力统一由求解器合成（引力 + 外力 − 阻尼），子系统只把结果加到刚体上。
 		Ship->AddCosmosForceWorldCmPerS2(FVector(CosmosWorld::GameAccelerationToWorldCmPerS2(
-			AccelerationGame, CentimetersPerAu, TimeScale)));
-
-		const float DampingTime = Ship->GetDampingTime();
-		Ship->SetCosmosLinearDamping(DampingTime > 0.f ? 1.f / DampingTime : 0.f);
-	}
-}
-
-void UCosmosSimulationSubsystem::RefreshPlanetContactRadii()
-{
-	const int32 NumBodies = Simulator.GetNumBodies();
-
-	for (int32 Index = 0; Index < NumBodies; ++Index)
-	{
-		const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(Simulator.GetBody(Index).OwnerActor.Get());
-		if (!Planet)
-		{
-			continue;
-		}
-
-		// 只有最近的那个天体可能进到接触距离内，只算朝它那个方向的地表高度。
-		int32 NearestIndex = INDEX_NONE;
-		double NearestDistanceSq = 0.0;
-
-		for (int32 Other = 0; Other < NumBodies; ++Other)
-		{
-			if (Other == Index)
-			{
-				continue;
-			}
-
-			const double DistanceSq =
-				(Simulator.GetBody(Other).Position - Simulator.GetBody(Index).Position).SizeSquared();
-
-			if (NearestIndex == INDEX_NONE || DistanceSq < NearestDistanceSq)
-			{
-				NearestIndex = Other;
-				NearestDistanceSq = DistanceSq;
-			}
-		}
-
-		if (NearestIndex == INDEX_NONE)
-		{
-			continue;
-		}
-
-		// 方向 = 星球中心 → 最近天体。AU 与世界空间只差等比缩放、没有旋转，可原样交给地形查询。
-		const FVector Direction =
-			FVector(Simulator.GetBody(NearestIndex).Position - Simulator.GetBody(Index).Position);
-
-		const double SurfaceRadiusCm = double(Planet->GetSurfaceRadiusCmAtDirection(Direction));
-		if (SurfaceRadiusCm > 0.0)
-		{
-			Simulator.GetBodyMutable(Index).Radius = SurfaceRadiusCm / CentimetersPerAu;
-		}
-	}
-}
-
-void UCosmosSimulationSubsystem::RefreshShipContactProbes()
-{
-	// 船的接触不归求解器了：1× 走 UE 刚体，其它倍率按要求直接关碰撞。
-	// 清空探针并把 Radius 置 0，球-球与探针两条分支都不会触发。
-	for (UCosmosOrbitComponent* Component : Bodies)
-	{
-		AActor* OwnerActor = Component ? Component->GetOwner() : nullptr;
-		if (!OwnerActor || Component->SimulatorIndex == INDEX_NONE
-			|| Component->SimulatorIndex >= Simulator.GetNumBodies())
-		{
-			continue;
-		}
-
-		if (!Cast<ICosmosBody>(OwnerActor))
-		{
-			continue;
-		}
-
-		FCosmosBodyState& State = Simulator.GetBodyMutable(Component->SimulatorIndex);
-		State.SetContactProbes({});
-		State.Radius = 0.0;
+			State.Acceleration, CentimetersPerAu, TimeScale)));
 	}
 }
 
@@ -495,8 +404,8 @@ void UCosmosSimulationSubsystem::FinalizeRegistration()
 		}
 
 		UE_LOG(LogTemp, Log,
-			TEXT("[Cosmos]   天体 %d：质量 %.6g M☉（%.6g M⊕），半径 %.4f AU，位置 (%.4f, %.4f, %.4f) AU，速度 (%.4f, %.4f, %.4f) AU/年（%.4f km/s），最近邻 %d（%.4f AU），最短周期 %.6f 年"),
-			Index, Body.Mass, CosmosMass::SolarMassToEarthMass(Body.Mass), Body.Radius,
+			TEXT("[Cosmos]   天体 %d：质量 %.6g M☉（%.6g M⊕），位置 (%.4f, %.4f, %.4f) AU，速度 (%.4f, %.4f, %.4f) AU/年（%.4f km/s），最近邻 %d（%.4f AU），最短周期 %.6f 年"),
+			Index, Body.Mass, CosmosMass::SolarMassToEarthMass(Body.Mass),
 			Body.Position.X, Body.Position.Y, Body.Position.Z,
 			Body.Velocity.X, Body.Velocity.Y, Body.Velocity.Z,
 			CosmosSpeed::AuPerYearToKilometerPerSecond(Body.Velocity).Size(),
@@ -558,12 +467,6 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 		}
 	}
 
-	// ── 0. 刷新接触形状 ──
-	// 必须在推进之前：接触解算发生在 StepExact 内部，读的就是这一刻的 Radius / ContactProbes。
-	// 外力不在这里读 —— 只在真正会推进的帧里读，见下面 NumSteps > 0 那一支。
-	RefreshPlanetContactRadii();
-	RefreshShipContactProbes();
-
 	// ── 1. 时间推进：真实秒 × TimeScale = 模拟年数 ──
 	// 余量必须跨帧累积（固定步长是辛积分的前提）；单帧另设上限，加载/卡顿后不补一大段。
 	const double MaxAdvancePerFrame =
@@ -575,7 +478,7 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 	{
 		const int32 StepsToRun = FMath::Min(NumSteps, MaxStepsPerFrame);
 
-		// 外力只在真正会推进的帧里读：零子步帧里读会清掉飞船的待发角速度冲量，却没有 StepExact
+		// 外力只在真正会推进的帧里读：零子步帧里读会清掉飞船的待发角速度冲量，却没有积分
 		// 消费写进去的角加速度，整帧鼠标输入静默丢失（144 Hz 下约一半帧）。
 		//
 		// 传**本帧真正消费的真实秒**而不是帧时长：跳过的帧里冲量是累加的，除数若还是单帧
@@ -594,7 +497,7 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 				CaptureRenderPrevPose();
 			}
 
-			Simulator.StepExact(BaseTimeStep);
+			NBodyIntegration::StepVelocityVerlet(Simulator, BaseTimeStep);
 		}
 
 		// 兜底，正常不会触发（只把 MaxStepsPerFrame 填成 0/负数时才持续超限）：宁可掉 TimeScale 也不崩帧率。

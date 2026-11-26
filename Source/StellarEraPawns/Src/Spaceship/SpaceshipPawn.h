@@ -313,12 +313,8 @@ public:
 	 */
 	FVector GetCrewExitLocation() const;
 
-	/**
-	 * 接触半径（厘米），求解器的**兜底**形状：正常用 BuildContactProbes 的凸包探针，
-	 * 只有 Hull 网格没导 Simple Collision 时才用它（默认 300）。**不能返回 0**：
-	 * 半径 0 的点质量会让飞船中心被钳在地表上，机身下半截埋进地形。
-	 */
-	float GetContactRadiusCm() const override;
+	/** 没有凸包探针时，落地射线检测用的兜底半径（厘米）。 */
+	float GetContactRadiusCm() const;
 
 	/**
 	 * 从 Hull 网格的 Simple Collision 凸包顶点算出接触探针（Actor 本地坐标，厘米），
@@ -328,9 +324,6 @@ public:
 
 	/** 重建 ContactProbesLocalCm；Hull 网格或变换变化后调用，构造期与 BeginPlay 会自动调。 */
 	void RebuildContactProbes();
-
-	/** 接触探针（Actor 本地，厘米）。空数组 = 没有可用凸包，求解器退回 300 cm 球。 */
-	const TArray<FVector>& GetContactProbesLocalCm() const override { return ContactProbesLocalCm; }
 
 	/**
 	 * 本帧的推力加速度（**厘米/秒²**，世界坐标），已叠加制动与大气阻力。
@@ -406,7 +399,6 @@ public:
 	bool SetPhysicsDriven(bool bDriven, float MassKg) override;
 	bool IsPhysicsDriven() const override { return bPhysicsDriven; }
 	void AddCosmosForceWorldCmPerS2(const FVector& AccelerationWorldCmPerS2) override;
-	void SetCosmosLinearDamping(float DampingPerSecond) override;
 
 	/**
 	 * 体素调用器预测速度：相对参考行星。用绝对速度的话，落地静止（相对 0）时预测点

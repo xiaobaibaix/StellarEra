@@ -216,14 +216,6 @@ void ASpaceshipPawn::AddCosmosForceWorldCmPerS2(const FVector& AccelerationWorld
 	Hull->AddForce(AccelerationWorldCmPerS2 * Hull->GetMass(), NAME_None, /*bAccelChange=*/false);
 }
 
-void ASpaceshipPawn::SetCosmosLinearDamping(const float DampingPerSecond)
-{
-	if (Hull && bPhysicsDriven)
-	{
-		Hull->SetLinearDamping(FMath::Max(DampingPerSecond, 0.f));
-	}
-}
-
 
 void ASpaceshipPawn::ApplyHullMesh()
 {
