@@ -87,3 +87,10 @@
 - `Source/StellarEraCosmos/Src/CosmosSimulationSubsystem.h/.cpp`（模式、施力、读回、跳过写回）
 - `Source/StellarEraPawns/Src/Spaceship/SpaceshipPawn.h/.cpp`（刚体开关、施力、读回接口）
 - `Source/StellarEra/Src/StellarEraPlayerController.cpp`（倍率通知）
+
+## 验证结果（2026-11-26 首轮 PIE）
+
+- 编译通过（`StellarEraEditor Win64 Development`，`Result: Succeeded`）。
+- `StellarEra.Cosmos` 全部 25 个自动化测试通过，含 `StellarEra.Cosmos.PhysicsDriven.Skip`。
+- PIE 日志：`[Ship] 刚体物理开启（质量 300085 kg）`；HUD 读数「速度 29.79 km/s（相对 0.06–0.08）」——飞船与行星同步，没有漂移；无 `LogPhysics` / ensure 报错。
+- 限制：本次 PIE 时编辑器在后台（日志帧号 3 FPS，Chaos 步长被截断），自由落体与落地没有按真实时间积分，落地行为**未验证**；倍率切换（`-` / `+`）也未测到（会话 0 无法注入按键）。
