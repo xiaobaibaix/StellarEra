@@ -1,6 +1,7 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
 
 #include "CosmosTrajectoryComponent.h"
+#include "TrajectoryPrediction.h"
 #include "NBodyIntegration.h"
 
 #include "CosmosOrbitComponent.h"
@@ -1530,7 +1531,7 @@ void UCosmosTrajectoryComponent::DrawInEditor()
 		// 先试闭合（与 PredictionYears 无关），相对位置锚到主导天体 t=0 处再转世界坐标。
 		FCosmosClosedOrbitPrediction ClosedOrbit;
 		const bool bUsedClosedOrbit =
-			EditorSimulator.PredictClosedOrbit(SelfIndex, ClosedOrbitSamples, ClosedOrbit);
+			TrajectoryPrediction::PredictClosedOrbit(EditorSimulator, SelfIndex, ClosedOrbitSamples, ClosedOrbit);
 
 		if (bUsedClosedOrbit)
 		{
@@ -1553,7 +1554,7 @@ void UCosmosTrajectoryComponent::DrawInEditor()
 			Horizon = ClampPredictionHorizonYears(Horizon, OwnPeriod, MaxAutoPredictionPeriods);
 
 			TArray<FVector3d> GameUnitPositions;
-			if (EditorSimulator.PredictTrajectory(SelfIndex, Horizon, PredictionSamples,
+			if (TrajectoryPrediction::Predict(EditorSimulator, SelfIndex, Horizon, PredictionSamples,
 				GameUnitPositions))
 			{
 				PredictedWorld.Reserve(GameUnitPositions.Num());

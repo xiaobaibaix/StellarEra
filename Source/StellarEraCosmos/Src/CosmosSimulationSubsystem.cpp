@@ -2,6 +2,7 @@
 
 #include "CosmosSimulationSubsystem.h"
 #include "NBodyIntegration.h"
+#include "TrajectoryPrediction.h"
 
 #include "CosmosOrbitComponent.h"
 #include "VoxelPlanetActor.h"
@@ -644,7 +645,7 @@ bool UCosmosSimulationSubsystem::PredictTrajectoryWorld(int32 SimulatorIndex, do
 
 	// AU → 厘米的中间结果用局部数组接一下；每帧每个天体两次分配，N ≤ 10 无所谓。
 	TArray<FVector3d> GameUnitPositions;
-	if (!Simulator.PredictTrajectory(SimulatorIndex, HorizonYears, NumSamples, GameUnitPositions))
+	if (!TrajectoryPrediction::Predict(Simulator, SimulatorIndex, HorizonYears, NumSamples, GameUnitPositions))
 	{
 		return false;
 	}
@@ -667,7 +668,7 @@ bool UCosmosSimulationSubsystem::PredictClosedOrbitWorld(int32 SimulatorIndex,
 	OutPrimaryWorld = FVector::ZeroVector;
 
 	FCosmosClosedOrbitPrediction Prediction;
-	if (!Simulator.PredictClosedOrbit(SimulatorIndex, NumSamplesPerOrbit, Prediction,
+	if (!TrajectoryPrediction::PredictClosedOrbit(Simulator, SimulatorIndex, NumSamplesPerOrbit, Prediction,
 		ReturnToleranceFraction))
 	{
 		return false;

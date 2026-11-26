@@ -49,7 +49,8 @@ Source/
 │                          各功能面再分 Input/（输入组件 + 动作表），Character 还有 Animations/
 │                          StarMap 内：相机 Pawn + StarMapPanelLayout / StarMapPicking
 ├── StellarEraCosmos/      N 体求解器 + 单位类型（CosmosTypes）+ 天体接口（CosmosBody）
-│                          + 编排（子系统 / 轨道组件 / 轨迹组件）
+│                          + 编排（子系统 / 轨道组件）
+│                          Trajectory/ 轨道线：轨迹组件 / 曲线滤波 / 预测（不属于 N 体受力模型）
 └── StellarEraUI/          HUD、星图面板、矿物图例
 Plugins/
 ├── VoxelFree/          第三方体素插件，勿改
