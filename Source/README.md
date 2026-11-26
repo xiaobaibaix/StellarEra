@@ -80,7 +80,7 @@ Minerals/
 
 | 模块 | 行数 | 一句话 | 什么时候动它 |
 |---|---:|---|---|
-| `StellarEraPawns` | 9312 | 角色、飞船与各自的输入组件（星图 rig / 输入是两者身上的组件） | 见下面的子目录表 |
+| `StellarEraPawns` | 9312 | 角色、飞船与各自输入组件；星图 rig / 输入在相机 Pawn 上 | 见下面的子目录表 |
 
 ```
 StellarEraPawns/Src/
@@ -99,8 +99,8 @@ StellarEraPawns/Src/
 两者的共同点是「被 `AStellarEraPlayerController` 通过 Possess 切换」，
 且都实现 `IVoxelViewpointInvokers`。放在一起，换视点的逻辑才有唯一归属地。
 
-两个可操控对象各有自己的输入组件（角色 / 飞船）；星图的输入是挂在他们身上的
-`UStarMapInputComponent`。Pawn 的 `SetupPlayerInputComponent` 只做转发；控制器
+两个可操控对象各有自己的输入组件（角色 / 飞船）；星图的输入也由它们身上的
+`UStarMapInputComponent` 绑 M，其余动作在控制器生成的相机 Pawn 上绑。Pawn 的 `SetupPlayerInputComponent` 只做转发；控制器
 **一条输入都不绑**（`SetupInputComponent` 已删除）。上下船（E）、星图开关（M）与
 选择（左键）在每张需要它的表里各有一条，编辑（G）与笔刷尺寸（`[` / `]`）随各自
 Pawn 绑。星图会换 Possess：M 由 `UStarMapInputComponent` 在当前被 Possess 的 Pawn

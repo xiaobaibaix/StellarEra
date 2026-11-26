@@ -226,7 +226,7 @@ public:
 
 	bool IsFreeLookActive() const { return bFreeLookActive; }
 
-	/** 星图 rig 是否正在接管视点（含退图过渡）。 */
+	/** 星图模式是否激活（子系统标志）。 */
 	bool IsStarMapActive() const;
 
 	/**

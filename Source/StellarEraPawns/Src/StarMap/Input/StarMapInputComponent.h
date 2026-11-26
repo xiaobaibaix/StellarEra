@@ -1,5 +1,5 @@
 ﻿// Copyright Voxel Plugin SAS. All Rights Reserved.
-// 星图的键鼠输入：与 rig 平级挂在飞船 / 角色身上，代码不住在 Pawn 类里。
+// 星图的键鼠输入：飞船 / 角色身上只借它绑 M，其余动作在相机 Pawn 上生效。
 
 #pragma once
 
@@ -58,10 +58,10 @@ private:
 	/** 所属 Pawn；只在星图激活时返回，除 M 外的回调据此空转。 */
 	APawn* GetPawn() const;
 
-	/** owner 上的星图 rig。 */
+	/** owner（相机 Pawn）上的星图 rig；飞船 / 角色上没有。 */
 	UStarMapRigComponent* GetRig() const;
 
-	/** rig 所属 Pawn 上的编辑组件，且只在编辑模式下才返回。 */
+	/** 源 Pawn（飞船 / 角色）上的编辑组件，且只在编辑模式下才返回。 */
 	UPlanetEditComponent* GetEditComponentInEditMode() const;
 
 	void OnLookInput(const FInputActionValue& Value);
@@ -83,7 +83,7 @@ private:
 	/** 左键松开：位移没超阈值就拾取鼠标下的天体（再点一次取消选中）。 */
 	void OnStarMapSelectCompleted(const FInputActionValue& Value);
 
-	/** M：进 / 出星图；状态与相机都在 rig 里，本组件只负责转发。 */
+	/** M：进 / 出星图；换 Possess 与相机都在控制器，本组件只负责转发。 */
 	void OnStarMapToggle(const FInputActionValue& Value);
 
 	/** owner Pawn 的玩家控制器；拿不到时为空。 */

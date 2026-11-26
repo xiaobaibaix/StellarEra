@@ -130,7 +130,7 @@ void UStarMapInputComponent::Bind(UInputComponent* PlayerInputComponent)
 	EnhancedInput->BindAction(Input.EditModeToggle, ETriggerEvent::Started, this, &UStarMapInputComponent::OnEditModeToggle);
 	EnhancedInput->BindAction(Input.BrushSize, ETriggerEvent::Started, this, &UStarMapInputComponent::OnBrushSize);
 
-	// M 只在这里绑：飞船 / 角色自己的那份已删，进退都走同一个 Toggle。
+	// M 只在星图表里绑：飞船 / 角色身上的这份负责进场，相机 Pawn 上的负责退场。
 	EnhancedInput->BindAction(Input.StarMapSelect, ETriggerEvent::Started,
 		this, &UStarMapInputComponent::OnStarMapSelectStarted);
 	EnhancedInput->BindAction(Input.StarMapSelect, ETriggerEvent::Completed,

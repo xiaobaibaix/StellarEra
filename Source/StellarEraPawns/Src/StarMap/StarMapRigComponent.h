@@ -35,7 +35,7 @@ struct FStarMapObstacle
 };
 
 /**
- * 星图 rig：挂在飞船 / 角色身上，进图后接管该 Pawn 的相机。
+ * 星图 rig：挂在相机 Pawn 上，进图后接管该 Pawn 的相机。
  * 位置在 CalcView 现算（子系统在 TickObjects 写回位置后才调 CalcCamera），所以不 Tick。
  */
 UCLASS(ClassGroup = (StellarEra), meta = (BlueprintSpawnableComponent))
@@ -66,7 +66,7 @@ public:
 
 	bool IsActive() const { return bActive; }
 
-	/** owner Pawn 的 CalcCamera 在 IsActive() 时调用；OutResult 已由 Super 填好 FOV / 后期。 */
+	/** 相机 Pawn 的 CalcCamera 在激活 / 退场混合时调用；OutResult 已由 Super 填好 FOV / 后期。 */
 	void CalcView(float DeltaSeconds, FMinimalViewInfo& OutResult);
 
 	void OrbitLook(float DeltaYaw, float DeltaPitch);
@@ -82,7 +82,7 @@ public:
 	/** 绕行灵敏度倍率上限，见 OrbitLookScale。 */
 	double GetMaxOrbitLookScale() const { return MaxOrbitLookScale; }
 
-	/** owner 上的行星编辑组件；飞船 / 角色都可能是蓝图挂的。 */
+	/** 源 Pawn（飞船 / 角色）上的行星编辑组件，缺省回退 owner。 */
 	UPlanetEditComponent* GetPlanetEditComponent() const;
 
 	// ── 纯函数（可无头测，签名与旧相机完全一致）──
