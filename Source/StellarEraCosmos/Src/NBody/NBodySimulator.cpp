@@ -133,6 +133,11 @@ void FNBodySimulator::StepVelocityVerlet(double Dt)
 	// ── 辛积分核心：位置半步 → 速度全步 → 位置半步，保持相空间体积、误差有界 ──
 	for (int32 i = 0; i < N; ++i)
 	{
+		// 物理驱动的体位置归 Chaos；这里只保留它的引力贡献（ComputeAccelerations 照跑）。
+		if (Bodies[i].bPhysicsDriven)
+		{
+			continue;
+		}
 		Bodies[i].Position += Bodies[i].Velocity * (Dt * 0.5);
 	}
 
@@ -140,6 +145,10 @@ void FNBodySimulator::StepVelocityVerlet(double Dt)
 
 	for (int32 i = 0; i < N; ++i)
 	{
+		if (Bodies[i].bPhysicsDriven)
+		{
+			continue;
+		}
 		Bodies[i].Velocity += Bodies[i].Acceleration * Dt;
 		Bodies[i].Position += Bodies[i].Velocity * (Dt * 0.5);
 	}
@@ -154,6 +163,10 @@ void FNBodySimulator::StepEuler(double Dt)
 
 	for (int32 i = 0; i < Bodies.Num(); ++i)
 	{
+		if (Bodies[i].bPhysicsDriven)
+		{
+			continue;
+		}
 		Bodies[i].Velocity += Bodies[i].Acceleration * Dt;
 		Bodies[i].Position += Bodies[i].Velocity * Dt;
 	}
@@ -325,6 +338,12 @@ void FNBodySimulator::ResolveContacts()
 	{
 		for (int32 j = i + 1; j < N; ++j)
 		{
+			// 物理驱动的体由 UE 物理解接触，求解器这边不能再碰一次。
+			if (Bodies[i].bPhysicsDriven || Bodies[j].bPhysicsDriven)
+			{
+				continue;
+			}
+
 			const bool bProbeI = Bodies[i].ContactProbes.Num() > 0;
 			const bool bProbeJ = Bodies[j].ContactProbes.Num() > 0;
 

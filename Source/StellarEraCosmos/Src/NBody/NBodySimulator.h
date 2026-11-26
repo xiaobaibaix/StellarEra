@@ -39,6 +39,12 @@ struct FCosmosBodyState
 	bool bTestParticle = false;
 
 	/**
+	 * 由外部物理体驱动：求解器只算它受的力，不积分位置/速度、不做接触。
+	 * 读回由子系统的 Tick 负责。
+	 */
+	bool bPhysicsDriven = false;
+
+	/**
 	 * 半径。不参与引力只参与接触：中心距小于半径之和时推开到相切并抹掉接近法向速度。
 	 * 0 = 点质量永不接触。飞船取兜底 300 cm 而不是 0，否则中心点会被钳在地表。
 	 * 带 ContactProbes 的天体不用这一项，Radius 应同时置 0，否则球体会抢先触发。
