@@ -137,9 +137,9 @@ AVoxelPlanetActor::AVoxelPlanetActor()
 	// 行星各自抢建：先建的定线程数、后建的刷 already created。统一 false 只复用。
 	bCreateGlobalPool = false;
 
-	// 策展默认值：线程基类 2 个喂不饱大行星（背面区块晚到成方形空洞）；MaxLOD
-	// 基类的 32 对本项目 1km 星球过细。写构造函数而非重建流程，避免覆盖用户面板设置。
-	NumberOfThreads = 4;
+	// 策展默认值：基类 2 线程喂不饱地球量级行星（背面区块晚到成方形空洞）。16 核机器
+	// 留 4 核给游戏线程。写构造函数而非重建流程，避免覆盖用户面板设置。
+	NumberOfThreads = 10;
 	MaxLOD = 6;
 
 	// LOD 切换不做淡入淡出：基类默认开抖动，新旧两套 LOD 网格会同时可见数帧
@@ -149,8 +149,12 @@ AVoxelPlanetActor::AVoxelPlanetActor()
 	ChunksDitheringDuration = 0.3f;
 
 	// 每帧应用已完成块网格的时间预算（ms）。基类默认 1000，一批完成时游戏线程
-	// 卡满一整秒；8ms 分摊到多帧，代价是 LOD 收敛慢几帧。只在 Game play type 生效。
-	MeshUpdatesBudget = 8.f;
+	// 卡满一整秒；16ms 约一帧，比 8ms 快一倍而仍不整帧超支。只在 Game play type 生效。
+	MeshUpdatesBudget = 16.f;
+
+	// 块级 MID 是每块一次的游戏线程开销（建实例 + 拷贝参数），本项目材质是世界级
+	// BiomeMaterial，用不到块参数。
+	bCreateMaterialInstances = false;
 
 #if WITH_EDITOR
 	// 每颗行星默认用项目顶点色材质。仅编辑器有效：打包后实例自带序列化值。
