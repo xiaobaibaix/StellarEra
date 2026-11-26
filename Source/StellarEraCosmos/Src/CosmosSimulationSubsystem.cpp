@@ -120,6 +120,7 @@ void UCosmosSimulationSubsystem::AddBodyToSimulator(UCosmosOrbitComponent* Compo
 
 	// 单向引力：bExertsGravity 关掉的是测试粒子，引力源质量按 0 算、自己仍被吸引；Mass 保持真实值供接触与诊断用。
 	State.bTestParticle = !Component->bExertsGravity;
+	State.bReceivesForces = Component->bReceivesForces;
 
 	// 半径只对「有地表」的天体（星球、飞船）有意义，其余留 0 = 点质量永不接触。
 	if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(BodyActor))
@@ -192,6 +193,13 @@ void UCosmosSimulationSubsystem::ApplyShipPhysicsForces()
 		}
 
 		const FCosmosBodyState& State = Simulator.GetBody(Component->SimulatorIndex);
+		if (!State.bReceivesForces)
+		{
+			// 不受力：刚体按当前速度匀速，阻尼也一并关掉。
+			Ship->SetCosmosLinearDamping(0.f);
+			continue;
+		}
+
 		const FVector3d AccelerationGame = State.GravitationalAcceleration + State.ExternalAcceleration;
 		Ship->AddCosmosForceWorldCmPerS2(FVector(CosmosUnits::GameAccelerationToWorldCmPerS2(
 			AccelerationGame, CentimetersPerAu, TimeScale)));
@@ -621,59 +629,56 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 
 		const FVector PreviousLocation = BodyActor->GetActorLocation();
 
-		if (Component->bSimulated)
+		const FCosmosBodyState& State = Simulator.GetBody(Component->SimulatorIndex);
+
+		// 写回插值后的位姿，不写求解器当前解 —— 后者是「整步跳」的源头。
+		FVector3d RenderPosition = State.Position;
+		FQuat4d RenderOrientation = State.Orientation;
+		if (RenderAlpha < 1.0
+			&& RenderPrevPositions.IsValidIndex(Component->SimulatorIndex)
+			&& RenderPrevOrientations.IsValidIndex(Component->SimulatorIndex))
 		{
-			const FCosmosBodyState& State = Simulator.GetBody(Component->SimulatorIndex);
+			InterpolateRenderPose(
+				RenderPrevPositions[Component->SimulatorIndex],
+				RenderPrevOrientations[Component->SimulatorIndex],
+				State.Position, State.Orientation, RenderAlpha,
+				RenderPosition, RenderOrientation);
+		}
 
-			// 写回插值后的位姿，不写求解器当前解 —— 后者是「整步跳」的源头。
-			FVector3d RenderPosition = State.Position;
-			FQuat4d RenderOrientation = State.Orientation;
-			if (RenderAlpha < 1.0
-				&& RenderPrevPositions.IsValidIndex(Component->SimulatorIndex)
-				&& RenderPrevOrientations.IsValidIndex(Component->SimulatorIndex))
+		// 刚体（飞船）位置 + 朝向一起写回。非刚体只写位置：它们的 Orientation 恒为单位四元数，
+		// 走 SetActorTransform 会把关卡里摆好的行星朝向瞬间抹成零。
+		if (State.bRigidBody)
+		{
+			const FQuat WorldOrientation(
+				RenderOrientation.X, RenderOrientation.Y,
+				RenderOrientation.Z, RenderOrientation.W);
+			if (State.bPhysicsDriven)
 			{
-				InterpolateRenderPose(
-					RenderPrevPositions[Component->SimulatorIndex],
-					RenderPrevOrientations[Component->SimulatorIndex],
-					State.Position, State.Orientation, RenderAlpha,
-					RenderPosition, RenderOrientation);
-			}
-
-			// 刚体（飞船）位置 + 朝向一起写回。非刚体只写位置：它们的 Orientation 恒为单位四元数，
-			// 走 SetActorTransform 会把关卡里摆好的行星朝向瞬间抹成零。
-			if (State.bRigidBody)
-			{
-				const FQuat WorldOrientation(
-					RenderOrientation.X, RenderOrientation.Y,
-					RenderOrientation.Z, RenderOrientation.W);
-				if (State.bPhysicsDriven)
-				{
-					// 位移归 Chaos，这里只写姿态（第一版不做力矩）。
-					BodyActor->SetActorRotation(WorldOrientation, ETeleportType::None);
-				}
-				else
-				{
-					BodyActor->SetActorTransform(
-						FTransform(WorldOrientation,
-							Simulator.ToWorldLocation(RenderPosition),
-							BodyActor->GetActorScale3D()),
-						/*bSweep=*/false, nullptr, ETeleportType::None);
-				}
+				// 位移归 Chaos，这里只写姿态（第一版不做力矩）。
+				BodyActor->SetActorRotation(WorldOrientation, ETeleportType::None);
 			}
 			else
 			{
-				BodyActor->SetActorLocation(
-					Simulator.ToWorldLocation(RenderPosition), /*bSweep=*/false);
-			}
-
-			// 物理驱动的船速度由刚体自己答，不再用求解器快照覆盖。
-			if (ICosmosBody* Ship = Cast<ICosmosBody>(BodyActor); Ship && !State.bPhysicsDriven)
-			{
-				Ship->SetCosmosVelocity(ToWorldVelocityScaled(State.Velocity));
+				BodyActor->SetActorTransform(
+					FTransform(WorldOrientation,
+						Simulator.ToWorldLocation(RenderPosition),
+						BodyActor->GetActorScale3D()),
+					/*bSweep=*/false, nullptr, ETeleportType::None);
 			}
 		}
+		else
+		{
+			BodyActor->SetActorLocation(
+				Simulator.ToWorldLocation(RenderPosition), /*bSweep=*/false);
+		}
 
-		// 位移取 Actor 实际变化量而非求解器差值：bSimulated 为假时求解器在漂、Actor 不动，取实际才两边自洽。
+		// 物理驱动的船速度由刚体自己答，不再用求解器快照覆盖。
+		if (ICosmosBody* Ship = Cast<ICosmosBody>(BodyActor); Ship && !State.bPhysicsDriven)
+		{
+			Ship->SetCosmosVelocity(ToWorldVelocityScaled(State.Velocity));
+		}
+
+		// 位移取 Actor 实际变化量而非求解器差值：物理驱动的体位移归 Chaos，取实际才两边自洽。
 		const FVector Delta = BodyActor->GetActorLocation() - PreviousLocation;
 		if (Delta.IsNearlyZero())
 		{

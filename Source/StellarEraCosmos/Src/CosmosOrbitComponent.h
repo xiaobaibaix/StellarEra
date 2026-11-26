@@ -57,11 +57,12 @@ public:
 	FVector InitialVelocity = FVector::ZeroVector;
 
 	/**
-	 * 是否每帧把求解器算出的位置写回所属 Actor。假 = Actor 待在原地、求解器里照样漂，
-	 * 只适合纯装饰的远处天体。它**不决定初始状态**：初态始终是「摆放位置 + 初速度」。
+	 * 是否接受求解器的力（引力 / 推力 / 阻力）。关掉 = 不受任何力，按当前速度匀速直线，
+	 * 但仍作为引力源、仍被写回位姿。想让 Actor 原地不动请关 bRegistersWithSimulation。
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Body")
-	bool bSimulated = true;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Body",
+		meta = (DisplayName = "ReceivesForces"))
+	bool bReceivesForces = true;
 
 	/**
 	 * 是否注册进 N 体求解器。关掉 = 不参与引力、不被搬动，行星停在摆放位置；

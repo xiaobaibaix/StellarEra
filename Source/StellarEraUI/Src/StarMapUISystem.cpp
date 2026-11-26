@@ -35,7 +35,7 @@ bool UStarMapUISystem::BuildBodyInfo(AActor* Body, FStarMapBodyInfo& OutInfo)
 	OutInfo.MassEarth = Orbit->MassEarth;
 	OutInfo.MassSolar = CosmosUnits::EarthMassToSolarMass(Orbit->MassEarth);
 	OutInfo.SimulatorIndex = Orbit->SimulatorIndex;
-	OutInfo.bSimulated = Orbit->bSimulated;
+	OutInfo.bReceivesForces = Orbit->bReceivesForces;
 	OutInfo.bExertsGravity = Orbit->bExertsGravity;
 
 	// 位置/速度按需换算：优先用运行期子系统的标定与求解器速度；编辑器世界
@@ -170,8 +170,8 @@ TArray<FString> UStarMapUISystem::FormatBodyInfoLines(const FStarMapBodyInfo& In
 		? TEXT("Simulator   #-1（未注册）")
 		: FString::Printf(TEXT("Simulator   #%d"), Info.SimulatorIndex));
 
-	Lines.Add(FString::Printf(TEXT("模拟        %s    引力源    %s"),
-		Info.bSimulated ? TEXT("是") : TEXT("否"),
+	Lines.Add(FString::Printf(TEXT("受力        %s    引力源    %s"),
+		Info.bReceivesForces ? TEXT("是") : TEXT("否"),
 		Info.bExertsGravity ? TEXT("是") : TEXT("否")));
 
 	return Lines;

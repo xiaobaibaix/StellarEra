@@ -44,6 +44,9 @@ struct FCosmosBodyState
 	 */
 	bool bPhysicsDriven = false;
 
+	/** 是否接受求解器的力。false = 加速度恒为零，按当前速度匀速；作为引力源不受影响。 */
+	bool bReceivesForces = true;
+
 	/**
 	 * 半径。不参与引力只参与接触：中心距小于半径之和时推开到相切并抹掉接近法向速度。
 	 * 0 = 点质量永不接触。飞船取兜底 300 cm 而不是 0，否则中心点会被钳在地表。

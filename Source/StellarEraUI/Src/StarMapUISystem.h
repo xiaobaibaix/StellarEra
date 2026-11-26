@@ -24,7 +24,7 @@ struct FStarMapBodyInfo
 	double RadiusKm = 0.0;
 	double SurfaceGravityMps2 = 0.0;
 	int32 SimulatorIndex = INDEX_NONE;
-	bool bSimulated = false;
+	bool bReceivesForces = false;
 	bool bExertsGravity = false;
 };
 

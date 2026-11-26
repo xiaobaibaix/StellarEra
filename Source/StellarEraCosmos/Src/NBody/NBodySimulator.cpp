@@ -107,6 +107,14 @@ void FNBodySimulator::ComputeAccelerations()
 
 		// 外力与阻尼逐子步求值（显式欧拉，dt 逐关卡派生、不可硬编码）。引力单独存一份
 		// 供星图箭头读，不和外力/阻尼混，否则推力会搅混方向。
+		if (!Bodies[i].bReceivesForces)
+		{
+			// 不受力：加速度恒为零，位置按当前速度匀速。作为引力源仍参与上面的 Sum。
+			Bodies[i].GravitationalAcceleration = FVector3d::ZeroVector;
+			Accelerations[i] = FVector3d::ZeroVector;
+			continue;
+		}
+
 		Bodies[i].GravitationalAcceleration = G * Sum;
 		Accelerations[i] = G * Sum
 			+ Bodies[i].ExternalAcceleration
