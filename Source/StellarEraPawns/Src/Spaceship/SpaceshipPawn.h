@@ -396,10 +396,17 @@ public:
 	AVoxelPlanetActor* GetPlanetActor() const override { return PlanetActor; }
 
 	/**
-	 * 覆写：让引擎侧所有问「这艘船多快」的地方拿到求解器给的真值。
-	 * 体素调用器的预测**不**走这里（绝对速度会带出公转），见下一行。
+	 * 覆写：让引擎侧所有问「这艘船多快」的地方拿到真值。
+	 * 物理驱动时读刚体；否则读求解器写回的快照。体素调用器的预测**不**走这里
+	 * （绝对速度会带出公转），见下一行。
 	 */
-	virtual FVector GetVelocity() const override { return CosmosVelocity; }
+	virtual FVector GetVelocity() const override;
+
+	/** 物理驱动接口，见 ICosmosBody。 */
+	bool SetPhysicsDriven(bool bDriven, float MassKg) override;
+	bool IsPhysicsDriven() const override { return bPhysicsDriven; }
+	void AddCosmosForceWorldCmPerS2(const FVector& AccelerationWorldCmPerS2) override;
+	void SetCosmosLinearDamping(float DampingPerSecond) override;
 
 	/**
 	 * 体素调用器预测速度：相对参考行星。用绝对速度的话，落地静止（相对 0）时预测点
@@ -769,6 +776,9 @@ private:
 	 * 第一帧写回前 GetVelocity() 返回零向量。
 	 */
 	FVector CosmosVelocity = FVector::ZeroVector;
+
+	/** 位移归 UE 刚体（1× 物理模式）。 */
+	bool bPhysicsDriven = false;
 
 	/** 参考行星中心速度（厘米/秒）。大气随行星平移，阻力与相对速度都用它当参考系。 */
 	FVector ReferencePlanetVelocity = FVector::ZeroVector;

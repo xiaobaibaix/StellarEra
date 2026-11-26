@@ -32,6 +32,10 @@ namespace
 	// 100cm 立方体撑成 600×200×100 才像机身；只对占位体有意义，蓝图覆盖后以蓝图为准。
 	const FVector FallbackHullScale(6.f, 2.f, 1.f);
 
+	// 最细一档的 LOD 范围（80 米）。开关这一档时只改范围、不翻 bUseForLOD，见
+	// SetVoxelInvokerFineLODEnabled。
+	constexpr float ShipFineLODRangeCm = 8000.f;
+
 	/**
 	 * 1 千米 = 1e5 厘米。写成本地常数而不是用 Cosmos 的换算函数：本模块只依赖 Planet，
 	 * 不引入 Cosmos 单位体系。
@@ -80,7 +84,7 @@ ASpaceshipPawn::ASpaceshipPawn()
 	VoxelInvoker->SetupAttachment(Hull);
 	VoxelInvoker->bUseForLOD = true;
 	VoxelInvoker->LODToSet = 1;
-	VoxelInvoker->LODRange = 8000.f;
+	VoxelInvoker->LODRange = ShipFineLODRangeCm;
 	VoxelInvoker->bUseForCollisions = true;
 	VoxelInvoker->CollisionsRange = 3000.f;
 	VoxelInvoker->bUseForNavmesh = false;
@@ -164,6 +168,62 @@ bool ASpaceshipPawn::IsStarMapActive() const
 		GetWorld() ? GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>() : nullptr;
 	return Subsystem && Subsystem->IsStarMapActive();
 }
+
+FVector ASpaceshipPawn::GetVelocity() const
+{
+	// 物理模式下 CosmosVelocity 不再每帧写回，直接读刚体，HUD/阻力/预测都拿真值。
+	return bPhysicsDriven && Hull ? Hull->GetPhysicsLinearVelocity() : CosmosVelocity;
+}
+
+bool ASpaceshipPawn::SetPhysicsDriven(const bool bDriven, const float MassKg)
+{
+	if (!Hull || (bDriven && MassKg <= 0.f))
+	{
+		return false;
+	}
+
+	if (bDriven == bPhysicsDriven)
+	{
+		return true;
+	}
+
+	if (bDriven)
+	{
+		Hull->SetSimulatePhysics(true);
+		Hull->SetEnableGravity(false);
+		Hull->SetMassOverrideInKg(NAME_None, MassKg, true);
+		Hull->SetUseCCD(true);
+		// 进入时速度取求解器当前值：切模式不丢轨道速度。
+		Hull->SetPhysicsLinearVelocity(CosmosVelocity);
+	}
+	else
+	{
+		Hull->SetSimulatePhysics(false);
+		Hull->SetLinearDamping(0.f);
+	}
+
+	bPhysicsDriven = bDriven;
+	return true;
+}
+
+void ASpaceshipPawn::AddCosmosForceWorldCmPerS2(const FVector& AccelerationWorldCmPerS2)
+{
+	if (!bPhysicsDriven || !Hull || !Hull->IsSimulatingPhysics())
+	{
+		return;
+	}
+
+	Hull->AddForce(AccelerationWorldCmPerS2 * Hull->GetMass(), NAME_None, /*bAccelChange=*/false);
+}
+
+void ASpaceshipPawn::SetCosmosLinearDamping(const float DampingPerSecond)
+{
+	if (Hull && bPhysicsDriven)
+	{
+		Hull->SetLinearDamping(FMath::Max(DampingPerSecond, 0.f));
+	}
+}
+
 
 void ASpaceshipPawn::ApplyHullMesh()
 {
@@ -295,8 +355,10 @@ void ASpaceshipPawn::SetVoxelInvokerFineLODEnabled(const bool bEnabled)
 		return;
 	}
 
-	// 其余三档不动，所以关掉后身边是 LOD3（128 m 叶块），不会塌到行星轨道 LOD。
-	VoxelInvoker->bUseForLOD = bEnabled;
+	// 翻 bUseForLOD 会让 LOD 管理器立刻重排整棵渲染八叉树（本关实测一次约 12 s），
+	// 高速时每 0.5 s 翻一次就永远收敛不了。改范围不在那份变更检查里：飞船一直在动，
+	// 下一次位置触发的 LOD 更新自然带上新范围。范围 0 = 单点盒，等效关掉这一档。
+	VoxelInvoker->LODRange = bEnabled ? ShipFineLODRangeCm : 0.f;
 }
 
 void ASpaceshipPawn::SetViewpointInvokersActive(const bool bActive)

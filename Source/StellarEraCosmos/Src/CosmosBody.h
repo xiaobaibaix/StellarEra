@@ -71,6 +71,22 @@ public:
 	 */
 	virtual void SetCosmosOrientation(const FQuat& InOrientation) {}
 
+	// ── 物理驱动 ──
+
+	/**
+	 * 切换 UE 刚体模拟。进入时把刚体质量设成 MassKg，退出时关模拟。
+	 * @return false = 引擎侧不可用（无碰撞体/质量非法），调用方应退回求解器驱动。
+	 */
+	virtual bool SetPhysicsDriven(bool bDriven, float MassKg) = 0;
+
+	virtual bool IsPhysicsDriven() const = 0;
+
+	/** 物理驱动时每帧施加的加速度（世界厘米/秒²）；实现方自己乘质量。 */
+	virtual void AddCosmosForceWorldCmPerS2(const FVector& AccelerationWorldCmPerS2) = 0;
+
+	/** 刚体线性阻尼（1/真实秒）。 */
+	virtual void SetCosmosLinearDamping(float DampingPerSecond) = 0;
+
 	/** 调试视角是否打开（B 键）。合力箭头只在它打开时画。 */
 	virtual bool IsDebugViewMode() const = 0;
 };
