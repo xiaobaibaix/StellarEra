@@ -65,6 +65,12 @@ public:
 	/** 求解器把本帧实际角速度写回来（世界空间，rad/s），在施加本帧角加速度之前。 */
 	virtual void SetCosmosAngularVelocity(const FVector& InWorldRadPerSecond) = 0;
 
+	/**
+	 * 求解器当前刚体姿态（世界系）。在读取角加速度前写入 —— 机体轴的力矩必须用它，
+	 * 不能用 Actor 上插值过的渲染姿态，否则每帧轴差一个角步长，连续横滚会变成进动。
+	 */
+	virtual void SetCosmosOrientation(const FQuat& InOrientation) {}
+
 	/** 调试视角是否打开（B 键）。合力箭头只在它打开时画。 */
 	virtual bool IsDebugViewMode() const = 0;
 };

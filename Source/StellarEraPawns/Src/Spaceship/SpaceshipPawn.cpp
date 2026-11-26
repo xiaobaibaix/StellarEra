@@ -582,6 +582,8 @@ void ASpaceshipPawn::SetRoll(float Value)
 	RollInput = FMath::Clamp(Value, -1.f, 1.f);
 }
 
+
+
 void ASpaceshipPawn::SetVertical(float Value)
 {
 	VerticalInput = FMath::Clamp(Value, -1.f, 1.f);
@@ -1254,7 +1256,11 @@ FVector ASpaceshipPawn::GetAngularAccelerationWorldRadPerS2(float DeltaSeconds)
 		return FVector::ZeroVector;
 	}
 
-	const FQuat BodyRotation = GetActorQuat();
+	// 用求解器真实姿态：Actor 上是插值后的渲染姿态，差一个角步长会让横滚轴逐帧偏。
+
+	const FQuat BodyRotation = bHasCosmosOrientation ? CosmosOrientation : GetActorQuat();
+
+
 
 	// 速率目标模型：先把**目标转速**定下来，再把「到目标还差多少」交给纯函数除以 dt。
 	// 不能直接把冲量除以 dt：那样每帧追加同一个增量、只靠角阻尼衰减，稳态转速

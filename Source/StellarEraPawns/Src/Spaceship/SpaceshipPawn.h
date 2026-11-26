@@ -147,6 +147,7 @@ public:
 	/** 横滚输入（-1 / +1）。 */
 	void SetRoll(float Value);
 
+
 	/** 升降输入（-1 = 降，+1 = 升）。 */
 	void SetVertical(float Value);
 
@@ -170,6 +171,12 @@ public:
 	void SetCosmosAngularVelocity(const FVector& InWorldRadPerSecond) override
 	{
 		CosmosAngularVelocity = InWorldRadPerSecond;
+	}
+
+	void SetCosmosOrientation(const FQuat& InOrientation) override
+	{
+		CosmosOrientation = InOrientation;
+		bHasCosmosOrientation = true;
 	}
 
 	/** 角阻尼（1/秒），子系统换算成 1/模拟年后写进求解器。 */
@@ -750,6 +757,10 @@ private:
 
 	/** 子系统写回的实际角速度（世界系 rad/s），只用于横滚到顶的衰减。 */
 	FVector CosmosAngularVelocity = FVector::ZeroVector;
+
+	/** 求解器刚体姿态；未写入前退回 Actor 姿态。 */
+	FQuat CosmosOrientation = FQuat::Identity;
+	bool bHasCosmosOrientation = false;
 
 	/** 加速键（Shift）当前是否按下。 */
 	bool bBoosting = false;

@@ -442,7 +442,16 @@ void UCosmosSimulationSubsystem::ApplyControlledBodyForces(float DeltaSeconds)
 			? 1.0 / (double(DampingTime) * TimeScale)
 			: 0.0;
 
+		// 角加速度的机体轴要用求解器真实姿态，不能用 Actor 的插值渲染姿态。
+
+		Ship->SetCosmosOrientation(FQuat(
+
+			Body.Orientation.X, Body.Orientation.Y, Body.Orientation.Z, Body.Orientation.W));
+
+
+
 		// 实际角速度先写给飞船：横滚的「到顶衰减」要读它，且必须读上一帧写回的值。
+
 		// 求解器单位（rad/模拟年）→ 真实单位（rad/秒）。
 		Ship->SetCosmosAngularVelocity(FVector(Body.AngularVelocity * TimeScale));
 
