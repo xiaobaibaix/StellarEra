@@ -2,6 +2,7 @@
 
 #include "CosmosSimulationSubsystem.h"
 #include "NBodyIntegration.h"
+#include "Components/SphereComponent.h"
 #include "TrajectoryPrediction.h"
 
 #include "CosmosOrbitComponent.h"
@@ -129,8 +130,62 @@ void UCosmosSimulationSubsystem::AddBodyToSimulator(UCosmosOrbitComponent* Compo
 		State.Orientation = FQuat4d(
 			InitialRotation.X, InitialRotation.Y, InitialRotation.Z, InitialRotation.W);
 	}
+	else
+	{
+		// 行星/恒星：位移交给独立质量体，Chaos 积分；求解器只算力。
+		State.bPhysicsDriven = true;
+	}
 
 	Component->SimulatorIndex = Simulator.AddBody(State);
+
+	if (!Cast<ICosmosBody>(BodyActor))
+	{
+		EnsureMassBody(Component, BodyActor);
+	}
+}
+
+void UCosmosSimulationSubsystem::EnsureMassBody(UCosmosOrbitComponent* Component, AActor* Actor)
+{
+	if (!Component || !Actor || Component->SimulatorIndex == INDEX_NONE
+		|| Component->SimulatorIndex >= Simulator.GetNumBodies())
+	{
+		return;
+	}
+
+	FCosmosBodyState& State = Simulator.GetBodyMutable(Component->SimulatorIndex);
+	if (State.PhysicsBody.IsValid())
+	{
+		return;
+	}
+
+	const float MassKg = float(State.Mass * CosmosConstants::SolarMassToKilogram);
+	USphereComponent* Body = NewObject<USphereComponent>(Actor, TEXT("CosmosMassBody"));
+	Body->InitSphereRadius(50.f);
+	Body->SetMobility(EComponentMobility::Movable);
+	Body->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	Body->SetCollisionResponseToAllChannels(ECR_Ignore);
+	// 不挂父级：Actor 每帧被写回，挂上去会被瞬移带走。
+	Body->RegisterComponent();
+	Body->SetWorldLocation(Simulator.ToWorldLocation(State.Position));
+	Body->SetSimulatePhysics(true);
+	Body->SetEnableGravity(false);
+	Body->SetUseCCD(true);
+	Body->SetMassOverrideInKg(NAME_None, MassKg, true);
+	// 引擎默认线性阻尼 0.01/s 会持续刹车；阻尼已由求解器合成进力里，这一层必须是 0。
+	Body->SetLinearDamping(0.f);
+	Body->SetAngularDamping(0.f);
+	Body->SetPhysicsLinearVelocity(ToWorldVelocityScaled(State.Velocity));
+
+	if (!Body->IsSimulatingPhysics())
+	{
+		// 建不出物理体就退回求解器积分，别让天体冻住。
+		UE_LOG(LogTemp, Error, TEXT("[Cosmos] %s 的质量体建不出来，退回求解器积分"), *Actor->GetName());
+		State.bPhysicsDriven = false;
+		return;
+	}
+
+	State.PhysicsBody = Body;
+	UE_LOG(LogTemp, Display, TEXT("[Cosmos] %s 质量体：%.3e kg"), *Actor->GetName(), Body->GetMass());
 }
 
 void UCosmosSimulationSubsystem::SetTimeScaleMultiplier(const float InMultiplier)
@@ -148,21 +203,35 @@ void UCosmosSimulationSubsystem::SyncPhysicsDrivenBodies()
 	for (UCosmosOrbitComponent* Component : Bodies)
 	{
 		AActor* OwnerActor = Component ? Component->GetOwner() : nullptr;
-		ICosmosBody* Ship = Cast<ICosmosBody>(OwnerActor);
-		if (!Ship || !Ship->IsPhysicsDriven() || Component->SimulatorIndex == INDEX_NONE
+		if (!OwnerActor || Component->SimulatorIndex == INDEX_NONE
 			|| Component->SimulatorIndex >= Simulator.GetNumBodies())
 		{
 			continue;
 		}
 
 		FCosmosBodyState& State = Simulator.GetBodyMutable(Component->SimulatorIndex);
-		State.Position = Simulator.ToGameUnitPosition(OwnerActor->GetActorLocation());
-		State.Velocity = CosmosWorld::WorldCmPerSecondToGameVelocity(
-			FVector3d(OwnerActor->GetVelocity()), CentimetersPerAu, TimeScale);
+		if (!State.bPhysicsDriven)
+		{
+			continue;
+		}
+
+		// 有独立质量体就读它；飞船没有（Actor 根就是刚体），读 Actor。
+		if (const UPrimitiveComponent* Body = State.PhysicsBody.Get())
+		{
+			State.Position = Simulator.ToGameUnitPosition(Body->GetComponentLocation());
+			State.Velocity = CosmosWorld::WorldCmPerSecondToGameVelocity(
+				FVector3d(Body->GetPhysicsLinearVelocity()), CentimetersPerAu, TimeScale);
+		}
+		else if (const ICosmosBody* Ship = Cast<ICosmosBody>(OwnerActor))
+		{
+			State.Position = Simulator.ToGameUnitPosition(OwnerActor->GetActorLocation());
+			State.Velocity = CosmosWorld::WorldCmPerSecondToGameVelocity(
+				FVector3d(OwnerActor->GetVelocity()), CentimetersPerAu, TimeScale);
+		}
 	}
 }
 
-void UCosmosSimulationSubsystem::ApplyShipPhysicsForces()
+void UCosmosSimulationSubsystem::ApplyPhysicsForces()
 {
 	if (CentimetersPerAu <= 0.0 || TimeScale <= 0.0)
 	{
@@ -172,22 +241,30 @@ void UCosmosSimulationSubsystem::ApplyShipPhysicsForces()
 	for (UCosmosOrbitComponent* Component : Bodies)
 	{
 		AActor* OwnerActor = Component ? Component->GetOwner() : nullptr;
-		ICosmosBody* Ship = Cast<ICosmosBody>(OwnerActor);
-		if (!Ship || !Ship->IsPhysicsDriven() || Component->SimulatorIndex == INDEX_NONE
+		if (!OwnerActor || Component->SimulatorIndex == INDEX_NONE
 			|| Component->SimulatorIndex >= Simulator.GetNumBodies())
 		{
 			continue;
 		}
 
 		const FCosmosBodyState& State = Simulator.GetBody(Component->SimulatorIndex);
-		if (!State.bReceivesForces)
+		if (!State.bPhysicsDriven || !State.bReceivesForces)
 		{
 			continue;
 		}
 
-		// 力统一由求解器合成（引力 + 外力 − 阻尼），子系统只把结果加到刚体上。
-		Ship->AddCosmosForceWorldCmPerS2(FVector(CosmosWorld::GameAccelerationToWorldCmPerS2(
-			State.Acceleration, CentimetersPerAu, TimeScale)));
+		// 力统一由求解器合成（引力 + 外力 − 阻尼），子系统只把结果加到物理体上。
+		const FVector AccelerationWorld = FVector(CosmosWorld::GameAccelerationToWorldCmPerS2(
+			State.Acceleration, CentimetersPerAu, TimeScale));
+
+		if (UPrimitiveComponent* Body = State.PhysicsBody.Get())
+		{
+			Body->AddForce(AccelerationWorld * Body->GetMass());
+		}
+		else if (ICosmosBody* Ship = Cast<ICosmosBody>(OwnerActor))
+		{
+			Ship->AddCosmosForceWorldCmPerS2(AccelerationWorld);
+		}
 	}
 }
 
@@ -512,7 +589,7 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 	}
 
 	// 力每帧都要加：刚体在物理线程里每帧都会推进，零子步帧也不能断。
-	ApplyShipPhysicsForces();
+	ApplyPhysicsForces();
 
 	// 整数步数会把时间的零头丢掉：不插值就是整帧不动、再整步跳（帧率却满）。
 	// 按累积余量摊平，代价是画面最多落后一个步长。

@@ -185,8 +185,14 @@ private:
 	/** 物理步之后把驱动的刚体状态读回求解器（位置、线速度）。 */
 	void SyncPhysicsDrivenBodies();
 
-	/** 把求解器合成的加速度换算成力加到刚体上。 */
-	void ApplyShipPhysicsForces();
+	/** 把求解器合成的加速度换算成力，加到各物理体/质量体上。 */
+	void ApplyPhysicsForces();
+
+	/**
+	 * 给行星/恒星建一个不挂父级的无碰撞质量球：Chaos 负责积分，Actor 跟随求解器状态。
+	 * 体素世界根组件建不出物理体（实测 sim=0），所以行星必须用独立质量体。
+	 */
+	void EnsureMassBody(UCosmosOrbitComponent* Component, AActor* Actor);
 
 	/**
 	 * 在**真正会推进**的帧里、推进之前，把受控天体（飞船）想施加的力写进求解器。

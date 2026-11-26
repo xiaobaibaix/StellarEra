@@ -36,6 +36,9 @@ bool TrajectoryPrediction::Predict(const FNBodySimulator& Simulator, int32 BodyI
 		// 角方向的输入力矩与角阻尼同样是「松手就没了」，一并清零。
 		CopyBody.ExternalAngularAcceleration = FVector3d::ZeroVector;
 		CopyBody.AngularDamping = 0.0;
+
+		// 预测副本必须自己积分：物理驱动的体在运行时由 Chaos 推进，副本里没有 Chaos。
+		CopyBody.bPhysicsDriven = false;
 	}
 
 	// 步长取 Horizon / (NumSamples - 1)，末点恰好落在 Horizon 上。局部量不能叫 Step：
@@ -230,6 +233,9 @@ bool TrajectoryPrediction::PredictClosedOrbit(const FNBodySimulator& Simulator, 
 		// 角方向的输入力矩与角阻尼同样是「松手就没了」，一并清零。
 		CopyBody.ExternalAngularAcceleration = FVector3d::ZeroVector;
 		CopyBody.AngularDamping = 0.0;
+
+		// 预测副本必须自己积分：物理驱动的体在运行时由 Chaos 推进，副本里没有 Chaos。
+		CopyBody.bPhysicsDriven = false;
 	}
 
 	// ── 用「转满一圈后离起点最近」找闭合时刻，而不是照密切周期截断 ──

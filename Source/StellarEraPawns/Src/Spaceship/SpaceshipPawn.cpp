@@ -193,6 +193,8 @@ bool ASpaceshipPawn::SetPhysicsDriven(const bool bDriven, const float MassKg)
 		Hull->SetEnableGravity(false);
 		Hull->SetMassOverrideInKg(NAME_None, MassKg, true);
 		Hull->SetUseCCD(true);
+		// 引擎默认线性阻尼 0.01/s 会额外刹车；求解器已经把阻尼合成进力里。
+		Hull->SetLinearDamping(0.f);
 		// 进入时速度取求解器当前值：切模式不丢轨道速度。
 		Hull->SetPhysicsLinearVelocity(CosmosVelocity);
 	}

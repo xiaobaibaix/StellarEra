@@ -94,3 +94,12 @@
 - `StellarEra.Cosmos` 全部 25 个自动化测试通过，含 `StellarEra.Cosmos.PhysicsDriven.Skip`。
 - PIE 日志：`[Ship] 刚体物理开启（质量 300085 kg）`；HUD 读数「速度 29.79 km/s（相对 0.06–0.08）」——飞船与行星同步，没有漂移；无 `LogPhysics` / ensure 报错。
 - 限制：本次 PIE 时编辑器在后台（日志帧号 3 FPS，Chaos 步长被截断），自由落体与落地没有按真实时间积分，落地行为**未验证**；倍率切换（`-` / `+`）也未测到（会话 0 无法注入按键）。
+
+## 后续：所有天体改为质量体驱动（2026-11-27）
+
+- 行星/恒星没有可受力刚体：体素世界根组件（`VoxelWorldRootComponent`）没有碰撞形状，即使补形状也建不出物理体（实测 `IsSimulatingPhysics()=false`、质量 0）。
+- 落地：每颗非飞船天体创建一个**不挂父级**的 `USphereComponent` 质量球（`CosmosMassBody`，响应全 Ignore、关引擎重力、CCD、质量 = `Mass × SolarMassToKilogram`），Chaos 积分；子系统每帧从质量体读回位置/速度，Actor 跟随写回。求解器的 `bPhysicsDriven` 跳过其积分，力仍由求解器合成后 `AddForce`。
+- 引擎默认 `LinearDamping = 0.01/s` 会持续刹车（能量漂移从 1e-11 涨到 4e-4）；质量体和飞船刚体都显式 `SetLinearDamping(0)`，阻尼只来自求解器合成的力。
+- 预测副本必须清 `bPhysicsDriven`，否则轨迹预测里天体不动。
+- 验证（`-game -nullrhi`，无编辑器节流）：4 个质量体创建成功；行星速度稳定在 6.283132 AU/年（29.79 km/s），能量漂移 1.2e-11 且不增长；`StellarEra.Cosmos` 18 个测试全过。
+- 未做：时间倍率（先按常速）、浮动原点、飞船落地摩擦。

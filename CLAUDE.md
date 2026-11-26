@@ -151,6 +151,7 @@ CDO 里挂 `UStarMapRigComponent` + `UStarMapInputComponent`，`CalcCamera` 转�
 
 ## 关键架构约束
 - **N 体只有一个驱动**：`UCosmosSimulationSubsystem`（TickableWorldSubsystem）每帧推进求解器、把位置/速度写回 Actor、再搬运骑乘者。天体不要各自 Tick。
+- **天体的运动由物理体承担**：行星/恒星各有一个不挂父级的无碰撞质量球（`CosmosMassBody`），Chaos 积分；求解器只算力，子系统每帧从质量体读回状态、把 Actor 写成跟随。体素根组件建不出物理体（没有碰撞形状）。引擎默认线性阻尼 0.01/s 要显式清零。
 - `UCosmosOrbitComponent` **只存参数**（`MassEarth`、`InitialVelocityKmPerSecond`）；天体初态位置就是关卡里 Actor 的摆放位置。
 - `ASpaceshipPawn` **不自己位移**：只暴露推力加速度与阻尼，位移由子系统送进求解器。
 - `UPlanetCharacterMovementComponent` 关掉 CMC 自带的“底座移动我”。角色**挂在行星下**（`SetRidePlanet` → `AttachToActor`），

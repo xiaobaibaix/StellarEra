@@ -9,6 +9,7 @@
 #include "CosmosTypes.h"
 
 class AActor;
+class UPrimitiveComponent;
 
 /** 单个天体的完整状态。位置与速度一律用 FVector3d（双精度）。 */
 struct FCosmosBodyState
@@ -98,6 +99,12 @@ struct FCosmosBodyState
 
 	/** 关联的 Actor。求解器不做任何 UObject 操作。 */
 	TWeakObjectPtr<AActor> OwnerActor;
+
+	/**
+	 * 物理驱动时承担位移的组件：飞船就是 Actor 根（空），行星/恒星是独立质量球。
+	 * 弱引用，不阻止销毁。
+	 */
+	TWeakObjectPtr<UPrimitiveComponent> PhysicsBody;
 };
 
 /**
