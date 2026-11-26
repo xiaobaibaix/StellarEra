@@ -167,6 +167,7 @@ void AStellarEraPlayerController::AdjustTimeScale(const int32 Direction)
 
 	const double Base = 1.0 / CosmosUnits::YearToSecond;
 	Cosmos->TimeScale = Base * double(TimeScaleMultiplier);
+	Cosmos->SetTimeScaleMultiplier(TimeScaleMultiplier);
 	UE_LOG(LogTemp, Display, TEXT("[Time] 时间倍率 %.2fx（TimeScale %.5f）"), TimeScaleMultiplier, Cosmos->TimeScale);
 }
 

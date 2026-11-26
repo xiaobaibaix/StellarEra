@@ -145,6 +145,62 @@ void UCosmosSimulationSubsystem::AddBodyToSimulator(UCosmosOrbitComponent* Compo
 	Component->SimulatorIndex = Simulator.AddBody(State);
 }
 
+void UCosmosSimulationSubsystem::SetTimeScaleMultiplier(const float InMultiplier)
+{
+	TimeScaleMultiplier = InMultiplier;
+}
+
+void UCosmosSimulationSubsystem::SyncPhysicsDrivenBodies()
+{
+	if (CentimetersPerAu <= 0.0 || TimeScale <= 0.0)
+	{
+		return;
+	}
+
+	for (UCosmosOrbitComponent* Component : Bodies)
+	{
+		AActor* OwnerActor = Component ? Component->GetOwner() : nullptr;
+		ICosmosBody* Ship = Cast<ICosmosBody>(OwnerActor);
+		if (!Ship || !Ship->IsPhysicsDriven() || Component->SimulatorIndex == INDEX_NONE
+			|| Component->SimulatorIndex >= Simulator.GetNumBodies())
+		{
+			continue;
+		}
+
+		FCosmosBodyState& State = Simulator.GetBodyMutable(Component->SimulatorIndex);
+		State.Position = Simulator.ToGameUnitPosition(OwnerActor->GetActorLocation());
+		State.Velocity = CosmosUnits::WorldCmPerSecondToGameVelocity(
+			FVector3d(OwnerActor->GetVelocity()), CentimetersPerAu, TimeScale);
+	}
+}
+
+void UCosmosSimulationSubsystem::ApplyShipPhysicsForces()
+{
+	if (CentimetersPerAu <= 0.0 || TimeScale <= 0.0)
+	{
+		return;
+	}
+
+	for (UCosmosOrbitComponent* Component : Bodies)
+	{
+		AActor* OwnerActor = Component ? Component->GetOwner() : nullptr;
+		ICosmosBody* Ship = Cast<ICosmosBody>(OwnerActor);
+		if (!Ship || !Ship->IsPhysicsDriven() || Component->SimulatorIndex == INDEX_NONE
+			|| Component->SimulatorIndex >= Simulator.GetNumBodies())
+		{
+			continue;
+		}
+
+		const FCosmosBodyState& State = Simulator.GetBody(Component->SimulatorIndex);
+		const FVector3d AccelerationGame = State.GravitationalAcceleration + State.ExternalAcceleration;
+		Ship->AddCosmosForceWorldCmPerS2(FVector(CosmosUnits::GameAccelerationToWorldCmPerS2(
+			AccelerationGame, CentimetersPerAu, TimeScale)));
+
+		const float DampingTime = Ship->GetDampingTime();
+		Ship->SetCosmosLinearDamping(DampingTime > 0.f ? 1.f / DampingTime : 0.f);
+	}
+}
+
 void UCosmosSimulationSubsystem::RefreshPlanetContactRadii()
 {
 	const int32 NumBodies = Simulator.GetNumBodies();
@@ -197,189 +253,25 @@ void UCosmosSimulationSubsystem::RefreshPlanetContactRadii()
 
 void UCosmosSimulationSubsystem::RefreshShipContactProbes()
 {
+	// 船的接触不归求解器了：1× 走 UE 刚体，其它倍率按要求直接关碰撞。
+	// 清空探针并把 Radius 置 0，球-球与探针两条分支都不会触发。
 	for (UCosmosOrbitComponent* Component : Bodies)
 	{
 		AActor* OwnerActor = Component ? Component->GetOwner() : nullptr;
-		ICosmosBody* Ship = Cast<ICosmosBody>(OwnerActor);
-		if (!Ship || Component->SimulatorIndex == INDEX_NONE)
+		if (!OwnerActor || Component->SimulatorIndex == INDEX_NONE
+			|| Component->SimulatorIndex >= Simulator.GetNumBodies())
 		{
 			continue;
 		}
 
-		// 与 ApplyControlledBodyForces 同一个理由：GetBodyMutable 越界不报错，只能在这里查。
-		if (Component->SimulatorIndex >= Simulator.GetNumBodies())
+		if (!Cast<ICosmosBody>(OwnerActor))
 		{
 			continue;
 		}
 
 		FCosmosBodyState& State = Simulator.GetBodyMutable(Component->SimulatorIndex);
-
-		// 没有探针（网格没导 Simple Collision）时退回 300 cm 球 —— 行为与加探针前一致。
-		const TArray<FVector>& LocalProbes = Ship->GetContactProbesLocalCm();
-		if (LocalProbes.Num() == 0)
-		{
-			State.SetContactProbes({});
-			State.Radius = double(Ship->GetContactRadiusCm()) / CentimetersPerAu;
-
-			// 按 spec §3.4 退回球体惯量。当前是空转：探针已清空，接触走球-球分支，而那条
-			// 分支不施加角冲量。写它只为将来球-球开始做旋转接触时不必回头找。
-			//
-			// ⚠ 行为变了：旧 bZeroVelocityOnContact 会让飞船撞上就停，现在球-球只抹法向、
-			// 没有摩擦，飞船会贴着地表一直滑。只在 Hull 没导 Simple Collision 时才会走到。
-			State.InverseInertiaLocal = FCosmosBodyState::InverseInertiaFromSphere(
-				State.Mass, FMath::Max(State.Radius, 1.0e-9));
-			continue;
-		}
-
-		// 只做缩放换算，**保持机体系**：转向交给求解器逐子步旋转。存世界系的话一帧几十个
-		// 子步都用同一份朝向，机身转过去的接触点全落在旧位置上。
-		const FVector ActorScale = OwnerActor->GetActorScale3D();
-		TArray<FVector3d> Probes;
-		Probes.Reserve(LocalProbes.Num());
-		for (const FVector& LocalProbe : LocalProbes)
-		{
-			Probes.Add(FVector3d(LocalProbe * ActorScale) / CentimetersPerAu);
-		}
-
-		State.SetContactProbes(MoveTemp(Probes));
+		State.SetContactProbes({});
 		State.Radius = 0.0;
-
-		// 惯性张量：用探针点的本地 AABB 当长方体。探针即船体凸包代表点，AABB 就是船体包围盒，
-		// 不必读网格资产。⚠ 这里用**未缩放**的本地探针，而上面的探针走了世界缩放；飞船 scale=1
-		// 时两者一致，哪天飞船被缩放，惯量得按缩放后的半边长算。
-		FBox ProbeBox(ForceInit);
-		for (const FVector& LocalProbe : LocalProbes)
-		{
-			ProbeBox += LocalProbe;
-		}
-
-		const FVector HalfExtentCm = ProbeBox.GetExtent();
-		if (HalfExtentCm.X > 0.f && HalfExtentCm.Y > 0.f && HalfExtentCm.Z > 0.f)
-		{
-			State.InverseInertiaLocal = FCosmosBodyState::InverseInertiaFromBox(
-				State.Mass, FVector3d(HalfExtentCm) / CentimetersPerAu);
-		}
-		else
-		{
-			// 探针全落在一个平面 / 一条线上：长方体公式退化，退回均匀球，至少不会是零惯量。
-			State.InverseInertiaLocal = FCosmosBodyState::InverseInertiaFromSphere(
-				State.Mass, FMath::Max(State.ContactProbeRadius, 1.0e-9));
-		}
-
-		// 逐探针地表半径必须在推进前查一次并缓存 —— 一帧最多 200 个子步，体素查询绝不能放进去。
-		// 粗筛：距离 < 包围球（1.25 × 基准半径）+ 最远探针。
-		int32 NearestPlanetIndex = INDEX_NONE;
-		double NearestPlanetDistance = 0.0;
-
-		for (int32 Other = 0; Other < Simulator.GetNumBodies(); ++Other)
-		{
-			if (Other == Component->SimulatorIndex)
-			{
-				continue;
-			}
-
-			const AVoxelPlanetActor* Candidate =
-				Cast<AVoxelPlanetActor>(Simulator.GetBody(Other).OwnerActor.Get());
-			if (!Candidate)
-			{
-				continue;
-			}
-
-			const double Distance =
-				(State.Position - Simulator.GetBody(Other).Position).Size();
-			const double GateCm = double(Candidate->GetSurfaceRadiusCm()) * 1.25
-				+ State.ContactProbeRadius * CentimetersPerAu;
-			if (Distance * CentimetersPerAu >= GateCm)
-			{
-				continue;
-			}
-
-			if (NearestPlanetIndex == INDEX_NONE || Distance < NearestPlanetDistance)
-			{
-				NearestPlanetIndex = Other;
-				NearestPlanetDistance = Distance;
-			}
-		}
-
-		if (NearestPlanetIndex == INDEX_NONE)
-		{
-			continue;
-		}
-
-		const AVoxelPlanetActor* Planet =
-			Cast<AVoxelPlanetActor>(Simulator.GetBody(NearestPlanetIndex).OwnerActor.Get());
-		const FVector3d PlanetPosition = Simulator.GetBody(NearestPlanetIndex).Position;
-
-		// 方向量化：一格 ≈ 地表 1 体素。船体投影到地表通常只有个位数格，真正 march 的次数也是。
-		const double BaseRadiusVoxels =
-			double(Planet->GetSurfaceRadiusCm()) / FMath::Max(double(Planet->VoxelSize), 1.0);
-
-		TMap<FIntVector, double> SurfaceRadiusCache;
-		int32 NumQueries = 0;
-		// 超上限告警的闸门：按 Ship 每次调用一次，而不是每个方向一次。
-		bool bLoggedOverCap = false;
-
-		TArray<double> SurfaceRadii;
-		SurfaceRadii.Reserve(State.ContactProbes.Num());
-
-		for (const FVector3d& Probe : State.ContactProbes)
-		{
-			// 探针存机体系，这里按求解器当前朝向转世界系再来查地表。
-			const FVector3d WorldProbe = State.Orientation.RotateVector(Probe);
-			const FVector UnitDirection =
-				FVector(State.Position + WorldProbe - PlanetPosition).GetSafeNormal();
-			if (UnitDirection.IsNearlyZero())
-			{
-				// 探针正好落在星心：方向无定义，交给解析半径兜底。
-				SurfaceRadii.Add(double(Planet->GetSurfaceRadiusCm()) / CentimetersPerAu);
-				continue;
-			}
-
-			const FIntVector Key(
-				FMath::RoundToInt(UnitDirection.X * BaseRadiusVoxels),
-				FMath::RoundToInt(UnitDirection.Y * BaseRadiusVoxels),
-				FMath::RoundToInt(UnitDirection.Z * BaseRadiusVoxels));
-
-			if (const double* Cached = SurfaceRadiusCache.Find(Key))
-			{
-				SurfaceRadii.Add(*Cached);
-				continue;
-			}
-
-			double SurfaceRadiusCm = 0.0;
-			if (NumQueries >= MaxContactSurfaceQueriesPerFrame)
-			{
-				// 超上限：这一格退回解析半径。每个 Ship 每次调用只吭一声。
-				if (!bLoggedOverCap)
-				{
-					bLoggedOverCap = true;
-					UE_LOG(LogTemp, Warning,
-						TEXT("[Cosmos] 单帧逐探针地表查询达到上限 %d，其余方向退回解析半径。"),
-						MaxContactSurfaceQueriesPerFrame);
-				}
-				SurfaceRadiusCm = double(Planet->GetSurfaceRadiusCmAtDirection(UnitDirection));
-			}
-			else
-			{
-				++NumQueries;
-				SurfaceRadiusCm =
-					double(Planet->GetVoxelSurfaceRadiusCmAtDirection(UnitDirection));
-			}
-
-			// 体素查询出错时退回解析半径：NaN 会让穿透量变成 NaN、探针静默不接触。
-			if (!FMath::IsFinite(SurfaceRadiusCm) || SurfaceRadiusCm <= 0.0)
-			{
-				SurfaceRadiusCm = double(Planet->GetSurfaceRadiusCmAtDirection(UnitDirection));
-			}
-
-			// 缓存与逐探针数组都存 AU —— 求解器单位。
-			const double SurfaceRadiusAu = SurfaceRadiusCm / CentimetersPerAu;
-			SurfaceRadiusCache.Add(Key, SurfaceRadiusAu);
-			SurfaceRadii.Add(SurfaceRadiusAu);
-		}
-
-		State.ContactProbeSurfaceRadii = MoveTemp(SurfaceRadii);
-		State.ContactSurfaceSphereIndex = NearestPlanetIndex;
 	}
 }
 
@@ -621,6 +513,45 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 		return;
 	}
 
+	// 物理驱动的体：先把上一物理步的结果读回求解器，再决定本帧模式。
+	SyncPhysicsDrivenBodies();
+
+	// 1× 才开刚体；切模式时对齐位置/速度，避免瞬移后弹开。
+	const bool bWantPhysics = FMath::IsNearlyEqual(TimeScaleMultiplier, 1.f);
+	for (UCosmosOrbitComponent* Component : Bodies)
+	{
+		AActor* OwnerActor = Component ? Component->GetOwner() : nullptr;
+		ICosmosBody* Ship = Cast<ICosmosBody>(OwnerActor);
+		if (!Ship || Component->SimulatorIndex == INDEX_NONE
+			|| Component->SimulatorIndex >= Simulator.GetNumBodies())
+		{
+			continue;
+		}
+
+		FCosmosBodyState& State = Simulator.GetBodyMutable(Component->SimulatorIndex);
+		if (bWantPhysics && !Ship->IsPhysicsDriven())
+		{
+			OwnerActor->SetActorLocation(Simulator.ToWorldLocation(State.Position), false);
+			Ship->SetCosmosVelocity(ToWorldVelocityScaled(State.Velocity));
+			const float MassKg = float(State.Mass * CosmosUnits::SolarMassToKilogram);
+			if (Ship->SetPhysicsDriven(true, MassKg))
+			{
+				State.bPhysicsDriven = true;
+				UE_LOG(LogTemp, Display, TEXT("[Ship] 刚体物理开启（质量 %.0f kg）"), MassKg);
+			}
+			else
+			{
+				UE_LOG(LogTemp, Error, TEXT("[Ship] 刚体不可用，保持求解器驱动"));
+			}
+		}
+		else if (!bWantPhysics && Ship->IsPhysicsDriven())
+		{
+			Ship->SetPhysicsDriven(false, 0.f);
+			State.bPhysicsDriven = false;
+			UE_LOG(LogTemp, Display, TEXT("[Ship] 刚体物理关闭，回求解器驱动"));
+		}
+	}
+
 	// ── 0. 刷新接触形状 ──
 	// 必须在推进之前：接触解算发生在 StepExact 内部，读的就是这一刻的 Radius / ContactProbes。
 	// 外力不在这里读 —— 只在真正会推进的帧里读，见下面 NumSteps > 0 那一支。
@@ -670,6 +601,9 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 		}
 	}
 
+	// 力每帧都要加：刚体在物理线程里每帧都会推进，零子步帧也不能断。
+	ApplyShipPhysicsForces();
+
 	// 整数步数会把时间的零头丢掉：不插值就是整帧不动、再整步跳（帧率却满）。
 	// 按累积余量摊平，代价是画面最多落后一个步长。
 	const double RenderAlpha = (bHasRenderPrevPose && BaseTimeStep > 0.0)
@@ -709,14 +643,22 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 			// 走 SetActorTransform 会把关卡里摆好的行星朝向瞬间抹成零。
 			if (State.bRigidBody)
 			{
-				BodyActor->SetActorTransform(
-					FTransform(
-						FQuat(
-							RenderOrientation.X, RenderOrientation.Y,
-							RenderOrientation.Z, RenderOrientation.W),
-						Simulator.ToWorldLocation(RenderPosition),
-						BodyActor->GetActorScale3D()),
-					/*bSweep=*/false, nullptr, ETeleportType::None);
+				const FQuat WorldOrientation(
+					RenderOrientation.X, RenderOrientation.Y,
+					RenderOrientation.Z, RenderOrientation.W);
+				if (State.bPhysicsDriven)
+				{
+					// 位移归 Chaos，这里只写姿态（第一版不做力矩）。
+					BodyActor->SetActorRotation(WorldOrientation, ETeleportType::None);
+				}
+				else
+				{
+					BodyActor->SetActorTransform(
+						FTransform(WorldOrientation,
+							Simulator.ToWorldLocation(RenderPosition),
+							BodyActor->GetActorScale3D()),
+						/*bSweep=*/false, nullptr, ETeleportType::None);
+				}
 			}
 			else
 			{
@@ -724,8 +666,8 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 					Simulator.ToWorldLocation(RenderPosition), /*bSweep=*/false);
 			}
 
-			// 受控天体（飞船）：速度经 ICosmosBody::SetCosmosVelocity 写回 Actor，体素调用器、IsLanded() 与 HUD 都读那一处。
-			if (ICosmosBody* Ship = Cast<ICosmosBody>(BodyActor))
+			// 物理驱动的船速度由刚体自己答，不再用求解器快照覆盖。
+			if (ICosmosBody* Ship = Cast<ICosmosBody>(BodyActor); Ship && !State.bPhysicsDriven)
 			{
 				Ship->SetCosmosVelocity(ToWorldVelocityScaled(State.Velocity));
 			}

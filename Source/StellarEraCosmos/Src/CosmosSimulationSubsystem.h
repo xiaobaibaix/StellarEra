@@ -113,6 +113,12 @@ public:
 	 */
 	void SetStarMapActive(bool bActive) { bStarMapActive = bActive; }
 
+	/**
+	 * 控制器每次调倍率时通知。1× 才允许刚体物理：Chaos 按真实时间积分，
+	 * 倍率一上去行星一帧就跨过整个星球。
+	 */
+	void SetTimeScaleMultiplier(float InMultiplier);
+
 	//////////////////////////////////////////////////////////////////////////
 	// 标定（都是 UPROPERTY(Config)，改 DefaultGame.ini 后重启编辑器生效，不必重编）
 
@@ -186,11 +192,16 @@ private:
 	void RefreshPlanetContactRadii();
 
 	/**
-	 * 把飞船的接触探针（Actor 本地厘米）写进求解器，并记下各方向的真实地表半径。
-	 * 探针来自 Hull 的 Simple Collision 凸包；没有则退回 300 cm 球。体素查询必须在
-	 * 推进前做一次并缓存 —— 一帧最多 200 个子步，绝不能在里面查体素。
+	 * 船的接触不再归求解器：1× 走 UE 刚体，其它倍率按要求直接关碰撞。
+	 * 这里只负责把船的探针清空、Radius 置 0，让两条接触分支都不触发。
 	 */
 	void RefreshShipContactProbes();
+
+	/** 物理步之后把驱动的刚体状态读回求解器（位置、线速度）。 */
+	void SyncPhysicsDrivenBodies();
+
+	/** 把引力 + 外力换算成力加到刚体上，并同步线性阻尼。 */
+	void ApplyShipPhysicsForces();
 
 	/**
 	 * 在**真正会推进**的帧里、推进之前，把受控天体（飞船）想施加的力写进求解器。
@@ -217,6 +228,9 @@ private:
 
 	/** 星图模式是否激活。 */
 	bool bStarMapActive = false;
+
+	/** 时间倍率（1 = 实时）。只有 1× 时飞船走 UE 刚体。 */
+	float TimeScaleMultiplier = 1.f;
 
 	/** 上一次 ApplyControlledBodyForces 是否有天体受外力/阻尼：此时能量漂移不再是积分误差，别去查积分器。 */
 	bool bHasForcedBodies = false;
