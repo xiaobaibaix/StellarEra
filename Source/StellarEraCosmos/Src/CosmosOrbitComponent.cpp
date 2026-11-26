@@ -22,7 +22,7 @@ void UCosmosOrbitComponent::PostLoad()
 	{
 		if (MassEarth == 1.0)
 		{
-			MassEarth = CosmosUnits::SolarMassToEarthMass(MassSolar);
+			MassEarth = CosmosMass::SolarMassToEarthMass(MassSolar);
 		}
 		MassSolar = 0.0;
 	}
@@ -32,7 +32,7 @@ void UCosmosOrbitComponent::PostLoad()
 		if (InitialVelocityKmPerSecond.IsZero())
 		{
 			InitialVelocityKmPerSecond =
-				CosmosUnits::AuPerYearToKilometerPerSecond(InitialVelocity);
+				CosmosSpeed::AuPerYearToKilometerPerSecond(InitialVelocity);
 		}
 		InitialVelocity = FVector::ZeroVector;
 	}

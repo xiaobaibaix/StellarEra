@@ -861,7 +861,7 @@ void UCosmosTrajectoryComponent::UpdateNetForceArrow(const UCosmosSimulationSubs
 
 	// 纯引力（AU/年²）→ 世界厘米/秒²，换算只走 CosmosUnits。
 	const FVector3d Gravity = Subsystem.GetBodyGravityGameUnits(OrbitComponent->SimulatorIndex);
-	const FVector3d GravityCmPerS2 = CosmosUnits::GameAccelerationToWorldCmPerS2(
+	const FVector3d GravityCmPerS2 = CosmosWorld::GameAccelerationToWorldCmPerS2(
 		Gravity, Subsystem.CentimetersPerAu, Subsystem.TimeScale);
 
 	const double Magnitude = GravityCmPerS2.Size();
@@ -1482,9 +1482,9 @@ void UCosmosTrajectoryComponent::DrawInEditor()
 
 		FCosmosBodyState State;
 		State.Position = EditorSimulator.ToGameUnitPosition(OwnerActor->GetActorLocation());
-		State.Velocity = CosmosUnits::KilometerPerSecondToAuPerYear(
+		State.Velocity = CosmosSpeed::KilometerPerSecondToAuPerYear(
 			FVector3d(Component->InitialVelocityKmPerSecond));
-		State.Mass = CosmosUnits::EarthMassToSolarMass(Component->MassEarth);
+		State.Mass = CosmosMass::EarthMassToSolarMass(Component->MassEarth);
 		State.OwnerActor = OwnerActor;
 
 		// 与 AddBodyToSimulator 同口径：单向引力天体在预览里也不拽别人，否则会看着行星被飞船拉偏。
@@ -1599,7 +1599,7 @@ void UCosmosTrajectoryComponent::DrawInEditor()
 		UCosmosOrbitComponent* OrbitComponent = GetOrbitComponent();
 		AppendEditorVelocityArrow(Anchor,
 			OrbitComponent
-				? CosmosUnits::KilometerPerSecondToAuPerYear(
+				? CosmosSpeed::KilometerPerSecondToAuPerYear(
 					FVector3d(OrbitComponent->InitialVelocityKmPerSecond))
 				: FVector3d::ZeroVector,
 			FLinearColor(VelocityArrowColor));

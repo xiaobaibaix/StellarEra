@@ -303,7 +303,7 @@ float AStellarEraHUD::GetShipGravityKmPerS2(const ASpaceshipPawn* Ship) const
 	// 读数按真实物理秒换算，不乘 TimeScale：快放只影响画面节奏，不该改变重力数值。
 	const FVector3d GravityGame = Simulation->GetBodyGravityGameUnits(Orbit->SimulatorIndex);
 	const double CmPerS2 = GravityGame.Size() * Simulation->CentimetersPerAu
-		/ (CosmosUnits::YearToSecond * CosmosUnits::YearToSecond);
+		/ (CosmosConstants::YearToSecond * CosmosConstants::YearToSecond);
 	return static_cast<float>(CmPerS2 / 1.0e5);
 }
 

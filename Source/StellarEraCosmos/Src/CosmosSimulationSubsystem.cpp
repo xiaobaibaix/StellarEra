@@ -111,9 +111,9 @@ void UCosmosSimulationSubsystem::AddBodyToSimulator(UCosmosOrbitComponent* Compo
 
 	FCosmosBodyState State;
 	State.Position = Simulator.ToGameUnitPosition(BodyActor->GetActorLocation());
-	State.Velocity = CosmosUnits::KilometerPerSecondToAuPerYear(
+	State.Velocity = CosmosSpeed::KilometerPerSecondToAuPerYear(
 		FVector3d(Component->InitialVelocityKmPerSecond));
-	State.Mass = CosmosUnits::EarthMassToSolarMass(Component->MassEarth);
+	State.Mass = CosmosMass::EarthMassToSolarMass(Component->MassEarth);
 	State.OwnerActor = BodyActor;
 
 	// 单向引力：bExertsGravity 关掉的是测试粒子，引力源质量按 0 算、自己仍被吸引；Mass 保持真实值供接触与诊断用。
@@ -168,7 +168,7 @@ void UCosmosSimulationSubsystem::SyncPhysicsDrivenBodies()
 
 		FCosmosBodyState& State = Simulator.GetBodyMutable(Component->SimulatorIndex);
 		State.Position = Simulator.ToGameUnitPosition(OwnerActor->GetActorLocation());
-		State.Velocity = CosmosUnits::WorldCmPerSecondToGameVelocity(
+		State.Velocity = CosmosWorld::WorldCmPerSecondToGameVelocity(
 			FVector3d(OwnerActor->GetVelocity()), CentimetersPerAu, TimeScale);
 	}
 }
@@ -199,7 +199,7 @@ void UCosmosSimulationSubsystem::ApplyShipPhysicsForces()
 		}
 
 		const FVector3d AccelerationGame = State.GravitationalAcceleration + State.ExternalAcceleration;
-		Ship->AddCosmosForceWorldCmPerS2(FVector(CosmosUnits::GameAccelerationToWorldCmPerS2(
+		Ship->AddCosmosForceWorldCmPerS2(FVector(CosmosWorld::GameAccelerationToWorldCmPerS2(
 			AccelerationGame, CentimetersPerAu, TimeScale)));
 
 		const float DampingTime = Ship->GetDampingTime();
@@ -329,7 +329,7 @@ void UCosmosSimulationSubsystem::ApplyControlledBodyForces(float DeltaSeconds)
 		Ship->SetReferencePlanetVelocity(ReferenceVelocity);
 
 		// 帧时长原样转给飞船：制动按「本帧满推力能改变多少速度」收敛。
-		Body.ExternalAcceleration = FVector3d(CosmosUnits::WorldCmPerS2ToGameAcceleration(
+		Body.ExternalAcceleration = FVector3d(CosmosWorld::WorldCmPerS2ToGameAcceleration(
 			FVector3d(Ship->GetThrustAccelerationWorldCmPerS2(DeltaSeconds)),
 			CentimetersPerAu, TimeScale));
 
@@ -444,7 +444,7 @@ void UCosmosSimulationSubsystem::FinalizeRegistration()
 			// 与 EstimateOrbitalPeriod 共用同一份公式，避免两处各写一遍。
 			const double PairPeriod = FNBodySimulator::PairOrbitalPeriod(
 				Simulator.GetBody(I), Simulator.GetBody(J),
-				CosmosUnits::GravitationalConstant_Game);
+				CosmosConstants::GravitationalConstant);
 
 			if (PairPeriod > 0.0)
 			{
@@ -496,10 +496,10 @@ void UCosmosSimulationSubsystem::FinalizeRegistration()
 
 		UE_LOG(LogTemp, Log,
 			TEXT("[Cosmos]   天体 %d：质量 %.6g M☉（%.6g M⊕），半径 %.4f AU，位置 (%.4f, %.4f, %.4f) AU，速度 (%.4f, %.4f, %.4f) AU/年（%.4f km/s），最近邻 %d（%.4f AU），最短周期 %.6f 年"),
-			Index, Body.Mass, CosmosUnits::SolarMassToEarthMass(Body.Mass), Body.Radius,
+			Index, Body.Mass, CosmosMass::SolarMassToEarthMass(Body.Mass), Body.Radius,
 			Body.Position.X, Body.Position.Y, Body.Position.Z,
 			Body.Velocity.X, Body.Velocity.Y, Body.Velocity.Z,
-			CosmosUnits::AuPerYearToKilometerPerSecond(Body.Velocity).Size(),
+			CosmosSpeed::AuPerYearToKilometerPerSecond(Body.Velocity).Size(),
 			NearestIndex, NearestDistance,
 			Simulator.EstimateOrbitalPeriod(Index));
 	}
@@ -539,7 +539,7 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 		{
 			OwnerActor->SetActorLocation(Simulator.ToWorldLocation(State.Position), false);
 			Ship->SetCosmosVelocity(ToWorldVelocityScaled(State.Velocity));
-			const float MassKg = float(State.Mass * CosmosUnits::SolarMassToKilogram);
+			const float MassKg = float(State.Mass * CosmosConstants::SolarMassToKilogram);
 			if (Ship->SetPhysicsDriven(true, MassKg))
 			{
 				State.bPhysicsDriven = true;
@@ -814,7 +814,7 @@ FVector3d UCosmosSimulationSubsystem::GetBodyGravityGameUnits(int32 SimulatorInd
 
 FVector UCosmosSimulationSubsystem::ToWorldVelocityScaled(const FVector3d& GameUnitVelocity) const
 {
-	return FVector(CosmosUnits::GameVelocityToWorldCmPerSecond(
+	return FVector(CosmosWorld::GameVelocityToWorldCmPerSecond(
 		GameUnitVelocity, CentimetersPerAu, TimeScale));
 }
 

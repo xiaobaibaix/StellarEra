@@ -53,7 +53,7 @@ int32 FNBodySimulator::FindBodyByActor(const AActor* Actor) const
 
 double FNBodySimulator::GetG() const
 {
-	return CosmosUnits::GravitationalConstant_Game;
+	return CosmosConstants::GravitationalConstant;
 }
 
 void FNBodySimulator::ComputeAccelerations()

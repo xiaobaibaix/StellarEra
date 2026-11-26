@@ -33,7 +33,7 @@ bool UStarMapUISystem::BuildBodyInfo(AActor* Body, FStarMapBodyInfo& OutInfo)
 
 	OutInfo.Name = Body->GetActorNameOrLabel();
 	OutInfo.MassEarth = Orbit->MassEarth;
-	OutInfo.MassSolar = CosmosUnits::EarthMassToSolarMass(Orbit->MassEarth);
+	OutInfo.MassSolar = CosmosMass::EarthMassToSolarMass(Orbit->MassEarth);
 	OutInfo.SimulatorIndex = Orbit->SimulatorIndex;
 	OutInfo.bReceivesForces = Orbit->bReceivesForces;
 	OutInfo.bExertsGravity = Orbit->bExertsGravity;
@@ -62,7 +62,7 @@ bool UStarMapUISystem::BuildBodyInfo(AActor* Body, FStarMapBodyInfo& OutInfo)
 	OutInfo.VelocityKmPerSecond = Orbit->InitialVelocityKmPerSecond;
 	if (CosmosSubsystem && OutInfo.SimulatorIndex != INDEX_NONE)
 	{
-		OutInfo.VelocityKmPerSecond = CosmosUnits::AuPerYearToKilometerPerSecond(
+		OutInfo.VelocityKmPerSecond = CosmosSpeed::AuPerYearToKilometerPerSecond(
 			CosmosSubsystem->GetBodyVelocityGameUnits(OutInfo.SimulatorIndex));
 	}
 
@@ -76,7 +76,7 @@ bool UStarMapUISystem::BuildBodyInfo(AActor* Body, FStarMapBodyInfo& OutInfo)
 		RadiusCm = double(Body->GetSimpleCollisionRadius());
 	}
 
-	OutInfo.RadiusKm = RadiusCm / CosmosUnits::CentimetersPerKilometer;
+	OutInfo.RadiusKm = RadiusCm / CosmosConstants::CentimetersPerKilometer;
 	OutInfo.SurfaceGravityMps2 =
 		ComputeSurfaceGravityMps2(OutInfo.MassEarth, OutInfo.RadiusKm);
 
@@ -105,11 +105,11 @@ double UStarMapUISystem::ComputeSurfaceGravityMps2(double MassEarth, double Radi
 	}
 
 	const double MassKg =
-		MassEarth * CosmosUnits::EarthMass * CosmosUnits::SolarMassToKilogram;
-	const double RadiusCm = RadiusKm * CosmosUnits::CentimetersPerKilometer;
+		MassEarth * CosmosMass::EarthMass * CosmosConstants::SolarMassToKilogram;
+	const double RadiusCm = RadiusKm * CosmosConstants::CentimetersPerKilometer;
 
 	// G_SI 的单位是 cm³/(kg·s²)；除以 100 换成 m/s²。
-	return CosmosUnits::GravitationalConstant_SI * MassKg /
+	return CosmosConstants::GravitationalConstant_SI * MassKg /
 		(RadiusCm * RadiusCm) / 100.0;
 }
 

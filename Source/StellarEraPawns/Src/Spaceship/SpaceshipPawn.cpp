@@ -689,7 +689,7 @@ FSpaceshipStatus ASpaceshipPawn::GetStatus() const
 	{
 		if (const UCosmosSimulationSubsystem* Cosmos = World->GetSubsystem<UCosmosSimulationSubsystem>())
 		{
-			WorldToPhysical = FMath::Max(Cosmos->TimeScale * CosmosUnits::YearToSecond, 1.0e-9);
+			WorldToPhysical = FMath::Max(Cosmos->TimeScale * CosmosConstants::YearToSecond, 1.0e-9);
 		}
 	}
 	Status.SpeedKmPerSecond = GetVelocity().Size() / CentimetersPerKilometer / WorldToPhysical;
