@@ -591,6 +591,14 @@ protected:
 	float BoostMaxSpeedKmPerSecond = 24.0f;
 
 	/**
+	 * 大气阻力减速度上限（km/s²，0 = 不限）。阻力 ∝ v²，1:1 尺度下 30 km/s 会算出上千 km/s²，
+	 * 显式积分直接发散把飞船甩飞。上限只封顶，不改变低速段的 v² 手感。
+	 */
+	UPROPERTY(EditAnywhere, Category = "Spaceship|Atmosphere",
+		meta = (DisplayName = "MaxAtmosphereDragAccelerationKmPerS2", ClampMin = "0"))
+	float MaxAtmosphereDragAccelerationKmPerS2 = 2.0f;
+
+	/**
 	 * 巡航开关。开 = 关掉阻尼（速度保持，但**推力照给**，否则到不了圆轨道速度）；
 	 * 关 = 有阻尼，松手按 τ 衰减停下。关掉阻尼后走纯引力测地线，行星引力照样作用，
 	 * 所以只能悬停或绕圈，停不下来。细节面板改的是初始状态，运行时按 Tab 切换。
@@ -620,7 +628,7 @@ protected:
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Spaceship")
 	TObjectPtr<AVoxelPlanetActor> PlanetActor;
 
-	/** 查找行星时的最大距离（厘米）。默认 1000 公里，够覆盖任意单颗行星。 */
+	/** 近行星判定的最大**地表高度**（厘米）。按球心距离判的话地球半径就超出 1000 km。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spaceship")
 	float PlanetSearchRadius = 1.0e8f;
 

@@ -227,14 +227,17 @@ void ASpaceshipPawn::BeginPlay()
 AVoxelPlanetActor* ASpaceshipPawn::FindNearestPlanet() const
 {
 	AVoxelPlanetActor* Nearest = nullptr;
-	float NearestDistSq = FMath::Square(PlanetSearchRadius);
+	double NearestAltitudeCm = double(PlanetSearchRadius);
+	const FVector ShipLocation = GetActorLocation();
 
 	for (TActorIterator<AVoxelPlanetActor> It(GetWorld()); It; ++It)
 	{
-		const float DistSq = FVector::DistSquared(It->GetActorLocation(), GetActorLocation());
-		if (DistSq < NearestDistSq)
+		// 按地表高度比，不按球心距离：地球量级下球心距离永远大于半径，旧判定会把脚下的星漏掉。
+		const double AltitudeCm = FVector::Dist(It->GetActorLocation(), ShipLocation)
+			- double(It->GetSurfaceRadiusCm());
+		if (AltitudeCm < NearestAltitudeCm)
 		{
-			NearestDistSq = DistSq;
+			NearestAltitudeCm = AltitudeCm;
 			Nearest = *It;
 		}
 	}
@@ -1069,9 +1072,18 @@ FVector ASpaceshipPawn::GetAtmosphereDragAccelerationWorldCmPerS2() const
 
 	// 用相对行星的速度：大气跟着行星平移。拿绝对速度的话，贴着一颗公转中的行星静止
 	// 也会吃到「迎面风」，表现为飞船在地表持续滑行。
-	return ComputeAtmosphereDragAccelerationWorldCmPerS2(
+	const FVector DragCmPerS2 = ComputeAtmosphereDragAccelerationWorldCmPerS2(
 		GetRelativeVelocity(), double(GetAtmosphereDensityRatio()),
 		double(Atmosphere->DragAccelerationAtKmPerSecond));
+
+	// v² 在轨道速度下会给出上万 km/s²；显式积分一帧就发散。封顶只限制高速段。
+	const double MaxCmPerS2 = double(MaxAtmosphereDragAccelerationKmPerS2) * double(CentimetersPerKilometer);
+	const double DragMagnitude = DragCmPerS2.Size();
+	if (MaxCmPerS2 > 0.0 && DragMagnitude > MaxCmPerS2)
+	{
+		return DragCmPerS2 * (MaxCmPerS2 / DragMagnitude);
+	}
+	return DragCmPerS2;
 }
 
 FVector ASpaceshipPawn::GetThrustAccelerationWorldCmPerS2(float DeltaSeconds) const
