@@ -15,8 +15,6 @@ void UCosmosSimulationSubsystem::Initialize(FSubsystemCollectionBase& Collection
 	// 引擎已在 PostInitProperties 按 UCLASS(Config = Game) 载入过，这里再显式载一次让「值从 ini 来」看得见。
 	LoadConfig();
 
-	Simulator.SetUnitSystem(ECosmosUnitSystem::Game);
-	Simulator.SetIntegrator(ECosmosIntegrator::VelocityVerlet);
 	Simulator.SetSofteningLength(SofteningLength);
 	Simulator.SetCentimetersPerAu(CentimetersPerAu);
 

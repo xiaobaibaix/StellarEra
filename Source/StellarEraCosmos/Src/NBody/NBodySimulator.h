@@ -23,7 +23,7 @@ struct FCosmosBodyState
 	FVector3d Acceleration = FVector3d::ZeroVector;
 
 	/**
-	 * 纯引力加速度（AU/年² 或 SI，随 UnitSystem）。Acceleration 是「引力 + 外力 − 阻尼」
+	 * 纯引力加速度（AU/年²）。Acceleration 是「引力 + 外力 − 阻尼」
 	 * 的合力用于积分，这一项单独存供星图画引力箭头，否则推力会搅混方向。
 	 * 由 ComputeAccelerations 写入，不要手动设置。
 	 */
@@ -186,10 +186,6 @@ public:
 	//////////////////////////////////////////////////////////////////////
 	// 参数
 
-	/** 单位系统。修改会重算引力常数。 */
-	void SetUnitSystem(ECosmosUnitSystem Unit);
-	ECosmosUnitSystem GetUnitSystem() const { return UnitSystem; }
-
 	/**
 	 * 1 AU 对应多少世界厘米，本项目最重要的标定值。真值 1.496e13 处 float32 的 ULP 达
 	 * 18 公里，比星球还大、位置会抖；本项目按 1 AU = 10 公里（1e6）标定。
@@ -197,10 +193,6 @@ public:
 	 */
 	void SetCentimetersPerAu(double InCentimetersPerAu);
 	double GetCentimetersPerAu() const { return CentimetersPerAu; }
-
-	/** 积分器类型。 */
-	void SetIntegrator(ECosmosIntegrator InIntegrator) { Integrator = InIntegrator; }
-	ECosmosIntegrator GetIntegrator() const { return Integrator; }
 
 	/**
 	 * 软化长度，防止近距离引力趋于无穷；游戏单位下取轨道半长轴 1e-4 量级。
@@ -245,12 +237,6 @@ public:
 	//////////////////////////////////////////////////////////////////////
 	// 轨道求解
 
-	/**
-	 * 推进一个时间步。实现是 Accumulator += Dt 后立刻清零，等价于 StepExact(Dt) ——
-	 * 每帧 Dt 不同即变步长，破坏辛性质。需要长期精度请直接调 StepExact 并保证步长固定。
-	 */
-	void Step(float Dt);
-
 	/** 强制推进恰好 TimeStep 的一步（不管累加器）。 */
 	void StepExact(double TimeStep);
 
@@ -260,7 +246,7 @@ public:
 	/** 重置时间余量。 */
 	void ResetAccumulator() { Accumulator = 0.0; }
 
-	/** 累计已模拟的天文时间，单位与 UnitSystem 一致。 */
+	/** 累计已模拟的天文时间（年）。 */
 	double GetSimulatedTime() const { return SimulatedTime; }
 
 	//////////////////////////////////////////////////////////////////////
@@ -289,15 +275,6 @@ public:
 
 	/** UE 世界坐标（厘米）转游戏单位位置（AU）。 */
 	FVector3d ToGameUnitPosition(const FVector& WorldLocation) const;
-
-	/** 游戏单位速度（AU/年）转 UE 世界速度（厘米/秒）。 */
-	FVector ToWorldVelocity(const FVector3d& GameUnitVelocity) const;
-
-	/** 时间：游戏单位年转 UE 世界秒。 */
-	double ToWorldSeconds(double GameUnitYears) const;
-
-	/** 距离：游戏单位 AU 转 UE 世界厘米。 */
-	double ToWorldCentimeter(double GameUnitAu) const;
 
 	//////////////////////////////////////////////////////////////////////
 	// 预测 —— 只读，不改本对象
@@ -374,16 +351,10 @@ private:
 	/** 用给定加速度做一次 Velocity Verlet 半步推进。 */
 	void StepVelocityVerlet(double Dt);
 
-	/** 显式欧拉法，仅用于对比测试。 */
-	void StepEuler(double Dt);
-
 	TArray<FCosmosBodyState> Bodies;
 
 	/** 加速度缓存，避免每步重新分配。 */
 	TArray<FVector3d> Accelerations;
-
-	ECosmosUnitSystem UnitSystem = ECosmosUnitSystem::Game;
-	ECosmosIntegrator Integrator = ECosmosIntegrator::VelocityVerlet;
 
 	/** 1 AU 对应多少世界厘米。默认 1e6 = 1 AU 10 公里，理由见 SetCentimetersPerAu。 */
 	double CentimetersPerAu = 1.0e6;

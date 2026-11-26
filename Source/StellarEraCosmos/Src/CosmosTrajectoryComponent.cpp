@@ -1458,8 +1458,6 @@ void UCosmosTrajectoryComponent::DrawInEditor()
 
 	// ── 离线重建求解器 ──
 	FNBodySimulator EditorSimulator;
-	EditorSimulator.SetUnitSystem(ECosmosUnitSystem::Game);
-	EditorSimulator.SetIntegrator(ECosmosIntegrator::VelocityVerlet);
 	EditorSimulator.SetSofteningLength(Softening);
 	EditorSimulator.SetCentimetersPerAu(CmPerAu);
 

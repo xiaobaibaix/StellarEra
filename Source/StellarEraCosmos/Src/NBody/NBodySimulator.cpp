@@ -14,11 +14,6 @@ FNBodySimulator::FNBodySimulator()
 ///////////////////////////////////////////////////////////////////////////////
 // 参数
 
-void FNBodySimulator::SetUnitSystem(ECosmosUnitSystem Unit)
-{
-	UnitSystem = Unit;
-}
-
 void FNBodySimulator::SetSofteningLength(double InSoftening)
 {
 	SofteningLength = FMath::Max(InSoftening, 1e-12);
@@ -58,9 +53,7 @@ int32 FNBodySimulator::FindBodyByActor(const AActor* Actor) const
 
 double FNBodySimulator::GetG() const
 {
-	return (UnitSystem == ECosmosUnitSystem::Game)
-		? CosmosUnits::GravitationalConstant_Game
-		: CosmosUnits::GravitationalConstant_SI;
+	return CosmosUnits::GravitationalConstant_Game;
 }
 
 void FNBodySimulator::ComputeAccelerations()
@@ -159,24 +152,6 @@ void FNBodySimulator::StepVelocityVerlet(double Dt)
 		}
 		Bodies[i].Velocity += Bodies[i].Acceleration * Dt;
 		Bodies[i].Position += Bodies[i].Velocity * (Dt * 0.5);
-	}
-
-	SimulatedTime += Dt;
-}
-
-void FNBodySimulator::StepEuler(double Dt)
-{
-	// 显式欧拉：一阶、误差同向累积，轨道会螺旋坠入中心天体。仅用于对比验证。
-	ComputeAccelerations();
-
-	for (int32 i = 0; i < Bodies.Num(); ++i)
-	{
-		if (Bodies[i].bPhysicsDriven)
-		{
-			continue;
-		}
-		Bodies[i].Velocity += Bodies[i].Acceleration * Dt;
-		Bodies[i].Position += Bodies[i].Velocity * Dt;
 	}
 
 	SimulatedTime += Dt;
@@ -648,40 +623,14 @@ void FNBodySimulator::ResolveProbeContact(int32 ProbeIndex, int32 SphereIndex)
 
 void FNBodySimulator::StepExact(double TimeStep)
 {
-	switch (Integrator)
-	{
-	case ECosmosIntegrator::VelocityVerlet:
-		StepVelocityVerlet(TimeStep);
-		break;
-
-	case ECosmosIntegrator::Euler:
-		StepEuler(TimeStep);
-		break;
-
-	case ECosmosIntegrator::None:
-		// 不积分：天体保持初始速度做匀速直线运动
-		SimulatedTime += TimeStep;
-		break;
-	}
+	StepVelocityVerlet(TimeStep);
 
 	// 姿态先于接触积分：接触冲量要读**本步**的角速度与朝向来算力臂，再把力矩写回同一个 ω。
 	IntegrateRigidBodyOrientations(TimeStep);
 
-	// 约束放在积分之后：三种积分器与预测副本共用同一处接触行为。位置被钳过后，缓存里的
+	// 约束放在积分之后：积分与预测副本共用同一处接触行为。位置被钳过后，缓存里的
 	// Acceleration 对应钳制前的位置 —— 这是 Velocity Verlet 固有的滞后，不是接触引入的。
 	ResolveContacts();
-}
-
-void FNBodySimulator::Step(float Dt)
-{
-	if (Dt <= 0.0f)
-	{
-		return;
-	}
-
-	Accumulator += Dt;
-	StepExact(Accumulator);
-	Accumulator = 0.0;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -772,38 +721,12 @@ double FNBodySimulator::GetEnergyDriftRatio() const
 
 FVector FNBodySimulator::ToWorldLocation(const FVector3d& GameUnitPosition) const
 {
-	return UnitSystem == ECosmosUnitSystem::Game
-		? FVector(GameUnitPosition) * CentimetersPerAu
-		: FVector(GameUnitPosition);
+	return FVector(GameUnitPosition) * CentimetersPerAu;
 }
 
 FVector3d FNBodySimulator::ToGameUnitPosition(const FVector& WorldLocation) const
 {
-	return UnitSystem == ECosmosUnitSystem::Game
-		? FVector3d(WorldLocation) / CentimetersPerAu
-		: FVector3d(WorldLocation);
-}
-
-// ── 以下三个换算目前无人调用，改动时别以为有调用方在依赖 ──
-// 它们是**实时**换算（1 AU/年 ≈ 0.032 厘米/秒），游戏时钟下还要乘 YearToSecond · TimeScale
-// ≈ 1.05e5（用 1/TimeScale 是错的）。
-FVector FNBodySimulator::ToWorldVelocity(const FVector3d& GameUnitVelocity) const
-{
-	if (UnitSystem == ECosmosUnitSystem::Game)
-	{
-		return FVector(GameUnitVelocity) * (CentimetersPerAu / CosmosUnits::YearToSecond);
-	}
-	return FVector(GameUnitVelocity);
-}
-
-double FNBodySimulator::ToWorldSeconds(double GameUnitYears) const
-{
-	return (UnitSystem == ECosmosUnitSystem::Game) ? GameUnitYears * CosmosUnits::YearToSecond : GameUnitYears;
-}
-
-double FNBodySimulator::ToWorldCentimeter(double GameUnitAu) const
-{
-	return (UnitSystem == ECosmosUnitSystem::Game) ? GameUnitAu * CentimetersPerAu : GameUnitAu;
+	return FVector3d(WorldLocation) / CentimetersPerAu;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
