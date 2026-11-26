@@ -606,41 +606,6 @@ void AVoxelPlanetActor::BeginPlay()
 }
 
 #if WITH_EDITOR
-void AVoxelPlanetActor::PostInitProperties()
-{
-	Super::PostInitProperties();
-	if (!HasAnyFlags(RF_ClassDefaultObject | RF_ArchetypeObject))
-	{
-		RecipeChangedHandle = FCoreUObjectDelegates::OnObjectPropertyChanged.AddUObject(
-			this, &AVoxelPlanetActor::OnAnyObjectPropertyChanged);
-	}
-}
-
-void AVoxelPlanetActor::BeginDestroy()
-{
-	FCoreUObjectDelegates::OnObjectPropertyChanged.Remove(RecipeChangedHandle);
-	Super::BeginDestroy();
-}
-
-void AVoxelPlanetActor::OnAnyObjectPropertyChanged(UObject* Object, FPropertyChangedEvent& Event)
-{
-	// 拖动滑条时每帧都会来一次：只在松手（ValueSet）时重烘，否则会排起一长串 1–3 s 的烘焙。
-	// 撒矿器是配方的子对象、矿物目录是另一份资产：改它们也要重烘。
-	const UPlanetRecipe* Recipe = GeoRecipe.Get();
-	const bool bMine = Recipe && Object && (Object == Recipe || Object->IsIn(Recipe)
-		|| Object == Recipe->MineralCatalog.Get());
-	if (!bMine || !GetWorld() || Event.ChangeType == EPropertyChangeType::Interactive)
-	{
-		return;
-	}
-	if (bGeoBakeInFlight)
-	{
-		bGeoRebakePending = true;
-		return;
-	}
-	InvalidateAndRebuild();
-}
-
 void AVoxelPlanetActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
 	// 基类先跑：它负责自己 meta=(Recreate)/(UpdateLODs) 的属性及其世界重建；
@@ -812,14 +777,6 @@ void AVoxelPlanetActor::StartGeoBake()
 void AVoxelPlanetActor::OnGeoBakeFinished(TSharedPtr<const FPlanetSnapshot> InSnapshot, double BakeSeconds)
 {
 	bGeoBakeInFlight = false;
-
-	// 烘焙期间配方又被改过：这份结果已过期，丢掉按最新配方重烘。
-	if (bGeoRebakePending)
-	{
-		bGeoRebakePending = false;
-		StartGeoBake();
-		return;
-	}
 
 	// 回调可能晚于 PIE 结束 / 关卡切换，那时再建世界会撞上拆除中的世界。
 	UWorld* const World = GetWorld();

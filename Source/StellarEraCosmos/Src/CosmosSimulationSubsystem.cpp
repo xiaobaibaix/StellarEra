@@ -527,9 +527,6 @@ void UCosmosSimulationSubsystem::FinalizeRegistration()
 		AddBodyToSimulator(Component);
 	}
 
-	// 必须在全部注册完之后：注册用的是绝对坐标（原点还是零），开局位置才与关卡摆放逐位一致。
-	RenderOrigin.SelectAnchor(Simulator);
-
 	// ── 自动步长：由实际几何反推，最短配对周期 / StepsPerOrbit，数值看开局日志 ──
 	double ShortestPeriod = TNumericLimits<double>::Max();
 
@@ -669,20 +666,6 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 	const double RenderAlpha = (bHasRenderPrevPose && BaseTimeStep > 0.0)
 		? FMath::Clamp(AdvanceAccumulator / BaseTimeStep, 0.0, 1.0)
 		: 1.0;
-
-	// 锚点必须用同一份插值位置：拿插值后的天体配未插值原点，锚点自己会在世界里漂。
-	FVector3d RenderAnchorPosition;
-	const FVector3d* RenderAnchorOverride = nullptr;
-	if (bHasRenderPrevPose && RenderPrevPositions.IsValidIndex(RenderOrigin.AnchorIndex))
-	{
-		RenderAnchorPosition = FMath::Lerp(
-			RenderPrevPositions[RenderOrigin.AnchorIndex],
-			Simulator.GetBody(RenderOrigin.AnchorIndex).Position, RenderAlpha);
-		RenderAnchorOverride = &RenderAnchorPosition;
-	}
-
-	// 原点要先于写回更新：这一帧的位移被原点的同量平移抵消掉，写回出来的世界位置就不变。
-	RenderOrigin.Apply(Simulator, RenderAnchorOverride);
 
 	// ── 2. 写回各个天体 ──
 	for (UCosmosOrbitComponent* Component : Bodies)

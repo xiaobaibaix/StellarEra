@@ -7,6 +7,8 @@
 #include "StellarEraPlayerControllerBase.h"
 #include "StellarEraPlayerController.generated.h"
 
+class AStarMapCameraPawn;
+
 /**
  * 玩家控制器：运行时构造输入资产，输入绑定按「谁被操控谁绑」—— 角色与飞船各自绑自己的表。
  * M 在每张表里都有映射，但只由被 Possess Pawn 上的 UStarMapInputComponent 绑定。
@@ -18,6 +20,12 @@ class AStellarEraPlayerController : public AStellarEraPlayerControllerBase
 	GENERATED_BODY()
 
 public:
+	/** M：进 / 出星图。进图生成并 Possess 相机 Pawn，退图等 rig 混合完再 Possess 回源 Pawn。 */
+	virtual void ToggleStarMap(APawn* From) override;
+
+	/** 调试与无头验证用：等价于按 M。 */
+	UFUNCTION(Exec)
+	void DebugToggleStarMap();
 	// ── 构造与生命周期 ──
 
 	AStellarEraPlayerController();
@@ -74,6 +82,10 @@ protected:
 	void DebugDisembark();
 
 private:
+	/** 进星图时生成的相机 Pawn 类；默认原生类。 */
+	UPROPERTY(EditDefaultsOnly, Category = "StellarEra")
+	TSubclassOf<AStarMapCameraPawn> StarMapCameraPawnClass;
+
 	/** 太空背景球（带 SpaceBackdrop 标签的 Actor）：每帧跟到相机位置，等效无限远。 */
 	UPROPERTY(Transient)
 	TObjectPtr<AActor> SpaceBackdropActor;

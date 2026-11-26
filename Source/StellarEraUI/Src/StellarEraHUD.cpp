@@ -9,6 +9,7 @@
 #include "PlanetEditComponent.h"
 #include "PlanetEditUI.h"
 #include "SpaceshipPawn.h"
+#include "StarMapCameraPawn.h"
 #include "StarMapUISystem.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
@@ -168,6 +169,17 @@ const UPlanetEditComponent* AStellarEraHUD::GetViewedEditComponent() const
 	APawn* ViewedPawn = PlayerController ? PlayerController->GetPawn() : nullptr;
 	const UPlanetEditComponent* Edit =
 		ViewedPawn ? ViewedPawn->FindComponentByClass<UPlanetEditComponent>() : nullptr;
+	// 星图里被 Possess 的是相机 Pawn，编辑组件仍在它取代的飞船 / 角色上。
+	if (!Edit)
+	{
+		if (const AStarMapCameraPawn* CameraPawn = Cast<AStarMapCameraPawn>(ViewedPawn))
+		{
+			if (const APawn* Source = CameraPawn->GetSourcePawn())
+			{
+				Edit = Source->FindComponentByClass<UPlanetEditComponent>();
+			}
+		}
+	}
 	return Edit && Edit->IsEditMode() ? Edit : nullptr;
 }
 

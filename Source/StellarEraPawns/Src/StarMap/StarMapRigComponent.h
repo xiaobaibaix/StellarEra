@@ -50,8 +50,19 @@ public:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	//~ End UActorComponent Interface
 
-	/** M 键：未激活则进图，激活则退图；退图过渡期间重复调用忽略。 */
-	void Toggle(APlayerController* PC);
+	/** 源 Pawn（飞船 / 角色）：编辑组件、退场相机、调用器搬运都从它取。 */
+	void SetSourcePawn(APawn* InSourcePawn);
+	APawn* GetSourcePawn() const { return SourcePawn.Get(); }
+
+	/** 由控制器在 Possess 相机 Pawn 前调用；ViewLocation / ViewRotation 是进图前的视点。 */
+	void EnterFrom(APawn* InSourcePawn, AActor* Focus,
+		const FVector& ViewLocation, const FRotator& ViewRotation);
+
+	void Exit();
+	bool IsExiting() const { return bExiting; }
+
+	/** 球心距离最近的天体；列表为空或全失效返回 nullptr。 */
+	static AActor* FindNearestBody(const FVector& FromLocation, const TArray<AActor*>& Bodies);
 
 	bool IsActive() const { return bActive; }
 
@@ -90,11 +101,8 @@ public:
 		const FVector2D& ScreenPoint, float PixelRadius);
 
 private:
-	void Enter(APlayerController* PC);
-	void Exit();
-
-	/** 焦点行星：飞船取最近行星，角色取脚下那颗；都没有返回空（不进图）。 */
-	AVoxelPlanetActor* ResolveFocusPlanet() const;
+	/** Possess 前后把宿主 Pawn 挂到焦点天体上；Focus 失效时不动。 */
+	void AttachOwnerToFocus(AActor* Focus);
 
 	/** 当前选中的天体（每帧从子系统读，不自己存）。 */
 	AActor* ResolveSelectedBody() const;
@@ -125,6 +133,9 @@ private:
 	bool bActive = false;
 	bool bExiting = false;
 	float ExitElapsedSeconds = 0.f;
+
+	/** 源 Pawn：相机 Pawn 被 Possess 后，物理与编辑仍归它。 */
+	TWeakObjectPtr<APawn> SourcePawn;
 
 	// ── 运行时状态（原相机字段，原样搬）──
 	FRotator OrbitRotation = FRotator::ZeroRotator;
@@ -189,8 +200,9 @@ private:
 	UPROPERTY(EditAnywhere, Category = "StarMap")
 	double MinFocusDistanceCm = 5.0e2;
 
+	/** 拉远上限。地球量级（半径 6.4e8 cm）下 1e9 只到 1.57R，3R 聚焦会被它夹住。 */
 	UPROPERTY(EditAnywhere, Category = "StarMap")
-	double MaxOrbitDistanceCm = 1.0e9;
+	double MaxOrbitDistanceCm = 1.0e13;
 
 	UPROPERTY(EditAnywhere, Category = "StarMap", meta = (ClampMin = "0.01"))
 	float SmoothFocusSeconds = 0.8f;

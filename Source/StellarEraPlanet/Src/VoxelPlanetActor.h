@@ -52,8 +52,6 @@ public:
 	virtual void PostSaveRoot(FObjectPostSaveRootContext ObjectSaveContext) override;
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
-	virtual void PostInitProperties() override;
-	virtual void BeginDestroy() override;
 #endif
 	//~ End AActor Interface
 
@@ -342,8 +340,6 @@ private:
 	bool bGeoBakeInFlight = false;
 	/** 烘焙失败过：不自动重试，等 InvalidateAndRebuild 强制。 */
 	bool bGeoBakeFailed = false;
-	/** 烘焙途中配方又改了：当前结果作废，完成后立刻重烘。 */
-	bool bGeoRebakePending = false;
 	/** 本次烘焙的配置哈希（缓存键）；立即烘焙会跳过缓存。 */
 	uint64 PendingCacheHash = 0;
 	/** 本次快照来自缓存：命中后不再回写，避免每次启动都把缓存重新标脏。 */
@@ -353,11 +349,6 @@ private:
 	bool ApplyGeoDebugOverlay();
 	FName OverlayBakedLayer;
 	uint64 OverlayBakedHash = 0;
-#if WITH_EDITOR
-	/** 配方是资产，改它不触发本 Actor 的 PostEditChangeProperty，只能听全局事件。 */
-	void OnAnyObjectPropertyChanged(UObject* Object, FPropertyChangedEvent& Event);
-	FDelegateHandle RecipeChangedHandle;
-#endif
 
 	/** 按快照矿物表建 / 复用 LUT 纹理并绑到 MID 的 `GeoPalette`；无快照时什么都不做。 */
 	void BindGeoPalette(UMaterialInstanceDynamic* MID);

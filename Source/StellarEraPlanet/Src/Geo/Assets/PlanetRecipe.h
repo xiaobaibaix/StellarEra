@@ -146,13 +146,25 @@ public:
 	UPROPERTY(EditAnywhere, Category = "阶段3（地形与构造）", meta = (DisplayName = "Enable")) bool bStage3TerrainEnabled = true;
 	/** 阶段 3（宏观地形）总开关。 */
 	UPROPERTY() bool bRunStage3 = true;  // 旧阶段开关：面板已由分类总开关取代，仅保留序列化
+	/** 山脉整体开关：关掉等于山脉起伏幅度 = 0，山带仍参与哈希与其它子阶段。 */
+	UPROPERTY(EditAnywhere, Category = "阶段3（地形与构造）|宏观地形|山脉", meta = (DisplayName = "启用", EditCondition = "bStage3TerrainEnabled"))
+	bool bMountains = true;
+
 	/** 山脉起伏幅度：山顶 ≈ 陆台 + 0.8 × 它（0.05 ≈ 2000 体素）。 */
 	UPROPERTY(EditAnywhere, Category = "阶段3（地形与构造）|宏观地形|山脉", meta = (DisplayName = "山脉起伏幅度", EditCondition = "bStage3TerrainEnabled", ClampMin = "0", ClampMax = "0.2"))
 	float MountainHeightRatio = 0.05f;
 
+	/** 海沟整体开关：关掉等于海沟深度 = 0（沉积充填 / 坍塌 / 增生楔跟着一起没了）。 */
+	UPROPERTY(EditAnywhere, Category = "阶段3（地形与构造）|宏观地形|海沟", meta = (DisplayName = "启用", EditCondition = "bStage3TerrainEnabled"))
+	bool bTrenches = true;
+
 	/** 海沟在洋底之下再往下切多深（0.025 ≈ 1000 体素）。只在俯冲边界的洋侧出现。 */
 	UPROPERTY(EditAnywhere, Category = "阶段3（地形与构造）|宏观地形|海沟", meta = (DisplayName = "海沟在洋底之下再往下切多深", EditCondition = "bStage3TerrainEnabled", ClampMin = "0", ClampMax = "0.2"))
 	float TrenchDepthRatio = 0.025f;
+
+	/** 平原整体开关：关掉等于平原起伏 = 0。 */
+	UPROPERTY(EditAnywhere, Category = "阶段3（地形与构造）|宏观地形|平原", meta = (DisplayName = "启用", EditCondition = "bStage3TerrainEnabled"))
+	bool bPlains = true;
 
 	/** 山带以外的平原丘陵起伏（0.002 ≈ 80 体素）。0 = 平原是平的。 */
 	UPROPERTY(EditAnywhere, Category = "阶段3（地形与构造）|宏观地形|平原", meta = (DisplayName = "山带以外的平原丘陵起伏", EditCondition = "bStage3TerrainEnabled", ClampMin = "0", ClampMax = "0.05"))
@@ -165,6 +177,10 @@ public:
 	/** 山脊间距（0.06 ≈ 2400 体素）。越小山脊越密越碎。 */
 	UPROPERTY(EditAnywhere, Category = "阶段3（地形与构造）|宏观地形|山脉", meta = (DisplayName = "山脊间距", EditCondition = "bStage3TerrainEnabled", ClampMin = "0.005", ClampMax = "0.5"))
 	float RidgeWavelengthRatio = 0.06f;
+
+	/** 侵蚀整体开关：关掉等于侵蚀遍数 = 0。 */
+	UPROPERTY(EditAnywhere, Category = "阶段3（地形与构造）|宏观地形|侵蚀", meta = (DisplayName = "启用", EditCondition = "bStage3TerrainEnabled"))
+	bool bErosion = true;
 
 	/** 热力侵蚀遍数：越多山越圆、坡越缓。0 = 不侵蚀。 */
 	UPROPERTY(EditAnywhere, Category = "阶段3（地形与构造）|宏观地形|侵蚀", meta = (DisplayName = "热力侵蚀遍数", EditCondition = "bStage3TerrainEnabled", ClampMin = "0", ClampMax = "50"))
@@ -198,6 +214,10 @@ public:
 	UPROPERTY(EditAnywhere, Category = "阶段3（地形与构造）|宏观地形|山脉", meta = (DisplayName = "挤压速度对山高与海沟深的影响", EditCondition = "bStage3TerrainEnabled", ClampMin = "0", ClampMax = "0.9"))
 	float SpeedHeightEffect = 0.6f;
 
+	/** 洋中脊与裂谷整体开关：关掉等于洋中脊高度、大陆裂谷深度都 = 0。 */
+	UPROPERTY(EditAnywhere, Category = "阶段3（地形与构造）|宏观地形|洋中脊与裂谷", meta = (DisplayName = "启用", EditCondition = "bStage3TerrainEnabled"))
+	bool bRidgeRift = true;
+
 	/** 洋中脊高度：离散边界（板块分开）在海里形成的宽缓海底山脉，正中有一道轴部裂谷（0.006 ≈ 240 体素）。始终在水下。0 = 没有。 */
 	UPROPERTY(EditAnywhere, Category = "阶段3（地形与构造）|宏观地形|洋中脊与裂谷", meta = (DisplayName = "洋中脊高度", EditCondition = "bStage3TerrainEnabled", ClampMin = "0", ClampMax = "0.05"))
 	float MidOceanRidgeHeightRatio = 0.006f;
@@ -213,6 +233,10 @@ public:
 	/** 大陆裂谷宽度。 */
 	UPROPERTY(EditAnywhere, Category = "阶段3（地形与构造）|宏观地形|洋中脊与裂谷", meta = (DisplayName = "大陆裂谷宽度", EditCondition = "bStage3TerrainEnabled", ClampMin = "0.002", ClampMax = "0.1"))
 	float RiftWidthRatio = 0.015f;
+
+	/** 古老造山带整体开关：关掉等于古老造山带高度 = 0。 */
+	UPROPERTY(EditAnywhere, Category = "阶段3（地形与构造）|宏观地形|古老造山带", meta = (DisplayName = "启用", EditCondition = "bStage3TerrainEnabled"))
+	bool bOldOrogen = true;
 
 	/** 古老造山带高度：古老大陆内部被长期剥蚀的旧山脉，低矮圆缓（0.008 ≈ 320 体素）。0 = 没有。 */
 	UPROPERTY(EditAnywhere, Category = "阶段3（地形与构造）|宏观地形|古老造山带", meta = (DisplayName = "古老造山带高度", EditCondition = "bStage3TerrainEnabled", ClampMin = "0", ClampMax = "0.05"))

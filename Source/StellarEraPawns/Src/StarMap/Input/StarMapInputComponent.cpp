@@ -16,6 +16,7 @@
 #include "StarMapCameraInputActions.h"
 #include "StarMapPicking.h"
 #include "StarMapRigComponent.h"
+#include "SessionCommands.h"
 #include "StellarEraInputActionBuilder.h"
 #include "StellarEraInputSource.h"
 #include "StellarEraNoticeSink.h"
@@ -100,15 +101,15 @@ void UStarMapInputComponent::Bind(UInputComponent* PlayerInputComponent)
 	bSelectHeld = false;
 
 	APawn* OwnerPawn = Cast<APawn>(GetOwner());
-	UStarMapRigComponent* Rig = GetRig();
 	UEnhancedInputComponent* EnhancedInput = Cast<UEnhancedInputComponent>(PlayerInputComponent);
 	IStellarEraInputSource* Source =
 		OwnerPawn ? Cast<IStellarEraInputSource>(OwnerPawn->GetController()) : nullptr;
-	if (!OwnerPawn || !Rig || !EnhancedInput || !Source)
+	// 飞船 / 角色身上没有 rig，只借这里绑 M；其余回调靠 GetPawn() 空转。
+	if (!OwnerPawn || !EnhancedInput || !Source)
 	{
 		// 静默解绑等于「星图对键鼠完全没反应」——留一条 Error，别让它变成哑故障。
-		UE_LOG(LogTemp, Error, TEXT("[Input] 星图输入绑定失败：Pawn=%s Rig=%s EnhancedInput=%s InputSource=%s"),
-			*GetNameSafe(OwnerPawn), Rig ? TEXT("是") : TEXT("否"),
+		UE_LOG(LogTemp, Error, TEXT("[Input] 星图输入绑定失败：Pawn=%s EnhancedInput=%s InputSource=%s"),
+			*GetNameSafe(OwnerPawn),
 			EnhancedInput ? TEXT("是") : TEXT("否"), Source ? TEXT("是") : TEXT("否"));
 		return;
 	}
@@ -388,12 +389,14 @@ void UStarMapInputComponent::OnStarMapSelectCompleted(const FInputActionValue& V
 
 void UStarMapInputComponent::OnStarMapToggle(const FInputActionValue& Value)
 {
-	// 进出图都不换 Possess，Bind 的标志复位不再兜底：退图过渡中松开的左键会把 bSelectHeld 留成 true。
 	bSelectHeld = false;
 
-	// 进退都走这一个入口：M 只在本组件绑了一次（飞船 / 角色自己的那份已删）。
-	if (UStarMapRigComponent* Rig = GetRig())
+	// 进出图都要换 Possess，动作归控制器：本体只把「谁按的」交出去。
+	APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	IStellarEraSessionCommands* Session =
+		OwnerPawn ? Cast<IStellarEraSessionCommands>(OwnerPawn->GetController()) : nullptr;
+	if (Session && OwnerPawn)
 	{
-		Rig->Toggle(GetPlayerController());
+		Session->ToggleStarMap(OwnerPawn);
 	}
 }

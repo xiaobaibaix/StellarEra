@@ -490,72 +490,72 @@ void UStarMapRigComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 UPlanetEditComponent* UStarMapRigComponent::GetPlanetEditComponent() const
 {
-	const AActor* Owner = GetOwner();
+	// rig 挂在相机 Pawn 上时，编辑组件仍在源 Pawn（飞船 / 角色）的蓝图里。
+	const AActor* Owner = SourcePawn.IsValid() ? SourcePawn.Get() : GetOwner();
 	return Owner ? Owner->FindComponentByClass<UPlanetEditComponent>() : nullptr;
 }
 
 FVector UStarMapRigComponent::ResolveOwnerCameraLocation() const
 {
-	const AActor* Owner = GetOwner();
+	// 退场终点是源 Pawn 的相机；相机 Pawn 自己没有相机组件。
+	const AActor* Owner = SourcePawn.IsValid() ? SourcePawn.Get() : GetOwner();
 	const UCameraComponent* Camera = Owner ? Owner->FindComponentByClass<UCameraComponent>() : nullptr;
 	return Camera ? Camera->GetComponentLocation() : CameraLocation;
 }
 
 FRotator UStarMapRigComponent::ResolveOwnerCameraRotation() const
 {
-	const AActor* Owner = GetOwner();
+	const AActor* Owner = SourcePawn.IsValid() ? SourcePawn.Get() : GetOwner();
 	const UCameraComponent* Camera = Owner ? Owner->FindComponentByClass<UCameraComponent>() : nullptr;
 	return Camera ? Camera->GetComponentRotation() : LastViewRotation;
 }
 
-AVoxelPlanetActor* UStarMapRigComponent::ResolveFocusPlanet() const
+void UStarMapRigComponent::SetSourcePawn(APawn* InSourcePawn)
 {
-	const APawn* OwnerPawn = Cast<APawn>(GetOwner());
-	if (!OwnerPawn)
-	{
-		return nullptr;
-	}
-	// 两个 Pawn 都逐帧维护「最近行星」，别在这里重算距离。
-	if (const ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(OwnerPawn))
-	{
-		return Ship->GetPlanetActor();
-	}
-	if (const APlanetCharacter* Character = Cast<APlanetCharacter>(OwnerPawn))
-	{
-		return Character->PlanetActor;
-	}
-	return nullptr;
+	SourcePawn = InSourcePawn;
 }
 
-void UStarMapRigComponent::Toggle(APlayerController* PC)
+AActor* UStarMapRigComponent::FindNearestBody(
+	const FVector& FromLocation, const TArray<AActor*>& Bodies)
 {
-	if (bExiting)
+	AActor* Best = nullptr;
+	double BestDistSq = TNumericLimits<double>::Max();
+	for (AActor* Body : Bodies)
 	{
-		return;   // 退图过渡期间按 M 忽略，否则会把整段流程重跑一遍
+		if (!IsValid(Body))
+		{
+			continue;
+		}
+		const double DistSq = FVector::DistSquared(FromLocation, Body->GetActorLocation());
+		// 严格小于：等距时取先出现的，结果确定。
+		if (DistSq < BestDistSq)
+		{
+			BestDistSq = DistSq;
+			Best = Body;
+		}
 	}
-	if (bActive)
+	return Best;
+}
+
+void UStarMapRigComponent::AttachOwnerToFocus(AActor* Focus)
+{
+	if (AActor* Owner = GetOwner(); Owner && IsValid(Focus))
 	{
-		Exit();
-	}
-	else
-	{
-		Enter(PC);
+		Owner->AttachToActor(Focus, FAttachmentTransformRules::KeepWorldTransform);
 	}
 }
 
-void UStarMapRigComponent::Enter(APlayerController* PC)
+void UStarMapRigComponent::EnterFrom(APawn* InSourcePawn, AActor* Focus,
+	const FVector& ViewLocation, const FRotator& ViewRotation)
 {
 	UCosmosSimulationSubsystem* Subsystem =
 		GetWorld() ? GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>() : nullptr;
-	AVoxelPlanetActor* Focus = ResolveFocusPlanet();
-	if (!PC || !Subsystem || !Focus)
+	if (!InSourcePawn || !Subsystem || !Focus)
 	{
 		return;
 	}
 
-	FVector ViewLocation;
-	FRotator ViewRotation;
-	PC->GetPlayerViewPoint(ViewLocation, ViewRotation);
+	SourcePawn = InSourcePawn;
 
 	// 星图里左键归拾取：先退出编辑模式。
 	if (UPlanetEditComponent* Edit = GetPlanetEditComponent())
@@ -576,7 +576,7 @@ void UStarMapRigComponent::Enter(APlayerController* PC)
 	bExiting = false;
 
 	// 星图激活后 Completed 事件到不了 Pawn，不归零的话推力会一直停在最后按下的值。
-	if (ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(GetOwner()))
+	if (ASpaceshipPawn* Ship = Cast<ASpaceshipPawn>(InSourcePawn))
 	{
 		Ship->SetThrust(0.f);
 		Ship->SetRoll(0.f);
@@ -594,7 +594,7 @@ void UStarMapRigComponent::Enter(APlayerController* PC)
 	if (UPlanetEditComponent* Edit = GetPlanetEditComponent())
 	{
 		// 星图编辑光标下的行星，不是角色脚下那颗；脚下的贴地网格此时没有意义。
-		if (Cast<APlanetCharacter>(GetOwner()))
+		if (Cast<APlanetCharacter>(InSourcePawn))
 		{
 			Edit->SetGridPlanet(nullptr);
 		}
@@ -607,6 +607,7 @@ void UStarMapRigComponent::Enter(APlayerController* PC)
 	}
 
 	BeginInvokerFollow();
+	AttachOwnerToFocus(Focus);
 }
 
 void UStarMapRigComponent::Exit()
@@ -631,7 +632,7 @@ void UStarMapRigComponent::Exit()
 		}
 	}
 	// 角色的解析器按「脚下这颗」取样，退图必须还回去；飞船只在星图里编辑，留着星图版即可。
-	if (APlanetCharacter* Character = Cast<APlanetCharacter>(GetOwner()))
+	if (APlanetCharacter* Character = Cast<APlanetCharacter>(SourcePawn.Get()))
 	{
 		Character->InstallEditTargetResolver();
 		if (UPlanetEditComponent* Edit = GetPlanetEditComponent())
@@ -699,6 +700,9 @@ void UStarMapRigComponent::CalcView(float DeltaSeconds, FMinimalViewInfo& OutRes
 			ComputeOrbitDistanceLimitsCm(Selected, MinCm, MaxCm);
 			OrbitDistanceCm = FMath::Clamp(Distance, MinCm, MaxCm);
 		}
+
+		// 相机 Pawn 永远挂在当前焦点天体上：行星在动，挂载层级负责跟随。
+		AttachOwnerToFocus(Selected);
 	}
 
 	if (Selected)
@@ -758,7 +762,7 @@ void UStarMapRigComponent::BeginInvokerFollow()
 {
 	FollowedInvokers.Reset();
 
-	AActor* Owner = GetOwner();
+	AActor* Owner = SourcePawn.IsValid() ? SourcePawn.Get() : GetOwner();
 	if (!Owner)
 	{
 		return;

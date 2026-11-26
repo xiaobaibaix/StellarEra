@@ -57,7 +57,7 @@ Plugins/
 Content/
 └── Code/               蓝图与资产，引擎路径 /Game/Code/...
     ├── Maps/           UniverseMap（唯一真实场景）/ NewMap / TestMap
-    ├── Pawns/          BP_SpaceshipPawn / BP_StarMapCameraPawn / Character/BP_PlanetCharacter
+    ├── Pawns/          BP_SpaceshipPawn / Character/BP_PlanetCharacter
     ├── Planet/         BP_VoxelPlanet / BP_Star / Materials/ / Geology/MineralData/DA_Geology_*
     └── DA_Terrain_*    地形预设（放在 Code 根下）
 ```
@@ -116,18 +116,20 @@ Character/Spaceship → Pawns），历史类路径由 `Config/DefaultEngine.ini`
 是二级。`Edit/` 14 个、`UI/Src` 5 个仍在阈值内，保持平铺。
 判据写在 `Source/README.md` 的「什么时候该建子目录」。
 
-`AStarMapCameraPawn` 现在在 `StellarEraPawns/Src/StarMap/`：Cosmos 抽出
-`ICosmosBody`（`Source/StellarEraCosmos/Src/CosmosBody.h`，由 `ASpaceshipPawn` 实现）
-之后不再认识 `ASpaceshipPawn`，`Pawns → Cosmos` 这条边才立得住。旧脚本路径靠
-`Config/DefaultEngine.ini` 的 `[CoreRedirects]` 里两条 `+ClassRedirects` 兜底，
-都直达 `/Script/StellarEraPawns.StarMapCameraPawn`。
+`AStarMapCameraPawn`（`StellarEraPawns/Src/StarMap/`）是**被 Possess 的相机载体**：
+CDO 里挂 `UStarMapRigComponent` + `UStarMapInputComponent`，`CalcCamera` 转给 rig。
+按 M 时 `AStellarEraPlayerController::ToggleStarMap` 找离源 Pawn 最近的天体、生成相机 Pawn、
+附加到该天体并 `Possess`；退图等 rig 混合完再 `Possess` 回源 Pawn 并销毁相机 Pawn。
+焦点、编辑组件、退场相机位姿都从源 Pawn（飞船/角色）取，飞船与角色自己不再挂 rig。
+行星上没有星图相机实例；`Config/DefaultEngine.ini` 里两条指向旧类的 redirect 保留（目标类已回）。
 
 自定义代码不进第三方插件目录，一律写进上面五个模块并改对应 `Build.cs`。
 
 **`StellarEraUI` 不依赖 `StellarEra`**（Game 依赖 UI，反向就成环）。星图 UI 需要玩家控制器时
-直接吃 `APlayerController`：鼠标坐标、屏幕拾取、矿物透视分别来自
-`GetMousePosition`、Pawns 的 `StarMapPicking`、`Cast<AStarMapCameraPawn>(Pawn)`，
-不再有专门的倒置接口。`StellarEra` 侧因此也把 `StellarEraUI` 降为**私有**依赖。
+直接吃 `APlayerController`：鼠标坐标、屏幕拾取、当前 Pawn 的 rig / 编辑组件分别来自
+`GetMousePosition`、Pawns 的 `StarMapPicking`、`Cast<AStarMapCameraPawn>(Pawn)` 的回退链，
+星图开关看 `UCosmosSimulationSubsystem::IsStarMapActive()`。
+`StellarEra` 侧因此也把 `StellarEraUI` 降为**私有**依赖。
 
 ## 技能与 Agent 路由（强制）
 
@@ -165,7 +167,7 @@ Character/Spaceship → Pawns），历史类路径由 `Config/DefaultEngine.ini`
 | `UCosmosTrajectoryComponent` | Cosmos | 预测轨迹、拖尾、速度/引力箭头 |
 | `AStellarEraGameMode` | StellarEra | 出生点、飞船生成与登船 |
 | `AStellarEraPlayerController` | StellarEra | 运行时构造输入资产、上下船、星图模式 |
-| `AStarMapCameraPawn` | Pawns | 星图相机；不 Tick，位置在 `CalcCamera` 现算 |
+| `AStarMapCameraPawn` | Pawns | 被 Possess 的相机载体；内部 rig 现算相机，退图时销毁 |
 | `ICosmosBody` | Cosmos | 受控天体对模拟层的契约（11 个纯虚），由 `ASpaceshipPawn` 实现 |
 | `UPlanetGeologyDistribution` | Planet/Minerals | 分布生成器基类；子类=囊状/片层/脉状/浸染，元素内取 max |
 | `AVoxelPlanetActor` | Terrain | 体素行星根 Actor；gizmo 移动 / 等比缩放即改行星 |

@@ -11,6 +11,7 @@
 #include "CosmosSimulationSubsystem.h"
 #include "StellarEraGameMode.h"
 #include "Components/InputComponent.h"
+#include "StarMapCameraPawn.h"
 #include "StarMapPicking.h"
 #include "StarMapRigComponent.h"
 #include "VoxelPlanetActor.h"
@@ -52,7 +53,74 @@ namespace
 AStellarEraPlayerController::AStellarEraPlayerController()
 {
 	// 输入组件由 DefaultInput.ini 指定为 EnhancedInput 版；缺失时 Cast 会失败。
-	// 星图 rig 挂在飞船 / 角色上，乘员由飞船提供；本类只查询。
+	// 星图相机 Pawn 默认用原生类，蓝图子类可在此属性里换。
+	StarMapCameraPawnClass = AStarMapCameraPawn::StaticClass();
+}
+
+void AStellarEraPlayerController::ToggleStarMap(APawn* From)
+{
+	if (AStarMapCameraPawn* CameraPawn = Cast<AStarMapCameraPawn>(From))
+	{
+		if (UStarMapRigComponent* Rig = CameraPawn->GetRig(); Rig && Rig->IsActive())
+		{
+			Rig->Exit();
+		}
+		return;
+	}
+
+	if (!From || From != GetPawn())
+	{
+		return;
+	}
+
+	UCosmosSimulationSubsystem* Subsystem =
+		GetWorld() ? GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>() : nullptr;
+	if (!Subsystem)
+	{
+		return;
+	}
+
+	TArray<AActor*> Bodies;
+	Subsystem->GetRegisteredBodies(Bodies);
+	// 飞船自己也注册在求解器里（Simulator #N），不排除的话「最近天体」永远是它自己。
+	Bodies.RemoveAll([From](const AActor* Body) { return Body == From; });
+	AActor* Focus = UStarMapRigComponent::FindNearestBody(From->GetActorLocation(), Bodies);
+	if (!Focus)
+	{
+		ShowPrompt(TEXT("附近没有天体"));
+		return;
+	}
+
+	// Possess 前取视点：换 Pawn 后 GetPlayerViewPoint 会走到相机 Pawn 的 CalcCamera。
+	FVector ViewLocation;
+	FRotator ViewRotation;
+	GetPlayerViewPoint(ViewLocation, ViewRotation);
+
+	const TSubclassOf<AStarMapCameraPawn> Class = StarMapCameraPawnClass
+		? StarMapCameraPawnClass
+		: TSubclassOf<AStarMapCameraPawn>(AStarMapCameraPawn::StaticClass());
+
+	FActorSpawnParameters Params;
+	Params.Owner = this;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	AStarMapCameraPawn* CameraPawn = GetWorld()->SpawnActor<AStarMapCameraPawn>(
+		Class, ViewLocation, ViewRotation, Params);
+	if (!CameraPawn)
+	{
+		return;
+	}
+
+	CameraPawn->SetSourcePawn(From);
+	if (UStarMapRigComponent* Rig = CameraPawn->GetRig())
+	{
+		Rig->EnterFrom(From, Focus, ViewLocation, ViewRotation);
+	}
+	Possess(CameraPawn);
+}
+
+void AStellarEraPlayerController::DebugToggleStarMap()
+{
+	ToggleStarMap(GetPawn());
 }
 
 void AStellarEraPlayerController::BeginPlay()
@@ -126,6 +194,14 @@ void AStellarEraPlayerController::ApplyViewpointInvokerGate(
 		return;
 	}
 
+	// 相机 Pawn 本身没有调用器：视点仍归它取代的源 Pawn（飞船 / 角色），否则
+	// 进星图会翻 bUseForLOD，触发体素八叉树全量重建。
+	const APawn* ViewpointPawn = InPawn;
+	if (const AStarMapCameraPawn* CameraPawn = Cast<AStarMapCameraPawn>(InPawn))
+	{
+		ViewpointPawn = CameraPawn->GetSourcePawn();
+	}
+
 	// OnPossess 是低频事件，遍历全部 Pawn 的开销可忽略。
 	for (TActorIterator<APawn> It(World); It; ++It)
 	{
@@ -136,7 +212,7 @@ void AStellarEraPlayerController::ApplyViewpointInvokerGate(
 			continue;
 		}
 
-		Viewpoint->SetViewpointInvokersActive(Pawn == InPawn);
+		Viewpoint->SetViewpointInvokersActive(Pawn == ViewpointPawn);
 	}
 }
 
@@ -208,6 +284,25 @@ void AStellarEraPlayerController::ForceExitEditMode(APawn* InPawn)
 void AStellarEraPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);
+
+	// 退图混合结束（rig 已不激活）才换回源 Pawn，否则最后一帧会闪回进图前的画面。
+	if (AStarMapCameraPawn* CameraPawn = Cast<AStarMapCameraPawn>(GetPawn()))
+	{
+		const UStarMapRigComponent* Rig = CameraPawn->GetRig();
+		if (Rig && !Rig->IsActive() && !Rig->IsExiting())
+		{
+			if (APawn* Source = CameraPawn->GetSourcePawn())
+			{
+				Possess(Source);
+				CameraPawn->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+				CameraPawn->Destroy();
+			}
+			else
+			{
+				UE_LOG(LogTemp, Warning, TEXT("星图退出：源 Pawn 已失效，保留相机 Pawn"));
+			}
+		}
+	}
 
 	// 太空背景球跟相机走：半径 1 万 km 固定在天球中心时，飞出那个距离就会穿出去。
 	// 跟随后球心永远在相机，等效无限远；角色 / 飞船 / 星图相机切换都自动覆盖。

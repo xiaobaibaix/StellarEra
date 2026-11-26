@@ -5,7 +5,6 @@
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "NBodySimulator.h"
-#include "Origin/RenderOrigin.h"
 #include "CosmosSimulationSubsystem.generated.h"
 
 class UCosmosOrbitComponent;
@@ -223,9 +222,6 @@ private:
 	bool bHasForcedBodies = false;
 
 	FNBodySimulator Simulator;
-
-	/** 渲染原点：锚点选择与每帧跟随，见 Src/Origin/RenderOrigin.h。 */
-	FRenderOrigin RenderOrigin;
 
 	/** 自动推导出的积分步长，单位模拟年。 */
 	double BaseTimeStep = 5.0e-5;

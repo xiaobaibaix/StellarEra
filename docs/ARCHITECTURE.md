@@ -402,6 +402,7 @@ python Tools/check_architecture.py --tree
 | 2026-11-06 | 星图相机搬进 `Pawns/Src/StarMap/`（Cosmos 抽出 `ICosmosBody`）；动作表按 Pawn 拆成三张，控制器不再绑任何输入 | 本文二、四 |
 | 2026-11-19 | 删除星图相机类：`UStarMapRigComponent` 挂在飞船 / 角色上接管相机，`UStarMapInputComponent` 同理；进出星图不再换 Possess | 本文二、四 |
 | 同日 | 输入文件归拢到 `Character|Spaceship|StarMap/Input/` 与 `StellarEra/Src/Input/`；`PlanetEditUI` 从 UI 搬进 `Planet/Src/Edit/`；`StarMapPanelLayout` / `StarMapPicking` 抽成 Pawns 里的纯几何 | 本文三 |
+| 2026-11-26 | 星图改回**相机 Pawn + 复用 rig**：按 M 由控制器找最近天体、生成并 Possess `AStarMapCameraPawn`，退图 Possess 回源 Pawn；飞船 / 角色不再挂 rig，编辑组件与退场相机从源 Pawn 取 | 本文二、四 |
 
 被推翻的方案保留在 `docs/archive/`（17 模块方案），**已标注作废，不要参照实现**。
 

@@ -19,11 +19,6 @@ void FNBodySimulator::SetUnitSystem(ECosmosUnitSystem Unit)
 	UnitSystem = Unit;
 }
 
-void FNBodySimulator::SetRenderOrigin(const FVector3d& InOriginGameUnits, const FVector& InOriginWorld)
-{
-	RenderOrigin.SetOrigin(InOriginGameUnits, InOriginWorld);
-}
-
 void FNBodySimulator::SetSofteningLength(double InSoftening)
 {
 	SofteningLength = FMath::Max(InSoftening, 1e-12);
@@ -750,14 +745,16 @@ double FNBodySimulator::GetEnergyDriftRatio() const
 
 FVector FNBodySimulator::ToWorldLocation(const FVector3d& GameUnitPosition) const
 {
-	return RenderOrigin.ToWorldLocation(GameUnitPosition, CentimetersPerAu,
-	                                    UnitSystem == ECosmosUnitSystem::Game);
+	return UnitSystem == ECosmosUnitSystem::Game
+		? FVector(GameUnitPosition) * CentimetersPerAu
+		: FVector(GameUnitPosition);
 }
 
 FVector3d FNBodySimulator::ToGameUnitPosition(const FVector& WorldLocation) const
 {
-	return RenderOrigin.ToGameUnitPosition(WorldLocation, CentimetersPerAu,
-	                                       UnitSystem == ECosmosUnitSystem::Game);
+	return UnitSystem == ECosmosUnitSystem::Game
+		? FVector3d(WorldLocation) / CentimetersPerAu
+		: FVector3d(WorldLocation);
 }
 
 // ── 以下三个换算目前无人调用，改动时别以为有调用方在依赖 ──

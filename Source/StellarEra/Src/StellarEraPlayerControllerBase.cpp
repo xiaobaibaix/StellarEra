@@ -12,6 +12,11 @@
 #include "Engine/World.h"
 #include "UObject/ConstructorHelpers.h"
 
+void AStellarEraPlayerControllerBase::ToggleStarMap(APawn* From)
+{
+	// 只在子类实现；留空是为了让 Abstract 基类仍能构造 CDO。
+}
+
 AStellarEraPlayerControllerBase::AStellarEraPlayerControllerBase()
 {
 	// 下船才生成角色；这里只给默认类，实际生成发生在 GetOrSpawnCrewCharacter。

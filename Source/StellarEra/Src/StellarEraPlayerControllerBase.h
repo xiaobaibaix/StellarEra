@@ -51,6 +51,12 @@ public:
 	 * 生成失败返回 nullptr。调用方随后自己 Ship->DisembarkCrew + Possess。
 	 */
 	virtual APlanetCharacter* GetOrSpawnCrewCharacter(ASpaceshipPawn* Ship) override;
+
+	/**
+	 * M：进 / 出星图。机械动作（生成、Possess、退图收尾）在子类；本层留空实现，
+	 * 因为 UCLASS 即使 Abstract 也要能构造 CDO，不能留纯虚。
+	 */
+	virtual void ToggleStarMap(APawn* From) override;
 	//~ End IStellarEraSessionCommands Interface
 
 protected:

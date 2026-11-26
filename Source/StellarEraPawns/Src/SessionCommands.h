@@ -38,4 +38,10 @@ public:
 	 * 找不到返回 nullptr，按 E 无法离船。
 	 */
 	virtual APlanetCharacter* GetOrSpawnCrewCharacter(ASpaceshipPawn* Ship) = 0;
+
+	/**
+	 * M：进 / 出星图。实现方负责找最近天体、生成并 Possess 相机 Pawn，以及退图收尾。
+	 * From 是相机 Pawn 时表示退出。
+	 */
+	virtual void ToggleStarMap(APawn* From) = 0;
 };

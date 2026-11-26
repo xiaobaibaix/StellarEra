@@ -37,12 +37,13 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 	C.Continents.ShelfFrac = ShelfFrac;
 	C.Continents.LandHeightRatio = LandHeightRatio;
 	C.Continents.OceanDepthRatio = OceanDepthRatio;
-	C.Terrain.MountainHeightRatio = MountainHeightRatio;
-	C.Terrain.TrenchDepthRatio = TrenchDepthRatio;
-	C.Terrain.PlainReliefRatio = PlainReliefRatio;
+	// 子折叠开关折成 0：默认全开时与旧配置逐位相同，哈希不变、不触发重烘。
+	C.Terrain.MountainHeightRatio = bMountains ? MountainHeightRatio : 0.f;
+	C.Terrain.TrenchDepthRatio = bTrenches ? TrenchDepthRatio : 0.f;
+	C.Terrain.PlainReliefRatio = bPlains ? PlainReliefRatio : 0.f;
 	C.Terrain.BeltWidthRatio = BeltWidthRatio;
 	C.Terrain.RidgeWavelengthRatio = RidgeWavelengthRatio;
-	C.Terrain.ErosionIterations = ErosionIterations;
+	C.Terrain.ErosionIterations = bErosion ? ErosionIterations : 0;
 	C.Terrain.ErosionStrength = ErosionStrength;
 	C.Terrain.TalusAngleDeg = TalusAngleDeg;
 	C.Terrain.TrenchSedimentFill = TrenchSedimentFill;
@@ -50,11 +51,11 @@ FPlanetRecipeConfig UPlanetRecipe::ToConfig(double RadiusVoxels) const
 	C.Terrain.TrenchWedge = TrenchWedge;
 	C.Terrain.SpeedWidthEffect = SpeedWidthEffect;
 	C.Terrain.SpeedHeightEffect = SpeedHeightEffect;
-	C.Terrain.MidOceanRidgeHeightRatio = MidOceanRidgeHeightRatio;
+	C.Terrain.MidOceanRidgeHeightRatio = bRidgeRift ? MidOceanRidgeHeightRatio : 0.f;
 	C.Terrain.MidOceanRidgeWidthRatio = MidOceanRidgeWidthRatio;
-	C.Terrain.RiftDepthRatio = RiftDepthRatio;
+	C.Terrain.RiftDepthRatio = bRidgeRift ? RiftDepthRatio : 0.f;
 	C.Terrain.RiftWidthRatio = RiftWidthRatio;
-	C.Terrain.OldOrogenHeightRatio = OldOrogenHeightRatio;
+	C.Terrain.OldOrogenHeightRatio = bOldOrogen ? OldOrogenHeightRatio : 0.f;
 	C.Terrain.OldOrogenDensity = OldOrogenDensity;
 	C.Terrain.OldOrogenWidthRatio = OldOrogenWidthRatio;
 	C.Terrain.OldOrogenSpurStrength = OldOrogenSpurStrength;

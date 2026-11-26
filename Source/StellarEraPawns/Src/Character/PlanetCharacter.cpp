@@ -20,9 +20,9 @@
 #include "EngineUtils.h"
 #include "CollisionQueryParams.h"
 #include "Engine/World.h"
+#include "CosmosSimulationSubsystem.h"
 #include "GameFramework/PlayerController.h"
 #include "PlanetCharacterInputComponent.h"
-#include "StarMapRigComponent.h"
 #include "StarMapInputComponent.h"
 #include "SpaceshipPawn.h"
 
@@ -218,7 +218,6 @@ APlanetCharacter::APlanetCharacter(const FObjectInitializer& ObjectInitializer)
 
 	PlayerInput = CreateDefaultSubobject<UPlanetCharacterInputComponent>(TEXT("PlayerInput"));
 
-	StarMapRig = CreateDefaultSubobject<UStarMapRigComponent>(TEXT("StarMapRig"));
 	StarMapInput = CreateDefaultSubobject<UStarMapInputComponent>(TEXT("StarMapInput"));
 }
 
@@ -244,17 +243,9 @@ void APlanetCharacter::InstallEditTargetResolver()
 
 bool APlanetCharacter::IsStarMapActive() const
 {
-	return StarMapRig && StarMapRig->IsActive();
-}
-
-void APlanetCharacter::CalcCamera(float DeltaSeconds, FMinimalViewInfo& OutResult)
-{
-	Super::CalcCamera(DeltaSeconds, OutResult);
-
-	if (IsStarMapActive())
-	{
-		StarMapRig->CalcView(DeltaSeconds, OutResult);
-	}
+	const UCosmosSimulationSubsystem* Subsystem =
+		GetWorld() ? GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>() : nullptr;
+	return Subsystem && Subsystem->IsStarMapActive();
 }
 
 void APlanetCharacter::ApplyCharacterMesh()

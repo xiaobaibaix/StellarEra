@@ -21,7 +21,6 @@
 #include "VoxelViewpointInvokers.h"
 #include "VoxelViewpointInvokerUtils.h"
 #include "SpaceshipInputComponent.h"
-#include "StarMapRigComponent.h"
 #include "StarMapInputComponent.h"
 #include "GameFramework/PlayerController.h"
 
@@ -156,13 +155,14 @@ ASpaceshipPawn::ASpaceshipPawn()
 
 	PlayerInput = CreateDefaultSubobject<USpaceshipInputComponent>(TEXT("PlayerInput"));
 
-	StarMapRig = CreateDefaultSubobject<UStarMapRigComponent>(TEXT("StarMapRig"));
 	StarMapInput = CreateDefaultSubobject<UStarMapInputComponent>(TEXT("StarMapInput"));
 }
 
 bool ASpaceshipPawn::IsStarMapActive() const
 {
-	return StarMapRig && StarMapRig->IsActive();
+	const UCosmosSimulationSubsystem* Subsystem =
+		GetWorld() ? GetWorld()->GetSubsystem<UCosmosSimulationSubsystem>() : nullptr;
+	return Subsystem && Subsystem->IsStarMapActive();
 }
 
 void ASpaceshipPawn::ApplyHullMesh()
@@ -494,12 +494,6 @@ void ASpaceshipPawn::CalcCamera(float DeltaSeconds, FMinimalViewInfo& OutResult)
 	// 位置、FOV、后期都取自相机组件；只有朝向在这里重算。相机更新（LevelTick 的 Update cameras）
 	// 排在 TickObjects 之后，此刻摇臂与机身都已是本帧最终的姿态 —— Tick 里读到的还是上一帧的。
 	Super::CalcCamera(DeltaSeconds, OutResult);
-
-	if (IsStarMapActive())
-	{
-		StarMapRig->CalcView(DeltaSeconds, OutResult);
-		return;   // 星图期间不做机身横滚滞后
-	}
 
 	const FQuat HullRotation = GetActorQuat();
 	UpdateCameraRollLag(HullRotation, DeltaSeconds);

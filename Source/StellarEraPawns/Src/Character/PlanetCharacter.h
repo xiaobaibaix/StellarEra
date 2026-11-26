@@ -16,7 +16,6 @@ class UPlanetEditComponent;
 class USkeletalMesh;
 class USpringArmComponent;
 class UStarMapInputComponent;
-class UStarMapRigComponent;
 class UVoxelSimpleInvokerComponent;
 class UInputComponent;
 struct FInputActionValue;
@@ -37,9 +36,6 @@ public:
 	virtual void OnConstruction(const FTransform& Transform) override;
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
-
-	/** 星图激活时把视点交给 rig；FP 相机由 rig 的 CalcView 整体覆盖。 */
-	virtual void CalcCamera(float DeltaSeconds, FMinimalViewInfo& OutResult) override;
 
 	/**
 	 * 绑角色自己的输入。引擎只在本地 Possess 时调用，动作表从控制器（`IStellarEraInputSource`）取。
@@ -133,11 +129,7 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
 	TObjectPtr<UCameraComponent> Camera;
 
-	/** 星图 rig：进图后接管本 Pawn 的相机。 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "StarMap")
-	TObjectPtr<UStarMapRigComponent> StarMapRig;
-
-	/** 星图的键鼠输入；rig 未激活时动作回调空转，只有 M 仍生效 —— 进出图只切 rig 状态，不换 Possess。 */
+	/** 星图的键鼠输入：本 Pawn 上只借它绑 M，其余回调空转。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "StarMap")
 	TObjectPtr<UStarMapInputComponent> StarMapInput;
 

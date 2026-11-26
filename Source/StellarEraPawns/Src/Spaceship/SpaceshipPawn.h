@@ -20,7 +20,6 @@ class UStaticMeshComponent;
 class UVoxelInvokerWithPredictionComponent;
 class USpaceshipInputComponent;
 class UStarMapInputComponent;
-class UStarMapRigComponent;
 class UInputComponent;
 struct FInputActionValue;
 
@@ -414,8 +413,10 @@ protected:
 	 * 而不是相机上（插件的 auto-camera 兜底写死玩家索引 0，多人不可用）。类型是本项目的
 	 * AlwaysLocal 子类：插件只认被本地 Possess 的 Pawn，进星图换人会把调用器踢出 LOD
 	 * 并重建整棵八叉树。登船后必须由它接管，否则角色调用器一关，行星就停在最粗 LOD。
+	 * 四个调用器都不加 VisibleAnywhere：加了关卡细节面板会把插件里几十个分类并进来，
+	 * 组件本身在蓝图「组件」面板里照样可选可调。
 	 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spaceship")
+	UPROPERTY(BlueprintReadOnly, Category = "Spaceship")
 	TObjectPtr<UVoxelInvokerWithPredictionComponent> VoxelInvoker;
 
 	/**
@@ -423,10 +424,10 @@ protected:
 	 * 8 公里粗块会在高速飞行时横穿地形（「大片白幕」）。只做 LOD：碰撞交给细气泡，
 	 * 碰撞细分不看 LODToSet，600 米盒子会请求约 5.5e4 个区块，足以顶爆显存。
 	 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spaceship")
+	UPROPERTY(BlueprintReadOnly, Category = "Spaceship")
 	TObjectPtr<UVoxelInvokerWithPredictionComponent> VoxelInvokerLOD3;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spaceship")
+	UPROPERTY(BlueprintReadOnly, Category = "Spaceship")
 	TObjectPtr<UVoxelInvokerWithPredictionComponent> VoxelInvokerLOD5;
 
 	/**
@@ -434,7 +435,7 @@ protected:
 	 * 没有它 1 公里处一步跨 3 级，块边界在地表上是笔直硬接缝。范围 ±10 公里是为了
 	 * 盖住 20 公里半径星的地平线（约 6.4 公里）。只做 LOD，碰撞照旧交给细气泡。
 	 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spaceship")
+	UPROPERTY(BlueprintReadOnly, Category = "Spaceship")
 	TObjectPtr<UVoxelInvokerWithPredictionComponent> VoxelInvokerLOD6;
 
 	/**
@@ -454,11 +455,7 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
 	TObjectPtr<UCameraComponent> Camera;
 
-	/** 星图 rig：进图后接管本 Pawn 的相机。 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "StarMap")
-	TObjectPtr<UStarMapRigComponent> StarMapRig;
-
-	/** 星图的键鼠输入；rig 未激活时动作回调空转，只有 M 仍生效 —— 进出图只切 rig 状态，不换 Possess。 */
+	/** 星图的键鼠输入：本 Pawn 上只借它绑 M，其余回调空转。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "StarMap")
 	TObjectPtr<UStarMapInputComponent> StarMapInput;
 
