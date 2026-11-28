@@ -1,0 +1,47 @@
+﻿// 把调试图层画成图：展开地图、过球心剖面、PNG、星球叠加用的立方体贴图。查看器、命令、星球共用这一份。
+#pragma once
+#include "CoreMinimal.h"
+#include "PlanetDebugLayer.h"
+#include "PlanetSnapshot.h"
+
+class UTextureCube;
+
+namespace PlanetGeoDebugRender
+{
+	/** 剖面所在平面，都过球心。 */
+	enum class ESectionPlane : uint8 { XZ, YZ, XY };
+
+	/** 地表图层取地表点；地下图层取地表下 2 体素（展开地图上看「刚挖开」的那一层）。 */
+	STELLARERACELESTIAL_API FVector3d SurfacePoint(const FPlanetSnapshot& S, const FVector3f& Dir, EGeoDebugDomain Domain);
+
+	/** 等经纬展开：x 从经度 −180° 到 +180°，y 从北极到南极。 */
+	STELLARERACELESTIAL_API FVector3f MapPixelToDir(int32 X, int32 Y, int32 W, int32 H);
+	STELLARERACELESTIAL_API void RenderMap(const FPlanetSnapshot& S, const FGeoDebugLayer& Layer, int32 W, int32 H,
+		TArray<FColor>& OutColors, TArray<float>* OutValues = nullptr);
+
+	/** 剖面半宽（体素）：比最高地表多 2%，留一圈太空当背景。 */
+	STELLARERACELESTIAL_API double SectionHalfExtent(const FPlanetSnapshot& S);
+	STELLARERACELESTIAL_API FVector3d SectionPixelToPos(const FPlanetSnapshot& S, int32 X, int32 Y, int32 Size, ESectionPlane Plane);
+	/** 星球外是太空色、值为无数据；地表图层在剖面上按方向取地表值（整根柱子同色）。 */
+	/** MineralScale > 0 时剖面上叠矿物色（按该倍数放大显示）。 */
+	STELLARERACELESTIAL_API void RenderSection(const FPlanetSnapshot& S, const FGeoDebugLayer& Layer, int32 Size, ESectionPlane Plane,
+		TArray<FColor>& OutColors, TArray<float>* OutValues = nullptr, float MineralScale = 0.f);
+
+	/**
+	 * 该点的矿物编号（0 = 无矿）。Scale > 1 时矿体按比例放大、覆层按比例加厚，只供显示：
+	 * 真实尺寸的矿体在整星视图里不到一个像素。
+	 */
+	STELLARERACELESTIAL_API uint8 MineralAt(const FPlanetSnapshot& S, const FVector3d& P, float Scale);
+
+	STELLARERACELESTIAL_API bool SavePng(const FString& Path, int32 W, int32 H, const TArray<FColor>& Colors);
+
+	/** 立方体贴图，Outer 是瞬态包：挂到体素材质上的贴图 Outer 不能是行星（会让切图泄漏崩溃）。
+	 *  材质按世界方向采样，而快照的场是行星局部坐标：Actor 有旋转时必须传 WorldToField，
+	 *  否则配色相对地形整体转一个角度（细节面板里转过行星就会出现「盆地里是陆地色」）。 */
+	STELLARERACELESTIAL_API UTextureCube* BakeCube(const FPlanetSnapshot& S, const FGeoDebugLayer& Layer, int32 Resolution,
+		const FQuat& WorldToField = FQuat::Identity);
+
+	/** 每个图层写 Stage<阶段>_<Id>_map.png、_section.png、_view3d.png（默认 3D 视角，外表面看高程），返回写成功的文件数。 */
+	STELLARERACELESTIAL_API int32 ExportAll(const FPlanetSnapshot& S, const TArray<FGeoDebugLayer>& Layers,
+		const FString& Directory, int32 MapWidth);
+}

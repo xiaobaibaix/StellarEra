@@ -24,7 +24,7 @@ public class StellarEraCosmos : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		// Src/ 与所有子目录进搜索路径，See StellarEraPlanet.Build.cs 的说明。
+		// Src/ 与所有子目录进搜索路径，See StellarEraCelestial.Build.cs 的说明。
 		// 模块入口 StellarEraCosmos.h/.cpp 与 Build.cs 并列在模块根，不放进 Src/。
 		PublicIncludePaths.Add(ModuleDirectory);
 
@@ -42,7 +42,7 @@ public class StellarEraCosmos : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			"StellarEraPlanet",
+			"StellarEraCelestial",
 		});
 	}
 }

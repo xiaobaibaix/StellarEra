@@ -13,7 +13,7 @@ public class StellarEraEditorTarget : TargetRules
 		ExtraModuleNames.AddRange(new string[]
 		{
 			"StellarEra",         // 装配：GameMode / PlayerController（primary game module）
-			"StellarEraPlanet",   // 世界：地形 / 大气 / 矿物 / 编辑 + 地质查看器（编辑器专属部分在 #if WITH_EDITOR）
+			"StellarEraCelestial",   // 世界：地形 / 大气 / 矿物 / 编辑 + 地质查看器（编辑器专属部分在 #if WITH_EDITOR）
 			"StellarEraPawns",    // 受控实体：角色 / 飞船
 			"StellarEraCosmos",   // 天体：N 体编排与轨迹
 			"StellarEraUI",       // 界面：HUD / 星图面板 / 编辑 UI

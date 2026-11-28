@@ -5,7 +5,7 @@ using UnrealBuildTool;
 
 // 界面层：HUD、星图面板、矿物图例。
 // .h 与 .cpp 同目录并列在 Src/ 下，测试在 Src/Tests。
-// 编辑按钮布局（PlanetEditUI）已搬到 StellarEraPlanet/Src/Edit/，本模块只消费它 ——
+// 编辑按钮布局（PlanetEditUI）已搬到 StellarEraCelestial/Planet/Src/Edit/，本模块只消费它 ——
 // HUD 绘制与两个 Pawn 的鼠标命中共用同一份几何。
 //
 // 这是唯一允许同时依赖多个功能模块的模块。反向依赖一律禁止：
@@ -31,7 +31,7 @@ public class StellarEraUI : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		// Src/ 与所有子目录进搜索路径，说明见 StellarEraPlanet.Build.cs。
+		// Src/ 与所有子目录进搜索路径，说明见 StellarEraCelestial.Build.cs。
 		// 模块入口 StellarEraUI.h/.cpp 与 Build.cs 并列在模块根，不放进 Src/。
 		PublicIncludePaths.Add(ModuleDirectory);
 
@@ -51,7 +51,7 @@ public class StellarEraUI : ModuleRules
 			// 完整类型一律在 .cpp 里使用。按「公开头里 include 了对方才算 Public」
 			// 的判据，这一项其实可以降回 Private；目前保持 Public 未动，
 			// 待编译验证后由维护者决定。
-			"StellarEraPlanet",
+			"StellarEraCelestial",
 
 			// 本模块的两个公开头直接 include 了 Pawns 的头：
 			//   StarMapUISystem.h → StarMapPanelLayout.h（面板几何，绘制与命中共用）

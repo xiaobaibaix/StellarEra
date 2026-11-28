@@ -18,7 +18,7 @@ using UnrealBuildTool;
 //   L4 StellarEraUI       ─Public→ Planet      ─Private→ Pawns / Cosmos
 //   L3 StellarEraPawns    ─Public→ Cosmos / Planet / Voxel
 //   L2 StellarEraCosmos   ─Private→ Planet
-//   L1 StellarEraPlanet   无项目依赖（只依赖引擎与 Voxel 插件）
+//   L1 StellarEraCelestial   无项目依赖（只依赖引擎与 Voxel 插件）
 //
 // **Public 与 Private 的分界只有一条：公开头里出没出现那个模块的类型。**
 // 出现了就必须 Public —— 否则本模块自己编得过，但任何公开依赖 StellarEra 的模块
@@ -33,7 +33,7 @@ using UnrealBuildTool;
 // （IStellarEraInputSource，控制器也公开继承）、StellarEraInputActions.h（三张
 // Pawn 动作表）、SessionCommands.h（IStellarEraSessionCommands）。
 //
-// StellarEraPlanet / StellarEraCosmos 是 **Private**：本模块没有任何公开头
+// StellarEraCelestial / StellarEraCosmos 是 **Private**：本模块没有任何公开头
 // include 它们的头；控制器头里的行星与天体类型一律前置声明 + TObjectPtr，
 // 用到完整类型的地方都在 .cpp 里。
 public class StellarEra : ModuleRules
@@ -42,7 +42,7 @@ public class StellarEra : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		// Src/ 与所有子目录进搜索路径，说明见 StellarEraPlanet.Build.cs。
+		// Src/ 与所有子目录进搜索路径，说明见 StellarEraCelestial.Build.cs。
 		// 模块入口 StellarEra.h/.cpp 与 Build.cs 并列在模块根，不放进 Src/。
 		PublicIncludePaths.Add(ModuleDirectory);
 
@@ -72,7 +72,7 @@ public class StellarEra : ModuleRules
 			// 以及 IVoxelViewpointInvokers（控制器在 OnPossess 里逐个调用，
 			// 该接口住在 Planet/Src/Invokers/）。
 			// 只在 .cpp 与测试里 include，公开头不出现。
-			"StellarEraPlanet",
+			"StellarEraCelestial",
 
 			// N 体积分与编排（求解器 / 子系统 / 轨道组件 / 轨迹组件）；
 			// 只在 .cpp 与测试里 include。原 StellarEraCore 已并入本模块。

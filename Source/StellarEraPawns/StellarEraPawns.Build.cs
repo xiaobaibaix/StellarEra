@@ -24,7 +24,7 @@ public class StellarEraPawns : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		// 同 StellarEraPlanet：Src/ 与所有子目录都进搜索路径。
+		// 同 StellarEraCelestial：Src/ 与所有子目录都进搜索路径。
 		// 不这样写，`#include "PlanetCharacter.h"` 会 C1083 —— 主模块和 UI
 		// 都是按裸名 include 这些头的，全项目一贯如此。
 		// 模块入口 StellarEraPawns.h/.cpp 与 Build.cs 并列在模块根，不放进 Src/。
@@ -51,7 +51,7 @@ public class StellarEraPawns : ModuleRules
 			// IVoxelViewpointInvokers 也在本模块的公开头里用（两个 Pawn 继承它），
 			// 该接口随体素接线层住在 Planet/Src/Invokers/ —— 所以是 Public 依赖，
 			// 下游 include 本模块的 Pawn 头时能找到它。（原 StellarEraCore 已拆除。）
-			"StellarEraPlanet",
+			"StellarEraCelestial",
 
 			// 飞船在公开头里实现 Cosmos 的 ICosmosBody，星图 rig（Src/StarMap/）
 			// 也要调 UCosmosSimulationSubsystem —— 下游 include 这些公开头时必须

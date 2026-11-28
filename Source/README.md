@@ -14,10 +14,10 @@ UE 要求所有模块平铺在 `Source/` 下，**物理上没有层次**。
 每个模块长得一样，就四种东西：
 
 ```
-StellarEraPlanet/
-├── StellarEraPlanet.Build.cs      构建规则
-├── StellarEraPlanet.h             模块入口头，只放 IMPLEMENT_MODULE 相关
-├── StellarEraPlanet.cpp
+StellarEraCelestial/
+├── StellarEraCelestial.Build.cs      构建规则
+├── StellarEraCelestial.h             模块入口头，只放 IMPLEMENT_MODULE 相关
+├── StellarEraCelestial.cpp
 └── Src/                           业务代码全在这里
     ├── VoxelPlanetActor.h         头与源**同目录并列**
     ├── VoxelPlanetActor.cpp
@@ -28,7 +28,7 @@ StellarEraPlanet/
 
 - **模块入口的两个文件跟 `Build.cs` 并排**，`Src/` 里只有业务代码，不会被入口文件搅混。
 - **头文件与源文件同目录**，改一个功能时打开的目录里 `.h`/`.cpp` 都在，不用两边跳。
-- `Src/` 及每个子目录都会自动进头文件搜索路径（见 `StellarEraPlanet.Build.cs`
+- `Src/` 及每个子目录都会自动进头文件搜索路径（见 `StellarEraCelestial.Build.cs`
   里的循环），所以 `#include "VoxelPlanetActor.h"` 这种裸文件名全项目可用；
   **新增子目录不需要改 Build.cs**。
 
@@ -36,45 +36,29 @@ StellarEraPlanet/
 
 ## 按层看
 
-### L1 世界 —— 一颗行星的全部
+### L1 天体 —— 行星与恒星
 
 | 模块 | 行数 | 一句话 | 什么时候动它 |
 |---|---:|---|---|
-| `StellarEraPlanet` | 29293 | 地形、水文、水面、大气、矿物（含地质场与矿脉形态）、编辑、体素接线 | 见下面的子目录表 |
+| `StellarEraCelestial` | 33143（含测试） | 行星：地质管线、大气、编辑、体素接线；恒星：恒星组件与参数桥 | 见下面的子目录表 |
 
 ```
-StellarEraPlanet/Src/
-├── VoxelPlanetActor.h/.cpp    星球本体（对外门面，所以放在 Src 根）
-├── Terrain/                   地形长什么样：模块基类、噪声、纯球、适配器、生物群系配色
-├── Invokers/                  体素 LOD 调用器接线 + IVoxelViewpointInvokers（角色 / 飞船实现）
-├── Surface/                   星球这个球本身：解析射线、编辑经纬网格
-├── Atmosphere/                大气组件与参数、星体组件与阴影遮罩
-├── Sky/  Star/                天空材质、恒星材质（各一个编辑器期构建器）
-├── Minerals/                  矿物域：Geology（含 Distributions）/ Surface / View
-├── Edit/                      编辑组件、笔刷、涂抹、渐进编辑、网格几何、编辑按钮布局
-└── Tests/                     30 个测试
+StellarEraCelestial/
+├── Planet/Src/
+│   ├── VoxelPlanetActor.h/.cpp   行星门面（对外类型）
+│   ├── Geo/                      地质管线：Assets / Bake / Core / Snapshot / Voxel / Viewer / Debug
+│   ├── Atmosphere/               行星大气、光照、天空与材质
+│   ├── Edit/                     编辑组件、笔刷、渐进编辑、按钮布局
+│   ├── Invokers/                 体素 LOD 接线 + IVoxelViewpointInvokers（角色 / 飞船实现）
+│   └── Interaction/              行星表面解析射线
+├── Planet/Tests/
+├── Star/Src/                     恒星组件：StarBodyComponent / StarBodyChildComponent / StarParamBridge
+├── Star/Tests/
+└── Common/                       ChildActorParamBridge（两种天体共用的基类）
 ```
 
-矿物域的四层，从数据到交互：
-
-```
-Minerals/
-├── Geology/                 元素表、地质场、UDataAsset 预设  有什么、有多少
-│   └── Distributions/       基类 + 囊状/脉状/片层/浸染四变体  什么形状
-├── Surface/                 矿物表面几何、材质构建          怎么显示
-└── View/                    观测 Actor 与组件               怎么看、怎么选
-```
-
-改矿怎么分布 → `Minerals/Geology/PlanetGeologyField.cpp`；
-改矿有多大、什么形状 → `Minerals/Geology/Distributions/` 里对应的变体。
-
-`Terrain/` 里的东西只被 Planet 内部用；`Invokers/` 里的被 `StellarEraPawns`（角色 /
-飞船）与装配层控制器跨模块引用 —— 它们不属于「地形」，是 Voxel 插件 LOD
-的接线层，当初只是恰好放在 Terrain 文件夹里。
-
-五个目录共享同一份体素密度场，这是它们合在一个模块里的理由。
-编辑内核直接写它、地形生成直接写它、矿物与大气按它取采样点 ——
-拆成四个模块时，每次跨模块调用都得把内部实现提成 Public。
+行星与恒星共享体素世界与子 Actor 参数桥，所以放在同一个模块里；
+`Planet/` 与 `Star/` 只按「服务哪种天体」分工，不拆模块。
 
 ### L2 受控实体 —— 玩家能 possess 的东西
 
@@ -156,15 +140,13 @@ Pawns，手里也有玩家控制器，所以直接调，**不设接口** —— 
 
 | 你想做的事 | 打开这个文件 |
 |---|---|
-| 改地形起伏 | `StellarEraPlanet/Src/Geo/Bake/Stages/Stage03Terrain.cpp` |
-| 改星球移动/缩放 | `StellarEraPlanet/Src/VoxelPlanetActor.cpp` |
-| 改大气颜色/高度 | `StellarEraPlanet/Src/Atmosphere/PlanetAtmosphereMaterialBuilder.cpp` |
-| 改矿物透视颜色 | `StellarEraPlanet/Src/Minerals/Surface/PlanetMineralMaterialBuilder.cpp` |
-| 改挖掘笔刷范围 | `StellarEraPlanet/Src/Edit/PlanetEditBrush.cpp` |
-| 改渐进编辑的速度 | `StellarEraPlanet/Src/Edit/PlanetProgressiveEdit.cpp` |
-| 改星球上矿物怎么分布 | `StellarEraPlanet/Src/Minerals/Geology/PlanetGeologyField.cpp` |
-| 改矿脉形状/大小/深度 | `StellarEraPlanet/Src/Minerals/Geology/Distributions/` 里对应变体 |
-| 加一种新的矿脉形态 | 继承 `UPlanetGeologyDistribution`，实现 `BuildRuntime` |
+| 改地形起伏 | `StellarEraCelestial/Planet/Src/Geo/Bake/Stages/Stage03Terrain.cpp` |
+| 改星球移动/缩放 | `StellarEraCelestial/Planet/Src/VoxelPlanetActor.cpp` |
+| 改大气颜色/高度 | `StellarEraCelestial/Planet/Src/Atmosphere/Material/PlanetAtmosphereMaterialBuilder.cpp` |
+| 改挖掘笔刷范围 | `StellarEraCelestial/Planet/Src/Edit/Brush/PlanetEditBrush.cpp` |
+| 改渐进编辑的速度 | `StellarEraCelestial/Planet/Src/Edit/Progressive/PlanetProgressiveEdit.cpp` |
+| 改矿物怎么分布 | `StellarEraCelestial/Planet/Src/Geo/Bake/GeoMineralRules.cpp` |
+| 改恒星外观参数 | `StellarEraCelestial/Star/Src/StarParamBridge.cpp` |
 | 改角色球面行走手感 | `StellarEraPawns/Src/Character/PlanetCharacterMovementComponent.cpp` |
 | 改飞船推力/阻尼 | `StellarEraPawns/Src/Spaceship/SpaceshipPawn.cpp` |
 | 改星图速度/缩放 | `StellarEraPawns/Src/StarMap/StarMapRigComponent.cpp`（速度曲线）/ `Src/StarMap/Input/StarMapInputComponent.cpp`（缩放绑定） |
@@ -208,7 +190,7 @@ Pawns，手里也有玩家控制器，所以直接调，**不设接口** —— 
 判据要看 include 关系而不是文件名：被别的模块引用的东西，往往根本不属于当前这个
 功能面（`Invokers/` 就是这么从 `Terrain/` 里分出来的）。
 
-`Source/StellarEraPlanet/Src/Geo/Bake/Stages/` 是项目里第二处三级目录（第一处是
+`Source/StellarEraCelestial/Src/Geo/Bake/Stages/` 是项目里第二处三级目录（第一处是
 `Minerals/Geology/Distributions/`）：以后每个地质阶段一个文件对（`StageNN*.h/.cpp`），
 一律放这里。
 

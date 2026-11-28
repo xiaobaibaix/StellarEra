@@ -53,17 +53,11 @@ git lfs pull
 
 ```
 Source/
-├── StellarEra/            主游戏模块：GameMode / PlayerController
-├── StellarEraCore/        N 体求解器与 Cosmos 单位类型
-├── StellarEraCosmos/      N 体编排（子系统 / 轨道组件 / 轨迹组件）
-├── StellarEraGeology/     元素表、行星地质场、噪声采样、JSON 预设
-├── StellarEraTerrain/     行星 Actor / 生成器 / 地形模块 / 行星面射线与网格
-├── StellarEraAtmosphere/  大气壳与大气参数
-├── StellarEraMinerals/    矿物等值面 / 观察体 / 矿体材质
-├── StellarEraPlanetEdit/  行星编辑组件、笔刷几何
-├── StellarEraCharacter/   球面角色与移动组件、动画实例
-├── StellarEraSpaceship/   飞船 Pawn
-└── StellarEraUI/          HUD、星图相机与面板、矿物图例、编辑按钮布局
+├── StellarEra/            主游戏模块：GameMode / PlayerController / 输入动作表聚合
+├── StellarEraCelestial/   天体：Planet/Src（地质、大气、编辑、体素接线）+ Star/Src + Common
+├── StellarEraCosmos/      N 体求解器、编排（子系统 / 轨道组件）、轨迹、恒星 Actor
+├── StellarEraPawns/       角色、飞船、星图相机 Pawn
+└── StellarEraUI/          HUD、星图面板
 Plugins/
 ├── VoxelFree/          第三方体素插件（勿改）
 └── VibeUE/             编辑器 AI 工具（第三方，勿改）
@@ -73,8 +67,9 @@ Content/
 docs/superpowers/       设计规格（specs/）与实施计划（plans/）
 ```
 
-模块依赖方向是严格无环的：`StellarEra → StellarEraUI → StellarEraCosmos → StellarEraSpaceship → StellarEraCharacter → StellarEraPlanetEdit → StellarEraTerrain → StellarEraGeology`，
-`StellarEraCosmos → StellarEraCore`。**`StellarEraUI` 不能依赖 `StellarEra`**（反向就成环）。上面是主链的简化画法，完整依赖清单见 `CLAUDE.md`。
+模块依赖方向严格无环：`StellarEra → StellarEraPawns → StellarEraCosmos → StellarEraCelestial`，
+`StellarEraUI → StellarEraCelestial / StellarEraPawns`。**`StellarEraUI` 不能依赖 `StellarEra`**（反向就成环）。
+完整依赖矩阵见 `docs/ARCHITECTURE.md`。
 
 ## 编辑器 AI 工具（MCP）
 
@@ -87,5 +82,9 @@ docs/superpowers/       设计规格（specs/）与实施计划（plans/）
 ## 文档
 
 - 项目上下文与已知坑：[`CLAUDE.md`](CLAUDE.md)
+- 架构权威文档：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- 术语表：[`docs/GLOSSARY.md`](docs/GLOSSARY.md)
+- 开发规范：[`docs/DEV_RULES.md`](docs/DEV_RULES.md)
+- 历史踩坑与项目记忆：`docs/memory/`
 - 设计规格：`docs/superpowers/specs/`
 - 实施计划：`docs/superpowers/plans/`
