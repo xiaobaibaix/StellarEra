@@ -69,6 +69,10 @@ public:
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Planet|SunLight")
 	void RebuildSunLights();
 
+	/** 立即重算一次灯。编辑器的子 Actor 创建后调用：编辑视口不一定 tick（实时关着），
+	 *  只在 Tick 里转灯会让三盏灯停在初始朝向。 */
+	void RefreshLightingNow();
+
 	/** 平方反比因子 (Ref / Dist)²，钳到 [0, 100]。纯函数，供测试。 */
 	static float DistanceFalloff(float ReferenceDistance, double Distance);
 
@@ -81,8 +85,11 @@ public:
 private:
 	/** 参数都在行星 Actor 上（和 SunStars 列表同一分类）。 */
 	const AVoxelPlanetActor* GetPlanetOwner() const;
-	/** 逐颗驱动灯（仅游戏世界）。主星可能不是槽位 0 —— 槽位 0 只按距离排。 */
-	void DriveSunLights(const TArray<FPlanetSun>& Suns);
+	/** 逐颗驱动灯（编辑器与游戏世界都跑）。主星可能不是槽位 0 —— 槽位 0 只按距离排。返回是否有灯被写。 */
+	bool DriveSunLights(const TArray<FPlanetSun>& Suns);
+
+	/** 首帧或灯变化后重挂阴影/天光补光；静止场景不逐帧重写。 */
+	bool bHasAppliedLighting = false;
 
 	/** 确保行星阴影光函数基础材质已加载（失败只报一次）。 */
 	UMaterialInterface* EnsurePlanetShadowMaterialBase();

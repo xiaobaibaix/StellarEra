@@ -36,6 +36,9 @@ UPlanetSunLightComponent::UPlanetSunLightComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.bStartWithTickEnabled = true;
+	// 编辑器里也要 tick：否则摆星、拖行星时三盏方向光停在初始朝向（全部指向同一处），
+	// 只有进 PIE 才对。灯本身有变化检测，静止场景不会逐帧标脏。
+	bTickInEditor = true;
 }
 
 void UPlanetSunLightComponent::BeginPlay()
@@ -210,9 +213,8 @@ void UPlanetSunLightComponent::TickComponent(float DeltaTime, ELevelTick TickTyp
 
 	UWorld* World = GetWorld();
 	const AVoxelPlanetActor* Planet = GetPlanetOwner();
-	if (!Planet || !bDrivesSunLights || !World || !World->IsGameWorld())
+	if (!Planet || !bDrivesSunLights || !World)
 	{
-		// 编辑器视口不转灯：每帧转灯会把关卡一直标脏。
 		return;
 	}
 
@@ -225,14 +227,30 @@ void UPlanetSunLightComponent::TickComponent(float DeltaTime, ELevelTick TickTyp
 		}
 	}
 
-	// 天体是个位数，每帧完整收集一次即可；不缓存，增删恒星时不需要失效通知。
+	RefreshLightingNow();
+}
+
+void UPlanetSunLightComponent::RefreshLightingNow()
+{
+	UWorld* World = GetWorld();
+	if (!World || !GetPlanetOwner() || !bDrivesSunLights)
+	{
+		return;
+	}
+
+	// 天体是个位数，每次完整收集一遍即可；不缓存，增删恒星时不需要失效通知。
 	TArray<FPlanetSun> Suns;
 	UPlanetAtmosphereComponent::CollectSunsFor(World, GetOwner()->GetActorLocation(), Suns);
-	DriveSunLights(Suns);
+	const bool bLightsChanged = DriveSunLights(Suns);
 
 	// 阴影与「驱动灯」正交：灯不由 C++ 驱动时也必须挂上，否则夜面没有遮挡。
-	ApplyPlanetShadow();
-	ApplySkyFill();
+	// 只在灯真的变了（或首帧）时重挂：编辑器里静止场景不逐帧标脏。
+	if (bLightsChanged || !bHasAppliedLighting)
+	{
+		ApplyPlanetShadow();
+		ApplySkyFill();
+		bHasAppliedLighting = true;
+	}
 }
 
 const AVoxelPlanetActor* UPlanetSunLightComponent::GetPlanetOwner() const
@@ -310,20 +328,22 @@ float UPlanetSunLightComponent::SunFalloffFor(const FPlanetSun& Sun) const
 		FVector::Dist(StarActor->GetActorLocation(), GetOwner()->GetActorLocation()));
 }
 
-void UPlanetSunLightComponent::DriveSunLights(const TArray<FPlanetSun>& Suns)
+bool UPlanetSunLightComponent::DriveSunLights(const TArray<FPlanetSun>& Suns)
 {
 	UStarBodyComponent* PrimaryStar = SelectPrimaryStar(Suns);
 
 	const FVector PlanetCenter = GetOwner()->GetActorLocation();
+	bool bAnyChanged = false;
 	for (const FPlanetSun& Sun : Suns)
 	{
 		if (!Sun.Star || !Sun.Star->bDrivesDirectionalLight)
 		{
 			continue;
 		}
-		Sun.Star->DriveSunLight(PlanetCenter, BaseLightIntensity * SunFalloffFor(Sun),
+		bAnyChanged |= Sun.Star->DriveSunLight(PlanetCenter, BaseLightIntensity * SunFalloffFor(Sun),
 			Sun.Star == PrimaryStar);
 	}
+	return bAnyChanged;
 }
 
 UMaterialInterface* UPlanetSunLightComponent::EnsurePlanetShadowMaterialBase()

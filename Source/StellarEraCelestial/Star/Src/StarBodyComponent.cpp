@@ -185,24 +185,25 @@ ADirectionalLight* UStarBodyComponent::ResolveSunLight()
 	return nullptr;
 }
 
-void UStarBodyComponent::DriveSunLight(const FVector& PlanetCenter, float BaseIntensity, bool bIsPrimary)
+bool UStarBodyComponent::DriveSunLight(const FVector& PlanetCenter, float BaseIntensity, bool bIsPrimary)
 {
 	ADirectionalLight* Light = ResolveSunLight();
 	if (!Light)
 	{
-		return;
+		return false;
 	}
 
-	UWorld* World = GetWorld();
-	if (!World || !World->IsGameWorld())
+	UDirectionalLightComponent* LightComponent = Cast<UDirectionalLightComponent>(Light->GetLightComponent());
+	if (!LightComponent)
 	{
-		// 编辑器视口不转灯：每帧转灯会把关卡一直标脏。
-		return;
+		return false;
 	}
 
 	const AActor* Owner = GetOwner();
 	const FVector StarLocation = Owner ? Owner->GetActorLocation() : FVector::ZeroVector;
 	const FVector Travel = (PlanetCenter - StarLocation).GetSafeNormal();
+
+	bool bLightChanged = false;
 
 	// Stationary / Static 组件拒绝运行时转向并逐帧刷 "Mobility must be 'Movable'"；
 	// 关卡里这些灯是静态摆放的，这里切一次。
@@ -211,19 +212,32 @@ void UStarBodyComponent::DriveSunLight(const FVector& PlanetCenter, float BaseIn
 		if (LightRoot->Mobility != EComponentMobility::Movable)
 		{
 			LightRoot->SetMobility(EComponentMobility::Movable);
+			bLightChanged = true;
 		}
 	}
 
 	if (!Travel.IsNearlyZero())
 	{
-		Light->SetActorRotation(Travel.Rotation());
+		const FRotator NewRotation = Travel.Rotation();
+		// 编辑器里也转，但只在朝向真的变了才写：每帧写会把关卡一直标脏。
+		if (!Light->GetActorRotation().Equals(NewRotation, 0.01f))
+		{
+			Light->SetActorRotation(NewRotation);
+			bLightChanged = true;
+		}
 	}
 
-	UDirectionalLightComponent* LightComponent = Cast<UDirectionalLightComponent>(Light->GetLightComponent());
-	if (!LightComponent)
+	// 距离变了（平方反比强度要跟着变）也值得重写一次参数。
+	const double Distance = FVector::Dist(PlanetCenter, StarLocation);
+	const bool bDistanceChanged = LastDrivenDistance < 0.0
+		|| !FMath::IsNearlyEqual(Distance, LastDrivenDistance, 1.0);
+	LastDrivenDistance = Distance;
+
+	if (!bLightChanged && !bDistanceChanged && bSunParametersApplied)
 	{
-		return;
+		return false;
 	}
+	bSunParametersApplied = true;
 
 	RefreshSunParameters();
 	LightComponent->SetLightColor(CachedSunColor, /*bSRGB=*/false);
@@ -241,4 +255,6 @@ void UStarBodyComponent::DriveSunLight(const FVector& PlanetCenter, float BaseIn
 		bAppliedAtmosphereSunLight = bIsPrimary;
 		LightComponent->SetAtmosphereSunLight(bIsPrimary);
 	}
+
+	return true;
 }

@@ -49,6 +49,12 @@ void UPlanetParamBridge::ApplyToChild(AActor* Child)
 		Atmosphere->CloudDetailStrength = CloudDetailStrength;
 		Atmosphere->CloudDriftPerSecond = CloudDriftPerSecond;
 		Atmosphere->CloudBrightness = CloudBrightness;
+
+#if WITH_EDITOR
+		// 直接写属性绕过了组件的 PostEditChangeProperty：壳的缩放与整批材质参数
+		// 只有 RefreshAtmosphereGeometry 会重算，不调就会「值变了、画面不变」。
+		Atmosphere->RefreshAtmosphereGeometry();
+#endif
 	}
 
 	if (UPlanetSkyLightComponent* SkyLight = Planet->FindComponentByClass<UPlanetSkyLightComponent>())
@@ -58,6 +64,11 @@ void UPlanetParamBridge::ApplyToChild(AActor* Child)
 		SkyLight->SpaceSkyRadiance = SpaceSkyRadiance;
 		SkyLight->BrightnessScale = BrightnessScale;
 		SkyLight->bUpdateInEditorWorld = bUpdateInEditorWorld;
+
+#if WITH_EDITOR
+		// 同上：天光按自己的节流 Tick 重算，参数改了要立刻推一次，否则要等下一次节流。
+		SkyLight->RefreshNow();
+#endif
 	}
 }
 

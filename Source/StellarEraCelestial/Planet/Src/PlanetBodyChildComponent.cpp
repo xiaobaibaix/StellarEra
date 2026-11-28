@@ -2,6 +2,7 @@
 
 #include "PlanetParamBridge.h"
 #include "VoxelPlanetActor.h"
+#include "PlanetSunLightComponent.h"
 #include "Engine/World.h"
 
 UPlanetBodyChildComponent::UPlanetBodyChildComponent()
@@ -33,6 +34,16 @@ void UPlanetBodyChildComponent::CreateChildActor(TFunction<void(AActor*)> Custom
 			if (AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(Child))
 			{
 				Planet->RebuildPlanet();
+			}
+
+			// 编辑视口不一定 tick（实时关着），三盏方向光会停在初始朝向。子 Actor 建好后
+			// 立刻驱动一次，灯光方向在关卡打开时就正确。
+			if (AActor* OwnerActor = GetOwner())
+			{
+				if (UPlanetSunLightComponent* SunLight = OwnerActor->FindComponentByClass<UPlanetSunLightComponent>())
+				{
+					SunLight->RefreshLightingNow();
+				}
 			}
 		}
 	});

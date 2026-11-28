@@ -58,10 +58,10 @@ public:
 	ADirectionalLight* ResolveSunLight();
 
 	/**
-	 * 让灯从 PlanetCenter 方向照过来，写入颜色、强度与主光名额。只在游戏世界执行，
-	 * 编辑器里每帧转灯会把关卡一直标脏。
+	 * 让灯从 PlanetCenter 方向照过来，写入颜色、强度与主光名额。
+	 * 编辑器里也执行，但只在朝向/距离真的变了时写，静止场景不会逐帧标脏。返回是否写了灯。
 	 */
-	void DriveSunLight(const FVector& PlanetCenter, float BaseIntensity, bool bIsPrimary);
+	bool DriveSunLight(const FVector& PlanetCenter, float BaseIntensity, bool bIsPrimary);
 
 	/** 世界里全部恒星组件。 */
 	static void FindAll(const UWorld* World, TArray<UStarBodyComponent*>& OutStars);
@@ -87,4 +87,8 @@ private:
 	/** 上次写进自己那盏灯的优先级 / 大气太阳光，用来做边沿触发。 */
 	int32 AppliedForwardShadingPriority = INDEX_NONE;
 	bool bAppliedAtmosphereSunLight = false;
+
+	/** 上次驱动的距离与是否写过参数：编辑器里只在灯真的要变时写，避免每帧标脏。 */
+	double LastDrivenDistance = -1.0;
+	bool bSunParametersApplied = false;
 };

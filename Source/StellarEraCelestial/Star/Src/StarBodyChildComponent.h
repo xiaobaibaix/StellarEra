@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "PlanetBodyChildComponent.h"
@@ -15,4 +15,10 @@ class STELLARERACELESTIAL_API UStarBodyChildComponent : public UPlanetBodyChildC
 
 public:
 	UStarBodyChildComponent();
+
+#if WITH_EDITOR
+	/** 恒星子 Actor 建好后，通知世界里所有行星的太阳灯立刻重算一次：
+	 *  编辑视口不一定 tick（实时关着），否则三盏方向光会停在初始朝向。 */
+	virtual void CreateChildActor(TFunction<void(AActor*)> CustomizerFunc = nullptr) override;
+#endif
 };
