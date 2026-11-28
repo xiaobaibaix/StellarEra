@@ -5,6 +5,7 @@
 #include "CosmosSimulationSubsystem.h"
 #include "CosmosTypes.h"
 #include "Engine/World.h"
+#include "GameFramework/Actor.h"
 
 UCosmosOrbitComponent::UCosmosOrbitComponent()
 {
@@ -41,6 +42,12 @@ void UCosmosOrbitComponent::PostLoad()
 void UCosmosOrbitComponent::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// 挂在别的 Actor 下的天体（代理预制体的 BodyChild）由父级的物理体驱动，不重复注册。
+	if (const AActor* OwnerActor = GetOwner(); OwnerActor && OwnerActor->GetAttachParentActor())
+	{
+		return;
+	}
 
 	// 组件自己注册，而不是让子系统遍历全关卡：遍历既慢又会漏掉运行期生成的 Actor。
 	if (bRegistersWithSimulation)

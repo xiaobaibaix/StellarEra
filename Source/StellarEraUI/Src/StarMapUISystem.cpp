@@ -24,14 +24,16 @@ bool UStarMapUISystem::BuildBodyInfo(AActor* Body, FStarMapBodyInfo& OutInfo)
 		return false;
 	}
 
+	// 代理预制体下挂着天体：N 体身份在代理上，显示名/半径取天体本体。
+	const AActor* Visual = UCosmosSimulationSubsystem::ResolveBodyVisualActor(Body);
 	const UCosmosOrbitComponent* Orbit =
-		Body->FindComponentByClass<UCosmosOrbitComponent>();
-	if (!Orbit)
+		UCosmosSimulationSubsystem::ResolveDrivingOrbit(Body);
+	if (!Orbit || !Visual)
 	{
 		return false;
 	}
 
-	OutInfo.Name = Body->GetActorNameOrLabel();
+	OutInfo.Name = Visual->GetActorNameOrLabel();
 	OutInfo.MassEarth = Orbit->MassEarth;
 	OutInfo.MassSolar = CosmosMass::EarthMassToSolarMass(Orbit->MassEarth);
 	OutInfo.SimulatorIndex = Orbit->SimulatorIndex;
@@ -67,7 +69,7 @@ bool UStarMapUISystem::BuildBodyInfo(AActor* Body, FStarMapBodyInfo& OutInfo)
 	}
 
 	double RadiusCm = 0.0;
-	if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(Body))
+	if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(Visual))
 	{
 		RadiusCm = Planet->GetSurfaceRadiusCm();
 	}

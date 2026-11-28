@@ -32,6 +32,11 @@ UPlanetSkyLightComponent::UPlanetSkyLightComponent()
 	PrimaryComponentTick.TickGroup = TG_PostUpdateWork;
 	// 编辑器世界也要 Tick：不标的话编辑预览永远停在关卡里那张静态立方图，与 PIE 亮度对不上。
 	bTickInEditor = true;
+
+	// 本组件就是天光本体：立方图由 Tick 写入，引擎的实时捕获路径抓不到自建天空。
+	SourceType = SLS_SpecifiedCubemap;
+	bRealTimeCapture = false;
+	Mobility = EComponentMobility::Movable;
 }
 
 #if WITH_EDITOR
@@ -56,13 +61,10 @@ void UPlanetSkyLightComponent::OnUnregister()
 
 void UPlanetSkyLightComponent::HandleObjectPreSave(UObject* Object, FObjectPreSaveContext)
 {
-	// 正在存这盏天光所在的包：先把作者立方图换回去。瞬态纹理存不进包，会写成空引用。
-	if (bReplacedAuthoredCubemap && SkyLight.IsValid()
-		&& Object && Object->GetPackage() == SkyLight->GetPackage())
+	// 存盘前把瞬态立方图摘掉：瞬态纹理存不进包，会写成空引用。存完下一 Tick 重新推。
+	if (Cubemap == CurrentCubemap && Object && Object->GetPackage() == GetPackage())
 	{
-		SkyLight->SetCubemap(AuthoredCubemap);
-		bReplacedAuthoredCubemap = false;
-		// 存完下一 Tick 重新推一次计算图。
+		SetCubemap(nullptr);
 		bHasUpdated = false;
 	}
 }
@@ -70,11 +72,10 @@ void UPlanetSkyLightComponent::HandleObjectPreSave(UObject* Object, FObjectPreSa
 
 void UPlanetSkyLightComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	// 编辑器世界里本组件改的是关卡那盏天光，退出时把作者立方图还回去，别让瞬态纹理留到下次存盘。
-	if (bReplacedAuthoredCubemap && SkyLight.IsValid())
+	// 退出时摘掉瞬态立方图，别让它留到下次存盘。
+	if (Cubemap == CurrentCubemap)
 	{
-		SkyLight->SetCubemap(AuthoredCubemap);
-		bReplacedAuthoredCubemap = false;
+		SetCubemap(nullptr);
 	}
 
 	Super::EndPlay(EndPlayReason);
@@ -97,7 +98,7 @@ void UPlanetSkyLightComponent::TickComponent(float DeltaTime, ELevelTick TickTyp
 		return;
 	}
 
-	if (!ResolveAtmosphere() || !ResolveSkyLight())
+	if (!ResolveAtmosphere())
 	{
 		return;
 	}
@@ -135,7 +136,7 @@ void UPlanetSkyLightComponent::RefreshNow()
 	{
 		return;
 	}
-	if (!ResolveAtmosphere() || !ResolveSkyLight())
+	if (!ResolveAtmosphere())
 	{
 		return;
 	}
@@ -182,64 +183,6 @@ bool UPlanetSkyLightComponent::ResolveAtmosphere()
 		}
 		return false;
 	}
-	return true;
-}
-
-USkyLightComponent* UPlanetSkyLightComponent::FindOwnedSkyLight(const AActor* Owner)
-{
-	if (!Owner)
-	{
-		return nullptr;
-	}
-
-	// 先看本 Actor 自己：蓝图子类把 SkyLight 组件塞进行星身上时走这条。
-	if (USkyLightComponent* OnOwner = Owner->FindComponentByClass<USkyLightComponent>())
-	{
-		return OnOwner;
-	}
-
-	// 再看挂在本 Actor 下的 SkyLight Actor —— 关卡里「把天光拖到行星上」就是这种挂法。
-	TArray<AActor*> AttachedActors;
-	Owner->GetAttachedActors(AttachedActors);
-	for (AActor* Attached : AttachedActors)
-	{
-		if (USkyLightComponent* Found = Attached
-			? Attached->FindComponentByClass<USkyLightComponent>() : nullptr)
-		{
-			return Found;
-		}
-	}
-	return nullptr;
-}
-
-bool UPlanetSkyLightComponent::ResolveSkyLight()
-{
-	if (SkyLight.IsValid())
-	{
-		return true;
-	}
-
-	USkyLightComponent* Found = FindOwnedSkyLight(GetOwner());
-	if (!Found)
-	{
-		if (!bLoggedMissingSkyLight)
-		{
-			bLoggedMissingSkyLight = true;
-			UE_LOG(LogTemp, Warning,
-				TEXT("[天光] %s 自身与它挂的子 Actor 里都没有 SkyLight，天光不工作。"),
-				*GetNameSafe(GetOwner()));
-		}
-		return false;
-	}
-
-	// 三件事只在第一次做：改用指定立方图（否则 SetCubemap 进去也用不上）、
-	// 关掉实时捕获（引擎会 ensure「scheduled capture 与 RealTimeCapture 互斥」）、
-	// 改可动（静态组件不接受运行期立方图）。
-	Found->bRealTimeCapture = false;
-	Found->SourceType = SLS_SpecifiedCubemap;
-	Found->SetMobility(EComponentMobility::Movable);
-
-	SkyLight = Found;
 	return true;
 }
 
@@ -388,8 +331,7 @@ bool UPlanetSkyLightComponent::NeedsUpdate(const FUpdateKey& Key) const
 bool UPlanetSkyLightComponent::UpdateCube(const FVector& Observer, const FUpdateKey& Key)
 {
 	UPlanetAtmosphereComponent* Atmo = Atmosphere.Get();
-	USkyLightComponent* Target = SkyLight.Get();
-	if (!Atmo || !Target)
+	if (!Atmo)
 	{
 		return false;
 	}
@@ -452,19 +394,9 @@ bool UPlanetSkyLightComponent::UpdateCube(const FVector& Observer, const FUpdate
 	Mip.BulkData.Unlock();
 	Cube->UpdateResource();
 
-#if WITH_EDITOR
-	// 编辑器世界里改的是关卡里那盏真天光：首次覆盖前记住作者那张立方图，存盘 / 卸载时要换回去。
-	if (const UWorld* World = GetWorld();
-		World && !World->IsGameWorld() && !bReplacedAuthoredCubemap)
-	{
-		AuthoredCubemap = Target->Cubemap;
-		bReplacedAuthoredCubemap = true;
-	}
-#endif
-
 	// 每次新建纹理：SetCubemap 只在指针变化时才重新卷积，复用同一张会让环境光停在第一次。
 	CurrentCubemap = Cube;
-	Target->SetCubemap(Cube);
+	SetCubemap(Cube);
 
 	const double ElapsedMs = (FPlatformTime::Seconds() - StartSeconds) * 1000.0;
 	// 编辑器里视口一动就是 5 Hz 重算，别刷屏；游戏世界保持 Log 便于核对节流。

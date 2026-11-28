@@ -27,6 +27,48 @@ public:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType,
 		FActorComponentTickFunction* ThisTickFunction) override;
 
+protected:
+	virtual void BeginPlay() override;
+
+#if WITH_EDITOR
+	// 编辑器里改列表/灯类就立刻重建，否则要等进 PIE 才看得到灯。
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
+
+public:
+
+	/** 是否驱动关卡里的定向光。关掉 = 灯保持原样不再被写；阴影/天空补光仍然生效。 */
+	UPROPERTY(EditAnywhere, Category = "Planet|SunLight", meta = (DisplayName = "DrivesSunLights"))
+	bool bDrivesSunLights = true;
+
+	/** 基础强度；每盏灯实际强度 = 本值 × 该恒星的相对亮度 × 平方反比因子。 */
+	UPROPERTY(EditAnywhere, Category = "Planet|SunLight", meta = (DisplayName = "BaseLightIntensity", ClampMin = "0.0"))
+	float BaseLightIntensity = 10.0f;
+
+	/** 平方反比的参考距离（厘米）：1e8 cm = 1000 km，即主星到行星的典型距离。 */
+	UPROPERTY(EditAnywhere, Category = "Planet|SunLight", meta = (DisplayName = "SunFalloffReferenceDistance", ClampMin = "1.0"))
+	float SunFalloffReferenceDistance = 1.0e8f;
+
+	/** 天光补光强度：暗面全靠它填，0 = 关闭。 */
+	UPROPERTY(EditAnywhere, Category = "Planet|SunLight", meta = (DisplayName = "SkyFillIntensity", ClampMin = "0.0"))
+	float SkyFillIntensity = 2.0f;
+
+	/** 本驱动管理的恒星列表。空 = 自动找世界里的 UStarBodyComponent。 */
+	UPROPERTY(EditAnywhere, Category = "Planet|SunLight", meta = (DisplayName = "SunStars"))
+	TArray<TObjectPtr<AActor>> SunStars;
+
+	/** 生成的方向光灯类，通常配 BP_StarLight。空 = 不自动生成，沿用关卡里已有的灯。 */
+	UPROPERTY(EditAnywhere, Category = "Planet|SunLight", meta = (DisplayName = "StarLightClass"))
+	TSubclassOf<ADirectionalLight> StarLightClass;
+
+	/** 自动按恒星生成/重建方向光。关掉 = 只驱动关卡里已有的灯。 */
+	UPROPERTY(EditAnywhere, Category = "Planet|SunLight", meta = (DisplayName = "AutoManageLights"))
+	bool bAutoManageLights = true;
+
+	/** 按 SunStars 重新生成灯：销毁旧灯、逐星生成、刷新。细节面板也给了按钮。 */
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Planet|SunLight")
+	void RebuildSunLights();
+
 	/** 平方反比因子 (Ref / Dist)²，钳到 [0, 100]。纯函数，供测试。 */
 	static float DistanceFalloff(float ReferenceDistance, double Distance);
 
@@ -53,6 +95,9 @@ private:
 
 	/** 驱动关卡里打了 SkyFill 标签的定向光（仅游戏世界）：直射贴地时暗面全靠它，否则 N·L=0 是一圈硬边。 */
 	void ApplySkyFill();
+
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<ADirectionalLight>> SpawnedLights;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInterface> PlanetShadowBaseMaterial;

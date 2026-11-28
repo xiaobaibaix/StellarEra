@@ -263,7 +263,8 @@ double UStarMapRigComponent::ResolveFocusSurfaceRadiusCm(AActor* Focus) const
 		return 0.0;
 	}
 
-	if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(Focus))
+	if (const AVoxelPlanetActor* Planet =
+		Cast<AVoxelPlanetActor>(UCosmosSimulationSubsystem::ResolveBodyVisualActor(Focus)))
 	{
 		// 用「焦点 → 相机」方向上的真实地表，否则相机正对山区时会扎进山体。
 		const FVector Direction =
@@ -280,7 +281,8 @@ void UStarMapRigComponent::ComputeOrbitDistanceLimitsCm(
 {
 	// 行星的下限是地表往上一个 MinSurfaceAltitudeCm；飞船 / 角色用 MinFocusDistanceCm
 	// —— 拿 50 米当飞船最近距离，会让停在地面的飞船一进星图就把相机顶到地下。
-	const bool bFocusIsPlanet = Cast<AVoxelPlanetActor>(Focus) != nullptr;
+	const bool bFocusIsPlanet =
+		Cast<AVoxelPlanetActor>(UCosmosSimulationSubsystem::ResolveBodyVisualActor(Focus)) != nullptr;
 	const double FocusStandoffCm = bFocusIsPlanet ? MinSurfaceAltitudeCm : MinFocusDistanceCm;
 
 	OutMinCm = ResolveFocusSurfaceRadiusCm(Focus) + FocusStandoffCm;
@@ -312,7 +314,8 @@ void UStarMapRigComponent::ComputeOrbitDistanceLimitsCm(
 			continue;
 		}
 
-		const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(Body);
+		const AVoxelPlanetActor* Planet =
+			Cast<AVoxelPlanetActor>(UCosmosSimulationSubsystem::ResolveBodyVisualActor(Body));
 		if (!Planet)
 		{
 			continue;
@@ -371,7 +374,8 @@ bool UStarMapRigComponent::ResolveEditTargetByPlanets(
 
 	for (AActor* Body : Bodies)
 	{
-		AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(Body);
+		AVoxelPlanetActor* Planet =
+			Cast<AVoxelPlanetActor>(UCosmosSimulationSubsystem::ResolveBodyVisualActor(Body));
 		if (!IsValid(Planet))
 		{
 			// 飞船、角色没有体素数据，不是编辑目标。

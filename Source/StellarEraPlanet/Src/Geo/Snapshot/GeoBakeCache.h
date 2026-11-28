@@ -35,6 +35,9 @@ namespace GeoBakeCache
 	/** 每颗星一个包：/Game/Code/Planet/BakeCache/PC_<关卡>_<Actor>。 */
 	STELLARERAPLANET_API FString PackagePathFor(const AActor& Actor);
 
+	/** 稳定键版本：代理预制体由调用方给定键，避免依赖挂接/命名时机。 */
+	STELLARERAPLANET_API FString PackagePathFor(const AActor& Actor, const FString& KeyOverride);
+
 	/** 版本、配置哈希、半径全等才命中；命中返回快照，否则 nullptr。 */
 	STELLARERAPLANET_API TSharedPtr<const FPlanetSnapshot> Load(const FString& PackagePath, int64 ConfigHash, int32 RadiusVoxels);
 

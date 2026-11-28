@@ -2,12 +2,12 @@
 
 #include "CosmosSimulationSubsystem.h"
 #include "NBodyIntegration.h"
-#include "Components/SphereComponent.h"
 #include "TrajectoryPrediction.h"
 
 #include "CosmosOrbitComponent.h"
 #include "VoxelPlanetActor.h"
 #include "CosmosBody.h"
+#include "Components/ChildActorComponent.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Pawn.h"
@@ -140,11 +140,11 @@ void UCosmosSimulationSubsystem::AddBodyToSimulator(UCosmosOrbitComponent* Compo
 
 	if (!Cast<ICosmosBody>(BodyActor))
 	{
-		EnsureMassBody(Component, BodyActor);
+		BindPhysicsBody(Component, BodyActor);
 	}
 }
 
-void UCosmosSimulationSubsystem::EnsureMassBody(UCosmosOrbitComponent* Component, AActor* Actor)
+void UCosmosSimulationSubsystem::BindPhysicsBody(UCosmosOrbitComponent* Component, AActor* Actor)
 {
 	if (!Component || !Actor || Component->SimulatorIndex == INDEX_NONE
 		|| Component->SimulatorIndex >= Simulator.GetNumBodies())
@@ -158,34 +158,80 @@ void UCosmosSimulationSubsystem::EnsureMassBody(UCosmosOrbitComponent* Component
 		return;
 	}
 
-	const float MassKg = float(State.Mass * CosmosConstants::SolarMassToKilogram);
-	USphereComponent* Body = NewObject<USphereComponent>(Actor, TEXT("CosmosMassBody"));
-	Body->InitSphereRadius(50.f);
-	Body->SetMobility(EComponentMobility::Movable);
-	Body->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-	Body->SetCollisionResponseToAllChannels(ECR_Ignore);
-	// 不挂父级：Actor 每帧被写回，挂上去会被瞬移带走。
-	Body->RegisterComponent();
-	Body->SetWorldLocation(Simulator.ToWorldLocation(State.Position));
-	Body->SetSimulatePhysics(true);
-	Body->SetEnableGravity(false);
-	Body->SetUseCCD(true);
-	Body->SetMassOverrideInKg(NAME_None, MassKg, true);
-	// 引擎默认线性阻尼 0.01/s 会持续刹车；阻尼已由求解器合成进力里，这一层必须是 0。
-	Body->SetLinearDamping(0.f);
-	Body->SetAngularDamping(0.f);
-	Body->SetPhysicsLinearVelocity(ToWorldVelocityScaled(State.Velocity));
-
-	if (!Body->IsSimulatingPhysics())
+	// 只认根组件：代理天体的根就是质量球，Actor 的 Transform 与刚体状态天然同一份。
+	UPrimitiveComponent* Body = Cast<UPrimitiveComponent>(Actor->GetRootComponent());
+	if (!Body || !Body->IsSimulatingPhysics())
 	{
-		// 建不出物理体就退回求解器积分，别让天体冻住。
-		UE_LOG(LogTemp, Error, TEXT("[Cosmos] %s 的质量体建不出来，退回求解器积分"), *Actor->GetName());
+		// 根组件不是物理体（如体素世界根组件）：退回求解器积分 + 每帧写回。
 		State.bPhysicsDriven = false;
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Cosmos] %s 的根组件没有模拟物理，退回求解器积分"), *GetNameSafe(Actor));
 		return;
 	}
 
+	// 位置/速度以物理体为准；物理体静止时用组件的初速播种（BodyInstance 不序列化初速）。
+	const FVector InitialWorldVelocity = Body->GetPhysicsLinearVelocity();
+	State.Position = Simulator.ToGameUnitPosition(Body->GetComponentLocation());
+	State.Velocity = CosmosWorld::WorldCmPerSecondToGameVelocity(
+		FVector3d(InitialWorldVelocity), CentimetersPerAu, TimeScale);
+	if (InitialWorldVelocity.IsNearlyZero())
+	{
+		const FVector3d SeededVelocity = CosmosSpeed::KilometerPerSecondToAuPerYear(
+			FVector3d(Component->InitialVelocityKmPerSecond));
+		if (SeededVelocity.SizeSquared() > 0.0)
+		{
+			State.Velocity = SeededVelocity;
+			Body->SetPhysicsLinearVelocity(ToWorldVelocityScaled(SeededVelocity));
+		}
+	}
 	State.PhysicsBody = Body;
-	UE_LOG(LogTemp, Display, TEXT("[Cosmos] %s 质量体：%.3e kg"), *Actor->GetName(), Body->GetMass());
+
+	UE_LOG(LogTemp, Display, TEXT("[Cosmos] %s 绑定物理体 %s（%.3e kg）"),
+		*GetNameSafe(Actor), *Body->GetName(), Body->GetMass());
+}
+
+AActor* UCosmosSimulationSubsystem::ResolveBodyVisualActor(AActor* BodyActor)
+{
+	if (!BodyActor)
+	{
+		return nullptr;
+	}
+
+	TArray<UChildActorComponent*> ChildComponents;
+	BodyActor->GetComponents<UChildActorComponent>(ChildComponents);
+	for (UChildActorComponent* Component : ChildComponents)
+	{
+		if (AActor* Child = Component ? Component->GetChildActor() : nullptr)
+		{
+			return Child;
+		}
+	}
+	return BodyActor;
+}
+
+UCosmosOrbitComponent* UCosmosSimulationSubsystem::ResolveDrivingOrbit(AActor* Actor)
+{
+	if (!Actor)
+	{
+		return nullptr;
+	}
+
+	UCosmosOrbitComponent* Orbit = Actor->FindComponentByClass<UCosmosOrbitComponent>();
+	if (Orbit && Orbit->SimulatorIndex != INDEX_NONE)
+	{
+		return Orbit;
+	}
+
+	// 代理预制体：天体是被挂载的子 Actor，N 体身份在父级代理上。
+	if (AActor* Parent = Actor->GetAttachParentActor())
+	{
+		if (UCosmosOrbitComponent* ParentOrbit = Parent->FindComponentByClass<UCosmosOrbitComponent>())
+		{
+			return ParentOrbit;
+		}
+	}
+
+	return Orbit;
 }
 
 void UCosmosSimulationSubsystem::SetTimeScaleMultiplier(const float InMultiplier)
@@ -305,7 +351,7 @@ void UCosmosSimulationSubsystem::ApplyControlledBodyForces(float DeltaSeconds)
 		if (const AVoxelPlanetActor* Planet = Ship->GetPlanetActor())
 		{
 			const UCosmosOrbitComponent* PlanetOrbit =
-				Planet->FindComponentByClass<UCosmosOrbitComponent>();
+				ResolveDrivingOrbit(const_cast<AVoxelPlanetActor*>(Planet));
 			if (PlanetOrbit && PlanetOrbit->SimulatorIndex != INDEX_NONE
 				&& PlanetOrbit->SimulatorIndex < Simulator.GetNumBodies())
 			{
@@ -645,11 +691,12 @@ void UCosmosSimulationSubsystem::Tick(float DeltaTime)
 					/*bSweep=*/false, nullptr, ETeleportType::None);
 			}
 		}
-		else
+		else if (!State.bPhysicsDriven)
 		{
 			BodyActor->SetActorLocation(
 				Simulator.ToWorldLocation(RenderPosition), /*bSweep=*/false);
 		}
+		// 物理驱动的天体：根组件就是物理体，Transform 归 Chaos，写回会把它瞬移回上一帧。
 
 		// 物理驱动的船速度由刚体自己答，不再用求解器快照覆盖。
 		if (ICosmosBody* Ship = Cast<ICosmosBody>(BodyActor); Ship && !State.bPhysicsDriven)
@@ -831,7 +878,8 @@ void UCosmosSimulationSubsystem::GetRegisteredBodies(TArray<AActor*>& Out) const
 void UCosmosSimulationSubsystem::CarryRiders(AActor* BodyActor, const FVector& Delta)
 {
 	// 只有 AVoxelPlanetActor 携带人；其它天体没有「地表」，站在上面的东西靠自身重力待着。
-	const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(BodyActor);
+	// 代理预制体下挂的才是行星本体，先解析再转型。
+	const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(ResolveBodyVisualActor(BodyActor));
 	if (!Planet)
 	{
 		return;
@@ -896,7 +944,7 @@ void UCosmosSimulationSubsystem::CarryRiders(AActor* BodyActor, const FVector& D
 			}
 
 			// 不是 AVoxelPlanetActor 的天体不是携带者，不参与比较。
-			if (!Cast<AVoxelPlanetActor>(OtherBody))
+			if (!Cast<AVoxelPlanetActor>(ResolveBodyVisualActor(OtherBody)))
 			{
 				continue;
 			}

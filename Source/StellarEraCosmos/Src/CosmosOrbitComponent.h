@@ -67,6 +67,7 @@ public:
 	/**
 	 * 是否注册进 N 体求解器。关掉 = 不参与引力、不被搬动，行星停在摆放位置；
 	 * 给「先验地形、后装引力」的测试星球用。BeginPlay 读一次，PIE 中途改要重开。
+	 * 挂在别的 Actor 下（代理预制体的 BodyChild）永远不注册，由父级物理体驱动。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cosmos|Body")
 	bool bRegistersWithSimulation = true;

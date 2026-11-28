@@ -101,7 +101,7 @@ struct FCosmosBodyState
 	TWeakObjectPtr<AActor> OwnerActor;
 
 	/**
-	 * 物理驱动时承担位移的组件：飞船就是 Actor 根（空），行星/恒星是独立质量球。
+	 * 物理驱动时承担位移的根组件（代理天体的质量球）；飞船不填，力走 ICosmosBody。
 	 * 弱引用，不阻止销毁。
 	 */
 	TWeakObjectPtr<UPrimitiveComponent> PhysicsBody;

@@ -10,7 +10,9 @@
 
 double StarMapPicking::GetBodyRadiusCm(const AActor* Body)
 {
-	if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(Body))
+	// 代理天体的注册 Actor 是代理，行星本体挂在它下面。
+	const AActor* Visual = UCosmosSimulationSubsystem::ResolveBodyVisualActor(const_cast<AActor*>(Body));
+	if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(Visual))
 	{
 		return Planet->GetSurfaceRadiusCm();
 	}

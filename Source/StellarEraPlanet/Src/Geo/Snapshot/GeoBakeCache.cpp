@@ -3,6 +3,7 @@
 #if WITH_EDITOR
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
+#include "Components/ActorComponent.h"
 #include "Misc/PackageName.h"
 #include "PlanetSnapshot.h"
 #include "PlanetSnapshotSerialize.h"
@@ -29,14 +30,41 @@ namespace
 		PackagePath.FindLastChar(TEXT('/'), Slash);
 		return Slash == INDEX_NONE ? PackagePath : PackagePath.RightChop(Slash + 1);
 	}
+
+	FString MakePackagePath(const AActor& Actor, const FString& Key)
+	{
+		// PIE 世界名带 UEDPIE_<n>_ 前缀：不剥掉就会去建第二份缓存，PIE 永远命中不了编辑器烘好的那份。
+		FString Map = Actor.GetWorld() ? UWorld::RemovePIEPrefix(Actor.GetWorld()->GetMapName()) : TEXT("NoWorld");
+		return FString::Printf(TEXT("/Game/Code/Planet/BakeCache/PC_%s_%s"), *Sanitize(Map), *Sanitize(Key));
+	}
 }
 
 FString GeoBakeCache::PackagePathFor(const AActor& Actor)
 {
-	// PIE 世界名带 UEDPIE_<n>_ 前缀：不剥掉就会去建第二份缓存，PIE 永远命中不了编辑器烘好的那份。
-	FString Map = Actor.GetWorld() ? UWorld::RemovePIEPrefix(Actor.GetWorld()->GetMapName()) : TEXT("NoWorld");
-	Map = Sanitize(Map);
-	return FString::Printf(TEXT("/Game/Code/Planet/BakeCache/PC_%s_%s"), *Map, *Sanitize(Actor.GetActorNameOrLabel()));
+	// 代理预制体：天体挂在代理下，缓存沿用代理的名字（子天体实例名是自动生成的，不稳定）。
+	// 烘焙可能早于 ChildActorComponent 完成挂接，此时用 Owner / outer 组件反查。
+	const AActor* KeyActor = &Actor;
+	if (const AActor* Parent = Actor.GetAttachParentActor())
+	{
+		KeyActor = Parent;
+	}
+	else if (const AActor* OwnerActor = Actor.GetOwner())
+	{
+		KeyActor = OwnerActor;
+	}
+	else if (const UActorComponent* OuterComponent = Actor.GetTypedOuter<UActorComponent>())
+	{
+		if (const AActor* ComponentOwner = OuterComponent->GetOwner())
+		{
+			KeyActor = ComponentOwner;
+		}
+	}
+	return MakePackagePath(Actor, KeyActor->GetActorNameOrLabel());
+}
+
+FString GeoBakeCache::PackagePathFor(const AActor& Actor, const FString& KeyOverride)
+{
+	return MakePackagePath(Actor, KeyOverride);
 }
 
 TSharedPtr<const FPlanetSnapshot> GeoBakeCache::Load(const FString& PackagePath, int64 ConfigHash, int32 RadiusVoxels)

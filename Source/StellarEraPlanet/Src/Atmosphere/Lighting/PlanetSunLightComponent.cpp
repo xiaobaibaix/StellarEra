@@ -2,17 +2,20 @@
 #include "VoxelPlanetActor.h"
 
 #include "Camera/PlayerCameraManager.h"
+#include "Components/ChildActorComponent.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/LightComponent.h"
 #include "Components/SceneComponent.h"
 #include "Engine/DirectionalLight.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "GameFramework/Actor.h"
 #include "GameFramework/PlayerController.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "PlanetAtmosphereComponent.h"
 #include "StarBodyComponent.h"
+#include "UObject/UnrealType.h"
 #include "VoxelPlanetActor.h"
 
 namespace
@@ -35,6 +38,171 @@ UPlanetSunLightComponent::UPlanetSunLightComponent()
 	PrimaryComponentTick.bStartWithTickEnabled = true;
 }
 
+void UPlanetSunLightComponent::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// 灯由组件自己生成：代理下不再依赖行星蓝图的 RebuildStarLights。
+	if (const UWorld* World = GetWorld(); World && World->IsGameWorld() && bAutoManageLights)
+	{
+		RebuildSunLights();
+	}
+}
+
+void UPlanetSunLightComponent::RebuildSunLights()
+{
+	UWorld* World = GetWorld();
+	AActor* Owner = GetOwner();
+	if (!World || !Owner)
+	{
+		return;
+	}
+
+	for (ADirectionalLight* Light : SpawnedLights)
+	{
+		if (IsValid(Light))
+		{
+			Light->Destroy();
+		}
+	}
+	SpawnedLights.Reset();
+
+	// 重启编辑器后瞬态列表是空的：按挂载关系清掉上一次生成的灯，避免重启后重复。
+	TArray<AActor*> AttachedActors;
+	Owner->GetAttachedActors(AttachedActors);
+	for (AActor* Attached : AttachedActors)
+	{
+		const bool bOwnClass = StarLightClass
+			? Attached && Attached->IsA(StarLightClass.Get())
+			: Attached && Attached->IsA(ADirectionalLight::StaticClass());
+		if (bOwnClass)
+		{
+			Attached->Destroy();
+		}
+	}
+
+	// 显式列表优先；空则按世界里的恒星自动填充。
+	TArray<AActor*> Stars;
+	for (AActor* Star : SunStars)
+	{
+		Stars.AddUnique(Star);
+	}
+	if (Stars.Num() == 0)
+	{
+		TArray<FPlanetSun> Suns;
+		UPlanetAtmosphereComponent::CollectSunsFor(World, Owner->GetActorLocation(), Suns);
+		for (const FPlanetSun& Sun : Suns)
+		{
+			if (Sun.Star && IsValid(Sun.Star->GetOwner()))
+			{
+				Stars.AddUnique(Sun.Star->GetOwner());
+			}
+		}
+	}
+
+	if (Stars.Num() == 0 || !StarLightClass)
+	{
+		return;
+	}
+
+	// 最近星占主光名额（ForwardShadingPriority / AtmosphereSunLight）。
+	AActor* NearestStar = nullptr;
+	double NearestDist = TNumericLimits<double>::Max();
+	for (AActor* Star : Stars)
+	{
+		if (!IsValid(Star))
+		{
+			continue;
+		}
+		const double Distance = FVector::Dist(Owner->GetActorLocation(), Star->GetActorLocation());
+		if (Distance < NearestDist)
+		{
+			NearestDist = Distance;
+			NearestStar = Star;
+		}
+	}
+
+	const FTransform SpawnTransform = Owner->GetActorTransform();
+	for (AActor* Star : Stars)
+	{
+		if (!IsValid(Star))
+		{
+			continue;
+		}
+
+		ADirectionalLight* Light = World->SpawnActorDeferred<ADirectionalLight>(
+			StarLightClass, SpawnTransform, Owner, nullptr,
+			ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+		if (!Light)
+		{
+			continue;
+		}
+
+		// BP_StarLight 用自己的 StarActor/PlanetActor 变量认星与行星。
+		if (FObjectProperty* StarProperty = FindFProperty<FObjectProperty>(Light->GetClass(), TEXT("StarActor")))
+		{
+			StarProperty->SetObjectPropertyValue_InContainer(Light, Star);
+		}
+		if (FObjectProperty* PlanetProperty = FindFProperty<FObjectProperty>(Light->GetClass(), TEXT("PlanetActor")))
+		{
+			PlanetProperty->SetObjectPropertyValue_InContainer(Light, Owner);
+		}
+
+		Light->FinishSpawning(SpawnTransform);
+		Light->AttachToActor(Owner, FAttachmentTransformRules::KeepWorldTransform);
+
+		if (UDirectionalLightComponent* LightComponent = Cast<UDirectionalLightComponent>(Light->GetLightComponent()))
+		{
+			const bool bPrimary = (Star == NearestStar);
+			LightComponent->SetForwardShadingPriority(bPrimary ? 1 : 0);
+			LightComponent->SetAtmosphereSunLight(bPrimary);
+		}
+
+		// 显式绑定：恒星驱动它自己那盏灯，不再靠"第一盏未认领"的竞争。
+		if (UStarBodyComponent* StarComponent = Star->FindComponentByClass<UStarBodyComponent>())
+		{
+			StarComponent->SunLight = Light;
+		}
+
+		SpawnedLights.Add(Light);
+	}
+
+	// 每盏灯刷新一次（BP_StarLight::RefreshLight）。
+	for (ADirectionalLight* Light : SpawnedLights)
+	{
+		if (IsValid(Light))
+		{
+			if (UFunction* RefreshFunction = Light->FindFunction(TEXT("RefreshLight")))
+			{
+				Light->ProcessEvent(RefreshFunction, nullptr);
+			}
+		}
+	}
+
+	UE_LOG(LogTemp, Display, TEXT("[星灯] %s 生成 %d 盏方向光（主光 %s）"),
+		*Owner->GetName(), SpawnedLights.Num(), *GetNameSafe(NearestStar));
+}
+
+#if WITH_EDITOR
+void UPlanetSunLightComponent::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+
+	if (!bAutoManageLights)
+	{
+		return;
+	}
+
+	const FName ChangedProperty = PropertyChangedEvent.GetPropertyName();
+	if (ChangedProperty == GET_MEMBER_NAME_CHECKED(UPlanetSunLightComponent, SunStars)
+		|| ChangedProperty == GET_MEMBER_NAME_CHECKED(UPlanetSunLightComponent, StarLightClass)
+		|| ChangedProperty == GET_MEMBER_NAME_CHECKED(UPlanetSunLightComponent, bAutoManageLights))
+	{
+		RebuildSunLights();
+	}
+}
+#endif
+
 void UPlanetSunLightComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	FActorComponentTickFunction* ThisTickFunction)
 {
@@ -42,10 +210,19 @@ void UPlanetSunLightComponent::TickComponent(float DeltaTime, ELevelTick TickTyp
 
 	UWorld* World = GetWorld();
 	const AVoxelPlanetActor* Planet = GetPlanetOwner();
-	if (!Planet || !Planet->bDrivesSunLights || !World || !World->IsGameWorld())
+	if (!Planet || !bDrivesSunLights || !World || !World->IsGameWorld())
 	{
 		// 编辑器视口不转灯：每帧转灯会把关卡一直标脏。
 		return;
+	}
+
+	// 代理上已有驱动组件时，行星自带的这份让位，避免两盏灯互相抢。
+	if (const AActor* Parent = GetOwner() ? GetOwner()->GetAttachParentActor() : nullptr)
+	{
+		if (Parent->FindComponentByClass<UPlanetSunLightComponent>())
+		{
+			return;
+		}
 	}
 
 	// 天体是个位数，每帧完整收集一次即可；不缓存，增删恒星时不需要失效通知。
@@ -60,7 +237,40 @@ void UPlanetSunLightComponent::TickComponent(float DeltaTime, ELevelTick TickTyp
 
 const AVoxelPlanetActor* UPlanetSunLightComponent::GetPlanetOwner() const
 {
-	return Cast<AVoxelPlanetActor>(GetOwner());
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return nullptr;
+	}
+
+	// 行星自己挂这份组件时就是本体。
+	if (const AVoxelPlanetActor* Self = Cast<AVoxelPlanetActor>(Owner))
+	{
+		return Self;
+	}
+
+	// 代理预制体：组件挂在代理上，真正的行星是它下面的子 Actor。
+	TArray<UChildActorComponent*> ChildComponents;
+	Owner->GetComponents<UChildActorComponent>(ChildComponents);
+	for (UChildActorComponent* ChildComponent : ChildComponents)
+	{
+		if (const AVoxelPlanetActor* Planet =
+			ChildComponent ? Cast<AVoxelPlanetActor>(ChildComponent->GetChildActor()) : nullptr)
+		{
+			return Planet;
+		}
+	}
+
+	TArray<AActor*> AttachedActors;
+	Owner->GetAttachedActors(AttachedActors);
+	for (AActor* Attached : AttachedActors)
+	{
+		if (const AVoxelPlanetActor* Planet = Cast<AVoxelPlanetActor>(Attached))
+		{
+			return Planet;
+		}
+	}
+	return nullptr;
 }
 
 float UPlanetSunLightComponent::DistanceFalloff(float ReferenceDistance, double Distance)
@@ -95,14 +305,13 @@ float UPlanetSunLightComponent::SunFalloffFor(const FPlanetSun& Sun) const
 		return 1.0f;
 	}
 
-	const float Ref = GetPlanetOwner() ? GetPlanetOwner()->SunFalloffReferenceDistance : 1.0e8f;
+	const float Ref = SunFalloffReferenceDistance;
 	return DistanceFalloff(Ref,
 		FVector::Dist(StarActor->GetActorLocation(), GetOwner()->GetActorLocation()));
 }
 
 void UPlanetSunLightComponent::DriveSunLights(const TArray<FPlanetSun>& Suns)
 {
-	const AVoxelPlanetActor* Planet = GetPlanetOwner();
 	UStarBodyComponent* PrimaryStar = SelectPrimaryStar(Suns);
 
 	const FVector PlanetCenter = GetOwner()->GetActorLocation();
@@ -112,7 +321,7 @@ void UPlanetSunLightComponent::DriveSunLights(const TArray<FPlanetSun>& Suns)
 		{
 			continue;
 		}
-		Sun.Star->DriveSunLight(PlanetCenter, (Planet ? Planet->BaseLightIntensity : 0.f) * SunFalloffFor(Sun),
+		Sun.Star->DriveSunLight(PlanetCenter, BaseLightIntensity * SunFalloffFor(Sun),
 			Sun.Star == PrimaryStar);
 	}
 }
@@ -280,10 +489,10 @@ void UPlanetSunLightComponent::ApplySkyFill()
 	// 略偏蓝：瑞利散射后的天光本色，但别过头成蓝紫。
 	LightComponent->SetLightColor(FLinearColor(0.62f, 0.75f, 1.0f), /*bSRGB=*/false);
 	const AVoxelPlanetActor* Planet = GetPlanetOwner();
-	const float Fill = Planet ? Planet->SkyFillIntensity : 0.f;
+	const float Fill = SkyFillIntensity;
 	LightComponent->SetIntensity(Fill);
 
-	if (!Planet || Planet->SkyFillIntensity <= 0.0f)
+	if (!Planet || SkyFillIntensity <= 0.0f)
 	{
 		// 0 = 关闭。必须在保证强度已写进去之后才早退，否则关掉会留着上一帧的亮度。
 		return;

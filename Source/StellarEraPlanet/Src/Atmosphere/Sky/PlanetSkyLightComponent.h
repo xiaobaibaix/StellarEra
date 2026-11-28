@@ -1,24 +1,23 @@
 ﻿#pragma once
 
 #include "CoreMinimal.h"
-#include "Components/ActorComponent.h"
+#include "Components/SkyLightComponent.h"
 #include "PlanetSkyModel.h"
 // FPlanetSun：CollectSunsFor 的复用缓冲要完整类型。
 #include "PlanetAtmosphereComponent.h"
 #include "PlanetSkyLightComponent.generated.h"
 
-class USkyLightComponent;
 class UTextureCube;
 class FObjectPreSaveContext;
 
 /**
- * 自建大气壳的天光：按玩家视角在 CPU 上积分出低分辨率天空立方图，喂给**本行星自己那盏**
- * USkyLightComponent 当指定立方图，由引擎卷积成漫反射环境光。引擎 RealTimeCapture 只认
- * SkyAtmosphere / 体积云 / IsSky 网格，这里三者都不是，抓出来是黑图 —— 数据链只能自己搭。
- * 编辑器世界也驱动（观察点取活动透视视口相机），否则编辑预览与运行时亮度对不上。
+ * 行星天光本体：自己就是那盏 USkyLightComponent，同时按玩家视角在 CPU 上积分出低分辨率
+ * 天空立方图喂给自己（引擎 RealTimeCapture 只认 SkyAtmosphere / 体积云 / IsSky 网格，
+ * 这里三者都不是，抓出来是黑图，数据链只能自己搭）。
+ * 编辑器世界也用视口相机驱动，否则编辑预览与运行时亮度对不上。
  */
 UCLASS(ClassGroup = (StellarEra), meta = (BlueprintSpawnableComponent))
-class STELLARERAPLANET_API UPlanetSkyLightComponent : public UActorComponent
+class STELLARERAPLANET_API UPlanetSkyLightComponent : public USkyLightComponent
 {
 	GENERATED_BODY()
 
@@ -42,8 +41,8 @@ public:
 	float BrightnessScale = 1.0f;
 
 	/**
-	 * 编辑器世界里也按视口相机重算，让编辑预览的亮度与 PIE 一致。关掉就退回关卡里
-	 * 那张静态立方图 —— 只在排查「编辑器为什么变慢/变亮」时用。
+	 * 编辑器世界里也按视口相机重算，让编辑预览的亮度与 PIE 一致。
+	 * 关掉就停在最后一次写入的立方图 —— 只在排查「编辑器为什么变慢/变亮」时用。
 	 */
 	UPROPERTY(EditAnywhere, Category = "Planet|SkyLight")
 	bool bUpdateInEditorWorld = true;
@@ -52,19 +51,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Planet|SkyLight")
 	void RefreshNow();
 
-	/**
-	 * 找行星自己那盏 SkyLight：本 Actor 上的组件 → 挂在它下面的 SkyLight Actor。
-	 * 不能按标签在关卡里搜 —— 两颗行星会抢同一盏，后 Tick 的每帧覆盖前一颗的立方图。
-	 */
-	static USkyLightComponent* FindOwnedSkyLight(const AActor* Owner);
-
 protected:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType,
 		FActorComponentTickFunction* ThisTickFunction) override;
 
 #if WITH_EDITOR
-	// 编辑器世界替换的是关卡里那盏真天光：注册时挂钩子在存盘前把作者立方图换回来，
-	// 卸载时再换一次。不这么做，瞬态纹理会被序列化成空引用。
+	// 存盘前把瞬态立方图摘掉，否则会被序列化成空引用；卸载时再兜一次。
 	virtual void OnRegister() override;
 	virtual void OnUnregister() override;
 #endif
@@ -91,7 +83,6 @@ private:
 	};
 
 	bool ResolveAtmosphere();
-	bool ResolveSkyLight();
 	bool GetObserverLocation(FVector& OutLocation);
 	bool BuildKey(const FVector& Observer, FUpdateKey& OutKey);
 	bool NeedsUpdate(const FUpdateKey& Key) const;
@@ -101,20 +92,12 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UTextureCube> CurrentCubemap;
 
-	/** 编辑器世界覆盖前记住作者那张立方图，存盘 / 卸载时换回去。游戏世界不用。 */
-	UPROPERTY(Transient)
-	TObjectPtr<UTextureCube> AuthoredCubemap;
-
-	/** 已经把关卡天光的 Cubemap 换成瞬态的当前图。 */
-	bool bReplacedAuthoredCubemap = false;
-
 #if WITH_EDITOR
 	void HandleObjectPreSave(UObject* Object, FObjectPreSaveContext SaveContext);
 	FDelegateHandle ObjectPreSaveHandle;
 #endif
 
 	TWeakObjectPtr<UPlanetAtmosphereComponent> Atmosphere;
-	TWeakObjectPtr<USkyLightComponent> SkyLight;
 
 	/** 每帧复用的缓冲，避免每次更新重新分配。 */
 	TArray<FPlanetSun> Suns;
@@ -125,7 +108,6 @@ private:
 	double LastUpdateTime = -1.0e9;
 
 	bool bLoggedMissingAtmosphere = false;
-	bool bLoggedMissingSkyLight = false;
 	bool bLoggedMissingCamera = false;
 	bool bLoggedCubemapFailure = false;
 };

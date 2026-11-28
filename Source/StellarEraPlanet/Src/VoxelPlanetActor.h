@@ -143,21 +143,7 @@ public:
 	 * 非空 = 这颗星由新地质流水线生成：地形取自配方；半径用本 Actor 的 Radius、体素尺寸用 VoxelSize（配方不存），
 	 * GeologyAsset、水文、biome cubemap 旁路。烘焙在后台线程完成后再建世界。
 	 */
-	/** 是否驱动恒星灯。关掉 = 灯保持原样不再被写；大气材质那份太阳列表不受影响。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|SunLight")
-	bool bDrivesSunLights = true;
-
-	/** 基础强度；每盏灯实际强度 = 本值 × 该恒星的相对亮度 × 平方反比因子。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|SunLight", meta = (ClampMin = "0.0"))
-	float BaseLightIntensity = 10.0f;
-
-	/** 平方反比的参考距离（厘米）：1e8 cm = 1000 km，即主星到行星的典型距离。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|SunLight", meta = (ClampMin = "1.0"))
-	float SunFalloffReferenceDistance = 1.0e8f;
-
-	/** 天光补光强度：暗面全靠它填，0 = 关闭。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|SunLight", meta = (ClampMin = "0.0"))
-	float SkyFillIntensity = 2.0f;
+	// 恒星灯参数已搬到 UPlanetSunLightComponent（代理上可逐颗调）。
 
 	/** 占位属性：细节面板把它画成「立即烘焙」按钮（行定制在编辑器模块）。 */
 	UPROPERTY(EditAnywhere, Transient, Category = "Planet|Geo", meta = (DisplayName = "立即烘焙"))
@@ -165,6 +151,10 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Geo")
 	TObjectPtr<UPlanetRecipe> GeoRecipe;
+
+	/** 代理预制体里填稳定键（如 BP_VoxelPlanet3）：烘焙缓存与存档都用它，不依赖挂接时机。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet|Geo", meta = (DisplayName = "CacheKey"))
+	FString CacheKey;
 
 	UFUNCTION(BlueprintPure, Category = "Planet|Geo")
 	bool IsGeoMode() const { return GeoRecipe != nullptr; }
@@ -230,7 +220,7 @@ public:
 
 	/**
 	 * 恒星灯驱动：收集关卡里的恒星，逐颗转向/上色/写强度（含平方反比）。
-	 * 挂在星球而不是大气上——没有大气壳的星球同样要有光。
+	 * 代理预制体下由代理持有，这里为空；独立行星在 BeginPlay 自己补一份。
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Planet",
 		meta = (DisplayName = "SunLightDriver"))

@@ -189,7 +189,8 @@ UCosmosOrbitComponent* UCosmosTrajectoryComponent::GetOrbitComponent()
 		return nullptr;
 	}
 
-	Orbit = Owner->FindComponentByClass<UCosmosOrbitComponent>();
+	// 代理预制体下挂着天体：自己的 Orbit 没注册，要用父级代理上的。
+	Orbit = UCosmosSimulationSubsystem::ResolveDrivingOrbit(const_cast<AActor*>(Owner));
 	return Orbit;
 }
 
@@ -503,9 +504,8 @@ double UCosmosTrajectoryComponent::ClampPredictionHorizonYears(
 double UCosmosTrajectoryComponent::ResolvePredictionHorizonYears(
 	const UCosmosSimulationSubsystem& Subsystem) const
 {
-	UCosmosOrbitComponent* OrbitComponent = GetOwner()
-		? GetOwner()->FindComponentByClass<UCosmosOrbitComponent>()
-		: nullptr;
+	UCosmosOrbitComponent* OrbitComponent =
+		UCosmosSimulationSubsystem::ResolveDrivingOrbit(GetOwner());
 
 	const int32 SimulatorIndex = OrbitComponent
 		? OrbitComponent->SimulatorIndex

@@ -36,6 +36,15 @@ public:
 	/** 由 UCosmosOrbitComponent::EndPlay 调用。 */
 	void UnregisterBody(UCosmosOrbitComponent* Component);
 
+	/**
+	 * 代理天体的物理 Actor 下挂着真正的天体（体素行星 / 恒星网格）。返回它；没有子 Actor 就返回原 Actor。
+	 * 星图、拖拽等按类识别天体的系统必须先过这一层，否则拿到的是没有天体类型的代理。
+	 */
+	static AActor* ResolveBodyVisualActor(AActor* BodyActor);
+
+	/** 驱动该 Actor 的 N 体身份：自身 Orbit 已注册就用它，否则用挂载父级（代理）上的 Orbit。 */
+	static UCosmosOrbitComponent* ResolveDrivingOrbit(AActor* Actor);
+
 	/** 把当前诊断打到日志。每 DiagnosticInterval 秒自动调一次。 */
 	void LogDiagnostics() const;
 
@@ -189,10 +198,10 @@ private:
 	void ApplyPhysicsForces();
 
 	/**
-	 * 给行星/恒星建一个不挂父级的无碰撞质量球：Chaos 负责积分，Actor 跟随求解器状态。
-	 * 体素世界根组件建不出物理体（实测 sim=0），所以行星必须用独立质量体。
+	 * 天体不自建物理体：复用 Actor 根组件上的物理体（代理天体的根就是质量球），
+	 * 位置/速度以它为准；根组件不模拟物理时退回求解器积分。
 	 */
-	void EnsureMassBody(UCosmosOrbitComponent* Component, AActor* Actor);
+	void BindPhysicsBody(UCosmosOrbitComponent* Component, AActor* Actor);
 
 	/**
 	 * 在**真正会推进**的帧里、推进之前，把受控天体（飞船）想施加的力写进求解器。

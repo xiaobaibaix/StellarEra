@@ -22,6 +22,7 @@
 #include "GeoMineral.h"
 #include "GeoRng.h"
 #include "Engine/World.h"
+#include "Components/ActorComponent.h"
 #include "TimerManager.h"
 #include "UObject/ConstructorHelpers.h"
 #include "VoxelData/VoxelSave.h"
@@ -185,10 +186,11 @@ AVoxelPlanetActor::AVoxelPlanetActor()
 	LODInvoker->LODRange = 150000.f;
 
 	// 天光不是可选项：没有它环境光永远是同一张静态立方图。骨架留 C++，蓝图不用管。
+	// 组件本身就是那盏灯（USkyLightComponent 子类），挂在根下随行星移动。
 	PlanetSkyLight = CreateDefaultSubobject<UPlanetSkyLightComponent>(TEXT("PlanetSkyLight"));
+	PlanetSkyLight->SetupAttachment(RootComponent);
 
-	// 恒星灯同理：有没有大气壳都要照亮行星，所以挂在星球上而不是大气组件里。
-	SunLightDriver = CreateDefaultSubobject<UPlanetSunLightComponent>(TEXT("SunLightDriver"));
+	// 恒星灯驱动不再随类创建：代理预制体下由代理持有，独立行星在 BeginPlay 里自己补。
 
 	// 大气壳、矿物观察与表面编辑网格由 BP_VoxelPlanet 挂载；原生实例不带，
 	// 编辑相关调用走 FindEditGrid()，找不到就跳过。
@@ -485,8 +487,21 @@ void AVoxelPlanetActor::EnsureSaveObject()
 		return;
 	}
 
-	const FString AssetPath = MakePlanetSaveObjectAssetPath(
-		World->GetMapName(), GetActorLabel(/*bIncludeFolder=*/false));
+	// 代理预制体：存档沿用代理的名字，子天体的实例名是自动生成且不稳定的。
+	// 挂接可能晚于这里，此时用 outer 组件反查 Owner。
+	AActor* LabelActor = GetAttachParentActor();
+	if (!LabelActor)
+	{
+		LabelActor = GetOwner();
+	}
+	if (!LabelActor)
+	{
+		LabelActor = GetTypedOuter<UActorComponent>() ? GetTypedOuter<UActorComponent>()->GetOwner() : this;
+	}
+	const FString SaveLabel = CacheKey.IsEmpty()
+		? LabelActor->GetActorLabel(/*bIncludeFolder=*/false)
+		: CacheKey;
+	const FString AssetPath = MakePlanetSaveObjectAssetPath(World->GetMapName(), SaveLabel);
 
 	UVoxelWorldSaveObject* Loaded = nullptr;
 	bool bCreatedNew = false;
@@ -606,6 +621,14 @@ void AVoxelPlanetActor::OnConstruction(const FTransform& Transform)
 void AVoxelPlanetActor::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// 独立行星（没有代理父级）自己补一份太阳光驱动；代理下的行星由代理负责，避免双驱动。
+	if (!GetAttachParentActor() && !SunLightDriver)
+	{
+		SunLightDriver = NewObject<UPlanetSunLightComponent>(this, TEXT("SunLightDriver"));
+		SunLightDriver->RegisterComponent();
+	}
+
 	RebuildPlanet();
 }
 
@@ -647,7 +670,15 @@ void AVoxelPlanetActor::RebuildPlanet()
 	// 没有世界就没有体素世界可建：蓝图 CDO（Default__Xxx_C）不在任何世界，
 	// GetWorld() 为空而 CreateWorld 第一件事就是取其 WorldType，会空指针违例。
 	// 在类默认值面板改属性就会走到这里。早退不丢东西，进世界后 OnConstruction 重建。
-	if (!GetWorld())
+	UWorld* const PreviewWorld = GetWorld();
+	if (!PreviewWorld)
+	{
+		return;
+	}
+
+	// 蓝图编辑器/预览的瞬态世界不烘焙：缓存键会落在 PC_Transient_*，永远不命中，
+	// 每次打开蓝图都全量重烤一分多钟。真正的编辑器关卡与 PIE 世界不受影响。
+	if (PreviewWorld->GetMapName() == TEXT("Transient"))
 	{
 		return;
 	}
@@ -746,8 +777,12 @@ void AVoxelPlanetActor::StartGeoBake()
 	if (!bForceRebake)
 	{
 		const int32 CacheRadius = FMath::RoundToInt(GetScaledRadiusVoxels());
+		const FString CachePath = CacheKey.IsEmpty()
+			? GeoBakeCache::PackagePathFor(*this)
+			: GeoBakeCache::PackagePathFor(*this, CacheKey);
+		UE_LOG(LogTemp, Display, TEXT("[烘焙缓存] 查询 %s"), *CachePath);
 		if (TSharedPtr<const FPlanetSnapshot> Cached =
-			GeoBakeCache::Load(GeoBakeCache::PackagePathFor(*this), int64(PendingCacheHash), CacheRadius))
+			GeoBakeCache::Load(CachePath, int64(PendingCacheHash), CacheRadius))
 		{
 			bSnapshotFromCache = true;
 			OnGeoBakeFinished(Cached, 0.0);
