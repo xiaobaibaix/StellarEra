@@ -1214,6 +1214,21 @@ float AVoxelPlanetActor::GetSurfaceRadiusCm() const
 	return GetScaledRadiusVoxels() * VoxelSize;
 }
 
+FBox AVoxelPlanetActor::GetComponentsBoundingBox(bool bNonColliding, bool bIncludeFromChildActors) const
+{
+	// VoxelWorldRootComponent 报告 2^42 cm 的包围盒（插件为了无界世界不被裁掉）。
+	// 编辑器 F 聚焦与任何按 Actor 包围盒取景的逻辑会据此飞到几十万公里外。
+	// 换成行星球体：几何上正确，也让拾取/取景的距离与半径同源。
+	const float RadiusCm = GetSurfaceRadiusCm();
+	if (RadiusCm > 0.f)
+	{
+		const FVector Center = GetActorLocation();
+		const FVector Extent(RadiusCm);
+		return FBox(Center - Extent, Center + Extent);
+	}
+	return Super::GetComponentsBoundingBox(bNonColliding, bIncludeFromChildActors);
+}
+
 float AVoxelPlanetActor::GetSurfaceRadiusCmAtDirection(const FVector& WorldDirection) const
 {
 	// 地表 = 快照的 R0 + 高程场；快照未到时退回基准球面。

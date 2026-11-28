@@ -92,6 +92,13 @@ public:
 	float GetSurfaceRadiusCm() const;
 
 	/**
+	 * 包围盒用行星球体，而不是 VoxelWorldRootComponent 的默认 2^42：
+	 * 编辑器按 F 聚焦、HLOD/流送等按 Actor 包围盒取景的逻辑会因此飞到几十万公里外，
+	 * 行星只剩一个像素。碰撞与视锥裁剪不受影响（各自用组件包围盒）。
+	 */
+	virtual FBox GetComponentsBoundingBox(bool bNonColliding = false, bool bIncludeFromChildActors = false) const override;
+
+	/**
 	 * 指定方向的地表半径（厘米，含起伏与 Actor 缩放），角色出生与飞船生成用。
 	 * 原先按完美球面算会把角色塞进山体（振幅 8 体素 = 800cm）。WorldDirection
 	 * 是世界空间方向、不必归一化；体素与世界空间只差等比缩放，方向可原样传递。
